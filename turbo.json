@@ -1,0 +1,53 @@
+{
+  "$schema": "https://turbo.build/json-schema.json",
+  "globalDependencies": [
+    "tsconfig.json",
+    ".prettierignore"
+  ],
+  "tasks": {
+    "build": {
+      "outputs": [
+        "dist/**",
+        "build/**"
+      ],
+      "cache": true
+    },
+    "lint": {
+      "outputs": [],
+      "cache": false
+    },
+    "typecheck": {
+      "outputs": [],
+      "cache": true
+    },
+    "test": {
+      "outputs": [
+        "coverage/**"
+      ],
+      "cache": false,
+      "inputs": [
+        "src/**/*.test.ts",
+        "src/**/*.spec.ts"
+      ]
+    },
+    "db:migrate": {
+      "cache": false
+    },
+    "db:seed": {
+      "cache": false
+    },
+    "db:generate": {
+      "outputs": [
+        "src/db/migrations/**"
+      ],
+      "cache": false
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "clean": {
+      "cache": false
+    }
+  }
+}
