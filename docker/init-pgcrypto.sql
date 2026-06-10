@@ -1,0 +1,12 @@
+-- docker/init-pgcrypto.sql
+--
+-- Runs ONCE on the first container start (see docker-entrypoint-initdb.d).
+-- Enables the `pgcrypto` extension so Drizzle migrations can use
+-- `gen_random_uuid()` (the DDL_V3.sql default for UUID primary keys).
+--
+-- Why a separate file: `pgcrypto` is required by DDL_V3.sql, but the
+-- postgres:16-alpine image does not pre-install it. Putting the
+-- extension enable in an init script keeps the migrations themselves
+-- pure SQL and avoids the need to wrap the extension step in
+-- application code.
+CREATE EXTENSION IF NOT EXISTS pgcrypto;

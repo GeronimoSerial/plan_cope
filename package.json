@@ -15,13 +15,19 @@
     "db:migrate": "turbo run db:migrate",
     "db:seed": "turbo run db:seed",
     "db:generate": "turbo run db:generate",
+    "db:reset": "bash scripts/reset-db.sh",
+    "validate:schemas": "cd packages/shared-domain && pnpm exec tsx ../../scripts/validate-schemas.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "clean": "turbo clean && find . -type d -name node_modules -prune -exec rm -rf {} + && rm -rf pnpm-lock.yaml"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
     "eslint": "^9.0.0",
     "eslint-config-prettier": "^9.0.0",
+    "js-yaml": "^4.2.0",
     "prettier": "^3.3.0",
     "turbo": "^2.0.0",
     "typescript": "^5.4.0"
@@ -29,5 +35,6 @@
   "engines": {
     "node": ">=24.0.0",
     "pnpm": ">=11.0.0"
-  }
+  },
+  "packageManager": "pnpm@11.3.0"
 }

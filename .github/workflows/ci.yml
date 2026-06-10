@@ -1,0 +1,114 @@
+# GitHub Actions — Fase 1 quality gate.
+#
+# Single `quality` job that runs the full stack:
+#   1. checkout
+#   2. pnpm setup (pinned)
+#   3. install (frozen lockfile)
+#   4. lint
+#   5. typecheck
+#   6. build
+#   7. schema drift detection
+#   8. integration tests against a real PG 16 service container
+#
+# Triggers: push to main, pull_request targeting main, and manual
+# `workflow_dispatch`. Each step short-circuits on failure so a
+# broken typecheck never wastes time on a build.
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+# Cancel in-progress runs for the same branch / PR — keeps the
+# queue short on push-heavy days.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Quality (lint + typecheck + build + tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: plan_cope_test
+          POSTGRES_USER: plan_cope
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        # Healthcheck: only attempt migration once pg_isready returns 0.
+        options: >-
+          --health-cmd "pg_isready -U plan_cope -d plan_cope_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+          --health-start-period 10s
+
+    env:
+      DATABASE_URL: postgres://plan_cope:test@localhost:5432/plan_cope_test
+      SEEDER_TEST_DATABASE_URL: postgres://plan_cope:test@localhost:5432/plan_cope_seeders_test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+      - name: Validate Zod ↔ Drizzle schemas
+        # Fail the build if a Zod field drifts from the Drizzle schema
+        # (column added, removed, or type-changed) — Fase 1 invariant.
+        run: pnpm validate:schemas
+
+      - name: Run integration tests
+        # vitest in all packages — includes migrations + seeders tests
+        # which need a live PG.
+        run: pnpm test
+
+      - name: Smoke — health endpoint on real PG
+        # Boot the central app against the service PG, hit /api/health,
+        # assert 200. Proves the wiring end-to-end. Uses tsx so we don't
+        # need a build step.
+        run: |
+          pnpm --filter @plan-cope/central db:migrate
+          pnpm --filter @plan-cope/central exec tsx -e "
+            import { buildCentralApp } from './src/server/app.ts';
+            const app = await buildCentralApp({ skipMigrations: true });
+            try {
+              const res = await app.inject({ method: 'GET', url: '/api/health' });
+              if (res.statusCode !== 200) {
+                console.error('health check failed', res.statusCode, res.body);
+                process.exit(1);
+              }
+              console.log('central health OK:', res.json());
+            } finally {
+              await app.close();
+            }
+          "
