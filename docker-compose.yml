@@ -1,0 +1,42 @@
+# docker-compose.yml — Fase 1 development stack.
+#
+# Brings up PostgreSQL 16 (alpine) for the central app. The local app
+# uses an embedded SQLite file, so it does NOT need a container.
+#
+# Usage:
+#   docker compose up -d          # start in background
+#   docker compose down           # stop (preserves volume)
+#   docker compose down -v        # stop + wipe volume (fresh start)
+#
+# The `init-data.sql` script enables pgcrypto (for gen_random_uuid())
+# and grants the dev user rights on the public schema. It runs ONCE on
+# the first container start, so re-running `docker compose up` is safe.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: plan-cope-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: plan_cope
+      POSTGRES_USER: plan_cope
+      POSTGRES_PASSWORD: plan_cope_dev
+      # Performance / dev knobs. These are NOT production values.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # One-shot init script: pgcrypto + grants for the dev user.
+      - ./docker/init-pgcrypto.sql:/docker-entrypoint-initdb.d/01-pgcrypto.sql:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U plan_cope -d plan_cope
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  pgdata:
+    name: plan_cope_pgdata
