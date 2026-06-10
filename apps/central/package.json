@@ -11,8 +11,8 @@
     "test:watch": "vitest",
     "lint": "eslint src/",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "echo 'migrations run automatically on app start (runMigrations)'",
-    "db:seed": "echo 'seeders in PR3'",
+    "db:migrate": "tsx src/seed.ts --migrate-only",
+    "db:seed": "tsx src/seed.ts",
     "dev": "tsx watch src/server/app.ts",
     "start": "node dist/server/app.js"
   },
