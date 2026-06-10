@@ -22,6 +22,8 @@
   },
   "dependencies": {
     "@plan-cope/shared-schemas": "workspace:*",
+    "@types/bcrypt": "^6.0.0",
+    "bcrypt": "^6.0.0",
     "better-sqlite3": "^11.5.0",
     "drizzle-orm": "^0.36.4",
     "drizzle-zod": "^0.5.1",
@@ -37,6 +39,7 @@
     "drizzle-kit": "^0.28.1",
     "eslint": "^9.0.0",
     "pg": "^8.13.1",
+    "tsx": "^4.22.4",
     "typescript": "^5.4.0",
     "vitest": "^2.0.0"
   }
