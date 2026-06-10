@@ -1,0 +1,39 @@
+{
+  "name": "@plan-cope/central",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/server/app.js",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "echo 'central tests run via shared-domain integration suite'",
+    "lint": "eslint src/",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "echo 'migrations run automatically on app start (runMigrations)'",
+    "db:seed": "echo 'seeders in PR3'",
+    "dev": "tsx watch src/server/app.ts",
+    "start": "node dist/server/app.js"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.1",
+    "@fastify/helmet": "^12.0.1",
+    "@plan-cope/shared-domain": "workspace:*",
+    "@plan-cope/shared-schemas": "workspace:*",
+    "dotenv": "^16.4.7",
+    "drizzle-orm": "^0.36.4",
+    "fastify": "^5.2.0",
+    "postgres": "^3.4.5",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@plan-cope/eslint-config": "workspace:*",
+    "@plan-cope/tsconfig": "workspace:*",
+    "@types/node": "^24.0.0",
+    "drizzle-kit": "^0.28.1",
+    "eslint": "^9.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0"
+  }
+}
