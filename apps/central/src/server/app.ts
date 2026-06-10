@@ -8,6 +8,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import postgres from 'postgres';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { drizzle } from 'drizzle-orm/postgres-js';
 import { runMigrations } from '@plan-cope/shared-domain/db/migrator';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
@@ -97,9 +98,6 @@ export const buildCentralApp = async (
 
   return app;
 };
-
-// Re-export Drizzle factory for callers that need it
-import { drizzle } from 'drizzle-orm/postgres-js';
 
 // Entry point: only run when invoked directly (not when imported by tests).
 const isMain = import.meta.url === `file://${process.argv[1]}`;

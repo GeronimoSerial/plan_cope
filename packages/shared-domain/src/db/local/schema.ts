@@ -8,7 +8,7 @@
  * Note: Drizzle 0.36 sqlite-core's `extraConfig` returns an OBJECT
  * (`Record<string, IndexBuilder | CheckBuilder | ...>`), not an array.
  */
-import { check, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 
 // ============================================================================
@@ -262,6 +262,3 @@ export const appSettings = sqliteTable('app_settings', {
   value_json: text('value_json').notNull(),
   updated_at: text('updated_at').notNull(),
 });
-
-// Re-export to keep `uniqueIndex` import live for future tables
-void uniqueIndex;

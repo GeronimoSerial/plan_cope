@@ -6,6 +6,8 @@
     "target": "ES2022",
     "lib": ["ES2022"],
     "skipLibCheck": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": false,
     "declaration": true,

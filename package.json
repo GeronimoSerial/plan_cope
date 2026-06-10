@@ -17,6 +17,8 @@
     "db:generate": "turbo run db:generate",
     "db:reset": "bash scripts/reset-db.sh",
     "validate:schemas": "cd packages/shared-domain && pnpm exec tsx ../../scripts/validate-schemas.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "clean": "turbo clean && find . -type d -name node_modules -prune -exec rm -rf {} + && rm -rf pnpm-lock.yaml"
   },
   "devDependencies": {

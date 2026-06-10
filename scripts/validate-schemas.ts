@@ -50,7 +50,6 @@ const AUTO_MANAGED_FIELDS = new Set([
   'synced_at',
   'processed_at',
   'deleted_at',
-  'published_at', // for publication_packages
 ]);
 
 interface DrizzleColumn {
