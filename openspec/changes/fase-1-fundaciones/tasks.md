@@ -44,20 +44,20 @@ Chain strategy: pending
 - [x] 2.9 TDD: `__tests__/sync.test.ts` + `__tests__/sync-protocol.test.ts` — empty PullResponse, multi-attempt Push, missing idempotencyKey, invalid direction enum — ~60L
 
 ## Phase 3: Drizzle ORM + Migrations (~900L hand-written + generated)
-- [ ] 3.1 Init `packages/shared-domain/`: `package.json` (drizzle-orm, pg, better-sqlite3), `tsconfig.json` — ~25L
-- [ ] 3.2 `src/db/central/schema.ts`: 26 tables from DDL_V3 (pg-core, `uuid().defaultRandom()`, CHECKs, indexes, triggers as raw SQL) — ~450L
-- [ ] 3.3 `src/db/central/relations.ts`: FK relations for type-safe Drizzle queries — ~90L
-- [ ] 3.4 `src/db/local/schema.ts`: 13 tables (sqlite-core, `text('id').primaryKey()`, TEXT dates) — ~220L
-- [ ] 3.5 `src/db/local/relations.ts`: FK relations — ~60L
-- [ ] 3.6 `src/db/migrator.ts`: `runMigrations(db, folder)` reusable — ~35L
-- [ ] 3.7 `apps/central/drizzle.config.ts` + `apps/local/drizzle.config.ts` — ~30L
-- [ ] 3.8 Generate: `drizzle-kit generate` for central + local → `src/db/migrations/` — auto SQL
-- [ ] 3.9 TDD: integration test — apply migrations on fresh PG container + SQLite `:memory:`, assert table counts (26 central, 13 local) — ~70L
+- [x] 3.1 Init `packages/shared-domain/`: `package.json` (drizzle-orm, pg, better-sqlite3), `tsconfig.json` — ~25L
+- [x] 3.2 `src/db/central/schema.ts`: 26 tables from DDL_V3 (pg-core, `uuid().defaultRandom()`, CHECKs, indexes, triggers as raw SQL) — ~450L
+- [x] 3.3 `src/db/central/relations.ts`: FK relations for type-safe Drizzle queries — ~90L
+- [x] 3.4 `src/db/local/schema.ts`: 13 tables (sqlite-core, `text('id').primaryKey()`, TEXT dates) — ~220L
+- [x] 3.5 `src/db/local/relations.ts`: FK relations — ~60L
+- [x] 3.6 `src/db/migrator.ts`: `runMigrations(db, folder)` reusable — ~35L
+- [x] 3.7 `apps/central/drizzle.config.ts` + `apps/local/drizzle.config.ts` — ~30L
+- [x] 3.8 Generate: `drizzle-kit generate` for central + local → `src/db/migrations/` — auto SQL
+- [x] 3.9 TDD: integration test — apply migrations on fresh PG container + SQLite `:memory:`, assert table counts (26 central, 13 local) — ~70L
 
 ## Phase 4: Apps Scaffolds (~200L)
-- [ ] 4.1 `apps/central/`: `package.json`, Fastify app + `GET /api/health` (status, db, uptime, version) + postgres plugin (decorates `fastify.db`) + `.env.example` — ~85L
-- [ ] 4.2 `apps/local/`: `package.json`, Fastify app + health + sqlite plugin (WAL, FK, busy_timeout PRAGMAs) + Electron stub + `.env.example` — ~110L
-- [ ] 4.3 TDD: smoke — curl `:3000/api/health` and `:3001/api/health`, assert 200 + JSON shape — ~30L
+- [x] 4.1 `apps/central/`: `package.json`, Fastify app + `GET /api/health` (status, db, uptime, version) + postgres plugin (decorates `fastify.db`) + `.env.example` — ~85L
+- [x] 4.2 `apps/local/`: `package.json`, Fastify app + health + sqlite plugin (WAL, FK, busy_timeout PRAGMAs) + Electron stub + `.env.example` — ~110L
+- [x] 4.3 TDD: smoke — curl `:3000/api/health` and `:3001/api/health`, assert 200 + JSON shape — ~30L
 
 ## Phase 5: Docker + Seeders (~420L)
 - [ ] 5.1 `docker-compose.yml`: PG 16 alpine, pgcrypto extension, healthcheck `pg_isready`, named volume `pgdata` — ~25L
