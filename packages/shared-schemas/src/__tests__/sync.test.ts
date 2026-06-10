@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { registeredNodeInsert, syncInboxInsert, nodeStatusEnum } from '../sync.js';
+import { registeredNodeInsert, syncInboxInsert } from '../sync.js';
 
 describe('registered nodes', () => {
   it('valid registered_node passes', () => {

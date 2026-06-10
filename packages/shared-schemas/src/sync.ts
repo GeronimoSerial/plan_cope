@@ -1,4 +1,11 @@
 import { z } from 'zod';
+import {
+  examVersionStatusEnum,
+  blockTypeEnum,
+  examBlockOptionSelect,
+} from './exam.js';
+
+// ── Sync protocol payloads (camelCase, network-facing) ──
 
 // ── Registered Nodes ──
 
@@ -186,3 +193,111 @@ export const syncAttemptSelect = z.object({
 
 export type SyncAttemptInsert = z.infer<typeof syncAttemptInsert>;
 export type SyncAttemptSelect = z.infer<typeof syncAttemptSelect>;
+
+// ── Sync Protocol (Pull / Push) ──
+//
+// The Pull / Push payloads are network-facing objects. Field names use
+// camelCase (per spec), not the snake_case used by DB columns. They reference
+// the existing select schemas for individual aggregates so that the protocol
+// contract stays aligned with the DDL_V3 row shape.
+
+const examVersionChange = z.object({
+  id: z.string().uuid(),
+  exam_id: z.string().uuid(),
+  version_number: z.number().int().positive(),
+  schema_version: z.number().int().positive(),
+  status: examVersionStatusEnum,
+  metadata_json: z.unknown().nullable().optional(),
+  created_by: z.string().uuid().nullable().optional(),
+  reviewed_by: z.string().uuid().nullable().optional(),
+  approved_by: z.string().uuid().nullable().optional(),
+  published_by: z.string().uuid().nullable().optional(),
+  published_at: z.string().datetime().nullable().optional(),
+  created_at: z.string().datetime(),
+  updated_at: z.string().datetime(),
+});
+export type ExamVersionChange = z.infer<typeof examVersionChange>;
+
+const examBlockChange = z.object({
+  id: z.string().uuid(),
+  exam_version_id: z.string().uuid(),
+  order_index: z.number().int().nonnegative(),
+  block_type: blockTypeEnum,
+  title: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  config_json: z.unknown(),
+  validation_json: z.unknown().nullable().optional(),
+  options: z.array(examBlockOptionSelect.omit({ exam_block_id: true, created_at: true, updated_at: true })).optional(),
+});
+export type ExamBlockChange = z.infer<typeof examBlockChange>;
+
+const answerKeyChange = z.object({
+  id: z.string().uuid(),
+  exam_block_id: z.string().uuid(),
+  correct_answer_json: z.unknown(),
+  score_value: z.number().nullable().optional(),
+  metadata_json: z.unknown().nullable().optional(),
+});
+export type AnswerKeyChange = z.infer<typeof answerKeyChange>;
+
+const examAssetChange = z.object({
+  id: z.string().uuid(),
+  exam_version_id: z.string().uuid(),
+  file_name: z.string(),
+  mime_type: z.string(),
+  size_bytes: z.number().int().positive(),
+  checksum: z.string(),
+  storage_path: z.string(),
+  created_at: z.string().datetime(),
+});
+export type ExamAssetChange = z.infer<typeof examAssetChange>;
+
+const syncChanges = z.object({
+  examVersions: z.array(examVersionChange),
+  examBlocks: z.array(examBlockChange),
+  answerKeys: z.array(answerKeyChange),
+  assets: z.array(examAssetChange),
+});
+export type SyncChanges = z.infer<typeof syncChanges>;
+
+export const SyncPullResponse = z.object({
+  cursor: z.number().int().nonnegative(),
+  changes: syncChanges,
+  checksums: z.record(z.string(), z.string()),
+});
+export type SyncPullResponse = z.infer<typeof SyncPullResponse>;
+
+const syncAnswer = z.object({
+  block_id: z.string().uuid(),
+  answer_json: z.unknown(),
+});
+export type SyncAnswer = z.infer<typeof syncAnswer>;
+
+export const AttemptPayload = z.object({
+  remote_local_id: z.string().min(1),
+  student_code: z.string().min(1),
+  status: attemptStatusEnum,
+  started_at: z.string().datetime().nullable().optional(),
+  submitted_at: z.string().datetime().nullable().optional(),
+  answers: z.array(syncAnswer),
+});
+export type AttemptPayload = z.infer<typeof AttemptPayload>;
+
+export const SyncPushRequest = z.object({
+  idempotencyKey: z.string().uuid(),
+  attempts: z.array(AttemptPayload).min(1),
+});
+export type SyncPushRequest = z.infer<typeof SyncPushRequest>;
+
+const pushRejection = z.object({
+  remote_local_id: z.string().min(1),
+  reason: z.string().min(1),
+});
+export type PushRejection = z.infer<typeof pushRejection>;
+
+export const SyncPushResponse = z.object({
+  accepted: z.number().int().nonnegative(),
+  rejected: z.array(pushRejection),
+  cursor: z.number().int().nonnegative(),
+});
+export type SyncPushResponse = z.infer<typeof SyncPushResponse>;
