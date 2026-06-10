@@ -60,17 +60,17 @@ Chain strategy: pending
 - [x] 4.3 TDD: smoke — curl `:3000/api/health` and `:3001/api/health`, assert 200 + JSON shape — ~30L
 
 ## Phase 5: Docker + Seeders (~420L)
-- [ ] 5.1 `docker-compose.yml`: PG 16 alpine, pgcrypto extension, healthcheck `pg_isready`, named volume `pgdata` — ~25L
-- [ ] 5.2 Geography seeder: 1 province → 3 depts → 6 localities → 6 schools → 12 classrooms (idempotent, DDL_V3 columns: `cue BIGINT`, `postal_code`, `shift`) — ~110L
-- [ ] 5.3 Roles + users seeder: admin/operator/viewer roles; 3 users (bcrypt) with role assignments — ~80L
-- [ ] 5.4 Exams seeder: 3 exams with all 5 block_types + exam_block_options + answer_keys (idempotent) — ~130L
-- [ ] 5.5 Local seeder: 2 local_users + app_settings (central_url, jwt_secret, sync_interval, node_label) — ~50L
-- [ ] 5.6 TDD: `__tests__/seeders.test.ts` — idempotency, row counts, Zod validation of seeded data, answer_key↔block cross-reference — ~80L
+- [x] 5.1 `docker-compose.yml`: PG 16 alpine, pgcrypto extension, healthcheck `pg_isready`, named volume `pgdata` — ~25L
+- [x] 5.2 Geography seeder: 1 province → 3 depts → 6 localities → 6 schools → 12 classrooms (idempotent, DDL_V3 columns: `cue BIGINT`, `postal_code`, `shift`) — ~110L
+- [x] 5.3 Roles + users seeder: admin/operator/viewer roles; 3 users (bcrypt) with role assignments — ~80L
+- [x] 5.4 Exams seeder: 3 exams with all 5 block_types + exam_block_options + answer_keys (idempotent) — ~130L
+- [x] 5.5 Local seeder: 2 local_users + app_settings (central_url, jwt_secret, sync_interval, node_label) — ~50L
+- [x] 5.6 TDD: `__tests__/seeders.test.ts` — idempotency, row counts, Zod validation of seeded data, answer_key↔block cross-reference — ~80L
 
 ## Phase 6: CI + Hardening (~230L)
-- [ ] 6.1 `.github/workflows/ci.yml`: checkout → pnpm setup → install frozen → lint → typecheck → build → migrate on PG service container — ~70L
-- [ ] 6.2 `scripts/validate-schemas.ts`: Zod↔Drizzle field drift detection, fail-loud — ~55L
-- [ ] 6.3 `scripts/reset-db.sh`: `docker compose down -v && up -d && pnpm db:migrate` — ~15L
-- [ ] 6.4 `src/services/exam.service.ts`: `computeChecksum()` for version integrity — ~30L
-- [ ] 6.5 `README.md`: quick start (clone → pnpm i → docker up → migrate → seed → curl health) — ~50L
-- [ ] 6.6 Integration smoke: full clean install cycle, all tasks green, CI passes
+- [x] 6.1 `.github/workflows/ci.yml`: checkout → pnpm setup → install frozen → lint → typecheck → build → migrate on PG service container — ~70L
+- [x] 6.2 `scripts/validate-schemas.ts`: Zod↔Drizzle field drift detection, fail-loud — ~55L
+- [x] 6.3 `scripts/reset-db.sh`: `docker compose down -v && up -d && pnpm db:migrate` — ~15L
+- [x] 6.4 `src/services/exam.service.ts`: `computeChecksum()` for version integrity — ~30L
+- [x] 6.5 `README.md`: quick start (clone → pnpm i → docker up → migrate → seed → curl health) — ~50L
+- [x] 6.6 Integration smoke: full clean install cycle, all tasks green, CI passes

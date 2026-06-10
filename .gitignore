@@ -1,8 +1,9 @@
 # Dependencies
 node_modules/
-pnpm-lock.yaml
 package-lock.json
 yarn.lock
+# pnpm-lock.yaml is intentionally tracked so CI can use
+# `pnpm install --frozen-lockfile` (per Fase 1 spec).
 
 # Build outputs
 dist/
