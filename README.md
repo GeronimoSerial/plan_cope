@@ -1,9 +1,21 @@
 # Plan Cope — Monorepo
 
-Plataforma de evaluaciones **offline-first** para la Provincia de Corrientes.
-Este repositorio contiene la base técnica (Fase 1): contratos Zod, persistencia
-Drizzle, migraciones, seeders, Docker Compose, CI y hardening — sin lógica de
-negocio, que llega en Fase 2+.
+Plataforma de evaluaciones **offline-first** para la Provincia de Corrientes
+(500-2000 escuelas, 20K-100K estudiantes).
+
+---
+
+## Roadmap — Vista Ejecutiva
+
+| Fase | Meta | Estado | Entregables |
+|------|------|--------|-------------|
+| **0** | Consolidación inicial | ✅ | ADRs, stack definition, DDL_V3, contratos de sync, alcance V1 |
+| **1** | Fundaciones técnicas | ✅ | Monorepo, Zod schemas, Drizzle ORM, migraciones, Docker, CI, seeders — **este commit** |
+| 2 | Nodo local operativo | 🔲 | Electron + Fastify, renderer dinámico (5 tipos de bloque), delivery sessions, UI operador/estudiante |
+| 3 | Builder visual | 🔲 | Editor WYSIWYG, preview runtime, versionado de contenido, workflow editorial |
+| 4 | Sincronización | 🔲 | Outbox pattern, cursor pull, push idempotente, backoff exponencial, reconciliación |
+| 5 | Plataforma central completa | 🔲 | Auth RBAC, gestión de nodos, publicación de paquetes, auditoría, dashboard |
+| 6 | Hardening | 🔲 | Tolerancia a fallos, migración de datos legacy, empaquetado Windows (.exe), piloto |
 
 ---
 
