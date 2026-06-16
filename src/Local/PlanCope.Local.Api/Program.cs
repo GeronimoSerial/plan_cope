@@ -1,4 +1,5 @@
 using PlanCope.Local.Api.Data;
+using PlanCope.Local.Api.Endpoints;
 using PlanCope.Shared.Infrastructure.DependencyInjection;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -18,5 +19,9 @@ app.MapGet("/api/health", () => Results.Ok(new
     status = "ok",
     service = "local-api"
 }));
+app.MapExamEndpoints();
+app.MapSessionEndpoints();
+app.MapAttemptEndpoints();
+app.MapSyncEndpoints();
 
 app.Run();
