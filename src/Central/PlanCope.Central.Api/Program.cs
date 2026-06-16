@@ -10,7 +10,8 @@ var connectionString = builder.Configuration.GetConnectionString("CentralDatabas
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddPlanCopeSharedInfrastructure();
-builder.Services.AddDbContext<PlanCopeDbContext>(options => options.UseNpgsql(connectionString));
+builder.Services.AddDbContext<PlanCopeDbContext>(options =>
+    options.UseNpgsql(connectionString, npgsql => npgsql.MigrationsAssembly("PlanCope.Central.Migrations")));
 
 var app = builder.Build();
 

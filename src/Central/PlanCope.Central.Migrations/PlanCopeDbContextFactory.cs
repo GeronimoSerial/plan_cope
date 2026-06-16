@@ -12,7 +12,7 @@ public sealed class PlanCopeDbContextFactory : IDesignTimeDbContextFactory<PlanC
                                "Host=localhost;Port=5432;Database=plan_cope_central;Username=plancope;Password=plancope";
 
         var options = new DbContextOptionsBuilder<PlanCopeDbContext>()
-            .UseNpgsql(connectionString)
+            .UseNpgsql(connectionString, npgsql => npgsql.MigrationsAssembly("PlanCope.Central.Migrations"))
             .Options;
 
         return new PlanCopeDbContext(options);
