@@ -1,0 +1,23 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/Central/">
+    <Project Path="src/Central/PlanCope.Central.Api/PlanCope.Central.Api.csproj" />
+    <Project Path="src/Central/PlanCope.Central.Migrations/PlanCope.Central.Migrations.csproj" />
+  </Folder>
+  <Folder Name="/src/Local/">
+    <Project Path="src/Local/PlanCope.Local.Api/PlanCope.Local.Api.csproj" />
+    <Project Path="src/Local/PlanCope.Local.Host/PlanCope.Local.Host.csproj" />
+  </Folder>
+  <Folder Name="/src/Shared/">
+    <Project Path="src/Shared/PlanCope.Shared.Contracts/PlanCope.Shared.Contracts.csproj" />
+    <Project Path="src/Shared/PlanCope.Shared.Domain/PlanCope.Shared.Domain.csproj" />
+    <Project Path="src/Shared/PlanCope.Shared.Infrastructure/PlanCope.Shared.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PlanCope.Central.Api.Tests/PlanCope.Central.Api.Tests.csproj" />
+    <Project Path="tests/PlanCope.E2E.Tests/PlanCope.E2E.Tests.csproj" />
+    <Project Path="tests/PlanCope.Local.Api.Tests/PlanCope.Local.Api.Tests.csproj" />
+    <Project Path="tests/PlanCope.Shared.Tests/PlanCope.Shared.Tests.csproj" />
+    <Project Path="tests/PlanCope.SyncCompat.Tests/PlanCope.SyncCompat.Tests.csproj" />
+  </Folder>
+</Solution>
