@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+</PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Shared\PlanCope.Shared.Domain\PlanCope.Shared.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Shared\PlanCope.Shared.Contracts\PlanCope.Shared.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Shared\PlanCope.Shared.Infrastructure\PlanCope.Shared.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>
