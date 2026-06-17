@@ -8,7 +8,13 @@ public interface ISessionRepository
 
     Task<LocalDeliverySession?> GetByIdAsync(string id, CancellationToken cancellationToken = default);
 
+    Task<LocalDeliverySession?> GetByIdOrAccessCodeAsync(string idOrAccessCode, CancellationToken cancellationToken = default);
+
+    Task<bool> AccessCodeExistsAsync(string accessCode, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<LocalDeliverySession>> GetActiveAsync(CancellationToken cancellationToken = default);
+
+    Task<LocalSessionProgress?> GetProgressAsync(string idOrAccessCode, CancellationToken cancellationToken = default);
 
     Task UpdateStatusAsync(string id, string status, string? endAt = null, CancellationToken cancellationToken = default);
 }

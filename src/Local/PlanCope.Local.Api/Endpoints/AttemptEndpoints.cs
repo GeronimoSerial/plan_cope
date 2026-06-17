@@ -10,15 +10,14 @@ public static class AttemptEndpoints
 {
     public static IEndpointRouteBuilder MapAttemptEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapPost("/api/sessions/{sessionId}/attempts", async (
-            string sessionId,
-            StartAttemptRequest request,
+        endpoints.MapPost("/api/sessions/{sessionIdOrAccessCode}/attempts", async (
+            string sessionIdOrAccessCode,
             ISessionRepository sessionRepository,
             IAttemptRepository attemptRepository,
             ILocalExamRepository examRepository,
             CancellationToken cancellationToken) =>
         {
-            var session = await sessionRepository.GetByIdAsync(sessionId, cancellationToken);
+            var session = await sessionRepository.GetByIdOrAccessCodeAsync(sessionIdOrAccessCode, cancellationToken);
 
             if (session is null)
             {
@@ -30,19 +29,17 @@ public static class AttemptEndpoints
                 return Results.BadRequest(new { error = "Attempts can only start in active sessions." });
             }
 
-            if (await attemptRepository.ExistsForStudentAsync(sessionId, request.StudentCode, cancellationToken))
-            {
-                return Results.Conflict(new { error = "Student already has an attempt for this session." });
-            }
+            var nextSequence = await attemptRepository.GetNextLocalSequenceAsync(session.Id, cancellationToken);
+            var studentCode = $"AUTO-{nextSequence:0000}";
 
             var attempt = new StudentAttempt(
                 Guid.NewGuid().ToString(),
-                sessionId,
-                request.StudentCode,
+                session.Id,
+                studentCode,
                 "in_progress",
                 DateTimeOffset.UtcNow.ToString("O"),
                 null,
-                await attemptRepository.GetNextLocalSequenceAsync(sessionId, cancellationToken),
+                nextSequence,
                 null);
 
             await attemptRepository.CreateAsync(attempt, cancellationToken);

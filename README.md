@@ -22,7 +22,7 @@
 | Local — SQLite + DbUp | ✅ Completo | 11 tablas, 9 índices, migraciones embebidas (001 + 002) |
 | Local — Repositorios Dapper | ✅ Completo | 6 repositorios con SQL completo (User, Exam, Session, Attempt, Outbox, SyncState) |
 | Local — API bootstrap | ✅ Completo | API local arranca, inicializa SQLite y expone health endpoint |
-| Local — WinForms Host | ✅ Shell | `MainForm` 1280×800, embebe la API local |
+| Local — WinForms Host | ✅ Shell | `MainForm` inicia la API local y hospeda React en WebView2 |
 | Sync — Outbox local | ✅ Esquema | Tabla `sync_outbox` con reintentos y backoff |
 | Sync — Motor | ⏭️ Fase 3 | Contratos definidos; falta worker/service |
 | Auth / JWT | ✅ Completo | Middleware JWT + login, refresh y perfil en Central |
@@ -30,7 +30,7 @@
 | Swagger | ⏭️ Fase 3 | Paquete declarado; falta cableado |
 | Hashing (BCrypt) | ✅ Completo | Verificacion BCrypt integrada en login central |
 | Docker Compose | ⏭️ Fase 3 | Carpeta `deploy/` creada; faltan archivos |
-| Frontend (React/Vite) | ⏭️ Fase 4 | Workspace aún no creado |
+| Frontend (React/Vite) | ✅ Base | Workspace `ClientApp` dentro del host local, servido por WebView2 |
 | Tests | ⏭️ Fase 3 | Proyectos creados; falta implementar casos |
 | CI/CD | ⏭️ Fase 3 | Sin workflows todavía |
 
@@ -45,7 +45,7 @@
 │  PostgreSQL 16                   │     │  SQLite (WAL)                │
 │  EF Core (6 schemas)             │     │  Dapper + DbUp               │
 │  ASP.NET Core Web API            │     │  ASP.NET Core Web API        │
-│                                  │     │  WinForms Desktop Host       │
+│                                  │     │  WinForms + WebView2 Host    │
 │  ┌──────────────────────────┐   │     │                              │
 │  │ Sync Protocol:           │   │     │  ┌────────────────────────┐  │
 │  │  Pull (cursor-based) ◄───┼───┼─────┼──┤ sync_outbox (push)     │  │
@@ -95,7 +95,7 @@
 │   │   └── PlanCope.Central.Migrations/   # Design-time factory
 │   └── Local/
 │       ├── PlanCope.Local.Api/            # Web API + Dapper repos + DbUp
-│       └── PlanCope.Local.Host/           # WinForms desktop shell
+│       └── PlanCope.Local.Host/           # WinForms shell + React/WebView2 host
 ├── tests/
 │   ├── PlanCope.Central.Api.Tests/
 │   ├── PlanCope.Local.Api.Tests/
@@ -131,5 +131,25 @@
 5. **Serilog** — logging estructurado y correlacion de sync
 6. **Tests reales** — Auth, Exams, repositorios locales y compatibilidad de sync
 7. **CI/CD** — GitHub Actions (build + test + lint)
-8. **Frontend React/Vite** — crear workspace `src/Frontend`
-9. **Hardening desktop** — Velopack, WebView2 y empaquetado `.exe`
+8. **Frontend React/Vite** — consolidar `ClientApp`, componentes compartidos y flujo de operador
+9. **Hardening desktop** — Velopack y empaquetado `.exe`
+
+---
+
+## Estado del host local
+
+El host local ya no dibuja la interfaz con controles WinForms: ahora arranca la API embebida y carga una app React dentro de WebView2.
+
+| Componente | Estado | Detalle |
+|---|---|---|
+| Shell nativo | ✅ Completo | `MainForm` administra ciclo de vida de la API y WebView2 |
+| Frontend local | ✅ Base | Vite + React + TypeScript en `src/Local/PlanCope.Local.Host/ClientApp` |
+| Puente nativo | ✅ Completo | `window.chrome.webview` recibe contexto del host |
+| API local | ✅ Base | CORS acotado para origen del host React |
+| Build integrado | ✅ Completo | `dotnet build` ejecuta `npm run build` del frontend |
+
+## Capturas
+
+![Pantalla inicial del host local](docs/host-gate.png)
+
+![Consola operativa del host local](docs/host-console.png)

@@ -38,6 +38,8 @@ partial class MainForm
         Name = "MainForm";
         StartPosition = FormStartPosition.CenterScreen;
         Text = "Plan Cope";
+        Load += MainForm_Load;
+        FormClosing += MainForm_FormClosing;
     }
 
     #endregion

@@ -9,7 +9,21 @@
 </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" />
     <ProjectReference Include="..\PlanCope.Local.Api\PlanCope.Local.Api.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <Target Name="BuildHostClientApp" BeforeTargets="GetCopyToOutputDirectoryItems" Condition="'$(SkipHostClientBuild)' != 'true'">
+    <Exec WorkingDirectory="ClientApp" Command="npm ci" Condition="!Exists('ClientApp\node_modules')" />
+    <Exec WorkingDirectory="ClientApp" Command="npm run build" />
+    <ItemGroup>
+      <_HostClientDist Include="ClientApp\dist\**\*" />
+      <ContentWithTargetPath Include="@(_HostClientDist)" CopyToOutputDirectory="PreserveNewest" TargetPath="ClientApp\dist\%(RecursiveDir)%(Filename)%(Extension)" />
+    </ItemGroup>
+  </Target>
 
 </Project>

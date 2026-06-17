@@ -10,6 +10,7 @@ public sealed class CreateSessionRequestValidator : AbstractValidator<CreateSess
         RuleFor(static x => x.ExamVersionId).NotEmpty();
         RuleFor(static x => x.SchoolCode).NotEmpty().MaximumLength(64);
         RuleFor(static x => x.StartedBy).NotEmpty();
+        RuleFor(static x => x.ExpectedStudentCount).InclusiveBetween(1, 500);
         RuleFor(static x => x.ClassroomCode).MaximumLength(64);
         RuleFor(static x => x.CommissionCode).MaximumLength(64);
     }

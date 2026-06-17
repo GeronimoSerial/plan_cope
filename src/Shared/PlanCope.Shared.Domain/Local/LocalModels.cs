@@ -10,7 +10,12 @@ public sealed record LocalAnswerKey(string Id, string LocalExamVersionId, string
 
 public sealed record LocalAsset(string Id, string RemoteAssetId, string LocalExamVersionId, string FileName, string MimeType, string Checksum, string LocalPath, string SyncedAt);
 
-public sealed record LocalDeliverySession(string Id, string ExamVersionId, string SchoolCode, string? ClassroomCode, string? CommissionCode, string StartedBy, string StartAt, string? EndAt, string Status, string? ConfigJson);
+public sealed record LocalDeliverySession(string Id, string ExamVersionId, string SchoolCode, string? ClassroomCode, string? CommissionCode, string StartedBy, string StartAt, string? EndAt, string Status, string? ConfigJson, string AccessCode, int ExpectedStudentCount);
+
+public sealed record LocalSessionProgress(string SessionId, string AccessCode, int ExpectedStudentCount, int StartedCount, int SubmittedCount, int InProgressCount)
+{
+    public int CompletionPercentage => ExpectedStudentCount <= 0 ? 0 : Math.Min(100, (int)Math.Round(SubmittedCount * 100.0 / ExpectedStudentCount));
+}
 
 public sealed record StudentAttempt(string Id, string DeliverySessionId, string StudentCode, string Status, string StartedAt, string? SubmittedAt, int LocalSequence, string? ConfirmationCode);
 
