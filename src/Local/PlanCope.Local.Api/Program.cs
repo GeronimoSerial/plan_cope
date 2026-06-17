@@ -1,27 +1,3 @@
-using PlanCope.Local.Api.Data;
-using PlanCope.Local.Api.Endpoints;
-using PlanCope.Shared.Infrastructure.DependencyInjection;
+using PlanCope.Local.Api;
 
-var builder = WebApplication.CreateBuilder(args);
-
-builder.Services.AddPlanCopeSharedInfrastructure();
-builder.Services.AddPlanCopeLocalData(builder.Configuration);
-
-var app = builder.Build();
-
-using (var scope = app.Services.CreateScope())
-{
-    scope.ServiceProvider.GetRequiredService<LocalDatabaseInitializer>().Initialize();
-}
-
-app.MapGet("/api/health", () => Results.Ok(new
-{
-    status = "ok",
-    service = "local-api"
-}));
-app.MapExamEndpoints();
-app.MapSessionEndpoints();
-app.MapAttemptEndpoints();
-app.MapSyncEndpoints();
-
-app.Run();
+LocalApiApplication.Build(args).Run();

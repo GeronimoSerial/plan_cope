@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using FluentValidation;
 using PlanCope.Local.Api.Data.Repositories;
 using PlanCope.Shared.Contracts.Local;
@@ -41,10 +42,21 @@ public static class SessionEndpoints
                 DateTimeOffset.UtcNow.ToString("O"),
                 null,
                 "active",
-                request.Config?.GetRawText());
+                request.Config?.GetRawText(),
+                await GenerateAccessCodeAsync(sessionRepository, cancellationToken),
+                request.ExpectedStudentCount);
 
             await sessionRepository.CreateAsync(session, cancellationToken);
             return Results.Created($"/api/sessions/{session.Id}", session);
+        });
+
+        group.MapGet("/{idOrAccessCode}/progress", async (
+            string idOrAccessCode,
+            ISessionRepository repository,
+            CancellationToken cancellationToken) =>
+        {
+            var progress = await repository.GetProgressAsync(idOrAccessCode, cancellationToken);
+            return progress is null ? Results.NotFound() : Results.Ok(progress);
         });
 
         group.MapPut("/{id}/status", async (
@@ -85,5 +97,27 @@ public static class SessionEndpoints
             ("active", "paused") or
             ("paused", "active") or
             ("active", "closed");
+    }
+
+    private static async Task<string> GenerateAccessCodeAsync(ISessionRepository repository, CancellationToken cancellationToken)
+    {
+        const string alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            var code = new char[5];
+            for (var i = 0; i < code.Length; i++)
+            {
+                code[i] = alphabet[RandomNumberGenerator.GetInt32(alphabet.Length)];
+            }
+
+            var accessCode = new string(code);
+            if (!await repository.AccessCodeExistsAsync(accessCode, cancellationToken))
+            {
+                return accessCode;
+            }
+        }
+
+        throw new InvalidOperationException("Could not generate a unique session access code.");
     }
 }
