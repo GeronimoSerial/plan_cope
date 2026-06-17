@@ -10,7 +10,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
     {
         builder.ToTable("users", "core");
         builder.HasKey(static x => x.Id);
-        builder.Property(static x => x.Id).HasColumnType("uuid");
+        builder.Property(static x => x.Id).HasMaxLength(64).IsRequired();
         builder.Property(static x => x.Email).HasMaxLength(256).IsRequired();
         builder.Property(static x => x.PasswordHash).HasMaxLength(512).IsRequired();
         builder.Property(static x => x.FullName).HasMaxLength(256).IsRequired();
@@ -25,7 +25,7 @@ public sealed class RoleConfiguration : IEntityTypeConfiguration<Role>
     {
         builder.ToTable("roles", "core");
         builder.HasKey(static x => x.Id);
-        builder.Property(static x => x.Id).HasColumnType("uuid");
+        builder.Property(static x => x.Id).HasMaxLength(64).IsRequired();
         builder.Property(static x => x.Code).HasMaxLength(64).IsRequired();
         builder.Property(static x => x.Name).HasMaxLength(128).IsRequired();
         builder.HasIndex(static x => x.Code).IsUnique();
@@ -38,8 +38,8 @@ public sealed class UserRoleAssignmentConfiguration : IEntityTypeConfiguration<U
     {
         builder.ToTable("user_roles", "core");
         builder.HasKey(static x => new { x.UserId, x.RoleId });
-        builder.Property(static x => x.UserId).HasColumnType("uuid");
-        builder.Property(static x => x.RoleId).HasColumnType("uuid");
+        builder.Property(static x => x.UserId).HasMaxLength(64).IsRequired();
+        builder.Property(static x => x.RoleId).HasMaxLength(64).IsRequired();
     }
 }
 
@@ -49,7 +49,7 @@ public sealed class ProvinceConfiguration : IEntityTypeConfiguration<Province>
     {
         builder.ToTable("provinces", "core");
         builder.HasKey(static x => x.Id);
-        builder.Property(static x => x.Id).HasColumnType("uuid");
+        builder.Property(static x => x.Id).HasMaxLength(64).IsRequired();
         builder.Property(static x => x.Code).HasMaxLength(32).IsRequired();
         builder.Property(static x => x.Name).HasMaxLength(128).IsRequired();
     }
@@ -61,8 +61,8 @@ public sealed class DepartmentConfiguration : IEntityTypeConfiguration<Departmen
     {
         builder.ToTable("departments", "core");
         builder.HasKey(static x => x.Id);
-        builder.Property(static x => x.Id).HasColumnType("uuid");
-        builder.Property(static x => x.ProvinceId).HasColumnType("uuid");
+        builder.Property(static x => x.Id).HasMaxLength(64).IsRequired();
+        builder.Property(static x => x.ProvinceId).HasMaxLength(64).IsRequired();
         builder.Property(static x => x.Code).HasMaxLength(32).IsRequired();
         builder.Property(static x => x.Name).HasMaxLength(128).IsRequired();
         builder.HasIndex(static x => x.ProvinceId);
@@ -75,8 +75,8 @@ public sealed class LocalityConfiguration : IEntityTypeConfiguration<Locality>
     {
         builder.ToTable("localities", "core");
         builder.HasKey(static x => x.Id);
-        builder.Property(static x => x.Id).HasColumnType("uuid");
-        builder.Property(static x => x.DepartmentId).HasColumnType("uuid");
+        builder.Property(static x => x.Id).HasMaxLength(64).IsRequired();
+        builder.Property(static x => x.DepartmentId).HasMaxLength(64).IsRequired();
         builder.Property(static x => x.Code).HasMaxLength(32).IsRequired();
         builder.Property(static x => x.PostalCode).HasMaxLength(32);
         builder.Property(static x => x.Name).HasMaxLength(128).IsRequired();
@@ -90,8 +90,8 @@ public sealed class SchoolConfiguration : IEntityTypeConfiguration<School>
     {
         builder.ToTable("schools", "core");
         builder.HasKey(static x => x.Id);
-        builder.Property(static x => x.Id).HasColumnType("uuid");
-        builder.Property(static x => x.LocalityId).HasColumnType("uuid");
+        builder.Property(static x => x.Id).HasMaxLength(64).IsRequired();
+        builder.Property(static x => x.LocalityId).HasMaxLength(64).IsRequired();
         builder.Property(static x => x.Code).HasMaxLength(64).IsRequired();
         builder.Property(static x => x.Name).HasMaxLength(256).IsRequired();
         builder.Property(static x => x.Status).HasMaxLength(32).IsRequired();
@@ -106,8 +106,8 @@ public sealed class ClassroomConfiguration : IEntityTypeConfiguration<Classroom>
     {
         builder.ToTable("classrooms", "core");
         builder.HasKey(static x => x.Id);
-        builder.Property(static x => x.Id).HasColumnType("uuid");
-        builder.Property(static x => x.SchoolId).HasColumnType("uuid");
+        builder.Property(static x => x.Id).HasMaxLength(64).IsRequired();
+        builder.Property(static x => x.SchoolId).HasMaxLength(64).IsRequired();
         builder.Property(static x => x.Code).HasMaxLength(64).IsRequired();
         builder.Property(static x => x.Name).HasMaxLength(128).IsRequired();
         builder.Property(static x => x.Shift).HasMaxLength(64);

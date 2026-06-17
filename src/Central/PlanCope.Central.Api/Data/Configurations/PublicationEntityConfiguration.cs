@@ -10,8 +10,8 @@ public sealed class PublicationPackageConfiguration : IEntityTypeConfiguration<P
     {
         builder.ToTable("packages", "publication");
         builder.HasKey(static x => x.Id);
-        builder.Property(static x => x.Id).HasColumnType("uuid");
-        builder.Property(static x => x.ExamVersionId).HasColumnType("uuid");
+        builder.Property(static x => x.Id).HasMaxLength(64).IsRequired();
+        builder.Property(static x => x.ExamVersionId).HasMaxLength(64).IsRequired();
         builder.Property(static x => x.Checksum).HasMaxLength(128).IsRequired();
         builder.Property(static x => x.Manifest).HasColumnType("jsonb").IsRequired();
         builder.Property(static x => x.Status).HasMaxLength(32).IsRequired();
@@ -25,10 +25,10 @@ public sealed class PublicationTargetConfiguration : IEntityTypeConfiguration<Pu
     {
         builder.ToTable("targets", "publication");
         builder.HasKey(static x => x.Id);
-        builder.Property(static x => x.Id).HasColumnType("uuid");
-        builder.Property(static x => x.PublicationPackageId).HasColumnType("uuid");
+        builder.Property(static x => x.Id).HasMaxLength(64).IsRequired();
+        builder.Property(static x => x.PublicationPackageId).HasMaxLength(64).IsRequired();
         builder.Property(static x => x.TargetType).HasMaxLength(64).IsRequired();
-        builder.Property(static x => x.TargetId).HasColumnType("uuid");
+        builder.Property(static x => x.TargetId).HasMaxLength(64);
         builder.HasIndex(static x => new { x.PublicationPackageId, x.TargetType, x.TargetId });
     }
 }
