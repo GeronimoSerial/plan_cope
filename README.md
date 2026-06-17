@@ -147,3 +147,9 @@ El host local ya no dibuja la interfaz con controles WinForms: ahora arranca la 
 | Puente nativo | ✅ Completo | `window.chrome.webview` recibe contexto del host |
 | API local | ✅ Base | CORS acotado para origen del host React |
 | Build integrado | ✅ Completo | `dotnet build` ejecuta `npm run build` del frontend |
+
+## Capturas
+
+![Pantalla inicial del host local](docs/host-gate.png)
+
+![Consola operativa del host local](docs/host-console.png)
