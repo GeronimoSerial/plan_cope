@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Dapper;
 using PlanCope.Local.Api.Data.Repositories;
+using PlanCope.Local.Api.Services;
 
 namespace PlanCope.Local.Api.Data;
 
@@ -18,7 +19,9 @@ public static class LocalDataServiceCollectionExtensions
         services.AddSingleton(new LocalDatabaseOptions(connectionString));
         services.AddSingleton<ILocalSqliteConnectionFactory, LocalSqliteConnectionFactory>();
         services.AddSingleton<LocalDatabaseInitializer>();
-        services.AddSingleton<LocalDemoExamSeeder>();
+        services.AddScoped<LocalDemoExamSeeder>();
+        services.AddScoped<LocalAssetFileService>();
+        services.AddScoped<LocalExamImportService>();
         services.AddScoped<ILocalUserRepository, LocalUserRepository>();
         services.AddScoped<ILocalExamRepository, LocalExamRepository>();
         services.AddScoped<ISessionRepository, SessionRepository>();

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Web.WebView2.Core;
@@ -11,7 +12,7 @@ namespace PlanCope.Local.Host;
 
 public partial class MainForm : Form
 {
-    private const int LocalPort = 5055;
+    private const int PreferredLocalPort = 5055;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly WebView2 _webView = new() { Dock = DockStyle.Fill };
@@ -27,6 +28,7 @@ public partial class MainForm : Form
 
     private WebApplication? _api;
     private string _lanBaseUrl = string.Empty;
+    private int _localPort = PreferredLocalPort;
 
     public MainForm()
     {
@@ -41,7 +43,7 @@ public partial class MainForm : Form
             await StartLocalApiAsync();
             await StartWebViewAsync();
         }
-        catch (Exception exception) when (exception is InvalidOperationException or WebView2RuntimeNotFoundException or HttpRequestException)
+        catch (Exception exception)
         {
             ShowStartupError(exception.Message);
         }
@@ -61,8 +63,9 @@ public partial class MainForm : Form
 
     private async Task StartLocalApiAsync()
     {
-        _lanBaseUrl = $"http://{GetLocalIpAddress()}:{LocalPort}";
-        _api = LocalApiApplication.Build(["--urls", $"http://0.0.0.0:{LocalPort}"]);
+        _localPort = FindAvailablePort(PreferredLocalPort);
+        _lanBaseUrl = $"http://{GetLocalIpAddress()}:{_localPort}";
+        _api = LocalApiApplication.Build(["--urls", $"http://0.0.0.0:{_localPort}"]);
         await _api.StartAsync();
     }
 
@@ -120,10 +123,10 @@ public partial class MainForm : Form
             type = "host:context",
             context = new
             {
-                apiBaseUrl = $"http://127.0.0.1:{LocalPort}",
+                apiBaseUrl = $"http://127.0.0.1:{_localPort}",
                 lanBaseUrl = _lanBaseUrl,
                 operatorName = Environment.UserName,
-                port = LocalPort
+                port = _localPort
             }
         };
 
@@ -160,7 +163,7 @@ public partial class MainForm : Form
             return;
         }
 
-        OpenUrl($"http://127.0.0.1:{LocalPort}/examen/{Uri.EscapeDataString(accessCode)}");
+        OpenUrl($"{_lanBaseUrl}/examen/{Uri.EscapeDataString(accessCode)}");
     }
 
     private void ShowStartupError(string message)
@@ -191,6 +194,33 @@ public partial class MainForm : Form
             .ToList();
 
         return candidates.FirstOrDefault()?.Address ?? "127.0.0.1";
+    }
+
+    private static int FindAvailablePort(int preferredPort)
+    {
+        for (var port = preferredPort; port < preferredPort + 20; port++)
+        {
+            if (IsPortAvailable(port))
+            {
+                return port;
+            }
+        }
+
+        throw new InvalidOperationException($"No se encontro un puerto disponible entre {preferredPort} y {preferredPort + 19}.");
+    }
+
+    private static bool IsPortAvailable(int port)
+    {
+        try
+        {
+            using var listener = new TcpListener(IPAddress.Loopback, port);
+            listener.Start();
+            return true;
+        }
+        catch (SocketException)
+        {
+            return false;
+        }
     }
 
     private static void OpenUrl(string url)

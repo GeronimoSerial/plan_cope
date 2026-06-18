@@ -1,0 +1,74 @@
+{
+  "id": "mat-6-local-v1",
+  "examCode": "MAT-6-LOCAL",
+  "title": "Matematica 6 - Examen local",
+  "grade": "6",
+  "division": "A",
+  "subject": "Matematica",
+  "versionNumber": 1,
+  "assets": [
+    {
+      "id": "figura-rectangulos",
+      "fileName": "rectangulos.svg",
+      "mimeType": "image/svg+xml",
+      "contentBase64": "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNDAiIGhlaWdodD0iMTIwIj48cmVjdCB3aWR0aD0iMjQwIiBoZWlnaHQ9IjEyMCIgZmlsbD0iI2Y3ZjhmNSIvPjxyZWN0IHg9IjMwIiB5PSIzMCIgd2lkdGg9IjcwIiBoZWlnaHQ9IjUwIiBmaWxsPSIjZDlmMGVlIiBzdHJva2U9IiMwZjc2NmUiIHN0cm9rZS13aWR0aD0iNCIvPjxyZWN0IHg9IjE0MCIgeT0iMzAiIHdpZHRoPSI1MCIgaGVpZ2h0PSI1MCIgZmlsbD0iI2ZmZjRjYyIgc3Ryb2tlPSIjOGE2ZDAwIiBzdHJva2Utd2lkdGg9IjQiLz48L3N2Zz4="
+    }
+  ],
+  "blocks": [
+    {
+      "id": "intro",
+      "type": "text",
+      "config": {
+        "content": "Lee cada consigna con atencion. Puedes revisar tus respuestas antes de enviar."
+      }
+    },
+    {
+      "id": "figura",
+      "type": "image",
+      "config": {
+        "assetId": "figura-rectangulos",
+        "alt": "Dos rectangulos",
+        "caption": "Observa la imagen antes de responder."
+      }
+    },
+    {
+      "id": "pregunta-1",
+      "type": "multiple_choice",
+      "config": {
+        "question": "Cuanto es 18 + 24?",
+        "options": [
+          { "value": "38", "label": "38" },
+          { "value": "42", "label": "42" },
+          { "value": "44", "label": "44" }
+        ]
+      },
+      "validation": {
+        "required": true
+      },
+      "answerKey": {
+        "correctAnswer": "42",
+        "scoreValue": 1
+      }
+    },
+    {
+      "id": "pregunta-2",
+      "type": "true_false",
+      "config": {
+        "question": "El numero 9 es multiplo de 3."
+      },
+      "validation": {
+        "required": true
+      }
+    },
+    {
+      "id": "pregunta-3",
+      "type": "short_answer",
+      "config": {
+        "prompt": "Explica brevemente como resolverias 15 x 4."
+      },
+      "validation": {
+        "required": true
+      }
+    }
+  ]
+}

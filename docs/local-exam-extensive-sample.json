@@ -1,0 +1,197 @@
+{
+  "id": "demo-integrado-6-v1",
+  "examCode": "INT-6-DEMO-EXT",
+  "title": "Examen integrado 6 - Demo extenso",
+  "grade": "6",
+  "division": "Demo",
+  "subject": "Matematica, Ciencias y Lengua",
+  "versionNumber": 1,
+  "assets": [
+    {
+      "id": "mapa-rio-estaciones",
+      "fileName": "mapa-rio-estaciones.svg",
+      "mimeType": "image/svg+xml",
+      "contentBase64": "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI3MjAiIGhlaWdodD0iMzYwIiB2aWV3Qm94PSIwIDAgNzIwIDM2MCI+PHJlY3Qgd2lkdGg9IjcyMCIgaGVpZ2h0PSIzNjAiIGZpbGw9IiNmN2Y4ZjUiLz48cGF0aCBkPSJNOTAgMjQwIEMxNTAgMTYwLCAyMTAgMTgwLCAyNzAgMTEwIFM0MjAgODAsIDUwMCAxNTAgUzYxMCAxODAsIDY1MCA5NSIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMGY3NjZlIiBzdHJva2Utd2lkdGg9IjgiLz48Y2lyY2xlIGN4PSIxNTAiIGN5PSIxNzUiIHI9IjE4IiBmaWxsPSIjZDM4YjI1Ii8+PGNpcmNsZSBjeD0iMzU1IiBjeT0iODgiIHI9IjE4IiBmaWxsPSIjZDM4YjI1Ii8+PGNpcmNsZSBjeD0iNTg1IiBjeT0iMTY3IiByPSIxOCIgZmlsbD0iI2QzOGIyNSIvPjx0ZXh0IHg9IjExOCIgeT0iMjg4IiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMjQiIGZpbGw9IiMxNzIwMmEiPlJlY29ycmlkbyBkZWwgcmlvIHkgdHJlcyBlc3RhY2lvbmVzIGRlIG1lZGljaW9uPC90ZXh0Pjwvc3ZnPg=="
+    },
+    {
+      "id": "grafico-botellas",
+      "fileName": "grafico-botellas.svg",
+      "mimeType": "image/svg+xml",
+      "contentBase64": "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI3MjAiIGhlaWdodD0iMzgwIiB2aWV3Qm94PSIwIDAgNzIwIDM4MCI+PHJlY3Qgd2lkdGg9IjcyMCIgaGVpZ2h0PSIzODAiIGZpbGw9IiNmZmZmZmYiLz48bGluZSB4MT0iOTAiIHkxPSIzMTAiIHgyPSI2NTAiIHkyPSIzMTAiIHN0cm9rZT0iIzFhMjczMiIgc3Ryb2tlLXdpZHRoPSIzIi8+PGxpbmUgeDE9IjkwIiB5MT0iNjAiIHgyPSI5MCIgeTI9IjMxMCIgc3Ryb2tlPSIjMWEyNzMyIiBzdHJva2Utd2lkdGg9IjMiLz48cmVjdCB4PSIxNDAiIHk9IjIxMCIgd2lkdGg9IjY1IiBoZWlnaHQ9IjEwMCIgZmlsbD0iIzBmNzY2ZSIvPjxyZWN0IHg9IjI2MCIgeT0iMTYwIiB3aWR0aD0iNjUiIGhlaWdodD0iMTUwIiBmaWxsPSIjMGY3NjZlIi8+PHJlY3QgeD0iMzgwIiB5PSIxMTAiIHdpZHRoPSI2NSIgaGVpZ2h0PSIyMDAiIGZpbGw9IiMwZjc2NmUiLz48cmVjdCB4PSI1MDAiIHk9IjE4NSIgd2lkdGg9IjY1IiBoZWlnaHQ9IjEyNSIgZmlsbD0iIzBmNzY2ZSIvPjx0ZXh0IHg9IjEzNSIgeT0iMzQwIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMjAiPkx1bjwvdGV4dD48dGV4dCB4PSIyNTUiIHk9IjM0MCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjIwIj5NYXI8L3RleHQ+PHRleHQgeD0iMzc1IiB5PSIzNDAiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIyMCI+TWllPC90ZXh0Pjx0ZXh0IHg9IjQ5NSIgeT0iMzQwIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMjAiPkp1ZTwvdGV4dD48dGV4dCB4PSIxNjAiIHk9IjE5OCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjE4Ij4yMDwvdGV4dD48dGV4dCB4PSIyODAiIHk9IjE0OCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjE4Ij4zMDwvdGV4dD48dGV4dCB4PSI0MDAiIHk9Ijk4IiBmb250LWZhbWlseT0iMTgiPjQwPC90ZXh0Pjx0ZXh0IHg9IjUyMCIgeT0iMTczIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTgiPjI1PC90ZXh0Pjx0ZXh0IHg9IjE4MCIgeT0iNDIiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIyNCIgZmlsbD0iIzE3MjAyYSI+Qm90ZWxsYXMgcmVjb2xlY3RhZGFzIHBvciBkaWE8L3RleHQ+PC9zdmc+"
+    },
+    {
+      "id": "figuras-geometricas",
+      "fileName": "figuras-geometricas.svg",
+      "mimeType": "image/svg+xml",
+      "contentBase64": "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI3MjAiIGhlaWdodD0iMzIwIiB2aWV3Qm94PSIwIDAgNzIwIDMyMCI+PHJlY3Qgd2lkdGg9IjcyMCIgaGVpZ2h0PSIzMjAiIGZpbGw9IiNmOGZiZmEiLz48cmVjdCB4PSI4MCIgeT0iNzAiIHdpZHRoPSIxNTAiIGhlaWdodD0iOTAiIGZpbGw9IiNkOWYwZWUiIHN0cm9rZT0iIzBmNzY2ZSIgc3Ryb2tlLXdpZHRoPSI1Ii8+PHBvbHlnb24gcG9pbnRzPSIzNjAsNTUgNDUwLDIwNSAyNzAsMjA1IiBmaWxsPSIjZmZmNGNjIiBzdHJva2U9IiM4YTZkMDAiIHN0cm9rZS13aWR0aD0iNSIvPjxjaXJjbGUgY3g9IjU5MCIgY3k9IjE0NSIgcj0iNjIiIGZpbGw9IiNmN2Q3Y2UiIHN0cm9rZT0iI2ExM2QyZCIgc3Ryb2tlLXdpZHRoPSI1Ii8+PHRleHQgeD0iOTMiIHk9IjIxMCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjIyIj5GaWd1cmEgQTwvdGV4dD48dGV4dCB4PSIzMjIiIHk9IjI0NSIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjIyIj5GaWd1cmEgQjwvdGV4dD48dGV4dCB4PSI1NDgiIHk9IjI0NSIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjIyIj5GaWd1cmEgQzwvdGV4dD48L3N2Zz4="
+    }
+  ],
+  "blocks": [
+    {
+      "id": "intro-general",
+      "type": "text",
+      "config": {
+        "content": "Este examen integrado combina lectura, interpretacion de imagenes, matematica y ciencias. Responde con calma. Algunas preguntas son obligatorias y otras sirven para probar guardado parcial."
+      }
+    },
+    {
+      "id": "seccion-lectura",
+      "type": "text",
+      "config": {
+        "content": "Lee el siguiente texto: En una escuela cercana al rio, los estudiantes organizaron una jornada de observacion ambiental. Durante cuatro dias midieron residuos recolectados, dibujaron el recorrido del agua y compararon formas geometricas presentes en carteles y recipientes."
+      }
+    },
+    {
+      "id": "q-lectura-proposito",
+      "type": "multiple_choice",
+      "config": {
+        "question": "Cual fue el proposito principal de la jornada de observacion ambiental?",
+        "options": [
+          { "value": "competencia", "label": "Organizar una competencia deportiva" },
+          { "value": "ambiente", "label": "Observar y registrar informacion del ambiente" },
+          { "value": "viaje", "label": "Preparar un viaje de egresados" },
+          { "value": "venta", "label": "Vender materiales reciclables" }
+        ]
+      },
+      "validation": { "required": true },
+      "answerKey": { "correctAnswer": "ambiente", "scoreValue": 1 }
+    },
+    {
+      "id": "q-lectura-explica",
+      "type": "short_answer",
+      "config": {
+        "prompt": "Explica en una o dos oraciones por que registrar datos durante varios dias puede mejorar una observacion."
+      },
+      "validation": { "required": true }
+    },
+    {
+      "id": "mapa-rio",
+      "type": "image",
+      "config": {
+        "assetId": "mapa-rio-estaciones",
+        "alt": "Recorrido de un rio con tres estaciones de medicion",
+        "caption": "Imagen 1. Recorrido del rio y tres estaciones de medicion."
+      }
+    },
+    {
+      "id": "q-mapa-estaciones",
+      "type": "multiple_choice",
+      "config": {
+        "question": "Segun la imagen 1, cuantas estaciones de medicion se muestran?",
+        "options": [
+          { "value": "2", "label": "Dos" },
+          { "value": "3", "label": "Tres" },
+          { "value": "4", "label": "Cuatro" },
+          { "value": "5", "label": "Cinco" }
+        ]
+      },
+      "validation": { "required": true },
+      "answerKey": { "correctAnswer": "3", "scoreValue": 1 }
+    },
+    {
+      "id": "q-mapa-vf",
+      "type": "true_false",
+      "config": {
+        "question": "La imagen 1 muestra el recorrido del rio con una linea curva."
+      },
+      "validation": { "required": true },
+      "answerKey": { "correctAnswer": true, "scoreValue": 1 }
+    },
+    {
+      "id": "grafico-botellas",
+      "type": "image",
+      "config": {
+        "assetId": "grafico-botellas",
+        "alt": "Grafico de barras de botellas recolectadas por dia",
+        "caption": "Imagen 2. Botellas recolectadas entre lunes y jueves."
+      }
+    },
+    {
+      "id": "q-grafico-maximo",
+      "type": "multiple_choice",
+      "config": {
+        "question": "Que dia se recolectaron mas botellas?",
+        "options": [
+          { "value": "lunes", "label": "Lunes" },
+          { "value": "martes", "label": "Martes" },
+          { "value": "miercoles", "label": "Miercoles" },
+          { "value": "jueves", "label": "Jueves" }
+        ]
+      },
+      "validation": { "required": true },
+      "answerKey": { "correctAnswer": "miercoles", "scoreValue": 1 }
+    },
+    {
+      "id": "q-grafico-total",
+      "type": "short_answer",
+      "config": {
+        "prompt": "Suma las botellas de lunes, martes, miercoles y jueves. Escribe el total y muestra la cuenta."
+      },
+      "validation": { "required": true },
+      "answerKey": { "correctAnswer": "115", "scoreValue": 2 }
+    },
+    {
+      "id": "q-grafico-compara",
+      "type": "true_false",
+      "config": {
+        "question": "El martes se recolectaron 10 botellas mas que el lunes."
+      },
+      "validation": { "required": true },
+      "answerKey": { "correctAnswer": true, "scoreValue": 1 }
+    },
+    {
+      "id": "figuras",
+      "type": "image",
+      "config": {
+        "assetId": "figuras-geometricas",
+        "alt": "Rectangulo, triangulo y circulo",
+        "caption": "Imagen 3. Tres figuras geometricas identificadas como A, B y C."
+      }
+    },
+    {
+      "id": "q-figuras-a",
+      "type": "multiple_choice",
+      "config": {
+        "question": "Que figura corresponde a la Figura A?",
+        "options": [
+          { "value": "triangulo", "label": "Triangulo" },
+          { "value": "rectangulo", "label": "Rectangulo" },
+          { "value": "circulo", "label": "Circulo" },
+          { "value": "rombo", "label": "Rombo" }
+        ]
+      },
+      "validation": { "required": true },
+      "answerKey": { "correctAnswer": "rectangulo", "scoreValue": 1 }
+    },
+    {
+      "id": "q-figuras-c",
+      "type": "true_false",
+      "config": {
+        "question": "La Figura C es un circulo."
+      },
+      "validation": { "required": true },
+      "answerKey": { "correctAnswer": true, "scoreValue": 1 }
+    },
+    {
+      "id": "q-opcional-observacion",
+      "type": "short_answer",
+      "config": {
+        "prompt": "Pregunta opcional: escribe una observacion adicional sobre cualquiera de las imagenes."
+      },
+      "validation": { "required": false }
+    },
+    {
+      "id": "q-cierre-autoevaluacion",
+      "type": "multiple_choice",
+      "config": {
+        "question": "Como te resulto este examen de prueba?",
+        "options": [
+          { "value": "claro", "label": "Claro y facil de seguir" },
+          { "value": "medio", "label": "Entendible, con algunas dudas" },
+          { "value": "dificil", "label": "Dificil de completar" }
+        ]
+      },
+      "validation": { "required": false }
+    }
+  ]
+}

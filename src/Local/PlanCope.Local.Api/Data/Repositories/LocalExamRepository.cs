@@ -61,6 +61,156 @@ public sealed class LocalExamRepository(ILocalSqliteConnectionFactory connection
         return rows.Select(static row => row.ToDomain()).ToList();
     }
 
+    public async Task<LocalAsset?> GetAssetByIdAsync(string id, CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT id, remote_asset_id, local_exam_version_id, file_name, mime_type, checksum, local_path, synced_at
+            FROM local_assets
+            WHERE id = @Id
+            LIMIT 1;
+            """;
+
+        using var connection = connectionFactory.CreateOpenConnection();
+        var row = await connection.QuerySingleOrDefaultAsync<LocalAssetRow>(new CommandDefinition(sql, new { Id = id }, cancellationToken: cancellationToken));
+        return row?.ToDomain();
+    }
+
+    public async Task UpsertImportedExamAsync(
+        LocalExamVersion exam,
+        IReadOnlyList<LocalExamBlock> blocks,
+        IReadOnlyList<LocalAsset> assets,
+        IReadOnlyList<LocalAnswerKey> answerKeys,
+        CancellationToken cancellationToken = default)
+    {
+        const string upsertExamSql = """
+            INSERT INTO local_exam_versions (id, remote_exam_version_id, exam_code, version_number, checksum, metadata_json, schema_version, synced_at)
+            VALUES (@Id, @RemoteExamVersionId, @ExamCode, @VersionNumber, @Checksum, @MetadataJson, @SchemaVersion, @SyncedAt)
+            ON CONFLICT(id) DO UPDATE SET
+                remote_exam_version_id = excluded.remote_exam_version_id,
+                exam_code = excluded.exam_code,
+                version_number = excluded.version_number,
+                checksum = excluded.checksum,
+                metadata_json = excluded.metadata_json,
+                schema_version = excluded.schema_version,
+                synced_at = excluded.synced_at;
+            """;
+
+        const string upsertBlockSql = """
+            INSERT INTO local_exam_blocks (id, local_exam_version_id, remote_block_id, order_index, block_type, config_json, validation_json)
+            VALUES (@Id, @LocalExamVersionId, @RemoteBlockId, @OrderIndex, @BlockType, @ConfigJson, @ValidationJson)
+            ON CONFLICT(id) DO UPDATE SET
+                local_exam_version_id = excluded.local_exam_version_id,
+                remote_block_id = excluded.remote_block_id,
+                order_index = excluded.order_index,
+                block_type = excluded.block_type,
+                config_json = excluded.config_json,
+                validation_json = excluded.validation_json;
+            """;
+
+        const string upsertAssetSql = """
+            INSERT INTO local_assets (id, remote_asset_id, local_exam_version_id, file_name, mime_type, checksum, local_path, synced_at)
+            VALUES (@Id, @RemoteAssetId, @LocalExamVersionId, @FileName, @MimeType, @Checksum, @LocalPath, @SyncedAt)
+            ON CONFLICT(id) DO UPDATE SET
+                remote_asset_id = excluded.remote_asset_id,
+                local_exam_version_id = excluded.local_exam_version_id,
+                file_name = excluded.file_name,
+                mime_type = excluded.mime_type,
+                checksum = excluded.checksum,
+                local_path = excluded.local_path,
+                synced_at = excluded.synced_at;
+            """;
+
+        const string upsertAnswerKeySql = """
+            INSERT INTO local_answer_keys (id, local_exam_version_id, remote_block_id, correct_answer_json, score_value)
+            VALUES (@Id, @LocalExamVersionId, @RemoteBlockId, @CorrectAnswerJson, @ScoreValue)
+            ON CONFLICT(id) DO UPDATE SET
+                local_exam_version_id = excluded.local_exam_version_id,
+                remote_block_id = excluded.remote_block_id,
+                correct_answer_json = excluded.correct_answer_json,
+                score_value = excluded.score_value;
+            """;
+
+        using var connection = connectionFactory.CreateOpenConnection();
+        using var transaction = connection.BeginTransaction();
+
+        await connection.ExecuteAsync(new CommandDefinition(upsertExamSql, exam, transaction, cancellationToken: cancellationToken));
+
+        await DeleteMissingAsync(connection, transaction, "local_exam_blocks", "id", "local_exam_version_id", exam.Id, blocks.Select(static x => x.Id), cancellationToken);
+        await DeleteMissingAsync(connection, transaction, "local_assets", "id", "local_exam_version_id", exam.Id, assets.Select(static x => x.Id), cancellationToken);
+        await DeleteMissingAsync(connection, transaction, "local_answer_keys", "id", "local_exam_version_id", exam.Id, answerKeys.Select(static x => x.Id), cancellationToken);
+
+        foreach (var block in blocks)
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                upsertBlockSql,
+                new
+                {
+                    block.Id,
+                    block.LocalExamVersionId,
+                    block.RemoteBlockId,
+                    block.OrderIndex,
+                    BlockType = ToStorageBlockType(block.BlockType),
+                    block.ConfigJson,
+                    block.ValidationJson
+                },
+                transaction,
+                cancellationToken: cancellationToken));
+        }
+
+        foreach (var asset in assets)
+        {
+            await connection.ExecuteAsync(new CommandDefinition(upsertAssetSql, asset, transaction, cancellationToken: cancellationToken));
+        }
+
+        foreach (var answerKey in answerKeys)
+        {
+            await connection.ExecuteAsync(new CommandDefinition(upsertAnswerKeySql, answerKey, transaction, cancellationToken: cancellationToken));
+        }
+
+        transaction.Commit();
+    }
+
+    private static async Task DeleteMissingAsync(
+        System.Data.IDbConnection connection,
+        System.Data.IDbTransaction transaction,
+        string table,
+        string keyColumn,
+        string parentColumn,
+        string parentId,
+        IEnumerable<string> keptIds,
+        CancellationToken cancellationToken)
+    {
+        var ids = keptIds.ToArray();
+        if (ids.Length == 0)
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                $"DELETE FROM {table} WHERE {parentColumn} = @ParentId;",
+                new { ParentId = parentId },
+                transaction,
+                cancellationToken: cancellationToken));
+            return;
+        }
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            $"DELETE FROM {table} WHERE {parentColumn} = @ParentId AND {keyColumn} NOT IN @Ids;",
+            new { ParentId = parentId, Ids = ids },
+            transaction,
+            cancellationToken: cancellationToken));
+    }
+
+    private static string ToStorageBlockType(Shared.Domain.BlockType blockType)
+    {
+        return blockType switch
+        {
+            Shared.Domain.BlockType.Text => "text",
+            Shared.Domain.BlockType.Image => "image",
+            Shared.Domain.BlockType.MultipleChoice => "multiple_choice",
+            Shared.Domain.BlockType.TrueFalse => "true_false",
+            Shared.Domain.BlockType.ShortAnswer => "short_answer",
+            _ => blockType.ToString()
+        };
+    }
+
     private sealed class LocalExamVersionRow
     {
         public string Id { get; init; } = string.Empty;
@@ -104,6 +254,23 @@ public sealed class LocalExamRepository(ILocalSqliteConnectionFactory connection
                 "short_answer" => Shared.Domain.BlockType.ShortAnswer,
                 _ => Enum.Parse<Shared.Domain.BlockType>(blockType, ignoreCase: true)
             };
+        }
+    }
+
+    private sealed class LocalAssetRow
+    {
+        public string Id { get; init; } = string.Empty;
+        public string RemoteAssetId { get; init; } = string.Empty;
+        public string LocalExamVersionId { get; init; } = string.Empty;
+        public string FileName { get; init; } = string.Empty;
+        public string MimeType { get; init; } = string.Empty;
+        public string Checksum { get; init; } = string.Empty;
+        public string LocalPath { get; init; } = string.Empty;
+        public string SyncedAt { get; init; } = string.Empty;
+
+        public LocalAsset ToDomain()
+        {
+            return new LocalAsset(Id, RemoteAssetId, LocalExamVersionId, FileName, MimeType, Checksum, LocalPath, SyncedAt);
         }
     }
 }

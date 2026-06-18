@@ -82,6 +82,38 @@ export type ApiErrorPayload = {
   errors?: Record<string, string[]>;
 };
 
+export type LocalExamBlock = {
+  id: string;
+  localExamVersionId: string;
+  remoteBlockId: string;
+  orderIndex: number;
+  blockType: number | string;
+  configJson: string;
+  validationJson?: string | null;
+};
+
+export type StudentAttempt = {
+  id: string;
+  deliverySessionId: string;
+  studentCode: string;
+  status: string;
+  startedAt: string;
+  submittedAt?: string | null;
+  localSequence: number;
+  confirmationCode?: string | null;
+};
+
+export type StartAttemptResponse = {
+  attempt: StudentAttempt;
+  blocks: LocalExamBlock[];
+};
+
+export type SubmitAttemptResponse = {
+  attemptId: string;
+  confirmationCode: string;
+  submittedAt: string;
+};
+
 export type FormErrors = {
   cue?: string;
   classroomCode?: string;

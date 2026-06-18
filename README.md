@@ -22,6 +22,7 @@
 | Local — SQLite + DbUp | ✅ Completo | 11 tablas, 9 índices, migraciones embebidas (001 + 002) |
 | Local — Repositorios Dapper | ✅ Completo | 6 repositorios con SQL completo (User, Exam, Session, Attempt, Outbox, SyncState) |
 | Local — API bootstrap | ✅ Completo | API local arranca, inicializa SQLite y expone health endpoint |
+| Local — Examenes manuales | ✅ Inicial | Importacion JSON local con bloques, imagenes y requeridos basicos (`docs/local-exam-format.md`) |
 | Local — WinForms Host | ✅ Shell | `MainForm` inicia la API local y hospeda React en WebView2 |
 | Sync — Outbox local | ✅ Esquema | Tabla `sync_outbox` con reintentos y backoff |
 | Sync — Motor | ⏭️ Fase 3 | Contratos definidos; falta worker/service |
@@ -30,7 +31,7 @@
 | Swagger | ⏭️ Fase 3 | Paquete declarado; falta cableado |
 | Hashing (BCrypt) | ✅ Completo | Verificacion BCrypt integrada en login central |
 | Docker Compose | ⏭️ Fase 3 | Carpeta `deploy/` creada; faltan archivos |
-| Frontend (React/Vite) | ✅ Base | Workspace `ClientApp` dentro del host local, servido por WebView2 |
+| Frontend (React/Vite) | ✅ Base | Workspace `ClientApp` para operador y toma alumno, servido por WebView2/API local |
 | Tests | ⏭️ Fase 3 | Proyectos creados; falta implementar casos |
 | CI/CD | ⏭️ Fase 3 | Sin workflows todavía |
 
@@ -143,7 +144,7 @@ El host local ya no dibuja la interfaz con controles WinForms: ahora arranca la 
 | Componente | Estado | Detalle |
 |---|---|---|
 | Shell nativo | ✅ Completo | `MainForm` administra ciclo de vida de la API y WebView2 |
-| Frontend local | ✅ Base | Vite + React + TypeScript en `src/Local/PlanCope.Local.Host/ClientApp` |
+| Frontend local | ✅ Base | Vite + React + TypeScript para operador y alumnos en `src/Local/PlanCope.Local.Host/ClientApp` |
 | Puente nativo | ✅ Completo | `window.chrome.webview` recibe contexto del host |
 | API local | ✅ Base | CORS acotado para origen del host React |
 | Build integrado | ✅ Completo | `dotnet build` ejecuta `npm run build` del frontend |

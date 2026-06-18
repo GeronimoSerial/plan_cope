@@ -1,6 +1,8 @@
 using PlanCope.Local.Api.Data;
 using PlanCope.Local.Api.Endpoints;
 using PlanCope.Shared.Infrastructure.DependencyInjection;
+using Microsoft.Extensions.FileProviders;
+using PlanCope.Local.Api.Services;
 
 namespace PlanCope.Local.Api;
 
@@ -40,6 +42,15 @@ public static class LocalApiApplication
         }
 
         app.UseCors(HostUiCorsPolicy);
+        var clientDistPath = LocalClientAppFiles.FindDistPath();
+        if (clientDistPath is not null)
+        {
+            app.UseStaticFiles(new StaticFileOptions
+            {
+                FileProvider = new PhysicalFileProvider(clientDistPath),
+                RequestPath = string.Empty
+            });
+        }
 
         app.MapGet("/api/health", () => Results.Ok(new
         {
@@ -47,6 +58,7 @@ public static class LocalApiApplication
             service = "local-api"
         }));
         app.MapExamEndpoints();
+        app.MapAssetEndpoints();
         app.MapSessionEndpoints();
         app.MapAttemptEndpoints();
         app.MapSyncEndpoints();
