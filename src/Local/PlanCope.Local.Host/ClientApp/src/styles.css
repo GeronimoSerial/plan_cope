@@ -28,7 +28,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -130,6 +131,28 @@ select {
   min-height: 0;
 }
 
+.mode-tabs {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+}
+
+.mode-tab {
+  border: 1px solid var(--border);
+  padding: 10px 14px;
+  background: var(--surface);
+  color: var(--primary-dark);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mode-tab-active {
+  border-color: var(--primary);
+  background: #e8f3f1;
+  color: var(--primary-dark);
+}
+
 .panel {
   min-width: 0;
   padding: 24px;
@@ -196,6 +219,12 @@ select {
 
 .control[readonly] {
   color: var(--muted);
+}
+
+.textarea-control {
+  min-height: 92px;
+  padding-top: 10px;
+  resize: vertical;
 }
 
 .button {
@@ -341,6 +370,216 @@ select {
   gap: 18px;
   color: var(--muted);
   font-size: 13px;
+}
+
+.builder-page {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.builder-toolbar,
+.builder-section-header,
+.block-card-header,
+.asset-row,
+.answer-settings,
+.option-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.builder-toolbar {
+  justify-content: space-between;
+  padding: 20px 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.builder-toolbar h2 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.builder-actions,
+.block-actions,
+.builder-add-block {
+  display: flex;
+  gap: 8px;
+}
+
+.builder-actions .button,
+.builder-add-block .button,
+.asset-row .button,
+.option-list .button {
+  width: auto;
+}
+
+.builder-status {
+  padding: 12px 14px;
+  border: 1px solid rgba(0, 109, 119, 0.25);
+  background: #eef7f5;
+  color: var(--primary-dark);
+  font-weight: 700;
+}
+
+.builder-status p {
+  margin: 0;
+}
+
+.builder-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(360px, 0.85fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.builder-main,
+.builder-side,
+.block-list,
+.asset-list,
+.option-list {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.builder-side {
+  position: sticky;
+  top: 16px;
+}
+
+.builder-wide {
+  grid-column: 1 / -1;
+}
+
+.builder-file-button {
+  display: inline-grid;
+  place-items: center;
+  width: auto;
+  cursor: pointer;
+}
+
+.builder-file-button input,
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.asset-row {
+  justify-content: space-between;
+  padding: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+}
+
+.asset-row img {
+  width: 72px;
+  height: 54px;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  background: #ffffff;
+}
+
+.asset-row div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.asset-row span {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.block-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  border-radius: 8px;
+}
+
+.block-card-header {
+  justify-content: space-between;
+}
+
+.block-card-header div:first-child {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.block-card-header span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.mini-button {
+  min-height: 34px;
+  border: 1px solid var(--border);
+  padding: 0 10px;
+  background: #ffffff;
+  color: var(--primary-dark);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mini-button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.mini-button-danger {
+  color: var(--danger);
+}
+
+.answer-settings {
+  flex-wrap: wrap;
+  align-items: end;
+}
+
+.answer-settings > label:first-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  font-weight: 700;
+}
+
+.answer-settings .field {
+  min-width: 180px;
+  margin-bottom: 0;
+}
+
+.option-row {
+  align-items: start;
+}
+
+.option-row .control:first-child {
+  max-width: 180px;
+}
+
+.json-preview {
+  max-height: 70vh;
+  margin: 0;
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--border);
+  background: #17202a;
+  color: #f8fbfa;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .student-page {
@@ -527,6 +766,14 @@ select {
 
   .workspace {
     grid-template-columns: 1fr;
+  }
+
+  .builder-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .builder-side {
+    position: static;
   }
 }
 

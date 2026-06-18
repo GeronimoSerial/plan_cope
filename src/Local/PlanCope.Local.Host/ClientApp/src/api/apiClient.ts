@@ -5,12 +5,17 @@ import type {
   LocalSession,
   SessionProgress
 } from "../types";
+import type { LocalExamJson } from "../exam-builder/examTypes";
 
 export class ApiClient {
   constructor(private readonly baseUrl: string) {}
 
   getExams(signal?: AbortSignal): Promise<LocalExam[]> {
     return this.get<LocalExam[]>("/api/exams/", signal);
+  }
+
+  importExam(request: LocalExamJson, signal?: AbortSignal): Promise<unknown> {
+    return this.post<unknown>("/api/exams/import", request, signal);
   }
 
   createSession(request: CreateSessionRequest, signal?: AbortSignal): Promise<LocalSession> {
