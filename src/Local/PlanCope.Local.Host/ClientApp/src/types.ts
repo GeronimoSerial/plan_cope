@@ -81,3 +81,12 @@ export type ApiErrorPayload = {
   error?: string;
   errors?: Record<string, string[]>;
 };
+
+export type FormErrors = {
+  cue?: string;
+  classroomCode?: string;
+  expectedStudentCount?: string;
+  operatorName?: string;
+  selectedExamId?: string;
+  accessCode?: string;
+};

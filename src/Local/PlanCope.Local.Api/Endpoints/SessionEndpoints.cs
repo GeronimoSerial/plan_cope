@@ -19,6 +19,15 @@ public static class SessionEndpoints
             return Results.Ok(sessions);
         });
 
+        group.MapGet("/{idOrAccessCode}", async (
+            string idOrAccessCode,
+            ISessionRepository repository,
+            CancellationToken cancellationToken) =>
+        {
+            var session = await repository.GetByIdOrAccessCodeAsync(idOrAccessCode, cancellationToken);
+            return session is null ? Results.NotFound(new { error = "Session not found." }) : Results.Ok(session);
+        });
+
         group.MapPost("/", async (
             CreateSessionRequest request,
             IValidator<CreateSessionRequest> validator,
@@ -56,7 +65,7 @@ public static class SessionEndpoints
             CancellationToken cancellationToken) =>
         {
             var progress = await repository.GetProgressAsync(idOrAccessCode, cancellationToken);
-            return progress is null ? Results.NotFound() : Results.Ok(progress);
+            return progress is null ? Results.NotFound(new { error = "Session not found." }) : Results.Ok(progress);
         });
 
         group.MapPut("/{id}/status", async (

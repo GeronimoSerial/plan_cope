@@ -21,6 +21,12 @@ public sealed class ExamBlockValidator : AbstractValidator<ExamBlock>
     {
         var config = block.Config.RootElement;
 
+        if (block.BlockType is BlockType.Text &&
+            (!config.TryGetProperty("content", out var content) || content.ValueKind is not JsonValueKind.String))
+        {
+            context.AddFailure("config.content", "text requires a content string.");
+        }
+
         if (block.BlockType is BlockType.MultipleChoice)
         {
             if (!config.TryGetProperty("question", out var question) || question.ValueKind is not JsonValueKind.String)

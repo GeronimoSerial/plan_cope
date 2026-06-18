@@ -26,12 +26,16 @@ export function App() {
     <AppShell status={sessionState.status}>
       <SessionFormPanel
         classroomCode={sessionState.form.classroomCode}
+        activeSessions={sessionState.activeSessions}
         courses={sessionState.courses}
         divisions={sessionState.divisions}
         exams={sessionState.filteredExams}
+        formErrors={sessionState.formErrors}
         expectedStudentCount={sessionState.form.expectedStudentCount}
         isBusy={sessionState.isBusy}
+        isLoadingExams={sessionState.isLoadingExams}
         operatorName={sessionState.form.operatorName}
+        resumeAccessCode={sessionState.resumeAccessCode}
         schoolCode={sessionState.form.cue}
         schoolName={sessionState.schoolName}
         selectedCourse={sessionState.selectedCourse}
@@ -43,6 +47,9 @@ export function App() {
         onDivisionChange={sessionState.setSelectedDivision}
         onExpectedStudentCountChange={value => sessionState.updateForm("expectedStudentCount", value)}
         onOperatorNameChange={value => sessionState.updateForm("operatorName", value)}
+        onRefreshExams={() => sessionState.loadExams()}
+        onResumeAccessCodeChange={sessionState.setResumeAccessCode}
+        onResumeSession={sessionState.resumeSession}
         onSelectedExamChange={sessionState.setSelectedExamId}
       />
 

@@ -33,7 +33,10 @@ public static class LocalApiApplication
         using (var scope = app.Services.CreateScope())
         {
             scope.ServiceProvider.GetRequiredService<LocalDatabaseInitializer>().Initialize();
-            scope.ServiceProvider.GetRequiredService<LocalDemoExamSeeder>().SeedIfEmpty();
+            if (builder.Configuration.GetValue("Local:SeedDemoExam", true))
+            {
+                scope.ServiceProvider.GetRequiredService<LocalDemoExamSeeder>().SeedIfEmpty();
+            }
         }
 
         app.UseCors(HostUiCorsPolicy);

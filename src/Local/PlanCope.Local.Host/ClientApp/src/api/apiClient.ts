@@ -17,6 +17,14 @@ export class ApiClient {
     return this.post<LocalSession>("/api/sessions/", request, signal);
   }
 
+  getActiveSessions(signal?: AbortSignal): Promise<LocalSession[]> {
+    return this.get<LocalSession[]>("/api/sessions/active", signal);
+  }
+
+  getSession(idOrAccessCode: string, signal?: AbortSignal): Promise<LocalSession> {
+    return this.get<LocalSession>(`/api/sessions/${encodeURIComponent(idOrAccessCode)}`, signal);
+  }
+
   getSessionProgress(accessCode: string, signal?: AbortSignal): Promise<SessionProgress> {
     return this.get<SessionProgress>(`/api/sessions/${encodeURIComponent(accessCode)}/progress`, signal);
   }

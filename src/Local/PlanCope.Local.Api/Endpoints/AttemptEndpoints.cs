@@ -21,7 +21,7 @@ public static class AttemptEndpoints
 
             if (session is null)
             {
-                return Results.NotFound();
+                return Results.NotFound(new { error = "Session not found." });
             }
 
             if (session.Status is not "active")
@@ -62,7 +62,7 @@ public static class AttemptEndpoints
 
             if (attempt is null)
             {
-                return Results.NotFound();
+                return Results.NotFound(new { error = "Attempt not found." });
             }
 
             if (attempt.Status is not "in_progress")
@@ -89,7 +89,7 @@ public static class AttemptEndpoints
 
             if (attempt is null)
             {
-                return Results.NotFound();
+                return Results.NotFound(new { error = "Attempt not found." });
             }
 
             if (attempt.Status is not "in_progress")
