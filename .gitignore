@@ -5,6 +5,7 @@ TestResults/
 artifacts/
 node_modules/
 dist/
+.next/
 *.user
 *.suo
 *.db

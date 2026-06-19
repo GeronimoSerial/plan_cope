@@ -17,6 +17,10 @@ export class ApiClient {
     return this.post<unknown>("/api/exams/import", request, signal);
   }
 
+  pullExams(signal?: AbortSignal): Promise<unknown> {
+    return this.post<unknown>("/api/sync/pull-exams", {}, signal);
+  }
+
   createSession(request: CreateSessionRequest, signal?: AbortSignal): Promise<LocalSession> {
     return this.post<LocalSession>("/api/sessions/", request, signal);
   }

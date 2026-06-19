@@ -1,0 +1,13 @@
+{
+  "name": "plancope",
+  "private": true,
+  "workspaces": [
+    "src/Central/PlanCope.Central.Web",
+    "src/Local/PlanCope.Local.Host/ClientApp"
+  ],
+  "scripts": {
+    "central:web:dev": "npm run dev --workspace plancope-central-web",
+    "central:web:build": "npm run build --workspace plancope-central-web",
+    "local:host-ui:build": "npm run build --workspace plancope-local-host-ui"
+  }
+}
