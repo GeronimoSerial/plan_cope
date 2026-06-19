@@ -16,15 +16,25 @@ export function SessionEntryPanel({
   onStartAttempt
 }: SessionEntryPanelProps) {
   return (
-    <section className="student-panel">
-      <h2>Ingresar al examen</h2>
-      <Field label="Codigo de examen">
-        <TextInput value={sessionCode} onChange={onSessionCodeChange} />
-      </Field>
-      <ActionButton disabled={isBusy} onClick={onStartAttempt}>
-        {isBusy ? "Iniciando..." : "Comenzar"}
-      </ActionButton>
-      {error && <p className="student-error">{error}</p>}
+    <section className="student-gate">
+      <div className="student-card">
+        <p className="eyebrow">Acceso del alumno</p>
+        <h2>Ingresar al examen</h2>
+        <p className="student-card-copy">
+          Escribe el codigo que te indico el docente. Solo funciona dentro de la red de la escuela.
+        </p>
+        <Field label="Codigo de examen">
+          <TextInput
+            value={sessionCode}
+            placeholder="Ej. ABC-123"
+            onChange={value => onSessionCodeChange(value.toUpperCase())}
+          />
+        </Field>
+        <ActionButton disabled={isBusy || !sessionCode.trim()} onClick={onStartAttempt}>
+          {isBusy ? "Iniciando..." : "Comenzar"}
+        </ActionButton>
+        {error && <p className="error-banner">{error}</p>}
+      </div>
     </section>
   );
 }

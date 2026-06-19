@@ -10,7 +10,7 @@ export function StudentApp() {
   return (
     <StudentShell>
       {exam.confirmationCode ? (
-        <ExamConfirmationPanel code={exam.confirmationCode} />
+        <ExamConfirmationPanel code={exam.confirmationCode} submittedAt={exam.submittedAt} />
       ) : !exam.attemptId ? (
         <SessionEntryPanel
           sessionCode={exam.sessionCode}

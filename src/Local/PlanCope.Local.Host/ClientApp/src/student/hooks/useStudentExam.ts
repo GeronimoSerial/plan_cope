@@ -16,6 +16,7 @@ export function useStudentExam() {
   const [answers, setAnswers] = useState<AnswerMap>({});
   const [missingRequired, setMissingRequired] = useState<Set<string>>(new Set());
   const [confirmationCode, setConfirmationCode] = useState<string | null>(null);
+  const [submittedAt, setSubmittedAt] = useState<string | null>(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [isBusy, setIsBusy] = useState(false);
@@ -64,6 +65,7 @@ export function useStudentExam() {
       setAnswers({});
       setMissingRequired(new Set());
       setConfirmationCode(null);
+      setSubmittedAt(null);
       setStatus("");
     });
   }, [api, runBusy, sessionCode]);
@@ -87,6 +89,7 @@ export function useStudentExam() {
     await runBusy(async () => {
       const response = await api.submitAttempt(attemptId);
       setConfirmationCode(response.confirmationCode);
+      setSubmittedAt(response.submittedAt);
       setStatus("");
     });
   }, [api, attemptId, runBusy, saveAnswers]);
@@ -101,6 +104,7 @@ export function useStudentExam() {
     missingRequired,
     sessionCode,
     status,
+    submittedAt,
     saveAnswers,
     setAnswer,
     setSessionCode,

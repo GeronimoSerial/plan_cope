@@ -13,7 +13,7 @@ type ExamBlockProps = {
 export function ExamBlock({ block, number, value, isMissing, onChange }: ExamBlockProps) {
   const kind = getBlockKind(block);
   const validation = parseValidation(block);
-  const requiredMark = validation.required === true ? " *" : "";
+  const isRequired = validation.required === true;
 
   if (kind === "text") {
     const config = parseConfig<{ content?: string }>(block);
@@ -23,7 +23,7 @@ export function ExamBlock({ block, number, value, isMissing, onChange }: ExamBlo
   if (kind === "image") {
     const config = parseConfig<{ assetId?: string; alt?: string; caption?: string }>(block);
     return (
-      <section className="student-question">
+      <section id={block.id} className="student-question">
         <img
           className="student-image"
           src={`/api/assets/${encodeURIComponent(config.assetId ?? "")}`}
@@ -37,8 +37,8 @@ export function ExamBlock({ block, number, value, isMissing, onChange }: ExamBlo
   if (kind === "multiple_choice") {
     const config = parseConfig<{ question?: string; options?: Array<{ value: string; label: string }> }>(block);
     return (
-      <section className="student-question">
-        <QuestionTitle number={number} text={`${config.question ?? ""}${requiredMark}`} />
+      <section id={block.id} className="student-question">
+        <QuestionTitle number={number} text={config.question ?? ""} required={isRequired} />
         <div className="student-options">
           {(config.options ?? []).map(option => (
             <label className="student-option" key={option.value}>
@@ -61,8 +61,8 @@ export function ExamBlock({ block, number, value, isMissing, onChange }: ExamBlo
   if (kind === "true_false") {
     const config = parseConfig<{ question?: string }>(block);
     return (
-      <section className="student-question">
-        <QuestionTitle number={number} text={`${config.question ?? ""}${requiredMark}`} />
+      <section id={block.id} className="student-question">
+        <QuestionTitle number={number} text={config.question ?? ""} required={isRequired} />
         <div className="student-options">
           {[
             ["true", "Verdadero"],
@@ -87,8 +87,8 @@ export function ExamBlock({ block, number, value, isMissing, onChange }: ExamBlo
 
   const config = parseConfig<{ prompt?: string }>(block);
   return (
-    <section className="student-question">
-      <QuestionTitle number={number} text={`${config.prompt ?? ""}${requiredMark}`} />
+    <section id={block.id} className="student-question">
+      <QuestionTitle number={number} text={config.prompt ?? ""} required={isRequired} />
       <textarea rows={5} value={value} aria-label="Respuesta" onChange={event => onChange(event.target.value)} />
       {isMissing && <p className="student-error">Esta respuesta es obligatoria.</p>}
     </section>
