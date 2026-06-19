@@ -32,6 +32,7 @@
 | Hashing (BCrypt) | ✅ Completo | Verificacion BCrypt integrada en login central |
 | Docker Compose | ⏭️ Fase 3 | Carpeta `deploy/` creada; faltan archivos |
 | Frontend (React/Vite) | ✅ Base | Workspace `ClientApp` para operador y toma alumno, servido por WebView2/API local |
+| Central Web (Next.js) | ✅ Inicial | App `src/Central/PlanCope.Central.Web` para builder online y publicacion central |
 | Tests | ⏭️ Fase 3 | Proyectos creados; falta implementar casos |
 | CI/CD | ⏭️ Fase 3 | Sin workflows todavía |
 
@@ -93,7 +94,8 @@
 │   │   └── PlanCope.Shared.Infrastructure/ # FluentValidation, DI extensions
 │   ├── Central/
 │   │   ├── PlanCope.Central.Api/          # Web API + EF Core DbContext
-│   │   └── PlanCope.Central.Migrations/   # Design-time factory
+│   │   ├── PlanCope.Central.Migrations/   # Design-time factory
+│   │   └── PlanCope.Central.Web/          # Next.js builder online/admin central
 │   └── Local/
 │       ├── PlanCope.Local.Api/            # Web API + Dapper repos + DbUp
 │       └── PlanCope.Local.Host/           # WinForms shell + React/WebView2 host
@@ -134,6 +136,8 @@
 7. **CI/CD** — GitHub Actions (build + test + lint)
 8. **Frontend React/Vite** — consolidar `ClientApp`, componentes compartidos y flujo de operador
 9. **Hardening desktop** — Velopack y empaquetado `.exe`
+
+Ver tambien `docs/central-web-next-builder.md` para comandos y flujo de la Central Web Next.js.
 
 ---
 

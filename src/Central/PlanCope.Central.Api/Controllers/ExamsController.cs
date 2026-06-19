@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
@@ -136,6 +138,23 @@ public sealed class ExamsController(
         return CreatedAtAction(nameof(GetVersion), new { versionId = version.Id }, ToDto(version, [], [], []));
     }
 
+    [HttpGet("{examId}/versions")]
+    public async Task<ActionResult<IReadOnlyList<ExamVersionDto>>> ListVersions(string examId, CancellationToken cancellationToken)
+    {
+        var examExists = await dbContext.Exams.AnyAsync(x => x.Id == examId && x.DeletedAt == null, cancellationToken);
+        if (!examExists)
+        {
+            return NotFound();
+        }
+
+        var versions = await dbContext.ExamVersions
+            .Where(x => x.ExamId == examId)
+            .OrderByDescending(x => x.VersionNumber)
+            .ToListAsync(cancellationToken);
+
+        return Ok(versions.Select(version => ToDto(version, [], [], [])).ToList());
+    }
+
     [HttpGet("versions/{versionId}")]
     public async Task<ActionResult<ExamVersionDto>> GetVersion(string versionId, CancellationToken cancellationToken)
     {
@@ -161,13 +180,24 @@ public sealed class ExamsController(
         return Ok(ToDto(version, blocks, answerKeys, assets));
     }
 
+    [HttpPut("versions/{versionId}/blocks")]
+    public Task<ActionResult<BlockDto>> UpsertBlock(string versionId, UpsertBlockRequest request, CancellationToken cancellationToken)
+    {
+        return UpsertBlock(versionId, request.OrderIndex, request, cancellationToken);
+    }
+
     [HttpPut("versions/{versionId}/blocks/{orderIndex:int}")]
     public async Task<ActionResult<BlockDto>> UpsertBlock(string versionId, int orderIndex, UpsertBlockRequest request, CancellationToken cancellationToken)
     {
-        var versionExists = await dbContext.ExamVersions.AnyAsync(x => x.Id == versionId, cancellationToken);
-        if (!versionExists)
+        var version = await dbContext.ExamVersions.SingleOrDefaultAsync(x => x.Id == versionId, cancellationToken);
+        if (version is null)
         {
             return NotFound();
+        }
+
+        if (IsPublished(version))
+        {
+            return Conflict("Published exam versions are immutable. Create a new version before editing.");
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -204,6 +234,170 @@ public sealed class ExamsController(
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return Ok(ToDto(block));
+    }
+
+    [HttpPost("versions/{versionId}/assets")]
+    public async Task<ActionResult<AssetDto>> CreateAsset(string versionId, CreateAssetRequest request, CancellationToken cancellationToken)
+    {
+        var version = await dbContext.ExamVersions.SingleOrDefaultAsync(x => x.Id == versionId, cancellationToken);
+        if (version is null)
+        {
+            return NotFound();
+        }
+
+        if (IsPublished(version))
+        {
+            return Conflict("Published exam versions are immutable. Create a new version before editing.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.FileName) ||
+            string.IsNullOrWhiteSpace(request.MimeType) ||
+            !request.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ||
+            string.IsNullOrWhiteSpace(request.ContentBase64))
+        {
+            return BadRequest("fileName, image mimeType and contentBase64 are required.");
+        }
+
+        byte[] bytes;
+        try
+        {
+            bytes = Convert.FromBase64String(request.ContentBase64);
+        }
+        catch (FormatException)
+        {
+            return BadRequest("contentBase64 is not valid base64.");
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var asset = new ExamAsset(
+            NewId(),
+            versionId,
+            Path.GetFileName(request.FileName.Trim()),
+            request.MimeType.Trim(),
+            bytes.LongLength,
+            HexSha256(bytes),
+            $"base64:{request.ContentBase64}",
+            now);
+
+        dbContext.ExamAssets.Add(asset);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return CreatedAtAction(nameof(GetVersion), new { versionId }, ToDto(asset));
+    }
+
+    [HttpPost("versions/{versionId}/publish")]
+    public async Task<ActionResult<PublishExamVersionResponse>> PublishVersion(string versionId, PublishExamVersionRequest request, CancellationToken cancellationToken)
+    {
+        var version = await dbContext.ExamVersions.SingleOrDefaultAsync(x => x.Id == versionId, cancellationToken);
+        if (version is null)
+        {
+            return NotFound();
+        }
+
+        if (IsPublished(version))
+        {
+            return Conflict("Exam version is already published.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Grade))
+        {
+            ModelState.AddModelError(nameof(request.Grade), "Grade/course is required.");
+            return ValidationProblem(ModelState);
+        }
+
+        var exam = await dbContext.Exams.SingleAsync(x => x.Id == version.ExamId, cancellationToken);
+        var blocks = await dbContext.ExamBlocks
+            .Where(x => x.ExamVersionId == versionId)
+            .OrderBy(x => x.OrderIndex)
+            .ToListAsync(cancellationToken);
+
+        if (blocks.Count == 0)
+        {
+            ModelState.AddModelError("blocks", "At least one block is required before publishing.");
+            return ValidationProblem(ModelState);
+        }
+
+        foreach (var block in blocks)
+        {
+            var validation = await blockValidator.ValidateAsync(block, cancellationToken);
+            if (!validation.IsValid)
+            {
+                return BadRequest(new ValidationProblemDetails(validation.ToDictionary()));
+            }
+        }
+
+        var answerKeys = await dbContext.AnswerKeys
+            .Where(x => blocks.Select(block => block.Id).Contains(x.ExamBlockId))
+            .ToListAsync(cancellationToken);
+        var assets = await dbContext.ExamAssets
+            .Where(x => x.ExamVersionId == versionId)
+            .OrderBy(x => x.FileName)
+            .ToListAsync(cancellationToken);
+
+        var missingAssetReferences = blocks
+            .Where(static block => block.BlockType is PlanCope.Shared.Domain.BlockType.Image)
+            .Select(block => block.Config.RootElement.TryGetProperty("assetId", out var assetId) ? assetId.GetString() : null)
+            .Where(assetId => !string.IsNullOrWhiteSpace(assetId) && assets.All(asset => asset.Id != assetId))
+            .ToList();
+
+        if (missingAssetReferences.Count > 0)
+        {
+            ModelState.AddModelError("assets", "One or more image blocks reference assets that do not exist.");
+            return ValidationProblem(ModelState);
+        }
+
+        var targets = BuildTargets(request, exam);
+        var publishedAssets = assets.Select(ToPublishedDto).ToList();
+        var checksumPayload = JsonSerializer.Serialize(new
+        {
+            ExamId = exam.Id,
+            exam.Code,
+            exam.Title,
+            VersionId = version.Id,
+            version.VersionNumber,
+            version.SchemaVersion,
+            Metadata = ToJsonElement(version.Metadata),
+            Blocks = blocks.Select(ToDto),
+            AnswerKeys = answerKeys.Select(ToDto),
+            Assets = publishedAssets,
+            Targets = targets
+        });
+        var checksum = HexSha256(Encoding.UTF8.GetBytes(checksumPayload));
+        var now = DateTimeOffset.UtcNow;
+        var package = new PublicationPackage(
+            NewId(),
+            versionId,
+            1,
+            checksum,
+            ToJsonDocument(JsonSerializer.SerializeToElement(new
+            {
+                examId = exam.Id,
+                examCode = exam.Code,
+                title = exam.Title,
+                versionId = version.Id,
+                versionNumber = version.VersionNumber,
+                schemaVersion = version.SchemaVersion,
+                targets
+            })),
+            "Published",
+            now,
+            now);
+
+        dbContext.PublicationPackages.Add(package);
+        dbContext.PublicationTargets.AddRange(targets.Select(target => new PublicationTarget(
+            NewId(),
+            package.Id,
+            target.TargetType,
+            target.TargetId,
+            now,
+            now)));
+
+        var publishedVersion = version with { Status = "Published", PublishedAt = now, UpdatedAt = now };
+        dbContext.Entry(version).CurrentValues.SetValues(publishedVersion);
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return Ok(new PublishExamVersionResponse(package.Id, versionId, package.PackageVersion, checksum, targets));
     }
 
     private static ExamVersionDto ToDto(
@@ -259,6 +453,48 @@ public sealed class ExamsController(
             asset.StoragePath);
     }
 
+    private static PublishedAssetDto ToPublishedDto(ExamAsset asset)
+    {
+        var contentBase64 = asset.StoragePath.StartsWith("base64:", StringComparison.Ordinal)
+            ? asset.StoragePath["base64:".Length..]
+            : string.Empty;
+
+        return new PublishedAssetDto(
+            asset.Id,
+            asset.ExamVersionId,
+            asset.FileName,
+            asset.MimeType,
+            asset.SizeBytes,
+            asset.Checksum,
+            contentBase64);
+    }
+
+    private static IReadOnlyList<PublicationTargetDto> BuildTargets(PublishExamVersionRequest request, Exam exam)
+    {
+        var targets = new List<PublicationTargetDto>
+        {
+            new("grade", request.Grade.Trim())
+        };
+
+        var subject = request.Subject ?? exam.Subject;
+        if (!string.IsNullOrWhiteSpace(subject))
+        {
+            targets.Add(new PublicationTargetDto("subject", subject.Trim()));
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Division))
+        {
+            targets.Add(new PublicationTargetDto("division", request.Division.Trim()));
+        }
+
+        return targets;
+    }
+
+    private static bool IsPublished(ExamVersion version)
+    {
+        return string.Equals(version.Status, "Published", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static JsonDocument ToJsonDocument(JsonElement value)
     {
         return JsonDocument.Parse(value.GetRawText());
@@ -277,6 +513,11 @@ public sealed class ExamsController(
     private static string NewId()
     {
         return Guid.NewGuid().ToString("N");
+    }
+
+    private static string HexSha256(byte[] bytes)
+    {
+        return Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
     }
 
     private static bool IsUniqueConstraintViolation(DbUpdateException exception)

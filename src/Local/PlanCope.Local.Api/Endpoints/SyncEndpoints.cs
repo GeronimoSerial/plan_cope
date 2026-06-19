@@ -1,6 +1,7 @@
 using System.Text.Json;
 using PlanCope.Local.Api.Data;
 using PlanCope.Local.Api.Data.Repositories;
+using PlanCope.Local.Api.Services;
 
 namespace PlanCope.Local.Api.Endpoints;
 
@@ -32,6 +33,16 @@ public static class SyncEndpoints
                 centralUrl = ReadJsonString(centralUrl?.ValueJson),
                 database = databaseOptions.ConnectionString
             });
+        });
+
+        group.MapPost("/pull-exams", async (
+            LocalExamPullService pullService,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await pullService.PullAsync(cancellationToken);
+            return result.Success
+                ? Results.Ok(result)
+                : Results.BadRequest(result);
         });
 
         return endpoints;

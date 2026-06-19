@@ -22,6 +22,8 @@ public static class LocalDataServiceCollectionExtensions
         services.AddScoped<LocalDemoExamSeeder>();
         services.AddScoped<LocalAssetFileService>();
         services.AddScoped<LocalExamImportService>();
+        services.AddScoped<LocalExamPullService>();
+        services.AddHttpClient(nameof(LocalExamPullService));
         services.AddScoped<ILocalUserRepository, LocalUserRepository>();
         services.AddScoped<ILocalExamRepository, LocalExamRepository>();
         services.AddScoped<ISessionRepository, SessionRepository>();

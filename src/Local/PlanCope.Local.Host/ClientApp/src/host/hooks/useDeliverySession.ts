@@ -56,6 +56,22 @@ export function useDeliverySession(hostContext: HostContext) {
     }
   }, [api, hostContext.lanBaseUrl]);
 
+  const refreshExams = useCallback(async (signal?: AbortSignal) => {
+    setIsLoadingExams(true);
+    setError(null);
+    setStatus("Sincronizando examenes...");
+
+    try {
+      await api.pullExams(signal);
+    } catch (exception) {
+      if (!signal?.aborted) {
+        setError(exception instanceof Error ? exception.message : "No se pudo sincronizar con Central; se mostrara el catalogo local.");
+      }
+    }
+
+    await loadExams(signal);
+  }, [api, loadExams]);
+
   const loadActiveSessions = useCallback(async (signal?: AbortSignal) => {
     try {
       const sessions = await api.getActiveSessions(signal);
@@ -72,11 +88,11 @@ export function useDeliverySession(hostContext: HostContext) {
   useEffect(() => {
     const controller = new AbortController();
 
-    void loadExams(controller.signal);
+    void refreshExams(controller.signal);
     void loadActiveSessions(controller.signal);
 
     return () => controller.abort();
-  }, [loadActiveSessions, loadExams]);
+  }, [loadActiveSessions, refreshExams]);
 
   const filteredExams = useMemo(
     () => filterExams(exams, selectedCourse, selectedDivision),
@@ -196,7 +212,7 @@ export function useDeliverySession(hostContext: HostContext) {
       setSelectedCourse,
       setSelectedDivision,
       setSelectedExamId,
-      loadExams
+      loadExams: refreshExams
     },
     sessionForm: {
       form,
