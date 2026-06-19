@@ -43,3 +43,16 @@ public sealed record CreateAssetRequest(string FileName, string MimeType, string
 public sealed record PublishExamVersionRequest(string? Subject, string Grade, string? Division);
 
 public sealed record PublishExamVersionResponse(string PackageId, string ExamVersionId, int PackageVersion, string Checksum, IReadOnlyList<PublicationTargetDto> Targets);
+
+// Contrato canonico: reemplaza el documento completo de una version (bloques + answer keys) en una sola operacion.
+public sealed record ReplaceExamDocumentRequest(JsonElement? Metadata, IReadOnlyList<DocumentBlockDto> Blocks);
+
+public sealed record DocumentBlockDto(
+    int OrderIndex,
+    BlockType BlockType,
+    string? Title,
+    string? Description,
+    JsonElement Config,
+    JsonElement? Validation,
+    JsonElement? CorrectAnswer,
+    decimal? ScoreValue);

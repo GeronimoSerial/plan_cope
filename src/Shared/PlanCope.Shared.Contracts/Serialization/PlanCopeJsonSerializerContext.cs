@@ -25,6 +25,8 @@ namespace PlanCope.Shared.Contracts.Serialization;
 [JsonSerializable(typeof(CreateAssetRequest))]
 [JsonSerializable(typeof(PublishExamVersionRequest))]
 [JsonSerializable(typeof(PublishExamVersionResponse))]
+[JsonSerializable(typeof(ReplaceExamDocumentRequest))]
+[JsonSerializable(typeof(DocumentBlockDto))]
 [JsonSerializable(typeof(CreateSessionRequest))]
 [JsonSerializable(typeof(UpdateSessionStatusRequest))]
 [JsonSerializable(typeof(StartAttemptRequest))]
