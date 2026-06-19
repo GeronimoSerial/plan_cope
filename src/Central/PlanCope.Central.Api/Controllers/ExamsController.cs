@@ -400,6 +400,98 @@ public sealed class ExamsController(
         return Ok(new PublishExamVersionResponse(package.Id, versionId, package.PackageVersion, checksum, targets));
     }
 
+    [HttpPut("versions/{versionId}/document")]
+    public async Task<ActionResult<ExamVersionDto>> ReplaceDocument(string versionId, ReplaceExamDocumentRequest request, CancellationToken cancellationToken)
+    {
+        var version = await dbContext.ExamVersions.SingleOrDefaultAsync(x => x.Id == versionId, cancellationToken);
+        if (version is null)
+        {
+            return NotFound();
+        }
+
+        if (IsPublished(version))
+        {
+            return Conflict("Published exam versions are immutable. Create a new version before editing.");
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var newBlocks = new List<ExamBlock>();
+        var newAnswerKeys = new List<AnswerKey>();
+
+        var fallbackOrder = 0;
+        foreach (var item in request.Blocks)
+        {
+            var block = new ExamBlock(
+                NewId(),
+                versionId,
+                item.OrderIndex >= 0 ? item.OrderIndex : fallbackOrder,
+                item.BlockType,
+                item.Title,
+                item.Description,
+                ToJsonDocument(item.Config),
+                ToJsonDocument(item.Validation),
+                now,
+                now);
+
+            var validation = await blockValidator.ValidateAsync(block, cancellationToken);
+            if (!validation.IsValid)
+            {
+                return BadRequest(new ValidationProblemDetails(validation.ToDictionary()));
+            }
+
+            newBlocks.Add(block);
+
+            if (item.CorrectAnswer is { ValueKind: not JsonValueKind.Null and not JsonValueKind.Undefined } correctAnswer)
+            {
+                newAnswerKeys.Add(new AnswerKey(
+                    NewId(),
+                    block.Id,
+                    ToJsonDocument(correctAnswer),
+                    item.ScoreValue,
+                    null,
+                    now,
+                    now));
+            }
+
+            fallbackOrder++;
+        }
+
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        var existingBlocks = await dbContext.ExamBlocks
+            .Where(x => x.ExamVersionId == versionId)
+            .ToListAsync(cancellationToken);
+        var existingBlockIds = existingBlocks.Select(x => x.Id).ToList();
+
+        var existingAnswerKeys = await dbContext.AnswerKeys
+            .Where(x => existingBlockIds.Contains(x.ExamBlockId))
+            .ToListAsync(cancellationToken);
+        var existingOptions = await dbContext.ExamBlockOptions
+            .Where(x => existingBlockIds.Contains(x.ExamBlockId))
+            .ToListAsync(cancellationToken);
+        var existingUsages = await dbContext.AssetUsages
+            .Where(x => existingBlockIds.Contains(x.ExamBlockId))
+            .ToListAsync(cancellationToken);
+
+        dbContext.AnswerKeys.RemoveRange(existingAnswerKeys);
+        dbContext.ExamBlockOptions.RemoveRange(existingOptions);
+        dbContext.AssetUsages.RemoveRange(existingUsages);
+        dbContext.ExamBlocks.RemoveRange(existingBlocks);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        dbContext.ExamBlocks.AddRange(newBlocks);
+        dbContext.AnswerKeys.AddRange(newAnswerKeys);
+
+        var metadata = request.Metadata.HasValue ? ToJsonDocument(request.Metadata.Value) : version.Metadata;
+        var updatedVersion = version with { Metadata = metadata, UpdatedAt = now };
+        dbContext.Entry(version).CurrentValues.SetValues(updatedVersion);
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return await GetVersion(versionId, cancellationToken);
+    }
+
     private static ExamVersionDto ToDto(
         ExamVersion version,
         IReadOnlyList<ExamBlock> blocks,

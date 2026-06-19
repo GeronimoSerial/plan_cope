@@ -6,13 +6,20 @@ using PlanCope.Central.Api.Auth;
 using PlanCope.Central.Api.Data;
 using PlanCope.Shared.Infrastructure.DependencyInjection;
 using System.Text;
+using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
 var connectionString = builder.Configuration.GetConnectionString("CentralDatabase") ??
                        "Host=localhost;Port=5432;Database=plan_cope_central;Username=plancope;Password=plancope";
 
-builder.Services.AddControllers();
+builder.Services
+    .AddControllers()
+    .AddJsonOptions(options =>
+    {
+        // Enums como string (BlockType, etc.) para un contrato consistente con el frontend.
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -77,6 +84,20 @@ if (app.Environment.IsDevelopment())
     app.UseDeveloperExceptionPage();
     app.UseSwagger();
     app.UseSwaggerUI();
+
+    // Las migraciones se aplican con `dotnet ef database update` (proyecto PlanCope.Central.Migrations).
+    // Aca solo sembramos el usuario de testing; si el esquema no existe todavia, lo avisamos sin tumbar el arranque.
+    using var scope = app.Services.CreateScope();
+    var dbContext = scope.ServiceProvider.GetRequiredService<PlanCopeDbContext>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    try
+    {
+        await DevelopmentSeeder.SeedAsync(dbContext, app.Configuration, logger);
+    }
+    catch (Exception exception)
+    {
+        logger.LogWarning(exception, "No se pudo sembrar el usuario de testing. ¿Corriste 'dotnet ef database update'?");
+    }
 }
 
 app.UseHttpsRedirection();
