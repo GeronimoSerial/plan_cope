@@ -1,62 +1,73 @@
-# Plan Cope — Informe Ejecutivo de Estado
+# Plan Cope
 
 **Plataforma de evaluaciones offline-first para la Provincia de Corrientes.**
+
 500–2000 escuelas · 20K–100K estudiantes · .NET 8 · PostgreSQL + SQLite
 
 ---
 
-## Estado general: Fase 1 — Fundaciones técnicas (cerrada)
+## Estado general: Fase 3 en curso — Sync, publicación y operación
 
-**Resultado de la fase**: base técnica completa y compilando en limpio (`dotnet build PlanCope.slnx`), lista para pasar a implementación funcional en la siguiente etapa.
+La base técnica (Fases 1 y 2) está cerrada y compilando. El proyecto avanza hacia un flujo end-to-end: **crear examen en la nube → publicar → descargar en el nodo local → operar toma en la escuela**.
 
 | Área | Estado | Detalle |
 |---|---|---|
 | Modelo de dominio | ✅ Completo | 22 entidades centrales + 13 locales (records inmutables) |
 | Value objects | ✅ Completo | `ExamCode`, `CueCode`, `Grade` con validación |
 | Enums | ✅ Completo | 8 tipos (`BlockType`, `ExamStatus`, `SyncDirection`, etc.) |
-| Contratos API (DTOs) | ✅ Completo | 29 tipos de request/response + source-gen JSON |
-| Validación (FluentValidation) | ✅ Completo | 5 validadores registrados en DI compartido |
+| Contratos API (DTOs) | ✅ Completo | Auth, Exams, Sync y Local con source-gen JSON |
+| Validación (FluentValidation) | ✅ Completo | Validadores registrados en DI compartido |
 | Central — EF Core | ✅ Esquema | DbContext + 24 entity configurations (6 esquemas PostgreSQL) |
-| Central — Migraciones SQL | ✅ Completo | Migracion inicial EF Core generada para PostgreSQL |
-| Central — Controladores | ✅ Fase 2 | `HealthController`, Auth y Exam inicial implementados |
-| Local — SQLite + DbUp | ✅ Completo | 11 tablas, 9 índices, migraciones embebidas (001 + 002) |
-| Local — Repositorios Dapper | ✅ Completo | 6 repositorios con SQL completo (User, Exam, Session, Attempt, Outbox, SyncState) |
-| Local — API bootstrap | ✅ Completo | API local arranca, inicializa SQLite y expone health endpoint |
-| Local — Examenes manuales | ✅ Inicial | Importacion JSON local con bloques, imagenes y requeridos basicos (`docs/local-exam-format.md`) |
-| Local — WinForms Host | ✅ Shell | `MainForm` inicia la API local y hospeda React en WebView2 |
-| Sync — Outbox local | ✅ Esquema | Tabla `sync_outbox` con reintentos y backoff |
-| Sync — Motor | ⏭️ Fase 3 | Contratos definidos; falta worker/service |
-| Auth / JWT | ✅ Completo | Middleware JWT + login, refresh y perfil en Central |
-| Logging (Serilog) | ⏭️ Fase 3 | Paquete declarado; falta configuración |
-| Swagger | ⏭️ Fase 3 | Paquete declarado; falta cableado |
-| Hashing (BCrypt) | ✅ Completo | Verificacion BCrypt integrada en login central |
-| Docker Compose | ⏭️ Fase 3 | Carpeta `deploy/` creada; faltan archivos |
-| Frontend (React/Vite) | ✅ Base | Workspace `ClientApp` para operador y toma alumno, servido por WebView2/API local |
-| Central Web (Next.js) | ✅ Inicial | App `src/Central/PlanCope.Central.Web` para builder online y publicacion central |
-| Tests | ⏭️ Fase 3 | Proyectos creados; falta implementar casos |
-| CI/CD | ⏭️ Fase 3 | Sin workflows todavía |
+| Central — Migraciones SQL | ✅ Completo | `InitialCreate` para PostgreSQL |
+| Central — Auth | ✅ Completo | Login, refresh, perfil; JWT Bearer + BCrypt |
+| Central — Exámenes | ✅ Funcional | CRUD, versiones, bloques, assets, documento unificado |
+| Central — Publicación | ✅ Inicial | `POST /api/exams/versions/{id}/publish` + paquetes y targets |
+| Central — Sync pull | ✅ Inicial | `GET /api/sync/pull` con cursor y paquetes publicados |
+| Central — Swagger | ✅ Dev | OpenAPI + JWT en entorno Development |
+| Central Web (Next.js) | ✅ Funcional | Login, dashboard, exámenes, builder online y publicación |
+| Local — SQLite + DbUp | ✅ Completo | 11 tablas, 9 índices, migraciones embebidas |
+| Local — Repositorios Dapper | ✅ Completo | User, Exam, Session, Attempt, Outbox, SyncState |
+| Local — API | ✅ Funcional | Health, sesiones, importación JSON, sync status y pull |
+| Local — Sync pull | ✅ Inicial | `LocalExamPullService` + `POST /api/sync/pull-exams` |
+| Local — Sync push / outbox worker | ⏭️ Pendiente | Tabla `sync_outbox` lista; sin worker ni endpoint push central |
+| Local — WinForms Host | ✅ Shell | `MainForm` + WebView2 hospeda React (operador + alumno) |
+| Local — ClientApp | ✅ Base | Gate escuela, consola de sesiones, toma de examen, builder local |
+| Tests .NET | 🟡 Parcial | `LocalExamImportTests`, `LocalSessionFlowTests` |
+| Tests Central Web | 🟡 Parcial | Vitest: schemas Zod y mappers |
+| Logging (Serilog) | ⏭️ Pendiente | Paquete declarado; sin configuración |
+| Docker Compose | ⏭️ Pendiente | Carpeta `deploy/` vacía |
+| CI/CD | ⏭️ Pendiente | Sin workflows de GitHub Actions |
+| Empaquetado desktop (Velopack) | ⏭️ Pendiente | Planificado para distribución `.exe` |
 
 ---
 
 ## Arquitectura
 
-```
-┌──────────────────────────────────┐     ┌──────────────────────────────┐
-│         CENTRAL (Nube)           │     │       LOCAL (Escuela)        │
-│                                  │     │                              │
-│  PostgreSQL 16                   │     │  SQLite (WAL)                │
-│  EF Core (6 schemas)             │     │  Dapper + DbUp               │
-│  ASP.NET Core Web API            │     │  ASP.NET Core Web API        │
-│                                  │     │  WinForms + WebView2 Host    │
-│  ┌──────────────────────────┐   │     │                              │
-│  │ Sync Protocol:           │   │     │  ┌────────────────────────┐  │
-│  │  Pull (cursor-based) ◄───┼───┼─────┼──┤ sync_outbox (push)     │  │
-│  │  Push (idempotent) ──────┼───┼─────┼──┤ con reintentos         │  │
-│  └──────────────────────────┘   │     │  └────────────────────────┘  │
-└──────────────────────────────────┘     └──────────────────────────────┘
+```mermaid
+flowchart LR
+  subgraph Central["Central (Nube)"]
+    PG[(PostgreSQL 16)]
+    API["ASP.NET Core API"]
+    WEB["Next.js Central Web"]
+    PG --> API
+    WEB -->|BFF /api/central| API
+  end
+
+  subgraph Local["Local (Escuela)"]
+    SQL[(SQLite WAL)]
+    LAPI["ASP.NET Core API"]
+    HOST["WinForms + WebView2"]
+    UI["React ClientApp"]
+    SQL --> LAPI
+    HOST --> LAPI
+    HOST --> UI
+  end
+
+  LAPI -->|GET /api/sync/pull| API
+  LAPI -.->|push outbox — pendiente| API
 ```
 
-**Decisión clave**: dos ORM distintos — EF Core para el modelo relacional complejo del central, Dapper + SQL crudo para el nodo local liviano.
+**Decisión clave:** EF Core en Central para el modelo relacional complejo; Dapper + SQL crudo en el nodo local liviano.
 
 ---
 
@@ -64,17 +75,15 @@
 
 | Capa | Tecnología | Versión |
 |---|---|---|
-| Runtime | .NET | 8.0 |
+| Runtime | .NET SDK | 10.0.301 (target .NET 8) |
 | Central DB | PostgreSQL + Npgsql EF Core | 8.0.4 |
 | Local DB | SQLite + Dapper + DbUp | 8.0.6 / 2.1.35 / 5.0.40 |
-| Validación | FluentValidation | 11.11.0 |
-| Serialización | System.Text.Json (source-gen) | — |
-| Desktop | Windows Forms | — |
+| Central API | ASP.NET Core + JWT + Swagger | 8.x |
+| Central Web | Next.js + React + Zod + dnd-kit | 16.2.9 / 19.2.7 |
+| Local UI | Vite + React + TypeScript | latest |
+| Validación | FluentValidation + Zod | 11.11.0 / 4.4.3 |
 | Auth | JWT Bearer + BCrypt | 8.0.6 / 4.0.3 |
-| Logging (plan) | Serilog | 8.0.1 |
-| API Docs (plan) | Swashbuckle | 6.6.2 |
-| Actualización (plan) | Velopack | 0.0.1191 |
-| Embed. browser (plan) | WebView2 | 1.0.2792.45 |
+| Desktop | Windows Forms + WebView2 | — |
 
 ---
 
@@ -83,78 +92,152 @@
 ```
 .
 ├── PlanCope.slnx
-├── Directory.Build.props          # Nullable, ImplicitUsings, TreatWarningsAsErrors
-├── Directory.Packages.props       # Versiones centralizadas de NuGet
-├── global.json                    # SDK 10.0.301
-├── NuGet.config
+├── package.json                   # npm workspaces (Central Web + Local Host UI)
+├── Directory.Build.props
+├── Directory.Packages.props
+├── global.json
 ├── src/
 │   ├── Shared/
-│   │   ├── PlanCope.Shared.Domain/        # Entidades, value objects, enums
-│   │   ├── PlanCope.Shared.Contracts/     # DTOs, source-gen JSON context
-│   │   └── PlanCope.Shared.Infrastructure/ # FluentValidation, DI extensions
+│   │   ├── PlanCope.Shared.Domain/
+│   │   ├── PlanCope.Shared.Contracts/
+│   │   └── PlanCope.Shared.Infrastructure/
 │   ├── Central/
-│   │   ├── PlanCope.Central.Api/          # Web API + EF Core DbContext
-│   │   ├── PlanCope.Central.Migrations/   # Design-time factory
-│   │   └── PlanCope.Central.Web/          # Next.js builder online/admin central
+│   │   ├── PlanCope.Central.Api/          # API REST + EF Core
+│   │   ├── PlanCope.Central.Migrations/
+│   │   └── PlanCope.Central.Web/          # Next.js: builder y admin central
 │   └── Local/
-│       ├── PlanCope.Local.Api/            # Web API + Dapper repos + DbUp
-│       └── PlanCope.Local.Host/           # WinForms shell + React/WebView2 host
+│       ├── PlanCope.Local.Api/            # API offline + Dapper + sync pull
+│       └── PlanCope.Local.Host/           # WinForms + ClientApp React
 ├── tests/
 │   ├── PlanCope.Central.Api.Tests/
-│   ├── PlanCope.Local.Api.Tests/
+│   ├── PlanCope.Local.Api.Tests/          # tests implementados
 │   ├── PlanCope.Shared.Tests/
 │   ├── PlanCope.E2E.Tests/
 │   └── PlanCope.SyncCompat.Tests/
-└── deploy/                                # Docker y assets de despliegue (vacío)
+├── docs/
+│   ├── central-web-next-builder.md
+│   ├── local-exam-format.md
+│   └── exam-builder-implementation-plan.md
+└── deploy/                                # vacío — Docker pendiente
 ```
 
 ---
 
-## Fase 2 — Backend central funcional inicial (cerrada)
+## Flujo funcional actual
 
-**Resultado de la fase**: Central API ya tiene migracion inicial PostgreSQL, autenticacion JWT/BCrypt y endpoints funcionales base para examenes. La solucion compila y ejecuta tests sin fallas (`dotnet build PlanCope.slnx`, `dotnet test PlanCope.slnx --no-build`).
+### 1. Central (autoría y publicación)
 
-| Entregable | Estado | Detalle |
-|---|---|---|
-| Migracion PostgreSQL | ✅ Completo | `InitialCreate` generada en `PlanCope.Central.Migrations` |
-| Auth central | ✅ Completo | `POST /api/auth/login`, `POST /api/auth/refresh`, `GET /api/auth/me` |
-| JWT Bearer | ✅ Completo | Middleware configurado con esquema Bearer por defecto |
-| Hashing | ✅ Completo | Validacion de password con BCrypt |
-| Examenes central | ✅ Inicial | Listado/creacion de examenes, versiones y upsert de bloques |
-| Seguridad de secretos | ✅ Base | `Auth:SigningKey` requerido por configuracion externa |
+1. Levantar **Central API** (PostgreSQL + migraciones aplicadas).
+2. Levantar **Central Web**: `npm run central:web:dev`.
+3. Iniciar sesión en `/login`.
+4. Crear examen → versión → editar en el **builder** (`/exams/{id}/versions/{versionId}/builder`).
+5. Guardar bloques, previsualizar y **publicar** por materia, grado y división opcional.
 
----
+El builder incluye pestañas: datos generales, preguntas (drag-and-drop), vista previa, exportar JSON y publicar.
 
-## Próxima fase: Sync, operación y calidad
+### 2. Local (distribución y toma)
 
-1. **Implementar motor de sync** — outbox worker local + pull/push endpoints en Central
-2. **Implementar Publication** — paquetes, targets y flujo de publicacion
-3. **Docker Compose** — PostgreSQL + Central API para desarrollo local
-4. **Swagger/OpenAPI** — documentacion de endpoints y auth
-5. **Serilog** — logging estructurado y correlacion de sync
-6. **Tests reales** — Auth, Exams, repositorios locales y compatibilidad de sync
-7. **CI/CD** — GitHub Actions (build + test + lint)
-8. **Frontend React/Vite** — consolidar `ClientApp`, componentes compartidos y flujo de operador
-9. **Hardening desktop** — Velopack y empaquetado `.exe`
+1. Configurar `sync_state` en SQLite (`central_url`, `node_id`, `central_access_token`).
+2. Ejecutar pull: `POST /api/sync/pull-exams` o botón **Actualizar** en el Host.
+3. Abrir el Host local: identificación por CUE → consola de sesiones → acceso alumno en red local.
 
-Ver tambien `docs/central-web-next-builder.md` para comandos y flujo de la Central Web Next.js.
+Ver [`docs/central-web-next-builder.md`](docs/central-web-next-builder.md) para comandos y configuración de sync.
 
 ---
 
-## Estado del host local
+## API Central (endpoints principales)
 
-El host local ya no dibuja la interfaz con controles WinForms: ahora arranca la API embebida y carga una app React dentro de WebView2.
-
-| Componente | Estado | Detalle |
+| Método | Ruta | Descripción |
 |---|---|---|
-| Shell nativo | ✅ Completo | `MainForm` administra ciclo de vida de la API y WebView2 |
-| Frontend local | ✅ Base | Vite + React + TypeScript para operador y alumnos en `src/Local/PlanCope.Local.Host/ClientApp` |
-| Puente nativo | ✅ Completo | `window.chrome.webview` recibe contexto del host |
-| API local | ✅ Base | CORS acotado para origen del host React |
-| Build integrado | ✅ Completo | `dotnet build` ejecuta `npm run build` del frontend |
+| `GET` | `/api/health` | Health check + DB |
+| `POST` | `/api/auth/login` | Autenticación |
+| `POST` | `/api/auth/refresh` | Renovar token |
+| `GET` | `/api/auth/me` | Perfil del usuario |
+| `GET/POST` | `/api/exams` | Listar / crear exámenes |
+| `GET/POST` | `/api/exams/{id}/versions` | Versiones |
+| `PUT` | `/api/exams/versions/{id}/document` | Guardar documento del builder |
+| `POST` | `/api/exams/versions/{id}/publish` | Publicar paquete |
+| `GET` | `/api/sync/pull` | Pull cursor-based de paquetes publicados |
 
-## Capturas
+Swagger UI disponible en Development: `/swagger`.
 
-![Pantalla inicial del host local](docs/host-gate.png)
+---
 
-![Consola operativa del host local](docs/host-console.png)
+## API Local (endpoints principales)
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `GET` | `/api/health` | Health check |
+| `GET` | `/api/sync/status` | Estado de sync y outbox pendiente |
+| `POST` | `/api/sync/pull-exams` | Descargar exámenes publicados desde Central |
+| — | `/api/sessions/*` | Gestión de sesiones de toma |
+| — | `/api/exams/*` | Catálogo local e importación JSON |
+
+Formato de examen local: [`docs/local-exam-format.md`](docs/local-exam-format.md).
+
+---
+
+## Cómo ejecutar
+
+### Requisitos
+
+- .NET SDK 10.0.301+
+- Node.js 20+ y npm
+- PostgreSQL 16 (para Central API)
+- Windows (para el Host WinForms + WebView2)
+
+### Comandos
+
+```powershell
+# Instalar dependencias JS (workspaces)
+npm install
+
+# Backend
+dotnet build PlanCope.slnx
+dotnet test PlanCope.slnx
+
+# Central Web
+npm run central:web:dev
+
+# Tests del builder (Central Web)
+npm run test --workspace plancope-central-web
+
+# Migraciones Central (desde PlanCope.Central.Migrations)
+dotnet ef database update
+```
+
+### Configuración Central API
+
+- Connection string: `CentralDatabase` en `appsettings.Development.json`
+- **Obligatorio:** `Auth:SigningKey` con un secreto seguro
+
+---
+
+## Fases completadas
+
+### Fase 1 — Fundaciones técnicas
+
+Base técnica completa: dominio compartido, contratos, validación, esquemas EF Core y SQLite, repositorios Dapper, shell WinForms + WebView2.
+
+### Fase 2 — Backend central funcional
+
+Migración PostgreSQL, autenticación JWT/BCrypt y endpoints base de exámenes. La solución compila y ejecuta tests (`dotnet build PlanCope.slnx`, `dotnet test PlanCope.slnx`).
+
+---
+
+## Próximos pasos
+
+1. **Sync push** — worker de outbox local + `POST /api/sync/push` en Central
+2. **Docker Compose** — PostgreSQL + Central API para desarrollo
+3. **Serilog** — logging estructurado y correlación de sync
+4. **Tests ampliados** — Auth central, sync compat, E2E
+5. **CI/CD** — GitHub Actions (build + test + lint)
+6. **Velopack** — empaquetado y actualización del Host `.exe`
+
+---
+
+## Documentación adicional
+
+- [Central Web y distribución](docs/central-web-next-builder.md)
+- [Formato JSON de examen local](docs/local-exam-format.md)
+- [Plan del exam builder](docs/exam-builder-implementation-plan.md)
