@@ -1,18 +1,27 @@
 :root {
   color-scheme: light;
   font-family: "Segoe UI", system-ui, sans-serif;
-  background: #f2f6f4;
-  color: #1a2732;
-  --canvas: #f2f6f4;
+  background: #ededed;
+  color: #2e2d2c;
+  --canvas: #ededed;
   --surface: #ffffff;
-  --surface-muted: #f8fbfa;
-  --ink: #1a2732;
-  --muted: #5e6c76;
-  --border: #dae3e0;
-  --primary: #006d77;
-  --primary-dark: #11434e;
-  --accent: #d38b25;
-  --danger: #a13d2d;
+  --surface-muted: #ededed;
+  --ink: #2e2d2c;
+  --muted: rgba(46, 45, 44, 0.62);
+  --border: rgba(46, 45, 44, 0.14);
+  --primary: #6f0603;
+  --primary-dark: color-mix(in srgb, #6f0603 78%, #000000);
+  --primary-soft: rgba(111, 6, 3, 0.08);
+  --accent: #facd05;
+  --accent-dark: #faae05;
+  --accent-soft: rgba(250, 205, 5, 0.18);
+  --danger: #f4492e;
+  --danger-soft: rgba(244, 73, 46, 0.1);
+  --success: #719c29;
+  --success-soft: rgba(113, 156, 41, 0.12);
+  --info: #769fd3;
+  --on-primary: #ffffff;
+  --on-primary-muted: rgba(255, 255, 255, 0.75);
 }
 
 * {
@@ -60,7 +69,7 @@ textarea {
 
 .control:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(0, 109, 119, 0.12);
+  box-shadow: 0 0 0 3px rgba(111, 6, 3, 0.18);
 }
 
 .control[readonly] {
@@ -89,7 +98,7 @@ textarea {
 
 .button-primary {
   background: var(--primary);
-  color: #ffffff;
+  color: var(--on-primary);
 }
 
 .button-secondary {
