@@ -1,4 +1,4 @@
-import { ActionButton, Field, TextInput } from "./ui";
+import { ActionButton, Field, TextInput } from "../../shared/ui";
 
 type SchoolGateProps = {
   cue: string;

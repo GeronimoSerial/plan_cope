@@ -1,4 +1,4 @@
-import type { LocalExamBlock } from "../types";
+import type { LocalExamBlock } from "../shared/api-types";
 
 export type BlockKind = "text" | "image" | "multiple_choice" | "true_false" | "short_answer";
 

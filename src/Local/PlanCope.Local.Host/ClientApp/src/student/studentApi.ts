@@ -1,4 +1,5 @@
-import type { ApiErrorPayload, StartAttemptResponse, SubmitAttemptResponse } from "../types";
+import type { ApiErrorPayload } from "../shared/api-types";
+import type { StartAttemptResponse, SubmitAttemptResponse } from "./types";
 
 export class StudentApi {
   constructor(private readonly baseUrl = window.location.origin) {}

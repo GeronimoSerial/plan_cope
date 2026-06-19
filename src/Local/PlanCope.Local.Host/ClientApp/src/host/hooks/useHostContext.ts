@@ -42,7 +42,3 @@ export function useHostContext(): HostContext {
 
   return useMemo(() => context, [context]);
 }
-
-export function postHostMessage(message: unknown): void {
-  window.chrome?.webview?.postMessage(message);
-}

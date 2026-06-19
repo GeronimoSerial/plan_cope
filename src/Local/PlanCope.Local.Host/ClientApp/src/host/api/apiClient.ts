@@ -1,10 +1,9 @@
 import type {
-  ApiErrorPayload,
   CreateSessionRequest,
-  LocalExam,
   LocalSession,
   SessionProgress
 } from "../types";
+import type { ApiErrorPayload, LocalExam } from "../../shared/api-types";
 import type { LocalExamJson } from "../exam-builder/examTypes";
 
 export class ApiClient {

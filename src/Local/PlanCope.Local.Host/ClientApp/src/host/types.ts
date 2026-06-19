@@ -1,3 +1,5 @@
+import type { LocalExam } from "../shared/api-types";
+
 export type HostContext = {
   apiBaseUrl: string;
   lanBaseUrl: string;
@@ -12,27 +14,6 @@ export type HostContextMessage = {
 
 export type NativeBridge = {
   postMessage: (message: unknown) => void;
-};
-
-export type LocalExam = {
-  id: string;
-  remoteExamVersionId: string;
-  examCode: string;
-  versionNumber: number;
-  checksum: string;
-  metadataJson?: string | null;
-  schemaVersion: number;
-  syncedAt: string;
-};
-
-export type ExamMetadata = {
-  title?: string;
-  grade?: string;
-  course?: string;
-  curso?: string;
-  division?: string;
-  section?: string;
-  classroom?: string;
 };
 
 export type ExamOption = LocalExam & {
@@ -75,43 +56,6 @@ export type SessionProgress = {
   submittedCount: number;
   inProgressCount: number;
   completionPercentage: number;
-};
-
-export type ApiErrorPayload = {
-  error?: string;
-  errors?: Record<string, string[]>;
-};
-
-export type LocalExamBlock = {
-  id: string;
-  localExamVersionId: string;
-  remoteBlockId: string;
-  orderIndex: number;
-  blockType: number | string;
-  configJson: string;
-  validationJson?: string | null;
-};
-
-export type StudentAttempt = {
-  id: string;
-  deliverySessionId: string;
-  studentCode: string;
-  status: string;
-  startedAt: string;
-  submittedAt?: string | null;
-  localSequence: number;
-  confirmationCode?: string | null;
-};
-
-export type StartAttemptResponse = {
-  attempt: StudentAttempt;
-  blocks: LocalExamBlock[];
-};
-
-export type SubmitAttemptResponse = {
-  attemptId: string;
-  confirmationCode: string;
-  submittedAt: string;
 };
 
 export type FormErrors = {

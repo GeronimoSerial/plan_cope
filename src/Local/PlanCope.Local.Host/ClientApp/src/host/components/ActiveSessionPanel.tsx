@@ -1,6 +1,6 @@
 import type { LocalSession, SessionProgress } from "../types";
-import { postHostMessage } from "../hooks/useHostContext";
-import { ActionButton, Field, SectionTitle, TextInput } from "./ui";
+import { postHostMessage } from "../bridge/nativeBridge";
+import { ActionButton, Field, SectionTitle, TextInput } from "../../shared/ui";
 
 type ActiveSessionPanelProps = {
   progress: SessionProgress | null;

@@ -1,21 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiClient } from "../api/apiClient";
-import { toExamOption, uniqueSorted } from "../domain/exams";
-import type { CreateSessionRequest, ExamOption, FormErrors, HostContext, LocalSession, SessionProgress } from "../types";
+import { ensureSelectedExamId, filterExams, toExamOption, uniqueSorted } from "../domain/exams";
+import {
+  buildCreateSessionRequest,
+  initialSessionForm,
+  resolveSchoolName,
+  type SessionForm,
+  validateSessionForm
+} from "../domain/sessionForm";
+import type { ExamOption, FormErrors, HostContext, LocalSession, SessionProgress } from "../types";
 
-type SessionForm = {
-  cue: string;
-  classroomCode: string;
-  operatorName: string;
-  expectedStudentCount: number;
-};
-
-const initialForm: SessionForm = {
-  cue: "",
-  classroomCode: "6A",
-  operatorName: "",
-  expectedStudentCount: 30
-};
+export type DeliverySessionState = ReturnType<typeof useDeliverySession>;
 
 export function useDeliverySession(hostContext: HostContext) {
   const api = useMemo(() => new ApiClient(hostContext.apiBaseUrl), [hostContext.apiBaseUrl]);
@@ -23,7 +18,7 @@ export function useDeliverySession(hostContext: HostContext) {
   const [selectedCourse, setSelectedCourse] = useState("");
   const [selectedDivision, setSelectedDivision] = useState("");
   const [selectedExamId, setSelectedExamId] = useState("");
-  const [form, setForm] = useState<SessionForm>({ ...initialForm, operatorName: hostContext.operatorName });
+  const [form, setForm] = useState<SessionForm>(() => initialSessionForm(hostContext.operatorName));
   const [session, setSession] = useState<LocalSession | null>(null);
   const [activeSessions, setActiveSessions] = useState<LocalSession[]>([]);
   const [progress, setProgress] = useState<SessionProgress | null>(null);
@@ -47,7 +42,7 @@ export function useDeliverySession(hostContext: HostContext) {
       const items = await api.getExams(signal);
       const options = items.map(toExamOption);
       setExams(options);
-      setSelectedExamId(current => current && options.some(option => option.id === current) ? current : options[0]?.id ?? "");
+      setSelectedExamId(current => ensureSelectedExamId(options, current));
       setStatus(options.length > 0 ? `API local activa en ${hostContext.lanBaseUrl}` : "No hay examenes locales publicados en este equipo.");
     } catch (exception) {
       if (!signal?.aborted) {
@@ -83,17 +78,14 @@ export function useDeliverySession(hostContext: HostContext) {
     return () => controller.abort();
   }, [loadActiveSessions, loadExams]);
 
-  const filteredExams = useMemo(() => {
-    return exams
-      .filter(exam => !selectedCourse || exam.course === selectedCourse)
-      .filter(exam => !selectedDivision || exam.division === selectedDivision);
-  }, [exams, selectedCourse, selectedDivision]);
+  const filteredExams = useMemo(
+    () => filterExams(exams, selectedCourse, selectedDivision),
+    [exams, selectedCourse, selectedDivision]
+  );
 
   useEffect(() => {
-    if (!filteredExams.some(exam => exam.id === selectedExamId)) {
-      setSelectedExamId(filteredExams[0]?.id ?? "");
-    }
-  }, [filteredExams, selectedExamId]);
+    setSelectedExamId(current => ensureSelectedExamId(filteredExams, current));
+  }, [filteredExams]);
 
   const courses = useMemo(() => uniqueSorted(exams.map(exam => exam.course)), [exams]);
   const divisions = useMemo(() => {
@@ -127,22 +119,12 @@ export function useDeliverySession(hostContext: HostContext) {
       return;
     }
 
-    const request: CreateSessionRequest = {
-      examVersionId: selectedExam.id,
-      schoolCode: form.cue.trim().toUpperCase(),
-      classroomCode: form.classroomCode.trim(),
-      commissionCode: null,
-      startedBy: form.operatorName.trim(),
-      expectedStudentCount: form.expectedStudentCount,
-      config: null
-    };
-
     setIsBusy(true);
     setError(null);
     setStatus("Creando sesion...");
 
     try {
-      const created = await api.createSession(request);
+      const created = await api.createSession(buildCreateSessionRequest(form, selectedExam));
       setSession(created);
       setActiveSessions(current => [created, ...current.filter(item => item.id !== created.id)]);
       setResumeAccessCode(created.accessCode);
@@ -203,70 +185,37 @@ export function useDeliverySession(hostContext: HostContext) {
   }, [refreshProgress, session?.accessCode]);
 
   return {
-    courses,
-    divisions,
-    error,
-    filteredExams,
-    form,
-    formErrors,
-    activeSessions,
-    isBusy,
-    isLoadingExams,
-    progress,
-    resumeAccessCode,
-    schoolName,
-    selectedCourse,
-    selectedDivision,
-    selectedExamId,
-    session,
-    sessionLink,
+    examCatalog: {
+      courses,
+      divisions,
+      filteredExams,
+      isLoadingExams,
+      selectedCourse,
+      selectedDivision,
+      selectedExamId,
+      setSelectedCourse,
+      setSelectedDivision,
+      setSelectedExamId,
+      loadExams
+    },
+    sessionForm: {
+      form,
+      formErrors,
+      schoolName,
+      updateForm
+    },
+    activeSession: {
+      session,
+      progress,
+      sessionLink,
+      activeSessions,
+      resumeAccessCode,
+      setResumeAccessCode,
+      resumeSession
+    },
     status,
-    createSession,
-    loadExams,
-    resumeSession,
-    setSelectedCourse,
-    setSelectedDivision,
-    setSelectedExamId,
-    setResumeAccessCode,
-    updateForm
+    error,
+    isBusy,
+    createSession
   };
-}
-
-function validateSessionForm(form: SessionForm, selectedExamId: string): FormErrors {
-  const errors: FormErrors = {};
-
-  if (!form.cue.trim()) {
-    errors.cue = "Completa el CUE.";
-  }
-
-  if (!selectedExamId) {
-    errors.selectedExamId = "Selecciona un examen disponible.";
-  }
-
-  if (!form.classroomCode.trim()) {
-    errors.classroomCode = "Completa el curso y division.";
-  }
-
-  if (!form.operatorName.trim()) {
-    errors.operatorName = "Completa el operador.";
-  }
-
-  if (!Number.isFinite(form.expectedStudentCount) || form.expectedStudentCount < 1 || form.expectedStudentCount > 500) {
-    errors.expectedStudentCount = "Debe estar entre 1 y 500.";
-  }
-
-  return errors;
-}
-
-function resolveSchoolName(cue: string): string {
-  const normalizedCue = cue.trim().toUpperCase();
-  if (!normalizedCue) {
-    return "";
-  }
-
-  if (["ESCUELA-DEMO", "CUE-DEMO", "123456789"].includes(normalizedCue)) {
-    return "Escuela Demo";
-  }
-
-  return `Escuela CUE ${normalizedCue}`;
 }
