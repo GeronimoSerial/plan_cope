@@ -12,3 +12,7 @@ dist/
 *.db-shm
 *.db-wal
 *.log
+.agents/
+src/Central/PlanCope.Central.Web/tmp/**
+.env.local
+*.tsbuildinfo

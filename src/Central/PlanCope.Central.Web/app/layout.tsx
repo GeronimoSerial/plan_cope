@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import "./styles.css";
+import "./globals.css";
 
 export const metadata: Metadata = {
   title: "PlanCope Central",
-  description: "Administracion central y builder online de examenes"
+  description: "Administración central y builder online de exámenes"
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
