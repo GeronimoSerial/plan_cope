@@ -1,6 +1,7 @@
 import { ExamConfirmationPanel } from "./components/ExamConfirmationPanel";
 import { ExamTakingPanel } from "./components/ExamTakingPanel";
 import { SessionEntryPanel } from "./components/SessionEntryPanel";
+import { StudentIdentityConfirmationPanel } from "./components/StudentIdentityConfirmationPanel";
 import { StudentShell } from "./components/StudentShell";
 import { useStudentExam } from "./hooks/useStudentExam";
 
@@ -11,13 +12,23 @@ export function StudentApp() {
     <StudentShell>
       {exam.confirmationCode ? (
         <ExamConfirmationPanel code={exam.confirmationCode} submittedAt={exam.submittedAt} />
-      ) : !exam.attemptId ? (
+      ) : !exam.attemptId && !exam.resolution ? (
         <SessionEntryPanel
           sessionCode={exam.sessionCode}
+          document={exam.document}
           isBusy={exam.isBusy}
           error={exam.error}
           onSessionCodeChange={exam.setSessionCode}
-          onStartAttempt={exam.startAttempt}
+          onDocumentChange={exam.setDocument}
+          onResolveStudent={exam.resolveStudent}
+        />
+      ) : !exam.attemptId && exam.resolution ? (
+        <StudentIdentityConfirmationPanel
+          student={exam.resolution.student}
+          isBusy={exam.isBusy}
+          error={exam.error}
+          onConfirm={exam.startAttempt}
+          onCorrect={exam.correctIdentity}
         />
       ) : (
         <ExamTakingPanel
@@ -27,6 +38,7 @@ export function StudentApp() {
           isBusy={exam.isBusy}
           status={exam.status}
           error={exam.error}
+          studentName={exam.attemptStudentName}
           onAnswerChange={exam.setAnswer}
           onSave={exam.saveAnswers}
           onSubmit={exam.submitAttempt}

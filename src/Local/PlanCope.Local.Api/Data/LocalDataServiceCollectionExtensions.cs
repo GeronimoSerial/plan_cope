@@ -23,7 +23,15 @@ public static class LocalDataServiceCollectionExtensions
         services.AddScoped<LocalAssetFileService>();
         services.AddScoped<LocalExamImportService>();
         services.AddScoped<LocalExamPullService>();
+        services.AddScoped<LocalRosterPullService>();
+        services.AddScoped<LocalOutboxPushService>();
+        services.AddScoped<ILocalRosterRepository, LocalRosterRepository>();
+        services.AddScoped<IDocumentHmacService, DocumentHmacService>();
+        services.AddSingleton<IStudentResolutionTokenService, StudentResolutionTokenService>();
+        services.Configure<NominalizationOptions>(configuration.GetSection(NominalizationOptions.SectionName));
         services.AddHttpClient(nameof(LocalExamPullService));
+        services.AddHttpClient(nameof(LocalRosterPullService));
+        services.AddHttpClient(nameof(LocalOutboxPushService));
         services.AddScoped<ILocalUserRepository, LocalUserRepository>();
         services.AddScoped<ILocalExamRepository, LocalExamRepository>();
         services.AddScoped<ISessionRepository, SessionRepository>();

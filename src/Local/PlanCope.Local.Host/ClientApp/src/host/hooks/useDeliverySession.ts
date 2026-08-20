@@ -8,7 +8,15 @@ import {
   type SessionForm,
   validateSessionForm
 } from "../domain/sessionForm";
-import type { ExamOption, FormErrors, HostContext, LocalSession, SessionProgress } from "../types";
+import type {
+  ExamOption,
+  FormErrors,
+  HostContext,
+  LocalSession,
+  RosterSection,
+  RosterSnapshot,
+  SessionProgress
+} from "../types";
 
 export type DeliverySessionState = ReturnType<typeof useDeliverySession>;
 
@@ -28,6 +36,13 @@ export function useDeliverySession(hostContext: HostContext) {
   const [error, setError] = useState<string | null>(null);
   const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [resumeAccessCode, setResumeAccessCode] = useState("");
+  const [schoolYear, setSchoolYear] = useState(() => String(new Date().getFullYear()));
+  const [rosterSnapshot, setRosterSnapshot] = useState<RosterSnapshot | null>(null);
+  const [rosterSections, setRosterSections] = useState<RosterSection[]>([]);
+  const [selectedRosterSectionId, setSelectedRosterSectionId] = useState("");
+  const [isLoadingRoster, setIsLoadingRoster] = useState(false);
+  const [isPullingRoster, setIsPullingRoster] = useState(false);
+  const [rosterError, setRosterError] = useState<string | null>(null);
 
   useEffect(() => {
     setForm(current => ({ ...current, operatorName: current.operatorName || hostContext.operatorName }));
@@ -71,6 +86,78 @@ export function useDeliverySession(hostContext: HostContext) {
 
     await loadExams(signal);
   }, [api, loadExams]);
+
+  const loadRoster = useCallback(async (signal?: AbortSignal) => {
+    const cue = form.cue.trim().toUpperCase();
+    if (!cue || !schoolYear.trim()) {
+      setRosterSnapshot(null);
+      setRosterSections([]);
+      setSelectedRosterSectionId("");
+      return;
+    }
+
+    setIsLoadingRoster(true);
+    setRosterError(null);
+    try {
+      const response = await api.getLatestRoster(cue, schoolYear.trim(), signal);
+      setRosterSnapshot(response.snapshot);
+      setRosterSections(response.sections);
+      setSelectedRosterSectionId(current => response.sections.some(section => section.id === current)
+        ? current
+        : response.sections[0]?.id ?? "");
+    } catch (exception) {
+      if (!signal?.aborted) {
+        setRosterSnapshot(null);
+        setRosterSections([]);
+        setSelectedRosterSectionId("");
+        setRosterError(exception instanceof Error ? exception.message : "No se pudo consultar el padrón local.");
+      }
+    } finally {
+      if (!signal?.aborted) {
+        setIsLoadingRoster(false);
+      }
+    }
+  }, [api, form.cue, schoolYear]);
+
+  const pullRoster = useCallback(async () => {
+    const cue = form.cue.trim().toUpperCase();
+    if (!cue || !schoolYear.trim()) {
+      setRosterError("Completa el CUE y el ciclo lectivo antes de actualizar el padrón.");
+      return;
+    }
+
+    setIsPullingRoster(true);
+    setRosterError(null);
+    try {
+      await api.pullRoster(cue, schoolYear.trim());
+      await loadRoster();
+    } catch (exception) {
+      setRosterError(exception instanceof Error ? exception.message : "No se pudo actualizar el padrón desde Central.");
+    } finally {
+      setIsPullingRoster(false);
+    }
+  }, [api, form.cue, loadRoster, schoolYear]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadRoster(controller.signal);
+    return () => controller.abort();
+  }, [loadRoster]);
+
+  const selectedRosterSection = useMemo(
+    () => rosterSections.find(section => section.id === selectedRosterSectionId) ?? null,
+    [rosterSections, selectedRosterSectionId]
+  );
+
+  useEffect(() => {
+    if (selectedRosterSection && rosterSnapshot) {
+      setForm(current => ({
+        ...current,
+        classroomCode: [selectedRosterSection.course, selectedRosterSection.division].filter(Boolean).join(" "),
+        expectedStudentCount: selectedRosterSection.studentCount
+      }));
+    }
+  }, [rosterSnapshot, selectedRosterSection]);
 
   const loadActiveSessions = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -124,6 +211,11 @@ export function useDeliverySession(hostContext: HostContext) {
 
   const createSession = useCallback(async () => {
     const nextErrors = validateSessionForm(form, selectedExam?.id ?? "");
+    if (!rosterSnapshot || !rosterSnapshot.status || rosterSnapshot.status.toLowerCase() !== "ready") {
+      nextErrors.rosterSectionId = "Actualiza el padrón GE antes de crear una sesión.";
+    } else if (!selectedRosterSection) {
+      nextErrors.rosterSectionId = "Selecciona una sección del padrón.";
+    }
     setFormErrors(nextErrors);
 
     if (Object.keys(nextErrors).length > 0) {
@@ -140,7 +232,7 @@ export function useDeliverySession(hostContext: HostContext) {
     setStatus("Creando sesion...");
 
     try {
-      const created = await api.createSession(buildCreateSessionRequest(form, selectedExam));
+      const created = await api.createSession(buildCreateSessionRequest(form, selectedExam, rosterSnapshot, selectedRosterSection));
       setSession(created);
       setActiveSessions(current => [created, ...current.filter(item => item.id !== created.id)]);
       setResumeAccessCode(created.accessCode);
@@ -151,7 +243,7 @@ export function useDeliverySession(hostContext: HostContext) {
     } finally {
       setIsBusy(false);
     }
-  }, [api, form, selectedExam]);
+  }, [api, form, selectedExam, rosterSnapshot, selectedRosterSection]);
 
   const resumeSession = useCallback(async (accessCode?: string) => {
     const code = (accessCode ?? resumeAccessCode).trim().toUpperCase();
@@ -213,6 +305,21 @@ export function useDeliverySession(hostContext: HostContext) {
       setSelectedDivision,
       setSelectedExamId,
       loadExams: refreshExams
+    },
+    roster: {
+      schoolYear,
+      setSchoolYear,
+      snapshot: rosterSnapshot,
+      sections: rosterSections,
+      selectedSectionId: selectedRosterSectionId,
+      setSelectedSectionId: (value: string) => {
+        setSelectedRosterSectionId(value);
+        setFormErrors(current => ({ ...current, rosterSectionId: undefined }));
+      },
+      isLoading: isLoadingRoster,
+      isPulling: isPullingRoster,
+      error: rosterError,
+      refresh: pullRoster
     },
     sessionForm: {
       form,

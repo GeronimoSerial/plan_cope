@@ -7,11 +7,14 @@ import {
   getInitialSessionCode
 } from "../domain/examAnswers";
 import { StudentApi } from "../studentApi";
+import type { ResolvedStudent } from "../types";
 
 export function useStudentExam() {
   const api = useMemo(() => new StudentApi(), []);
   const [sessionCode, setSessionCode] = useState(getInitialSessionCode);
   const [attemptId, setAttemptId] = useState<string | null>(null);
+  const [document, setDocument] = useState("");
+  const [resolution, setResolution] = useState<{ token: string; student: ResolvedStudent } | null>(null);
   const [blocks, setBlocks] = useState<LocalExamBlock[]>([]);
   const [answers, setAnswers] = useState<AnswerMap>({});
   const [missingRequired, setMissingRequired] = useState<Set<string>>(new Set());
@@ -52,14 +55,35 @@ export function useStudentExam() {
     setAnswers(current => ({ ...current, [blockId]: value }));
   }, []);
 
-  const startAttempt = useCallback(async () => {
+  const resolveStudent = useCallback(async () => {
     if (!sessionCode.trim()) {
       setError("Completa el codigo de examen.");
       return;
     }
 
+    if (!document.trim()) {
+      setError("Completa tu DNI.");
+      return;
+    }
+
     await runBusy(async () => {
-      const response = await api.startAttempt(sessionCode.trim());
+      const response = await api.resolveStudent(sessionCode.trim(), document);
+      setResolution({ token: response.resolutionToken, student: response.student });
+    });
+  }, [api, document, runBusy, sessionCode]);
+
+  const correctIdentity = useCallback(() => {
+    setResolution(null);
+    setError("");
+  }, []);
+
+  const startAttempt = useCallback(async () => {
+    if (!sessionCode.trim() || !resolution) {
+      return;
+    }
+
+    await runBusy(async () => {
+      const response = await api.startAttempt(sessionCode.trim(), resolution.token);
       setAttemptId(response.attempt.id);
       setBlocks(response.blocks);
       setAnswers({});
@@ -68,7 +92,7 @@ export function useStudentExam() {
       setSubmittedAt(null);
       setStatus("");
     });
-  }, [api, runBusy, sessionCode]);
+  }, [api, resolution, runBusy, sessionCode]);
 
   const saveAnswers = useCallback(async () => {
     if (!attemptId || !validateRequired()) {
@@ -99,14 +123,20 @@ export function useStudentExam() {
     answers,
     blocks,
     confirmationCode,
+    correctIdentity,
+    document,
     error,
     isBusy,
     missingRequired,
+    resolution,
     sessionCode,
     status,
     submittedAt,
+    attemptStudentName: resolution?.student.displayName ?? null,
+    resolveStudent,
     saveAnswers,
     setAnswer,
+    setDocument,
     setSessionCode,
     startAttempt,
     submitAttempt

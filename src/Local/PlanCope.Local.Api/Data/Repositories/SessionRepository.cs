@@ -8,8 +8,8 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
     public async Task CreateAsync(LocalDeliverySession session, CancellationToken cancellationToken = default)
     {
         const string sql = """
-            INSERT INTO delivery_sessions (id, exam_version_id, school_code, classroom_code, commission_code, started_by, start_at, end_at, status, config_json, access_code, expected_student_count)
-            VALUES (@Id, @ExamVersionId, @SchoolCode, @ClassroomCode, @CommissionCode, @StartedBy, @StartAt, @EndAt, @Status, @ConfigJson, @AccessCode, @ExpectedStudentCount);
+            INSERT INTO delivery_sessions (id, exam_version_id, school_code, classroom_code, commission_code, started_by, start_at, end_at, status, config_json, access_code, expected_student_count, school_year, roster_snapshot_id, roster_section_id)
+            VALUES (@Id, @ExamVersionId, @SchoolCode, @ClassroomCode, @CommissionCode, @StartedBy, @StartAt, @EndAt, @Status, @ConfigJson, @AccessCode, @ExpectedStudentCount, @SchoolYear, @RosterSnapshotId, @RosterSectionId);
             """;
 
         using var connection = connectionFactory.CreateOpenConnection();
@@ -19,7 +19,7 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
     public async Task<LocalDeliverySession?> GetByIdAsync(string id, CancellationToken cancellationToken = default)
     {
         const string sql = """
-            SELECT id, exam_version_id, school_code, classroom_code, commission_code, started_by, start_at, end_at, status, config_json, access_code, expected_student_count
+            SELECT id, exam_version_id, school_code, classroom_code, commission_code, started_by, start_at, end_at, status, config_json, access_code, expected_student_count, school_year, roster_snapshot_id, roster_section_id
             FROM delivery_sessions
             WHERE id = @Id
             LIMIT 1;
@@ -33,7 +33,7 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
     public async Task<LocalDeliverySession?> GetByIdOrAccessCodeAsync(string idOrAccessCode, CancellationToken cancellationToken = default)
     {
         const string sql = """
-            SELECT id, exam_version_id, school_code, classroom_code, commission_code, started_by, start_at, end_at, status, config_json, access_code, expected_student_count
+            SELECT id, exam_version_id, school_code, classroom_code, commission_code, started_by, start_at, end_at, status, config_json, access_code, expected_student_count, school_year, roster_snapshot_id, roster_section_id
             FROM delivery_sessions
             WHERE id = @IdOrAccessCode
                OR access_code = @AccessCode
@@ -62,7 +62,7 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
     public async Task<IReadOnlyList<LocalDeliverySession>> GetActiveAsync(CancellationToken cancellationToken = default)
     {
         const string sql = """
-            SELECT id, exam_version_id, school_code, classroom_code, commission_code, started_by, start_at, end_at, status, config_json, access_code, expected_student_count
+            SELECT id, exam_version_id, school_code, classroom_code, commission_code, started_by, start_at, end_at, status, config_json, access_code, expected_student_count, school_year, roster_snapshot_id, roster_section_id
             FROM delivery_sessions
             WHERE status IN ('active', 'paused')
             ORDER BY start_at DESC;
@@ -123,10 +123,13 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         public string? ConfigJson { get; init; }
         public string AccessCode { get; init; } = string.Empty;
         public long ExpectedStudentCount { get; init; }
+        public string? SchoolYear { get; init; }
+        public string? RosterSnapshotId { get; init; }
+        public string? RosterSectionId { get; init; }
 
         public LocalDeliverySession ToDomain()
         {
-            return new LocalDeliverySession(Id, ExamVersionId, SchoolCode, ClassroomCode, CommissionCode, StartedBy, StartAt, EndAt, Status, ConfigJson, AccessCode, checked((int)ExpectedStudentCount));
+            return new LocalDeliverySession(Id, ExamVersionId, SchoolCode, ClassroomCode, CommissionCode, StartedBy, StartAt, EndAt, Status, ConfigJson, AccessCode, checked((int)ExpectedStudentCount), SchoolYear, RosterSnapshotId, RosterSectionId);
         }
     }
 

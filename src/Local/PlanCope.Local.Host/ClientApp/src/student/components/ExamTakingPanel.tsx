@@ -15,6 +15,7 @@ type ExamTakingPanelProps = {
   isBusy: boolean;
   status: string;
   error: string;
+  studentName?: string | null;
   onAnswerChange: (blockId: string, value: string) => void;
   onSave: () => void;
   onSubmit: () => void;
@@ -27,6 +28,7 @@ export function ExamTakingPanel({
   isBusy,
   status,
   error,
+  studentName,
   onAnswerChange,
   onSave,
   onSubmit
@@ -57,6 +59,7 @@ export function ExamTakingPanel({
     <section className="student-exam">
       <header className="student-exam-header">
         <h2>Responder examen</h2>
+        {studentName && <p className="student-exam-identity">Alumno: <strong>{studentName}</strong></p>}
         <div className="student-exam-progress">
           <div className="student-progress-bar" aria-label={`Progreso ${completion}%`}>
             <span style={{ width: `${completion}%` }} />

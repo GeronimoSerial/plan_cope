@@ -225,6 +225,45 @@
   background: var(--surface-muted);
 }
 
+.roster-panel {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+}
+
+.roster-panel-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.roster-panel-header h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.roster-panel-header p,
+.roster-meta {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.roster-panel-header .button {
+  width: auto;
+  min-height: 40px;
+  white-space: nowrap;
+}
+
+.roster-empty {
+  margin: 0;
+}
+
 .empty-state span,
 .session-list span {
   color: var(--muted);

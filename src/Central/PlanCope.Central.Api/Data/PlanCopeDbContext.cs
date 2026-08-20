@@ -31,6 +31,9 @@ public sealed class PlanCopeDbContext(DbContextOptions<PlanCopeDbContext> option
     public DbSet<SyncAttempt> SyncAttempts => Set<SyncAttempt>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<Setting> Settings => Set<Setting>();
+    public DbSet<GeRosterSnapshot> GeRosterSnapshots => Set<GeRosterSnapshot>();
+    public DbSet<GeRosterSection> GeRosterSections => Set<GeRosterSection>();
+    public DbSet<GeRosterStudent> GeRosterStudents => Set<GeRosterStudent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

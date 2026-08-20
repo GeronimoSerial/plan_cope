@@ -4,6 +4,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using PlanCope.Central.Api.Auth;
 using PlanCope.Central.Api.Data;
+using PlanCope.Central.Api.Integrations.Ge;
 using PlanCope.Shared.Infrastructure.DependencyInjection;
 using System.Text;
 using System.Text.Json.Serialization;
@@ -50,6 +51,22 @@ builder.Services.AddDbContext<PlanCopeDbContext>(options =>
     options.UseNpgsql(connectionString, npgsql => npgsql.MigrationsAssembly("PlanCope.Central.Migrations")));
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection(AuthOptions.SectionName));
 builder.Services.AddScoped<ITokenService, TokenService>();
+builder.Services.Configure<GeApiOptions>(builder.Configuration.GetSection(GeApiOptions.SectionName));
+builder.Services.AddSingleton<GeTokenCache>();
+builder.Services.AddScoped<IGeRosterStore, EfGeRosterStore>();
+builder.Services.AddScoped<IGeRosterService, GeRosterService>();
+builder.Services.AddHttpClient<IGeTokenProvider, GeTokenProvider>((serviceProvider, client) =>
+{
+    var options = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<GeApiOptions>>().Value;
+    client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/') + "/", UriKind.Absolute);
+    client.Timeout = TimeSpan.FromSeconds(Math.Clamp(options.TimeoutSeconds, 1, 300));
+});
+builder.Services.AddHttpClient<IGeApiClient, GeApiClient>((serviceProvider, client) =>
+{
+    var options = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<GeApiOptions>>().Value;
+    client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/') + "/", UriKind.Absolute);
+    client.Timeout = TimeSpan.FromSeconds(Math.Clamp(options.TimeoutSeconds, 1, 300));
+});
 
 var authOptions = builder.Configuration.GetSection(AuthOptions.SectionName).Get<AuthOptions>() ?? new AuthOptions();
 if (string.IsNullOrWhiteSpace(authOptions.SigningKey))

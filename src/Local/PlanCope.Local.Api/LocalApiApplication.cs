@@ -60,6 +60,7 @@ public static class LocalApiApplication
         app.MapExamEndpoints();
         app.MapAssetEndpoints();
         app.MapSessionEndpoints();
+        app.MapRosterEndpoints();
         app.MapAttemptEndpoints();
         app.MapSyncEndpoints();
         app.MapTakePageEndpoints();

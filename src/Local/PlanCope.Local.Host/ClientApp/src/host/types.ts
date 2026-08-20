@@ -31,6 +31,9 @@ export type CreateSessionRequest = {
   startedBy: string;
   expectedStudentCount: number;
   config: unknown | null;
+  schoolYear?: string | null;
+  rosterSnapshotId?: string | null;
+  rosterSectionId?: string | null;
 };
 
 export type LocalSession = {
@@ -46,6 +49,36 @@ export type LocalSession = {
   configJson?: string | null;
   accessCode: string;
   expectedStudentCount: number;
+  schoolYear?: string | null;
+  rosterSnapshotId?: string | null;
+  rosterSectionId?: string | null;
+};
+
+export type RosterSnapshot = {
+  id: string;
+  cue: string;
+  schoolYear: string;
+  fetchedAt: string;
+  checksum: string;
+  sectionCount: number;
+  studentCount: number;
+  status: string;
+};
+
+export type RosterSection = {
+  id: string;
+  snapshotId: string;
+  geSectionId?: number | null;
+  course?: string | null;
+  division?: string | null;
+  level?: string | null;
+  shift?: string | null;
+  studentCount: number;
+};
+
+export type RosterResponse = {
+  snapshot: RosterSnapshot | null;
+  sections: RosterSection[];
 };
 
 export type SessionProgress = {
@@ -65,4 +98,5 @@ export type FormErrors = {
   operatorName?: string;
   selectedExamId?: string;
   accessCode?: string;
+  rosterSectionId?: string;
 };

@@ -1,4 +1,4 @@
-import type { CreateSessionRequest, ExamOption, FormErrors } from "../types";
+import type { CreateSessionRequest, ExamOption, FormErrors, RosterSection, RosterSnapshot } from "../types";
 
 export type SessionForm = {
   cue: string;
@@ -55,7 +55,12 @@ export function resolveSchoolName(cue: string): string {
   return `Escuela CUE ${normalizedCue}`;
 }
 
-export function buildCreateSessionRequest(form: SessionForm, exam: ExamOption): CreateSessionRequest {
+export function buildCreateSessionRequest(
+  form: SessionForm,
+  exam: ExamOption,
+  snapshot?: RosterSnapshot | null,
+  section?: RosterSection | null
+): CreateSessionRequest {
   return {
     examVersionId: exam.id,
     schoolCode: form.cue.trim().toUpperCase(),
@@ -63,6 +68,9 @@ export function buildCreateSessionRequest(form: SessionForm, exam: ExamOption): 
     commissionCode: null,
     startedBy: form.operatorName.trim(),
     expectedStudentCount: form.expectedStudentCount,
-    config: null
+    config: null,
+    schoolYear: snapshot?.schoolYear ?? null,
+    rosterSnapshotId: snapshot?.id ?? null,
+    rosterSectionId: section?.id ?? null
   };
 }

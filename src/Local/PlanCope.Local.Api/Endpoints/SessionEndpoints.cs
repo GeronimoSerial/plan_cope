@@ -32,6 +32,7 @@ public static class SessionEndpoints
             CreateSessionRequest request,
             IValidator<CreateSessionRequest> validator,
             ISessionRepository sessionRepository,
+            ILocalRosterRepository rosterRepository,
             CancellationToken cancellationToken) =>
         {
             var validation = await validator.ValidateAsync(request, cancellationToken);
@@ -39,6 +40,20 @@ public static class SessionEndpoints
             if (!validation.IsValid)
             {
                 return Results.ValidationProblem(validation.ToDictionary());
+            }
+
+            if (request.RosterSnapshotId is not null)
+            {
+                var rosterValidation = await rosterRepository.ValidateSelectionAsync(
+                    request.SchoolCode,
+                    request.SchoolYear!,
+                    request.RosterSnapshotId,
+                    request.RosterSectionId!,
+                    cancellationToken);
+                if (!rosterValidation.IsValid)
+                {
+                    return Results.BadRequest(new { error = rosterValidation.Error });
+                }
             }
 
             var session = new LocalDeliverySession(
@@ -53,7 +68,10 @@ public static class SessionEndpoints
                 "active",
                 request.Config?.GetRawText(),
                 await GenerateAccessCodeAsync(sessionRepository, cancellationToken),
-                request.ExpectedStudentCount);
+                request.ExpectedStudentCount,
+                request.SchoolYear,
+                request.RosterSnapshotId,
+                request.RosterSectionId);
 
             await sessionRepository.CreateAsync(session, cancellationToken);
             return Results.Created($"/api/sessions/{session.Id}", session);
