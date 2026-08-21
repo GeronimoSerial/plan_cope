@@ -24,6 +24,8 @@ public sealed class LocalRosterRepositoryTests
 
             var first = await repository.ImportAsync(package, hmac);
             var second = await repository.ImportAsync(package, hmac);
+            var latestSnapshot = await repository.GetLatestSnapshotAsync(package.Cue, package.SchoolYear);
+            var sections = await repository.GetSectionsAsync(package.Cue, package.SchoolYear);
             var firstSectionLookup = await repository.FindStudentAsync(package.SnapshotId, "section-a", "12.345.678", hmac);
             var secondSectionLookup = await repository.FindStudentAsync(package.SnapshotId, "section-b", "12.345.678", hmac);
 
@@ -31,6 +33,11 @@ public sealed class LocalRosterRepositoryTests
             Assert.False(second.Imported);
             Assert.Equal(2, first.SectionCount);
             Assert.Equal(2, first.StudentCount);
+            Assert.NotNull(latestSnapshot);
+            Assert.Equal(2, latestSnapshot!.SectionCount);
+            Assert.Equal(2, latestSnapshot.StudentCount);
+            Assert.Equal(2, sections.Count);
+            Assert.All(sections, section => Assert.Equal(1, section.StudentCount));
             Assert.NotNull(firstSectionLookup);
             Assert.Equal(101, firstSectionLookup!.GePersonId);
             Assert.NotNull(secondSectionLookup);

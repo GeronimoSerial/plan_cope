@@ -180,7 +180,7 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
         CancellationToken cancellationToken = default)
     {
         using var connection = connectionFactory.CreateOpenConnection();
-        return await connection.QuerySingleOrDefaultAsync<LocalRosterSnapshotLookup>(new CommandDefinition(
+        var row = await connection.QuerySingleOrDefaultAsync<LocalRosterSnapshotRow>(new CommandDefinition(
             """
             SELECT id AS Id,
                    cue AS Cue,
@@ -197,6 +197,7 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
             """,
             new { Cue = cue.Trim().ToUpperInvariant(), SchoolYear = schoolYear.Trim() },
             cancellationToken: cancellationToken));
+        return row?.ToDomain();
     }
 
     public async Task<IReadOnlyList<LocalRosterSectionLookup>> GetSectionsAsync(
@@ -205,7 +206,7 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
         CancellationToken cancellationToken = default)
     {
         using var connection = connectionFactory.CreateOpenConnection();
-        var rows = await connection.QueryAsync<LocalRosterSectionLookup>(new CommandDefinition(
+        var rows = await connection.QueryAsync<LocalRosterSectionRow>(new CommandDefinition(
             """
             WITH latest AS (
                 SELECT id
@@ -230,7 +231,7 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
             """,
             new { Cue = cue.Trim().ToUpperInvariant(), SchoolYear = schoolYear.Trim() },
             cancellationToken: cancellationToken));
-        return rows.ToList();
+        return rows.Select(static row => row.ToDomain()).ToList();
     }
 
     public async Task<LocalRosterSelectionValidation> ValidateSelectionAsync(
@@ -289,6 +290,50 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
         public string Cue { get; init; } = string.Empty;
         public string SchoolYear { get; init; } = string.Empty;
         public string Status { get; init; } = string.Empty;
+    }
+
+    private sealed class LocalRosterSnapshotRow
+    {
+        public string Id { get; init; } = string.Empty;
+        public string Cue { get; init; } = string.Empty;
+        public string SchoolYear { get; init; } = string.Empty;
+        public string FetchedAt { get; init; } = string.Empty;
+        public string Checksum { get; init; } = string.Empty;
+        public long SectionCount { get; init; }
+        public long StudentCount { get; init; }
+        public string Status { get; init; } = string.Empty;
+
+        public LocalRosterSnapshotLookup ToDomain() => new(
+            Id,
+            Cue,
+            SchoolYear,
+            FetchedAt,
+            Checksum,
+            checked((int)SectionCount),
+            checked((int)StudentCount),
+            Status);
+    }
+
+    private sealed class LocalRosterSectionRow
+    {
+        public string Id { get; init; } = string.Empty;
+        public string SnapshotId { get; init; } = string.Empty;
+        public long? GeSectionId { get; init; }
+        public string? Course { get; init; }
+        public string? Division { get; init; }
+        public string? Level { get; init; }
+        public string? Shift { get; init; }
+        public long StudentCount { get; init; }
+
+        public LocalRosterSectionLookup ToDomain() => new(
+            Id,
+            SnapshotId,
+            GeSectionId.HasValue ? checked((int)GeSectionId.Value) : null,
+            Course,
+            Division,
+            Level,
+            Shift,
+            checked((int)StudentCount));
     }
 
     private sealed class ExistingSnapshot
