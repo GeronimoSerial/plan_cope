@@ -1,6 +1,7 @@
 using Dapper;
 using PlanCope.Local.Api.Services;
 using PlanCope.Shared.Contracts.Sync;
+using PlanCope.Shared.Domain.ValueObjects;
 
 namespace PlanCope.Local.Api.Data.Repositories;
 
@@ -195,7 +196,7 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
             ORDER BY fetched_at DESC, id DESC
             LIMIT 1;
             """,
-            new { Cue = cue.Trim().ToUpperInvariant(), SchoolYear = schoolYear.Trim() },
+            new { Cue = CueCode.Normalize(cue), SchoolYear = schoolYear.Trim() },
             cancellationToken: cancellationToken));
         return row?.ToDomain();
     }
@@ -229,7 +230,7 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
             GROUP BY s.id, s.snapshot_id, s.ge_section_id, s.course, s.division, s.level, s.shift
             ORDER BY s.course, s.division, s.id;
             """,
-            new { Cue = cue.Trim().ToUpperInvariant(), SchoolYear = schoolYear.Trim() },
+            new { Cue = CueCode.Normalize(cue), SchoolYear = schoolYear.Trim() },
             cancellationToken: cancellationToken));
         return rows.Select(static row => row.ToDomain()).ToList();
     }
@@ -257,7 +258,7 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
             return new(false, "El snapshot del padrón no existe en este equipo.");
         }
 
-        if (!string.Equals(snapshot.Cue, cue.Trim(), StringComparison.OrdinalIgnoreCase) ||
+        if (!string.Equals(snapshot.Cue, CueCode.Normalize(cue), StringComparison.Ordinal) ||
             !string.Equals(snapshot.SchoolYear, schoolYear.Trim(), StringComparison.Ordinal))
         {
             return new(false, "El snapshot no corresponde al CUE y ciclo lectivo seleccionados.");
@@ -268,20 +269,21 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
             return new(false, "El snapshot del padrón no está disponible para crear sesiones.");
         }
 
-        var sectionExists = await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+        var sectionStudentCount = await connection.QuerySingleOrDefaultAsync<long?>(new CommandDefinition(
             """
-            SELECT EXISTS (
-                SELECT 1
-                FROM local_roster_sections
-                WHERE id = @SectionId AND snapshot_id = @SnapshotId
-            );
+            SELECT COUNT(st.id)
+            FROM local_roster_sections s
+            LEFT JOIN local_roster_students st
+              ON st.section_id = s.id AND st.snapshot_id = s.snapshot_id
+            WHERE s.id = @SectionId AND s.snapshot_id = @SnapshotId
+            GROUP BY s.id;
             """,
             new { SectionId = sectionId, SnapshotId = snapshotId },
             cancellationToken: cancellationToken));
 
-        return sectionExists
-            ? new(true, null)
-            : new(false, "La sección no pertenece al snapshot seleccionado.");
+        return sectionStudentCount is > 0
+            ? new(true, null, checked((int)sectionStudentCount.Value))
+            : new(false, "La sección no pertenece al snapshot seleccionado o no contiene alumnos nominalizados.");
     }
 
     private sealed class SelectionSnapshotRow

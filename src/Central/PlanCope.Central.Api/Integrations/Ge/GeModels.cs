@@ -17,3 +17,13 @@ public sealed record GeRosterStudent(
     string? Apellido,
     string? Nombre,
     string? NroDocumento);
+
+public sealed record GeRosterEnrollment(int PersonaId, int SectionId);
+
+public sealed record GeSectionCatalogEntry(
+    int SectionId,
+    string? CueAnexo,
+    string? Curso,
+    string? Division,
+    string? NivelEnsenanza,
+    string? Turno);

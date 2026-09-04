@@ -17,6 +17,7 @@ import type {
   RosterSnapshot,
   SessionProgress
 } from "../types";
+import { isValidCue } from "../domain/cue";
 
 export type DeliverySessionState = ReturnType<typeof useDeliverySession>;
 
@@ -41,7 +42,6 @@ export function useDeliverySession(hostContext: HostContext) {
   const [rosterSections, setRosterSections] = useState<RosterSection[]>([]);
   const [selectedRosterSectionId, setSelectedRosterSectionId] = useState("");
   const [isLoadingRoster, setIsLoadingRoster] = useState(false);
-  const [isPullingRoster, setIsPullingRoster] = useState(false);
   const [rosterError, setRosterError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -88,8 +88,8 @@ export function useDeliverySession(hostContext: HostContext) {
   }, [api, loadExams]);
 
   const loadRoster = useCallback(async (signal?: AbortSignal) => {
-    const cue = form.cue.trim().toUpperCase();
-    if (!cue || !schoolYear.trim()) {
+    const cue = form.cue.trim();
+    if (!isValidCue(cue) || !schoolYear.trim()) {
       setRosterSnapshot(null);
       setRosterSections([]);
       setSelectedRosterSectionId("");
@@ -118,25 +118,6 @@ export function useDeliverySession(hostContext: HostContext) {
       }
     }
   }, [api, form.cue, schoolYear]);
-
-  const pullRoster = useCallback(async () => {
-    const cue = form.cue.trim().toUpperCase();
-    if (!cue || !schoolYear.trim()) {
-      setRosterError("Completa el CUE y el ciclo lectivo antes de actualizar el padrón.");
-      return;
-    }
-
-    setIsPullingRoster(true);
-    setRosterError(null);
-    try {
-      await api.pullRoster(cue, schoolYear.trim());
-      await loadRoster();
-    } catch (exception) {
-      setRosterError(exception instanceof Error ? exception.message : "No se pudo actualizar el padrón desde Central.");
-    } finally {
-      setIsPullingRoster(false);
-    }
-  }, [api, form.cue, loadRoster, schoolYear]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -317,9 +298,7 @@ export function useDeliverySession(hostContext: HostContext) {
         setFormErrors(current => ({ ...current, rosterSectionId: undefined }));
       },
       isLoading: isLoadingRoster,
-      isPulling: isPullingRoster,
-      error: rosterError,
-      refresh: pullRoster
+      error: rosterError
     },
     sessionForm: {
       form,

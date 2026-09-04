@@ -6,6 +6,7 @@ using PlanCope.Central.Api.Data;
 using GeApiRosterStudent = PlanCope.Central.Api.Integrations.Ge.GeRosterStudent;
 using GeDomainRosterStudent = PlanCope.Shared.Domain.Central.GeRosterStudent;
 using PlanCope.Shared.Domain.Central;
+using PlanCope.Shared.Domain.ValueObjects;
 
 namespace PlanCope.Central.Api.Integrations.Ge;
 
@@ -132,13 +133,8 @@ public static class GeRosterSnapshotBuilder
         string schoolYear,
         IEnumerable<GeApiRosterStudent> source)
     {
-        var normalizedCue = NormalizeText(cue).ToUpperInvariant();
+        var normalizedCue = CueCode.Normalize(cue);
         var normalizedSchoolYear = NormalizeText(schoolYear);
-        if (string.IsNullOrWhiteSpace(normalizedCue))
-        {
-            throw new ArgumentException("CUE is required.", nameof(cue));
-        }
-
         if (string.IsNullOrWhiteSpace(normalizedSchoolYear))
         {
             throw new ArgumentException("School year is required.", nameof(schoolYear));
@@ -373,7 +369,7 @@ public sealed class GeRosterService(
         return await rosterStore.GetSectionsAsync(latest.Id, cancellationToken);
     }
 
-    private static string NormalizeCue(string? cue) => cue?.Trim().ToUpperInvariant() ?? string.Empty;
+    private static string NormalizeCue(string? cue) => CueCode.Normalize(cue);
 
     private static GeRosterRefreshResult ToRefreshResult(GeRosterSnapshot snapshot, bool created)
     {

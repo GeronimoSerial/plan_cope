@@ -148,10 +148,12 @@ public sealed class LocalSessionFlowTests
         using var client = factory.CreateClient();
         await EnsureInitializedAsync(client);
         factory.SeedExam();
-        factory.SeedRoster("CUE-DEMO", "2026", "snapshot-a", "section-a", "Ready");
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "roster-student-a", 501, "12.345.678", "Ana", "Pérez");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "roster-student-b", 502, "23.456.789", "Luis", "Gómez");
 
         var response = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
-            LocalApiFactory.ExamVersionId, "CUE-DEMO", "6 A", null, "Operador", 2, null,
+            LocalApiFactory.ExamVersionId, "180055400", "6 A", null, "Operador", 30, null,
             "2026", "snapshot-a", "section-a"));
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
@@ -160,6 +162,7 @@ public sealed class LocalSessionFlowTests
         Assert.Equal("2026", session!.SchoolYear);
         Assert.Equal("snapshot-a", session.RosterSnapshotId);
         Assert.Equal("section-a", session.RosterSectionId);
+        Assert.Equal(2, session.ExpectedStudentCount);
     }
 
     [Fact]
@@ -169,11 +172,11 @@ public sealed class LocalSessionFlowTests
         using var client = factory.CreateClient();
         await EnsureInitializedAsync(client);
         factory.SeedExam();
-        factory.SeedRoster("CUE-DEMO", "2026", "snapshot-a", "section-a", "Ready");
-        factory.SeedRoster("CUE-DEMO", "2026", "snapshot-b", "section-b", "Ready");
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
+        factory.SeedRoster("180055400", "2026", "snapshot-b", "section-b", "Ready");
 
         var response = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
-            LocalApiFactory.ExamVersionId, "CUE-DEMO", "6 B", null, "Operador", 2, null,
+            LocalApiFactory.ExamVersionId, "180055400", "6 B", null, "Operador", 2, null,
             "2026", "snapshot-a", "section-b"));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -187,10 +190,10 @@ public sealed class LocalSessionFlowTests
         using var client = factory.CreateClient();
         await EnsureInitializedAsync(client);
         factory.SeedExam();
-        factory.SeedRoster("CUE-DEMO", "2026", "snapshot-a", "section-a", "Ready");
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
 
         var response = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
-            LocalApiFactory.ExamVersionId, "CUE-OTHER", "6 A", null, "Operador", 2, null,
+            LocalApiFactory.ExamVersionId, "180055401", "6 A", null, "Operador", 2, null,
             "2026", "snapshot-a", "section-a"));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -204,11 +207,11 @@ public sealed class LocalSessionFlowTests
         using var client = factory.CreateClient();
         await EnsureInitializedAsync(client);
         factory.SeedExam();
-        factory.SeedRoster("CUE-DEMO", "2026", "snapshot-a", "section-a", "Ready");
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
         factory.SeedRosterStudent("snapshot-a", "section-a", "roster-student-a", 501, "12.345.678", "Ana", "Pérez");
 
         var session = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
-            LocalApiFactory.ExamVersionId, "CUE-DEMO", "6 A", null, "Operador", 2, null,
+            LocalApiFactory.ExamVersionId, "180055400", "6 A", null, "Operador", 2, null,
             "2026", "snapshot-a", "section-a"));
         var createdSession = await session.Content.ReadFromJsonAsync<LocalDeliverySession>();
         Assert.NotNull(createdSession);
@@ -244,10 +247,10 @@ public sealed class LocalSessionFlowTests
         using var client = factory.CreateClient();
         await EnsureInitializedAsync(client);
         factory.SeedExam();
-        factory.SeedRoster("CUE-DEMO", "2026", "snapshot-a", "section-a", "Ready");
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
         factory.SeedRosterStudent("snapshot-a", "section-a", "roster-student-a", 501, "12.345.678", "Ana", "Pérez");
         var sessionResponse = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
-            LocalApiFactory.ExamVersionId, "CUE-DEMO", "6 A", null, "Operador", 2, null,
+            LocalApiFactory.ExamVersionId, "180055400", "6 A", null, "Operador", 2, null,
             "2026", "snapshot-a", "section-a"));
         var session = await sessionResponse.Content.ReadFromJsonAsync<LocalDeliverySession>();
         Assert.NotNull(session);
@@ -268,10 +271,10 @@ public sealed class LocalSessionFlowTests
         using var client = factory.CreateClient();
         await EnsureInitializedAsync(client);
         factory.SeedExam();
-        factory.SeedRoster("CUE-DEMO", "2026", "snapshot-a", "section-a", "Ready");
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
         factory.SeedRosterStudent("snapshot-a", "section-a", "roster-student-a", 501, "12.345.678", "Ana", "Pérez");
         var sessionResponse = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
-            LocalApiFactory.ExamVersionId, "CUE-DEMO", "6 A", null, "Operador", 2, null,
+            LocalApiFactory.ExamVersionId, "180055400", "6 A", null, "Operador", 2, null,
             "2026", "snapshot-a", "section-a"));
         var session = await sessionResponse.Content.ReadFromJsonAsync<LocalDeliverySession>();
         Assert.NotNull(session);
@@ -295,10 +298,10 @@ public sealed class LocalSessionFlowTests
         using var secondClient = factory.CreateClient();
         await EnsureInitializedAsync(client);
         factory.SeedExam();
-        factory.SeedRoster("CUE-DEMO", "2026", "snapshot-a", "section-a", "Ready");
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
         factory.SeedRosterStudent("snapshot-a", "section-a", "roster-student-a", 501, "12.345.678", "Ana", "Pérez");
         var sessionResponse = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
-            LocalApiFactory.ExamVersionId, "CUE-DEMO", "6 A", null, "Operador", 2, null,
+            LocalApiFactory.ExamVersionId, "180055400", "6 A", null, "Operador", 2, null,
             "2026", "snapshot-a", "section-a"));
         var session = await sessionResponse.Content.ReadFromJsonAsync<LocalDeliverySession>();
         Assert.NotNull(session);
@@ -318,7 +321,7 @@ public sealed class LocalSessionFlowTests
     {
         var response = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
             LocalApiFactory.ExamVersionId,
-            "CUE-DEMO",
+            "180055400",
             "6A",
             null,
             "Operador",

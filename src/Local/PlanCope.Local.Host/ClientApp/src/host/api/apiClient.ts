@@ -27,10 +27,6 @@ export class ApiClient {
     return this.get<RosterResponse>(`/api/rosters/latest?${query.toString()}`, signal);
   }
 
-  pullRoster(cue: string, schoolYear: string, signal?: AbortSignal): Promise<unknown> {
-    return this.post<unknown>("/api/sync/pull-roster", { cue, schoolYear }, signal);
-  }
-
   createSession(request: CreateSessionRequest, signal?: AbortSignal): Promise<LocalSession> {
     return this.post<LocalSession>("/api/sessions/", request, signal);
   }

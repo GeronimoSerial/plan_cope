@@ -10,4 +10,5 @@ public interface IGeApiClient
         string cue,
         string schoolYear,
         CancellationToken cancellationToken = default);
+
 }

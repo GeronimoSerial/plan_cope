@@ -1,4 +1,5 @@
 using PlanCope.Shared.Contracts.Sync;
+using PlanCope.Shared.Domain.ValueObjects;
 
 namespace PlanCope.Local.Api.Data.Repositories;
 
@@ -15,11 +16,16 @@ public static class LocalRosterPackageValidator
 
         if (package.Sections is null ||
             string.IsNullOrWhiteSpace(package.SnapshotId) || package.SnapshotId.Length > 64 ||
-            string.IsNullOrWhiteSpace(package.Cue) || package.Cue.Length > GeRosterTransportLimits.MaxCueLength ||
+            !CueCode.TryNormalize(package.Cue, out var normalizedCue) ||
             string.IsNullOrWhiteSpace(package.SchoolYear) || package.SchoolYear.Length > GeRosterTransportLimits.MaxSchoolYearLength ||
             string.IsNullOrWhiteSpace(package.Status) || package.Status.Length > 32)
         {
             throw new ArgumentException("Roster package metadata is invalid.", nameof(package));
+        }
+
+        if (!string.Equals(package.Cue, normalizedCue, StringComparison.Ordinal))
+        {
+            throw new ArgumentException("Roster package CUE must use the canonical 9-digit format.", nameof(package));
         }
 
         if (package.SectionCount != package.Sections.Count ||

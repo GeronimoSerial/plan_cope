@@ -18,6 +18,12 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Data\Migrations\*.sql" />
+    <EmbeddedResource Include="Data\Rosters\*.roster.json"
+                      Condition="'$(RosterBundlePath)' == ''"
+                      LogicalName="PlanCope.Local.Api.Rosters.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="$(RosterBundlePath)"
+                      Condition="'$(RosterBundlePath)' != ''"
+                      LogicalName="PlanCope.Local.Api.Rosters.%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>

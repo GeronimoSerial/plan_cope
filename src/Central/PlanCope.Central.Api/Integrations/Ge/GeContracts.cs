@@ -64,3 +64,24 @@ internal sealed class GeRosterStudentResponse
     [JsonPropertyName("nroDocumento")]
     public string? NroDocumento { get; init; }
 }
+
+internal sealed class GeSectionResponse
+{
+    [JsonPropertyName("establecimientoCursoDivisionId")]
+    public int EstablecimientoCursoDivisionId { get; init; }
+
+    [JsonPropertyName("cueAnexo")]
+    public string? CueAnexo { get; init; }
+
+    [JsonPropertyName("curso")]
+    public string? Curso { get; init; }
+
+    [JsonPropertyName("division")]
+    public string? Division { get; init; }
+
+    [JsonPropertyName("nivelEnsenanza")]
+    public string? NivelEnsenanza { get; init; }
+
+    [JsonPropertyName("turno")]
+    public string? Turno { get; init; }
+}

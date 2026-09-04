@@ -54,7 +54,19 @@ public sealed class GeApiClientTests
                 return Json("{\"access_token\":\"token-1\",\"expires_in\":3600}");
             }
 
+            if (request.RequestUri?.AbsolutePath.EndsWith("/GetSecciones", StringComparison.Ordinal) == true)
+            {
+                return Json("[{\"establecimientoCursoDivisionId\":10,\"cueAnexo\":\"1800554-00\",\"curso\":\"1\",\"division\":\"A\"},{\"establecimientoCursoDivisionId\":20,\"cueAnexo\":\"1800554-00\",\"curso\":\"2\",\"division\":\"A\"},{\"establecimientoCursoDivisionId\":30,\"cueAnexo\":\"1800554-00\",\"curso\":\"3\",\"division\":\"A\"}]");
+            }
+
+            if (request.RequestUri?.AbsolutePath.EndsWith("/GetPersonasAlumnos", StringComparison.Ordinal) == true)
+            {
+                var id = GetQuery(request, "personaId");
+                return Json($"[{{\"personaId\":{id},\"apellido\":\"APELLIDO\",\"nombre\":\"NOMBRE\",\"nroDocumento\":\"{id}{id}{id}\"}}]");
+            }
+
             pageIndexes.Add(GetQuery(request, "pageIndex"));
+            Assert.Equal("1800554-00", GetQuery(request, "cue"));
             return GetQuery(request, "pageIndex") switch
             {
                 "1" => Json("{\"alumnos\":[{\"personaId\":1,\"establecimientoCursoDivisionId\":10,\"cueAnexo\":\"1800554-00\",\"persona\":{\"personaId\":1,\"apellido\":\"UNO\",\"nombre\":\"A\",\"nroDocumento\":\"111\"}},{\"personaId\":2,\"establecimientoCursoDivisionId\":20,\"cueAnexo\":\"1800554-00\",\"persona\":{\"personaId\":2,\"apellido\":\"DOS\",\"nombre\":\"B\",\"nroDocumento\":\"222\"}}],\"totalRegistros\":4}"),
@@ -72,6 +84,44 @@ public sealed class GeApiClientTests
         Assert.Equal(["1", "2"], pageIndexes.OrderBy(value => value).ToArray());
         Assert.Equal([1, 2, 2], students.Select(student => student.PersonaId).OrderBy(id => id).ToArray());
         Assert.Equal([10, 20, 30], students.Select(student => student.EstablecimientoCursoDivisionId).OrderBy(id => id).ToArray());
+    }
+
+    [Fact]
+    public async Task GetStudentsBySchool_UsesTotalWhenGeReturnsShortNestedPages()
+    {
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.RequestUri?.AbsolutePath == "/token")
+            {
+                return Json("{\"access_token\":\"token-1\",\"expires_in\":3600}");
+            }
+
+            if (request.RequestUri?.AbsolutePath.EndsWith("/GetSecciones", StringComparison.Ordinal) == true)
+            {
+                return Json("[{\"establecimientoCursoDivisionId\":10,\"cueAnexo\":\"1800554-00\",\"curso\":\"6º\",\"division\":\"A\"},{\"establecimientoCursoDivisionId\":20,\"cueAnexo\":\"1800554-00\",\"curso\":\"6º\",\"division\":\"B\"}]");
+            }
+
+            if (request.RequestUri?.AbsolutePath.EndsWith("/GetPersonasAlumnos", StringComparison.Ordinal) == true)
+            {
+                var id = GetQuery(request, "personaId");
+                return Json($"[{{\"personaId\":{id},\"apellido\":\"APELLIDO\",\"nombre\":\"NOMBRE\",\"nroDocumento\":\"{id}{id}{id}\"}}]");
+            }
+
+            return GetQuery(request, "pageIndex") switch
+            {
+                "1" => Json("{\"data\":{\"items\":[{\"personaId\":1,\"establecimientoCursoDivisionId\":10,\"curso\":\"6Âº\",\"division\":\"A\",\"persona\":{\"personaId\":1,\"apellido\":\"UNO\",\"nombre\":\"A\",\"nroDocumento\":\"111\"}}],\"totalRegistros\":2}}"),
+                "2" => Json("{\"data\":{\"items\":[{\"personaId\":2,\"establecimientoCursoDivisionId\":20,\"curso\":\"6Âº\",\"division\":\"B\",\"persona\":{\"personaId\":2,\"apellido\":\"DOS\",\"nombre\":\"B\",\"nroDocumento\":\"222\"}}],\"totalRegistros\":2}}"),
+                _ => throw new InvalidOperationException("Unexpected page."),
+            };
+        });
+        var options = CreateOptions(pageSize: 100);
+        var tokenProvider = new GeTokenProvider(new HttpClient(handler) { BaseAddress = new Uri("https://ge.test/") }, options, new GeTokenCache());
+        var api = new GeApiClient(new HttpClient(handler) { BaseAddress = new Uri("https://ge.test/") }, tokenProvider, options);
+
+        var students = await api.GetStudentsBySchoolAsync("180055400", "2026");
+
+        Assert.Equal(2, students.Count);
+        Assert.Equal([10, 20], students.Select(student => student.EstablecimientoCursoDivisionId).ToArray());
     }
 
     [Fact]

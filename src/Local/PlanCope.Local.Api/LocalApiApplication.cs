@@ -35,6 +35,10 @@ public static class LocalApiApplication
         using (var scope = app.Services.CreateScope())
         {
             scope.ServiceProvider.GetRequiredService<LocalDatabaseInitializer>().Initialize();
+            scope.ServiceProvider.GetRequiredService<EmbeddedRosterSeeder>()
+                .SeedAsync()
+                .GetAwaiter()
+                .GetResult();
             if (builder.Configuration.GetValue("Local:SeedDemoExam", true))
             {
                 scope.ServiceProvider.GetRequiredService<LocalDemoExamSeeder>().SeedIfEmpty();

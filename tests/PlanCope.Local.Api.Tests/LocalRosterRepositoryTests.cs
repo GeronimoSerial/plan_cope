@@ -90,7 +90,7 @@ public sealed class LocalRosterRepositoryTests
                 new GeRosterStudentPackageDto("student-b", "section-b", 102, "12.345.678", "Luis", "Gómez")
             })
         };
-        var package = new GeRosterPackageDto("snapshot-1", "1800554-00", "2026", DateTimeOffset.UtcNow, "", 2, 2, "Ready", sections);
+        var package = new GeRosterPackageDto("snapshot-1", "180055400", "2026", DateTimeOffset.UtcNow, "", 2, 2, "Ready", sections);
         return package with { Checksum = GeRosterPackageChecksum.Calculate(package) };
     }
 

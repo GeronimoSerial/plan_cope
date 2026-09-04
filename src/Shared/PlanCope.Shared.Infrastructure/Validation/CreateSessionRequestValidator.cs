@@ -1,5 +1,6 @@
 using FluentValidation;
 using PlanCope.Shared.Contracts.Local;
+using PlanCope.Shared.Domain.ValueObjects;
 
 namespace PlanCope.Shared.Infrastructure.Validation;
 
@@ -8,7 +9,9 @@ public sealed class CreateSessionRequestValidator : AbstractValidator<CreateSess
     public CreateSessionRequestValidator()
     {
         RuleFor(static x => x.ExamVersionId).NotEmpty();
-        RuleFor(static x => x.SchoolCode).NotEmpty().MaximumLength(64);
+        RuleFor(static x => x.SchoolCode)
+            .Must(static value => CueCode.TryNormalize(value, out _))
+            .WithMessage($"El CUE debe contener exactamente {CueCode.Length} dígitos.");
         RuleFor(static x => x.StartedBy).NotEmpty();
         RuleFor(static x => x.ExpectedStudentCount).InclusiveBetween(1, 500);
         RuleFor(static x => x.ClassroomCode).MaximumLength(64);

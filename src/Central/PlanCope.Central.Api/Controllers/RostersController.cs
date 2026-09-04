@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using PlanCope.Central.Api.Integrations.Ge;
+using PlanCope.Shared.Domain.ValueObjects;
 
 namespace PlanCope.Central.Api.Controllers;
 
@@ -14,14 +15,28 @@ public sealed class RostersController(IGeRosterService rosterService) : Controll
         [FromBody] GeRosterRefreshRequest? request,
         CancellationToken cancellationToken = default)
     {
-        if (request is null || string.IsNullOrWhiteSpace(request.Cue) || string.IsNullOrWhiteSpace(request.SchoolYear))
+        if (request is null || !CueCode.TryNormalize(request.Cue, out var cue) || string.IsNullOrWhiteSpace(request.SchoolYear))
         {
-            ModelState.AddModelError(string.Empty, "cue and schoolYear are required.");
+            ModelState.AddModelError(nameof(request.Cue), $"cue must contain exactly {CueCode.Length} digits.");
             return ValidationProblem(ModelState);
         }
 
-        var result = await rosterService.RefreshAsync(request.Cue, request.SchoolYear, cancellationToken);
-        return Ok(result);
+        try
+        {
+            var result = await rosterService.RefreshAsync(cue, request.SchoolYear, cancellationToken);
+            return Ok(result);
+        }
+        catch (GeRosterEmptyException exception)
+        {
+            return UnprocessableEntity(new { error = exception.Message });
+        }
+        catch (GeApiException exception)
+        {
+            return Problem(
+                title: "No se pudo obtener el padrón desde GE.",
+                detail: exception.Message,
+                statusCode: StatusCodes.Status502BadGateway);
+        }
     }
 
     [HttpGet("{cue}/{schoolYear}/status")]
@@ -30,7 +45,12 @@ public sealed class RostersController(IGeRosterService rosterService) : Controll
         string schoolYear,
         CancellationToken cancellationToken = default)
     {
-        var snapshot = await rosterService.GetLatestAsync(cue, schoolYear, cancellationToken);
+        if (!CueCode.TryNormalize(cue, out var normalizedCue))
+        {
+            return BadRequest($"cue must contain exactly {CueCode.Length} digits.");
+        }
+
+        var snapshot = await rosterService.GetLatestAsync(normalizedCue, schoolYear, cancellationToken);
         return snapshot is null
             ? NotFound()
             : Ok(new GeRosterRefreshResult(
@@ -51,13 +71,18 @@ public sealed class RostersController(IGeRosterService rosterService) : Controll
         string schoolYear,
         CancellationToken cancellationToken = default)
     {
-        var snapshot = await rosterService.GetLatestAsync(cue, schoolYear, cancellationToken);
+        if (!CueCode.TryNormalize(cue, out var normalizedCue))
+        {
+            return BadRequest($"cue must contain exactly {CueCode.Length} digits.");
+        }
+
+        var snapshot = await rosterService.GetLatestAsync(normalizedCue, schoolYear, cancellationToken);
         if (snapshot is null)
         {
             return NotFound();
         }
 
-        return Ok(await rosterService.GetSectionsAsync(cue, schoolYear, cancellationToken));
+        return Ok(await rosterService.GetSectionsAsync(normalizedCue, schoolYear, cancellationToken));
     }
 }
 

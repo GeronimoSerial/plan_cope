@@ -1,4 +1,5 @@
 using PlanCope.Local.Api.Data.Repositories;
+using PlanCope.Shared.Domain.ValueObjects;
 
 namespace PlanCope.Local.Api.Endpoints;
 
@@ -14,13 +15,13 @@ public static class RosterEndpoints
             ILocalRosterRepository repository,
             CancellationToken cancellationToken) =>
         {
-            if (string.IsNullOrWhiteSpace(cue) || string.IsNullOrWhiteSpace(schoolYear))
+            if (!CueCode.TryNormalize(cue, out var normalizedCue) || string.IsNullOrWhiteSpace(schoolYear))
             {
-                return Results.BadRequest(new { error = "cue and schoolYear are required." });
+                return Results.BadRequest(new { error = $"cue must contain exactly {CueCode.Length} digits and schoolYear is required." });
             }
 
-            var snapshot = await repository.GetLatestSnapshotAsync(cue, schoolYear, cancellationToken);
-            var sections = await repository.GetSectionsAsync(cue, schoolYear, cancellationToken);
+            var snapshot = await repository.GetLatestSnapshotAsync(normalizedCue, schoolYear, cancellationToken);
+            var sections = await repository.GetSectionsAsync(normalizedCue, schoolYear, cancellationToken);
             return Results.Ok(new { snapshot, sections });
         });
 
@@ -30,12 +31,12 @@ public static class RosterEndpoints
             ILocalRosterRepository repository,
             CancellationToken cancellationToken) =>
         {
-            if (string.IsNullOrWhiteSpace(cue) || string.IsNullOrWhiteSpace(schoolYear))
+            if (!CueCode.TryNormalize(cue, out var normalizedCue) || string.IsNullOrWhiteSpace(schoolYear))
             {
-                return Results.BadRequest(new { error = "cue and schoolYear are required." });
+                return Results.BadRequest(new { error = $"cue must contain exactly {CueCode.Length} digits and schoolYear is required." });
             }
 
-            return Results.Ok(await repository.GetSectionsAsync(cue, schoolYear, cancellationToken));
+            return Results.Ok(await repository.GetSectionsAsync(normalizedCue, schoolYear, cancellationToken));
         });
 
         return endpoints;

@@ -17,6 +17,7 @@ public sealed class GeRosterSnapshotBuilderTests
 
         Assert.Equal(forward.Checksum, reversed.Checksum);
         Assert.Equal(1, forward.StudentCount);
+        Assert.Equal("180055400", forward.Cue);
         Assert.Single(forward.Sections);
         Assert.Equal("12345678", forward.Sections[0].Students[0].Document);
     }
@@ -56,7 +57,7 @@ public sealed class GeRosterSnapshotBuilderTests
                 new GeRosterStudentPackageDto("student-1", "section-a", 1, "12-345-678", "Juan", "Pérez")
             })
         };
-        var package = new GeRosterPackageDto("snapshot", "1800554-00", "2026", DateTimeOffset.UnixEpoch, "", 2, 2, "Ready", sections);
+        var package = new GeRosterPackageDto("snapshot", "180055400", "2026", DateTimeOffset.UnixEpoch, "", 2, 2, "Ready", sections);
         var checksum = GeRosterPackageChecksum.Calculate(package);
         var reordered = new GeRosterPackageDto(
             package.SnapshotId,

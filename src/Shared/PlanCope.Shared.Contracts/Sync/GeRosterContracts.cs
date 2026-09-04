@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using PlanCope.Shared.Domain.ValueObjects;
 
 namespace PlanCope.Shared.Contracts.Sync;
 
@@ -36,7 +37,7 @@ public sealed record GeRosterStudentPackageDto(
 
 public static class GeRosterTransportLimits
 {
-    public const int MaxCueLength = 32;
+    public const int MaxCueLength = CueCode.Length;
     public const int MaxSchoolYearLength = 16;
     public const int MaxSections = 10_000;
     public const int MaxStudents = 1_000_000;

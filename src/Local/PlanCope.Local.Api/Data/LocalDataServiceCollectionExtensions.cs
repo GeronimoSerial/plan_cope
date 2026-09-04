@@ -24,6 +24,8 @@ public static class LocalDataServiceCollectionExtensions
         services.AddScoped<LocalExamImportService>();
         services.AddScoped<LocalExamPullService>();
         services.AddScoped<LocalRosterPullService>();
+        services.AddSingleton<IEmbeddedRosterSource, EmbeddedRosterSource>();
+        services.AddScoped<EmbeddedRosterSeeder>();
         services.AddScoped<LocalOutboxPushService>();
         services.AddScoped<ILocalRosterRepository, LocalRosterRepository>();
         services.AddScoped<IDocumentHmacService, DocumentHmacService>();

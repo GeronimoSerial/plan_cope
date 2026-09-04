@@ -3,6 +3,7 @@ using System.Text.Json;
 using PlanCope.Local.Api.Data.Repositories;
 using PlanCope.Shared.Contracts.Sync;
 using PlanCope.Shared.Domain.Local;
+using PlanCope.Shared.Domain.ValueObjects;
 
 namespace PlanCope.Local.Api.Services;
 
@@ -27,10 +28,12 @@ public sealed class LocalRosterPullService(
         string schoolYear,
         CancellationToken cancellationToken = default)
     {
-        cue = cue?.Trim().ToUpperInvariant() ?? string.Empty;
+        if (!CueCode.TryNormalize(cue, out cue))
+        {
+            return Failure($"cue must contain exactly {CueCode.Length} digits.");
+        }
         schoolYear = schoolYear?.Trim() ?? string.Empty;
-        if (cue.Length == 0 || cue.Length > GeRosterTransportLimits.MaxCueLength ||
-            schoolYear.Length == 0 || schoolYear.Length > GeRosterTransportLimits.MaxSchoolYearLength)
+        if (schoolYear.Length == 0 || schoolYear.Length > GeRosterTransportLimits.MaxSchoolYearLength)
         {
             return Failure("cue and schoolYear are required and must be within the supported limits.");
         }

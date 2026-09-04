@@ -30,9 +30,7 @@ type SessionCreatePanelProps = {
     selectedSectionId: string;
     setSelectedSectionId: (value: string) => void;
     isLoading: boolean;
-    isPulling: boolean;
     error: string | null;
-    refresh: () => void;
   };
 };
 
@@ -89,19 +87,12 @@ export function SessionCreatePanel({
         </Field>
       </div>
 
-      <div className="roster-panel" aria-labelledby="roster-title" aria-busy={roster.isLoading || roster.isPulling}>
+      <div className="roster-panel" aria-labelledby="roster-title" aria-busy={roster.isLoading}>
         <div className="roster-panel-header">
           <div>
             <h3 id="roster-title">Padrón nominal GE</h3>
-            <p>Se actualiza únicamente cuando el operador lo solicita.</p>
+            <p>Incluido en esta versión de Plan Cope; no requiere conexión durante la toma.</p>
           </div>
-          <ActionButton
-            variant="secondary"
-            disabled={roster.isPulling || roster.isLoading || !form.cue.trim()}
-            onClick={roster.refresh}
-          >
-            {roster.isPulling ? "Actualizando padrón…" : "Actualizar padrón"}
-          </ActionButton>
         </div>
 
         <div className="form-grid">
@@ -125,16 +116,16 @@ export function SessionCreatePanel({
         {roster.snapshot ? (
           <>
             <p className="roster-meta" role="status">
-              Snapshot {roster.snapshot.status.toLowerCase()} · actualizado {new Date(roster.snapshot.fetchedAt).toLocaleString()} · {roster.snapshot.studentCount} alumnos en {roster.snapshot.sectionCount} secciones.
+              Padrón {roster.snapshot.status.toLowerCase()} · corte {new Date(roster.snapshot.fetchedAt).toLocaleString()} · {roster.snapshot.studentCount} alumnos nominalizados en {roster.sections.length} cursos/secciones disponibles.
             </p>
             {roster.snapshot.status.toLowerCase() !== "ready" && (
-              <p className="roster-meta">Este padrón no está disponible. Actualizá el padrón antes de crear la sesión.</p>
+              <p className="roster-meta">Este padrón no está disponible en el release instalado.</p>
             )}
           </>
         ) : (
           <div className="empty-state roster-empty" role="status">
             <strong>{roster.isLoading ? "Consultando el padrón local…" : "No hay padrón local para este CUE y ciclo."}</strong>
-            <span>Actualizá el padrón para habilitar la creación de una sesión nominal.</span>
+            <span>Instalá un release que incluya el padrón de esta escuela y ciclo lectivo.</span>
           </div>
         )}
         {roster.error && <p className="error-banner" role="alert">{roster.error}</p>}
@@ -173,6 +164,7 @@ export function SessionCreatePanel({
             min={1}
             max={500}
             value={form.expectedStudentCount}
+            readOnly
             onChange={onExpectedStudentCountChange}
           />
         </Field>
@@ -197,7 +189,6 @@ export function SessionCreatePanel({
           isBusy ||
           isLoadingExams ||
           roster.isLoading ||
-          roster.isPulling ||
           !selectedExamId ||
           !roster.snapshot ||
           roster.snapshot.status.toLowerCase() !== "ready" ||

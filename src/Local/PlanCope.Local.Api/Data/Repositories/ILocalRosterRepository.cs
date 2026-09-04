@@ -79,4 +79,4 @@ public sealed record LocalRosterSectionLookup(
     string? Shift,
     int StudentCount);
 
-public sealed record LocalRosterSelectionValidation(bool IsValid, string? Error);
+public sealed record LocalRosterSelectionValidation(bool IsValid, string? Error, int? StudentCount = null);

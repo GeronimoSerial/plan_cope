@@ -4,6 +4,7 @@ using PlanCope.Local.Api.Data.Repositories;
 using PlanCope.Shared.Contracts.Local;
 using PlanCope.Shared.Contracts.Sync;
 using PlanCope.Shared.Domain.Local;
+using PlanCope.Shared.Domain.ValueObjects;
 
 namespace PlanCope.Local.Api.Endpoints;
 
@@ -42,6 +43,8 @@ public static class SessionEndpoints
                 return Results.ValidationProblem(validation.ToDictionary());
             }
 
+            request = request with { SchoolCode = CueCode.Normalize(request.SchoolCode) };
+
             if (request.RosterSnapshotId is not null)
             {
                 var rosterValidation = await rosterRepository.ValidateSelectionAsync(
@@ -54,6 +57,8 @@ public static class SessionEndpoints
                 {
                     return Results.BadRequest(new { error = rosterValidation.Error });
                 }
+
+                request = request with { ExpectedStudentCount = rosterValidation.StudentCount!.Value };
             }
 
             var session = new LocalDeliverySession(

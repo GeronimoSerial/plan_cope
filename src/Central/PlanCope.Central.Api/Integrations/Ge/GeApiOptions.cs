@@ -19,4 +19,8 @@ public sealed class GeApiOptions
     public int MaxStudents { get; init; } = 100_000;
 
     public int TokenSafetyMarginSeconds { get; init; } = 300;
+
+    public int PersonBatchSize { get; init; } = 5;
+
+    public int PersonBatchDelaySeconds { get; init; } = 2;
 }
