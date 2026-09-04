@@ -6,7 +6,26 @@ public sealed record RegisteredNode(string Id, string? SchoolId, string NodeCode
 
 public sealed record CentralDeliverySession(string Id, string RemoteLocalId, string? SchoolId, string? ExamVersionId, string? ClassroomCode, string? CommissionCode, string Status, DateTimeOffset? StartedAt, DateTimeOffset? EndedAt, DateTimeOffset? SyncedAt, DateTimeOffset CreatedAt);
 
-public sealed record ReceivedStudentAttempt(string Id, string RemoteLocalId, string? DeliverySessionId, string StudentCode, string Status, DateTimeOffset? StartedAt, DateTimeOffset? SubmittedAt, DateTimeOffset ReceivedAt, string IdempotencyKey, DateTimeOffset CreatedAt);
+public sealed record ReceivedStudentAttempt(
+    string Id,
+    string RemoteLocalId,
+    string? DeliverySessionId,
+    string StudentCode,
+    string Status,
+    DateTimeOffset? StartedAt,
+    DateTimeOffset? SubmittedAt,
+    DateTimeOffset ReceivedAt,
+    string IdempotencyKey,
+    DateTimeOffset CreatedAt,
+    int? GePersonId = null,
+    string? RosterStudentId = null,
+    string? RosterSnapshotId = null,
+    string? RosterSectionId = null,
+    string? StudentFirstName = null,
+    string? StudentLastName = null,
+    string? DocumentLast4 = null,
+    string? VerificationSource = null,
+    DateTimeOffset? VerifiedAt = null);
 
 public sealed record ReceivedSubmissionAnswer(string Id, string StudentAttemptId, string BlockId, JsonDocument Answer, DateTimeOffset CreatedAt);
 

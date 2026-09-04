@@ -11,6 +11,9 @@ type TextInputProps = {
   onChange: (value: string) => void;
   readOnly?: boolean;
   placeholder?: string;
+  inputMode?: "text" | "numeric";
+  maxLength?: number;
+  autoComplete?: string;
 };
 
 type NumberInputProps = {
@@ -18,6 +21,7 @@ type NumberInputProps = {
   min: number;
   max: number;
   onChange: (value: number) => void;
+  readOnly?: boolean;
 };
 
 type SelectOption = {
@@ -49,19 +53,22 @@ export function Field({ label, error, children }: FieldProps) {
   );
 }
 
-export function TextInput({ value, onChange, readOnly, placeholder }: TextInputProps) {
+export function TextInput({ value, onChange, readOnly, placeholder, inputMode, maxLength, autoComplete }: TextInputProps) {
   return (
     <input
       className="control"
       value={value}
       readOnly={readOnly}
       placeholder={placeholder}
+      inputMode={inputMode}
+      maxLength={maxLength}
+      autoComplete={autoComplete}
       onChange={event => onChange(event.target.value)}
     />
   );
 }
 
-export function NumberInput({ value, min, max, onChange }: NumberInputProps) {
+export function NumberInput({ value, min, max, onChange, readOnly }: NumberInputProps) {
   return (
     <input
       className="control"
@@ -69,6 +76,7 @@ export function NumberInput({ value, min, max, onChange }: NumberInputProps) {
       min={min}
       max={max}
       value={value}
+      readOnly={readOnly}
       onChange={event => onChange(Number(event.target.value))}
     />
   );

@@ -38,7 +38,7 @@ partial class MainForm
         Name = "MainForm";
         StartPosition = FormStartPosition.CenterScreen;
         Text = "Plan Cope";
-        Load += MainForm_Load;
+        Shown += MainForm_Shown;
         FormClosing += MainForm_FormClosing;
     }
 

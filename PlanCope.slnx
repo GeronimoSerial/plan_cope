@@ -13,6 +13,9 @@
     <Project Path="src/Shared/PlanCope.Shared.Domain/PlanCope.Shared.Domain.csproj" />
     <Project Path="src/Shared/PlanCope.Shared.Infrastructure/PlanCope.Shared.Infrastructure.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/PlanCope.RosterReleaseTool/PlanCope.RosterReleaseTool.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/PlanCope.Central.Api.Tests/PlanCope.Central.Api.Tests.csproj" />
     <Project Path="tests/PlanCope.E2E.Tests/PlanCope.E2E.Tests.csproj" />

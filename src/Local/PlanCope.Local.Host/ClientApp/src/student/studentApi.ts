@@ -1,12 +1,26 @@
 import type { ApiErrorPayload } from "../shared/api-types";
-import type { StartAttemptResponse, SubmitAttemptResponse } from "./types";
+import type { ResolveStudentResponse, StartAttemptResponse, SubmitAttemptResponse } from "./types";
 
 export class StudentApi {
   constructor(private readonly baseUrl = window.location.origin) {}
 
-  startAttempt(sessionIdOrAccessCode: string): Promise<StartAttemptResponse> {
+  resolveStudent(sessionIdOrAccessCode: string, document: string): Promise<ResolveStudentResponse> {
+    return this.request<ResolveStudentResponse>(`/api/sessions/${encodeURIComponent(sessionIdOrAccessCode)}/student-resolution`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ document })
+    });
+  }
+
+  startAttempt(sessionIdOrAccessCode: string, resolutionToken?: string): Promise<StartAttemptResponse> {
     return this.request<StartAttemptResponse>(`/api/sessions/${encodeURIComponent(sessionIdOrAccessCode)}/attempts`, {
-      method: "POST"
+      method: "POST",
+      ...(resolutionToken
+        ? {
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ resolutionToken })
+          }
+        : {})
     });
   }
 

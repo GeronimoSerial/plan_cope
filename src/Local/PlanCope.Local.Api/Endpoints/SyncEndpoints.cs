@@ -2,6 +2,7 @@ using System.Text.Json;
 using PlanCope.Local.Api.Data;
 using PlanCope.Local.Api.Data.Repositories;
 using PlanCope.Local.Api.Services;
+using PlanCope.Shared.Contracts.Sync;
 
 namespace PlanCope.Local.Api.Endpoints;
 
@@ -45,6 +46,41 @@ public static class SyncEndpoints
                 : Results.BadRequest(result);
         });
 
+        // Roster transport is deliberately manual. There is no hosted service,
+        // timer, or implicit pull on startup; an operator/release invokes this
+        // endpoint with the desired CUE and school year.
+        group.MapPost("/pull-roster", async (
+            GeRosterPullRequest? request,
+            LocalRosterPullService pullService,
+            CancellationToken cancellationToken) =>
+        {
+            if (request is null || string.IsNullOrWhiteSpace(request.Cue) || string.IsNullOrWhiteSpace(request.SchoolYear))
+            {
+                return Results.BadRequest(new { error = "cue and schoolYear are required." });
+            }
+
+            var result = await pullService.PullAsync(request.Cue, request.SchoolYear, cancellationToken);
+            return result.Success
+                ? Results.Ok(result)
+                : Results.BadRequest(result);
+        });
+
+        // Outbox transport is deliberately manual as well. A release/operator
+        // invokes this endpoint; no background retry loop is registered.
+        group.MapPost("/push-outbox", async (
+            LocalOutboxPushRequest? request,
+            LocalOutboxPushService pushService,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await pushService.PushAsync(request?.Limit ?? 50, cancellationToken);
+            return result.Success && result.Pending == 0
+                ? Results.Ok(result)
+                : Results.Problem(result.Error ?? "Some outbox items remain pending.", statusCode: StatusCodes.Status502BadGateway, extensions: new Dictionary<string, object?>
+                {
+                    ["result"] = result
+                });
+        });
+
         return endpoints;
     }
 
@@ -61,3 +97,5 @@ public static class SyncEndpoints
             : document.RootElement.GetRawText();
     }
 }
+
+public sealed record LocalOutboxPushRequest(int Limit = 50);

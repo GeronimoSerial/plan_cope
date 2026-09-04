@@ -1,4 +1,5 @@
-import type { CreateSessionRequest, ExamOption, FormErrors } from "../types";
+import type { CreateSessionRequest, ExamOption, FormErrors, RosterSection, RosterSnapshot } from "../types";
+import { isValidCue } from "./cue";
 
 export type SessionForm = {
   cue: string;
@@ -19,8 +20,8 @@ export function initialSessionForm(operatorName: string): SessionForm {
 export function validateSessionForm(form: SessionForm, selectedExamId: string): FormErrors {
   const errors: FormErrors = {};
 
-  if (!form.cue.trim()) {
-    errors.cue = "Completa el CUE.";
+  if (!isValidCue(form.cue)) {
+    errors.cue = "El CUE debe tener exactamente 9 dígitos.";
   }
 
   if (!selectedExamId) {
@@ -43,26 +44,34 @@ export function validateSessionForm(form: SessionForm, selectedExamId: string): 
 }
 
 export function resolveSchoolName(cue: string): string {
-  const normalizedCue = cue.trim().toUpperCase();
+  const normalizedCue = cue.trim();
   if (!normalizedCue) {
     return "";
   }
 
-  if (["ESCUELA-DEMO", "CUE-DEMO", "123456789"].includes(normalizedCue)) {
+  if (normalizedCue === "123456789") {
     return "Escuela Demo";
   }
 
   return `Escuela CUE ${normalizedCue}`;
 }
 
-export function buildCreateSessionRequest(form: SessionForm, exam: ExamOption): CreateSessionRequest {
+export function buildCreateSessionRequest(
+  form: SessionForm,
+  exam: ExamOption,
+  snapshot?: RosterSnapshot | null,
+  section?: RosterSection | null
+): CreateSessionRequest {
   return {
     examVersionId: exam.id,
-    schoolCode: form.cue.trim().toUpperCase(),
+    schoolCode: form.cue.trim(),
     classroomCode: form.classroomCode.trim(),
     commissionCode: null,
     startedBy: form.operatorName.trim(),
     expectedStudentCount: form.expectedStudentCount,
-    config: null
+    config: null,
+    schoolYear: snapshot?.schoolYear ?? null,
+    rosterSnapshotId: snapshot?.id ?? null,
+    rosterSectionId: section?.id ?? null
   };
 }

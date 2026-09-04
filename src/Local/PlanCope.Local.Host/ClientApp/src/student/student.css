@@ -97,6 +97,52 @@
   line-height: 1.55;
 }
 
+.field-hint {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.student-identity-card {
+  text-align: center;
+}
+
+.student-identity-summary {
+  display: grid;
+  gap: 6px;
+  margin: 20px 0;
+  padding: 18px;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+}
+
+.student-identity-summary strong {
+  color: var(--primary-dark);
+  font-size: 20px;
+}
+
+.student-identity-summary span {
+  color: var(--muted);
+  font-size: 14px;
+  letter-spacing: 0.04em;
+}
+
+.student-identity-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.student-exam-identity {
+  margin: -4px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.student-exam-identity strong {
+  color: var(--ink);
+}
+
 .student-card .field {
   font-size: 14px;
 }
@@ -644,6 +690,10 @@
 }
 
 @media (max-width: 620px) {
+  body {
+    min-width: 0;
+  }
+
   .student-topbar {
     padding: 16px 18px;
     gap: 12px;

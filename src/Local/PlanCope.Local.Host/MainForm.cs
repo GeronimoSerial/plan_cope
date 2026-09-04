@@ -36,7 +36,7 @@ public partial class MainForm : Form
         Controls.Add(_loadingLabel);
     }
 
-    private async void MainForm_Load(object? sender, EventArgs e)
+    private async void MainForm_Shown(object? sender, EventArgs e)
     {
         try
         {

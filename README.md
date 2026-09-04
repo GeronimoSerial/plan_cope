@@ -175,6 +175,8 @@ Swagger UI disponible en Development: `/swagger`.
 
 Formato de examen local: [`docs/local-exam-format.md`](docs/local-exam-format.md).
 
+Preparación e importación offline del padrón nominal: [`docs/roster-release.md`](docs/roster-release.md).
+
 ---
 
 ## Cómo ejecutar

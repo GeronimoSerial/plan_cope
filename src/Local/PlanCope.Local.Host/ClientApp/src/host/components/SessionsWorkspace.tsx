@@ -25,7 +25,6 @@ export function SessionsWorkspace({ delivery }: SessionsWorkspaceProps) {
           selectedExamId={examCatalog.selectedExamId}
           isBusy={delivery.isBusy}
           isLoadingExams={examCatalog.isLoadingExams}
-          onClassroomCodeChange={value => sessionForm.updateForm("classroomCode", value)}
           onCourseChange={examCatalog.setSelectedCourse}
           onCreateSession={delivery.createSession}
           onDivisionChange={examCatalog.setSelectedDivision}
@@ -33,6 +32,7 @@ export function SessionsWorkspace({ delivery }: SessionsWorkspaceProps) {
           onOperatorNameChange={value => sessionForm.updateForm("operatorName", value)}
           onRefreshExams={() => examCatalog.loadExams()}
           onSelectedExamChange={examCatalog.setSelectedExamId}
+          roster={delivery.roster}
         />
         <SessionResumePanel
           activeSessions={activeSession.activeSessions}

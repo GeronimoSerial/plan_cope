@@ -29,6 +29,9 @@ namespace PlanCope.Shared.Contracts.Serialization;
 [JsonSerializable(typeof(DocumentBlockDto))]
 [JsonSerializable(typeof(CreateSessionRequest))]
 [JsonSerializable(typeof(UpdateSessionStatusRequest))]
+[JsonSerializable(typeof(ResolveStudentRequest))]
+[JsonSerializable(typeof(ResolveStudentResponse))]
+[JsonSerializable(typeof(ResolvedStudentDto))]
 [JsonSerializable(typeof(StartAttemptRequest))]
 [JsonSerializable(typeof(SaveAnswersRequest))]
 [JsonSerializable(typeof(SubmissionAnswerDto))]
@@ -40,4 +43,8 @@ namespace PlanCope.Shared.Contracts.Serialization;
 [JsonSerializable(typeof(PushRequest))]
 [JsonSerializable(typeof(PushItemResult))]
 [JsonSerializable(typeof(PushResponse))]
+[JsonSerializable(typeof(GeRosterPullRequest))]
+[JsonSerializable(typeof(GeRosterPackageDto))]
+[JsonSerializable(typeof(GeRosterSectionPackageDto))]
+[JsonSerializable(typeof(GeRosterStudentPackageDto))]
 public sealed partial class PlanCopeJsonSerializerContext : JsonSerializerContext;

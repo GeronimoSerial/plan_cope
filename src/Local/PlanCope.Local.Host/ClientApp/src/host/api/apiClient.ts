@@ -1,6 +1,7 @@
 import type {
   CreateSessionRequest,
   LocalSession,
+  RosterResponse,
   SessionProgress
 } from "../types";
 import type { ApiErrorPayload, LocalExam } from "../../shared/api-types";
@@ -19,6 +20,11 @@ export class ApiClient {
 
   pullExams(signal?: AbortSignal): Promise<unknown> {
     return this.post<unknown>("/api/sync/pull-exams", {}, signal);
+  }
+
+  getLatestRoster(cue: string, schoolYear: string, signal?: AbortSignal): Promise<RosterResponse> {
+    const query = new URLSearchParams({ cue, schoolYear });
+    return this.get<RosterResponse>(`/api/rosters/latest?${query.toString()}`, signal);
   }
 
   createSession(request: CreateSessionRequest, signal?: AbortSignal): Promise<LocalSession> {

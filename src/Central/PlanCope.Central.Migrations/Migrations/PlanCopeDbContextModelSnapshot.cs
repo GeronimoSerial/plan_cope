@@ -492,6 +492,137 @@ namespace PlanCope.Central.Migrations.Migrations
                     b.ToTable("versions", "exam");
                 });
 
+            modelBuilder.Entity("PlanCope.Shared.Domain.Central.GeRosterSection", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Course")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Division")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int?>("GeSectionId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Level")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("Shift")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("SnapshotId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SnapshotId");
+
+                    b.HasIndex("SnapshotId", "GeSectionId", "Course", "Division", "Level", "Shift")
+                        .IsUnique();
+
+                    b.ToTable("roster_sections", "roster");
+                });
+
+            modelBuilder.Entity("PlanCope.Shared.Domain.Central.GeRosterSnapshot", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Checksum")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("Cue")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("FetchedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SchoolYear")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<int>("SectionCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<int>("StudentCount")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Cue", "SchoolYear", "Checksum")
+                        .IsUnique();
+
+                    b.HasIndex("Cue", "SchoolYear", "FetchedAt");
+
+                    b.ToTable("roster_snapshots", "roster");
+                });
+
+            modelBuilder.Entity("PlanCope.Shared.Domain.Central.GeRosterStudent", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Document")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("FirstName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<int>("GePersonId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("LastName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("SectionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("SnapshotId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SectionId");
+
+                    b.HasIndex("SnapshotId", "Document");
+
+                    b.HasIndex("SnapshotId", "SectionId", "GePersonId")
+                        .IsUnique();
+
+                    b.ToTable("roster_students", "roster");
+                });
+
             modelBuilder.Entity("PlanCope.Shared.Domain.Central.Locality", b =>
                 {
                     b.Property<string>("Id")
@@ -635,6 +766,10 @@ namespace PlanCope.Central.Migrations.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("DocumentLast4")
+                        .HasMaxLength(4)
+                        .HasColumnType("character varying(4)");
+
                     b.Property<string>("DeliverySessionId")
                         .HasColumnType("text");
 
@@ -643,11 +778,26 @@ namespace PlanCope.Central.Migrations.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
+                    b.Property<int?>("GePersonId")
+                        .HasColumnType("integer");
+
                     b.Property<DateTimeOffset>("ReceivedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("RemoteLocalId")
                         .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("RosterSectionId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("RosterSnapshotId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("RosterStudentId")
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
@@ -664,7 +814,22 @@ namespace PlanCope.Central.Migrations.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
+                    b.Property<string>("StudentFirstName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("StudentLastName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<DateTimeOffset?>("SubmittedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("VerificationSource")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("VerifiedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
@@ -1044,6 +1209,46 @@ namespace PlanCope.Central.Migrations.Migrations
                     b.HasKey("UserId", "RoleId");
 
                     b.ToTable("user_roles", "core");
+                });
+
+            modelBuilder.Entity("PlanCope.Shared.Domain.Central.GeRosterSection", b =>
+                {
+                    b.HasOne("PlanCope.Shared.Domain.Central.GeRosterSnapshot", "Snapshot")
+                        .WithMany("Sections")
+                        .HasForeignKey("SnapshotId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Snapshot");
+                });
+
+            modelBuilder.Entity("PlanCope.Shared.Domain.Central.GeRosterStudent", b =>
+                {
+                    b.HasOne("PlanCope.Shared.Domain.Central.GeRosterSection", "Section")
+                        .WithMany("Students")
+                        .HasForeignKey("SectionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("PlanCope.Shared.Domain.Central.GeRosterSnapshot", "Snapshot")
+                        .WithMany()
+                        .HasForeignKey("SnapshotId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Section");
+
+                    b.Navigation("Snapshot");
+                });
+
+            modelBuilder.Entity("PlanCope.Shared.Domain.Central.GeRosterSection", b =>
+                {
+                    b.Navigation("Students");
+                });
+
+            modelBuilder.Entity("PlanCope.Shared.Domain.Central.GeRosterSnapshot", b =>
+                {
+                    b.Navigation("Sections");
                 });
 #pragma warning restore 612, 618
         }

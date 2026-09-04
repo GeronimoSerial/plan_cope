@@ -43,6 +43,13 @@ public sealed class ReceivedStudentAttemptConfiguration : IEntityTypeConfigurati
         builder.Property(static x => x.StudentCode).HasMaxLength(128).IsRequired();
         builder.Property(static x => x.Status).HasMaxLength(32).IsRequired();
         builder.Property(static x => x.IdempotencyKey).HasMaxLength(128).IsRequired();
+        builder.Property(static x => x.RosterStudentId).HasMaxLength(128);
+        builder.Property(static x => x.RosterSnapshotId).HasMaxLength(128);
+        builder.Property(static x => x.RosterSectionId).HasMaxLength(128);
+        builder.Property(static x => x.StudentFirstName).HasMaxLength(256);
+        builder.Property(static x => x.StudentLastName).HasMaxLength(256);
+        builder.Property(static x => x.DocumentLast4).HasMaxLength(4);
+        builder.Property(static x => x.VerificationSource).HasMaxLength(64);
         builder.HasIndex(static x => x.IdempotencyKey).IsUnique();
     }
 }

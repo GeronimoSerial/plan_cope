@@ -43,7 +43,7 @@ public sealed class LocalExamImportTests
 
         var sessionResponse = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
             examId!,
-            "CUE-DEMO",
+            "180055400",
             "6A",
             null,
             "Operador",

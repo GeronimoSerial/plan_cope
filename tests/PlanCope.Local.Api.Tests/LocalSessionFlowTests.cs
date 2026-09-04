@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -118,6 +120,12 @@ public sealed class LocalSessionFlowTests
 
         var duplicateSubmitResponse = await client.PostAsync($"/api/attempts/{started.Attempt.Id}/submit", null);
         Assert.Equal(HttpStatusCode.BadRequest, duplicateSubmitResponse.StatusCode);
+
+        using var connection = factory.CreateConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM sync_outbox WHERE aggregate_id = $attemptId;";
+        command.Parameters.AddWithValue("$attemptId", started.Attempt.Id);
+        Assert.Equal(1L, (long)command.ExecuteScalar()!);
     }
 
     [Fact]
@@ -133,11 +141,187 @@ public sealed class LocalSessionFlowTests
         Assert.Contains("errors", body, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task Nominal_session_links_to_a_ready_roster_snapshot_and_section()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "roster-student-a", 501, "12.345.678", "Ana", "Pérez");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "roster-student-b", 502, "23.456.789", "Luis", "Gómez");
+
+        var response = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
+            LocalApiFactory.ExamVersionId, "180055400", "6 A", null, "Operador", 30, null,
+            "2026", "snapshot-a", "section-a"));
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var session = await response.Content.ReadFromJsonAsync<LocalDeliverySession>();
+        Assert.NotNull(session);
+        Assert.Equal("2026", session!.SchoolYear);
+        Assert.Equal("snapshot-a", session.RosterSnapshotId);
+        Assert.Equal("section-a", session.RosterSectionId);
+        Assert.Equal(2, session.ExpectedStudentCount);
+    }
+
+    [Fact]
+    public async Task Nominal_session_rejects_a_section_from_another_snapshot()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
+        factory.SeedRoster("180055400", "2026", "snapshot-b", "section-b", "Ready");
+
+        var response = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
+            LocalApiFactory.ExamVersionId, "180055400", "6 B", null, "Operador", 2, null,
+            "2026", "snapshot-a", "section-b"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("no pertenece", await response.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Nominal_session_rejects_a_snapshot_for_another_cue_or_year()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
+
+        var response = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
+            LocalApiFactory.ExamVersionId, "180055401", "6 A", null, "Operador", 2, null,
+            "2026", "snapshot-a", "section-a"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("no corresponde", await response.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Nominal_resolution_requires_confirmation_and_stores_only_identity_snapshot()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "roster-student-a", 501, "12.345.678", "Ana", "Pérez");
+
+        var session = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
+            LocalApiFactory.ExamVersionId, "180055400", "6 A", null, "Operador", 2, null,
+            "2026", "snapshot-a", "section-a"));
+        var createdSession = await session.Content.ReadFromJsonAsync<LocalDeliverySession>();
+        Assert.NotNull(createdSession);
+
+        var resolutionResponse = await client.PostAsJsonAsync($"/api/sessions/{createdSession!.AccessCode}/student-resolution", new ResolveStudentRequest("12.345.678"));
+        Assert.Equal(HttpStatusCode.OK, resolutionResponse.StatusCode);
+        var resolution = await resolutionResponse.Content.ReadFromJsonAsync<ResolveStudentResponse>();
+        Assert.NotNull(resolution);
+        Assert.Equal("**.***.5678", resolution!.Student.MaskedDocument);
+        Assert.DoesNotContain("12345678", await resolutionResponse.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+        var startResponse = await client.PostAsJsonAsync($"/api/sessions/{createdSession.AccessCode}/attempts", new StartAttemptRequest(ResolutionToken: resolution.ResolutionToken));
+        Assert.Equal(HttpStatusCode.Created, startResponse.StatusCode);
+        var started = await startResponse.Content.ReadFromJsonAsync<StartAttemptResponse>();
+        Assert.NotNull(started);
+        Assert.Equal("GE:501", started!.Attempt.StudentCode);
+
+        using var connection = factory.CreateConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT student_code, ge_person_id, student_first_name, student_last_name, document_last4, verification_source, verified_at FROM student_attempts;";
+        using var reader = command.ExecuteReader();
+        Assert.True(reader.Read());
+        Assert.Equal("GE:501", reader.GetString(0));
+        Assert.Equal(501, reader.GetInt32(1));
+        Assert.Equal("5678", reader.GetString(4));
+        Assert.Equal("ge_roster", reader.GetString(5));
+    }
+
+    [Fact]
+    public async Task Nominal_resolution_cannot_be_reused_or_started_twice()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "roster-student-a", 501, "12.345.678", "Ana", "Pérez");
+        var sessionResponse = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
+            LocalApiFactory.ExamVersionId, "180055400", "6 A", null, "Operador", 2, null,
+            "2026", "snapshot-a", "section-a"));
+        var session = await sessionResponse.Content.ReadFromJsonAsync<LocalDeliverySession>();
+        Assert.NotNull(session);
+        var resolution = await (await client.PostAsJsonAsync($"/api/sessions/{session!.AccessCode}/student-resolution", new ResolveStudentRequest("12345678")))
+            .Content.ReadFromJsonAsync<ResolveStudentResponse>();
+        Assert.NotNull(resolution);
+
+        var first = await client.PostAsJsonAsync($"/api/sessions/{session.AccessCode}/attempts", new StartAttemptRequest(ResolutionToken: resolution!.ResolutionToken));
+        var second = await client.PostAsJsonAsync($"/api/sessions/{session.AccessCode}/attempts", new StartAttemptRequest(ResolutionToken: resolution.ResolutionToken));
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
+    }
+
+    [Fact]
+    public async Task Nominal_resolution_rejects_unknown_student_and_expired_token()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "roster-student-a", 501, "12.345.678", "Ana", "Pérez");
+        var sessionResponse = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
+            LocalApiFactory.ExamVersionId, "180055400", "6 A", null, "Operador", 2, null,
+            "2026", "snapshot-a", "section-a"));
+        var session = await sessionResponse.Content.ReadFromJsonAsync<LocalDeliverySession>();
+        Assert.NotNull(session);
+
+        var unknown = await client.PostAsJsonAsync($"/api/sessions/{session!.AccessCode}/student-resolution", new ResolveStudentRequest("98.765.432"));
+        Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
+
+        var resolution = await (await client.PostAsJsonAsync($"/api/sessions/{session.AccessCode}/student-resolution", new ResolveStudentRequest("12345678")))
+            .Content.ReadFromJsonAsync<ResolveStudentResponse>();
+        Assert.NotNull(resolution);
+        factory.ExpireResolution(resolution!.ResolutionToken);
+        var expired = await client.PostAsJsonAsync($"/api/sessions/{session.AccessCode}/attempts", new StartAttemptRequest(ResolutionToken: resolution.ResolutionToken));
+        Assert.Equal(HttpStatusCode.Conflict, expired.StatusCode);
+    }
+
+    [Fact]
+    public async Task Nominal_resolution_concurrent_confirmation_creates_one_attempt()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        using var secondClient = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "roster-student-a", 501, "12.345.678", "Ana", "Pérez");
+        var sessionResponse = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
+            LocalApiFactory.ExamVersionId, "180055400", "6 A", null, "Operador", 2, null,
+            "2026", "snapshot-a", "section-a"));
+        var session = await sessionResponse.Content.ReadFromJsonAsync<LocalDeliverySession>();
+        Assert.NotNull(session);
+        var resolution = await (await client.PostAsJsonAsync($"/api/sessions/{session!.AccessCode}/student-resolution", new ResolveStudentRequest("12345678")))
+            .Content.ReadFromJsonAsync<ResolveStudentResponse>();
+        Assert.NotNull(resolution);
+
+        var responses = await Task.WhenAll(
+            client.PostAsJsonAsync($"/api/sessions/{session.AccessCode}/attempts", new StartAttemptRequest(ResolutionToken: resolution!.ResolutionToken)),
+            secondClient.PostAsJsonAsync($"/api/sessions/{session.AccessCode}/attempts", new StartAttemptRequest(ResolutionToken: resolution.ResolutionToken)));
+
+        Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Created);
+        Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Conflict);
+    }
+
     private static async Task<LocalDeliverySession> CreateSessionAsync(HttpClient client)
     {
         var response = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
             LocalApiFactory.ExamVersionId,
-            "CUE-DEMO",
+            "180055400",
             "6A",
             null,
             "Operador",
@@ -208,6 +392,24 @@ public sealed class LocalSessionFlowTests
             transaction.Commit();
         }
 
+        public void SeedRoster(string cue, string schoolYear, string snapshotId, string sectionId, string status)
+        {
+            using var connection = CreateConnection();
+            using var transaction = connection.BeginTransaction();
+            Execute(connection, transaction, """
+                INSERT INTO local_roster_snapshots (id, cue, school_year, fetched_at, checksum, section_count, student_count, status)
+                VALUES ($id, $cue, $year, $fetched, $checksum, 1, 2, $status);
+                """,
+                ("$id", snapshotId), ("$cue", cue), ("$year", schoolYear),
+                ("$fetched", DateTimeOffset.UtcNow.ToString("O")), ("$checksum", $"checksum-{snapshotId}"), ("$status", status));
+            Execute(connection, transaction, """
+                INSERT INTO local_roster_sections (id, snapshot_id, ge_section_id, course, division, level, shift)
+                VALUES ($id, $snapshot, 100, '6º', 'A', 'Primario', 'Mañana');
+                """,
+                ("$id", sectionId), ("$snapshot", snapshotId));
+            transaction.Commit();
+        }
+
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.ConfigureAppConfiguration(configuration =>
@@ -215,9 +417,47 @@ public sealed class LocalSessionFlowTests
                 configuration.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["ConnectionStrings:LocalDatabase"] = ConnectionString,
-                    ["Local:SeedDemoExam"] = "false"
+                    ["Local:SeedDemoExam"] = "false",
+                    ["Nominalization:DocumentHmacKey"] = LocalApiFactory.DocumentHmacKey
                 });
             });
+        }
+
+        public const string DocumentHmacKey = "release-test-key-with-at-least-32-bytes";
+
+        public void SeedRosterStudent(string snapshotId, string sectionId, string id, int gePersonId, string document, string firstName, string lastName)
+        {
+            using var connection = CreateConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO local_roster_students (id, snapshot_id, section_id, ge_person_id, document_hash, document_last4, first_name, last_name)
+                VALUES ($id, $snapshot, $section, $person, $hash, $last4, $first, $last);
+                """;
+            command.Parameters.AddWithValue("$id", id);
+            command.Parameters.AddWithValue("$snapshot", snapshotId);
+            command.Parameters.AddWithValue("$section", sectionId);
+            command.Parameters.AddWithValue("$person", gePersonId);
+            command.Parameters.AddWithValue("$hash", ComputeDocumentHash(document));
+            command.Parameters.AddWithValue("$last4", "5678");
+            command.Parameters.AddWithValue("$first", firstName);
+            command.Parameters.AddWithValue("$last", lastName);
+            command.ExecuteNonQuery();
+        }
+
+        private static string ComputeDocumentHash(string document)
+        {
+            var normalized = new string(document.Where(char.IsDigit).ToArray());
+            return Convert.ToHexString(HMACSHA256.HashData(Encoding.UTF8.GetBytes(DocumentHmacKey), Encoding.UTF8.GetBytes(normalized))).ToLowerInvariant();
+        }
+
+        public void ExpireResolution(string token)
+        {
+            using var connection = CreateConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE student_resolutions SET expires_at = $expires WHERE token_hash = $hash;";
+            command.Parameters.AddWithValue("$expires", DateTimeOffset.UtcNow.AddMinutes(-1).ToString("O"));
+            command.Parameters.AddWithValue("$hash", Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token))).ToLowerInvariant());
+            command.ExecuteNonQuery();
         }
 
         protected override void Dispose(bool disposing)
