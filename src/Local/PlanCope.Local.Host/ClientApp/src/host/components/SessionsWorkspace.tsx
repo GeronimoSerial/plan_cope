@@ -14,22 +14,12 @@ export function SessionsWorkspace({ delivery }: SessionsWorkspaceProps) {
     <>
       <div className="left-stack">
         <SessionCreatePanel
-          courses={examCatalog.courses}
-          divisions={examCatalog.divisions}
-          exams={examCatalog.filteredExams}
-          form={sessionForm.form}
+          exams={examCatalog.exams}
           formErrors={sessionForm.formErrors}
-          schoolName={sessionForm.schoolName}
-          selectedCourse={examCatalog.selectedCourse}
-          selectedDivision={examCatalog.selectedDivision}
           selectedExamId={examCatalog.selectedExamId}
           isBusy={delivery.isBusy}
           isLoadingExams={examCatalog.isLoadingExams}
-          onCourseChange={examCatalog.setSelectedCourse}
           onCreateSession={delivery.createSession}
-          onDivisionChange={examCatalog.setSelectedDivision}
-          onExpectedStudentCountChange={value => sessionForm.updateForm("expectedStudentCount", value)}
-          onOperatorNameChange={value => sessionForm.updateForm("operatorName", value)}
           onRefreshExams={() => examCatalog.loadExams()}
           onSelectedExamChange={examCatalog.setSelectedExamId}
           roster={delivery.roster}

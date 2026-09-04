@@ -18,6 +18,7 @@ public static class LocalRosterPackageValidator
             string.IsNullOrWhiteSpace(package.SnapshotId) || package.SnapshotId.Length > 64 ||
             !CueCode.TryNormalize(package.Cue, out var normalizedCue) ||
             string.IsNullOrWhiteSpace(package.SchoolYear) || package.SchoolYear.Length > GeRosterTransportLimits.MaxSchoolYearLength ||
+            !ValidOptionalField(package.SchoolName, GeRosterTransportLimits.MaxFieldLength) ||
             string.IsNullOrWhiteSpace(package.Status) || package.Status.Length > 32)
         {
             throw new ArgumentException("Roster package metadata is invalid.", nameof(package));

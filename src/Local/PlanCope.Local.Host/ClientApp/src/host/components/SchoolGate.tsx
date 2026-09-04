@@ -4,11 +4,22 @@ import { CUE_LENGTH, isValidCue, normalizeCueInput } from "../domain/cue";
 type SchoolGateProps = {
   cue: string;
   schoolName: string;
+  hasRoster: boolean;
+  isLoadingRoster: boolean;
+  rosterError: string | null;
   onCueChange: (value: string) => void;
   onContinue: () => void;
 };
 
-export function SchoolGate({ cue, schoolName, onCueChange, onContinue }: SchoolGateProps) {
+export function SchoolGate({
+  cue,
+  schoolName,
+  hasRoster,
+  isLoadingRoster,
+  rosterError,
+  onCueChange,
+  onContinue
+}: SchoolGateProps) {
   const cueIsValid = isValidCue(cue);
 
   return (
@@ -17,8 +28,7 @@ export function SchoolGate({ cue, schoolName, onCueChange, onContinue }: SchoolG
         <p className="eyebrow">MINISTERIO DE EDUCACION | OPERATIVO LOCAL</p>
         <h1>Plan Cope Local</h1>
         <p>
-          Identifica la escuela con su CUE para preparar la consola de toma. Luego podras seleccionar curso,
-          division y examen para compartir el acceso con los alumnos de la red local.
+          Ingresá el CUE de la escuela. Usaremos el padrón de Gestión Educativa guardado en este equipo.
         </p>
 
         <Field label="CUE" error={cue.length > 0 && !cueIsValid ? `El CUE debe tener ${CUE_LENGTH} dígitos (incluye el anexo).` : undefined}>
@@ -32,12 +42,20 @@ export function SchoolGate({ cue, schoolName, onCueChange, onContinue }: SchoolG
           />
         </Field>
 
-        <Field label="Escuela">
-          <TextInput value={schoolName} readOnly onChange={() => undefined} />
-        </Field>
+        {cueIsValid && (
+          <div className={`school-confirmation${hasRoster ? " school-confirmation-ready" : ""}`} role="status">
+            <span>{isLoadingRoster ? "Buscando el padrón…" : hasRoster ? "Escuela encontrada" : "Padrón no disponible"}</span>
+            {!isLoadingRoster && hasRoster && <strong>{schoolName || `CUE ${cue}`}</strong>}
+            {!isLoadingRoster && !hasRoster && (
+              <small>No hay un padrón sincronizado para este CUE en el equipo.</small>
+            )}
+          </div>
+        )}
 
-        <ActionButton disabled={!cueIsValid} onClick={onContinue}>
-          Continuar a la consola
+        {rosterError && <p className="error-banner" role="alert">{rosterError}</p>}
+
+        <ActionButton disabled={!cueIsValid || isLoadingRoster || !hasRoster} onClick={onContinue}>
+          Continuar
         </ActionButton>
       </div>
     </section>

@@ -22,9 +22,10 @@ public sealed class LocalRosterRepositoryTests
             var hmac = new DocumentHmacService(Options.Create(new NominalizationOptions { DocumentHmacKey = "release-test-key-with-at-least-32-bytes" }));
             var package = CreatePackage();
 
-            var first = await repository.ImportAsync(package, hmac);
+            var first = await repository.ImportAsync(package with { SchoolName = null }, hmac);
             var second = await repository.ImportAsync(package, hmac);
             var latestSnapshot = await repository.GetLatestSnapshotAsync(package.Cue, package.SchoolYear);
+            var latestSnapshotWithoutYear = await repository.GetLatestSnapshotAsync(package.Cue);
             var sections = await repository.GetSectionsAsync(package.Cue, package.SchoolYear);
             var firstSectionLookup = await repository.FindStudentAsync(package.SnapshotId, "section-a", "12.345.678", hmac);
             var secondSectionLookup = await repository.FindStudentAsync(package.SnapshotId, "section-b", "12.345.678", hmac);
@@ -36,6 +37,8 @@ public sealed class LocalRosterRepositoryTests
             Assert.NotNull(latestSnapshot);
             Assert.Equal(2, latestSnapshot!.SectionCount);
             Assert.Equal(2, latestSnapshot.StudentCount);
+            Assert.Equal("Escuela Primaria 123", latestSnapshot.SchoolName);
+            Assert.Equal(latestSnapshot, latestSnapshotWithoutYear);
             Assert.Equal(2, sections.Count);
             Assert.All(sections, section => Assert.Equal(1, section.StudentCount));
             Assert.NotNull(firstSectionLookup);
@@ -90,7 +93,17 @@ public sealed class LocalRosterRepositoryTests
                 new GeRosterStudentPackageDto("student-b", "section-b", 102, "12.345.678", "Luis", "Gómez")
             })
         };
-        var package = new GeRosterPackageDto("snapshot-1", "180055400", "2026", DateTimeOffset.UtcNow, "", 2, 2, "Ready", sections);
+        var package = new GeRosterPackageDto(
+            "snapshot-1",
+            "180055400",
+            "2026",
+            DateTimeOffset.UtcNow,
+            "",
+            2,
+            2,
+            "Ready",
+            sections,
+            "Escuela Primaria 123");
         return package with { Checksum = GeRosterPackageChecksum.Calculate(package) };
     }
 

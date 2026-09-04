@@ -16,7 +16,8 @@ public sealed record GeRosterPackageDto(
     int SectionCount,
     int StudentCount,
     string Status,
-    IReadOnlyList<GeRosterSectionPackageDto> Sections);
+    IReadOnlyList<GeRosterSectionPackageDto> Sections,
+    string? SchoolName = null);
 
 public sealed record GeRosterSectionPackageDto(
     string Id,

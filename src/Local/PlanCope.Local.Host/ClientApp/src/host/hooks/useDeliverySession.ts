@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiClient } from "../api/apiClient";
-import { ensureSelectedExamId, filterExams, toExamOption, uniqueSorted } from "../domain/exams";
+import { ensureSelectedExamId, toExamOption } from "../domain/exams";
 import {
   buildCreateSessionRequest,
   initialSessionForm,
-  resolveSchoolName,
   type SessionForm,
   validateSessionForm
 } from "../domain/sessionForm";
@@ -24,8 +23,6 @@ export type DeliverySessionState = ReturnType<typeof useDeliverySession>;
 export function useDeliverySession(hostContext: HostContext) {
   const api = useMemo(() => new ApiClient(hostContext.apiBaseUrl), [hostContext.apiBaseUrl]);
   const [exams, setExams] = useState<ExamOption[]>([]);
-  const [selectedCourse, setSelectedCourse] = useState("");
-  const [selectedDivision, setSelectedDivision] = useState("");
   const [selectedExamId, setSelectedExamId] = useState("");
   const [form, setForm] = useState<SessionForm>(() => initialSessionForm(hostContext.operatorName));
   const [session, setSession] = useState<LocalSession | null>(null);
@@ -37,7 +34,6 @@ export function useDeliverySession(hostContext: HostContext) {
   const [error, setError] = useState<string | null>(null);
   const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [resumeAccessCode, setResumeAccessCode] = useState("");
-  const [schoolYear, setSchoolYear] = useState(() => String(new Date().getFullYear()));
   const [rosterSnapshot, setRosterSnapshot] = useState<RosterSnapshot | null>(null);
   const [rosterSections, setRosterSections] = useState<RosterSection[]>([]);
   const [selectedRosterSectionId, setSelectedRosterSectionId] = useState("");
@@ -89,22 +85,23 @@ export function useDeliverySession(hostContext: HostContext) {
 
   const loadRoster = useCallback(async (signal?: AbortSignal) => {
     const cue = form.cue.trim();
-    if (!isValidCue(cue) || !schoolYear.trim()) {
+    if (!isValidCue(cue)) {
       setRosterSnapshot(null);
       setRosterSections([]);
       setSelectedRosterSectionId("");
+      setRosterError(null);
       return;
     }
 
     setIsLoadingRoster(true);
     setRosterError(null);
     try {
-      const response = await api.getLatestRoster(cue, schoolYear.trim(), signal);
+      const response = await api.getLatestRoster(cue, signal);
       setRosterSnapshot(response.snapshot);
       setRosterSections(response.sections);
       setSelectedRosterSectionId(current => response.sections.some(section => section.id === current)
         ? current
-        : response.sections[0]?.id ?? "");
+        : "");
     } catch (exception) {
       if (!signal?.aborted) {
         setRosterSnapshot(null);
@@ -117,7 +114,7 @@ export function useDeliverySession(hostContext: HostContext) {
         setIsLoadingRoster(false);
       }
     }
-  }, [api, form.cue, schoolYear]);
+  }, [api, form.cue]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -137,7 +134,10 @@ export function useDeliverySession(hostContext: HostContext) {
         classroomCode: [selectedRosterSection.course, selectedRosterSection.division].filter(Boolean).join(" "),
         expectedStudentCount: selectedRosterSection.studentCount
       }));
+      return;
     }
+
+    setForm(current => ({ ...current, classroomCode: "", expectedStudentCount: 0 }));
   }, [rosterSnapshot, selectedRosterSection]);
 
   const loadActiveSessions = useCallback(async (signal?: AbortSignal) => {
@@ -162,27 +162,16 @@ export function useDeliverySession(hostContext: HostContext) {
     return () => controller.abort();
   }, [loadActiveSessions, refreshExams]);
 
-  const filteredExams = useMemo(
-    () => filterExams(exams, selectedCourse, selectedDivision),
-    [exams, selectedCourse, selectedDivision]
-  );
-
   useEffect(() => {
-    setSelectedExamId(current => ensureSelectedExamId(filteredExams, current));
-  }, [filteredExams]);
-
-  const courses = useMemo(() => uniqueSorted(exams.map(exam => exam.course)), [exams]);
-  const divisions = useMemo(() => {
-    const scopedExams = selectedCourse ? exams.filter(exam => exam.course === selectedCourse) : exams;
-    return uniqueSorted(scopedExams.map(exam => exam.division));
-  }, [exams, selectedCourse]);
+    setSelectedExamId(current => ensureSelectedExamId(exams, current));
+  }, [exams]);
 
   const selectedExam = useMemo(
-    () => filteredExams.find(exam => exam.id === selectedExamId) ?? null,
-    [filteredExams, selectedExamId]
+    () => exams.find(exam => exam.id === selectedExamId) ?? null,
+    [exams, selectedExamId]
   );
 
-  const schoolName = useMemo(() => resolveSchoolName(form.cue), [form.cue]);
+  const schoolName = rosterSnapshot?.schoolName?.trim() ?? "";
   const sessionLink = session ? `${hostContext.lanBaseUrl}/examen/${session.accessCode}` : "";
 
   const updateForm = useCallback(<TKey extends keyof SessionForm>(key: TKey, value: SessionForm[TKey]) => {
@@ -275,21 +264,13 @@ export function useDeliverySession(hostContext: HostContext) {
 
   return {
     examCatalog: {
-      courses,
-      divisions,
-      filteredExams,
+      exams,
       isLoadingExams,
-      selectedCourse,
-      selectedDivision,
       selectedExamId,
-      setSelectedCourse,
-      setSelectedDivision,
       setSelectedExamId,
       loadExams: refreshExams
     },
     roster: {
-      schoolYear,
-      setSchoolYear,
       snapshot: rosterSnapshot,
       sections: rosterSections,
       selectedSectionId: selectedRosterSectionId,

@@ -1,30 +1,17 @@
 import type { ExamOption, FormErrors } from "../types";
 import type { RosterSection, RosterSnapshot } from "../types";
-import type { SessionForm } from "../domain/sessionForm";
-import { ActionButton, Field, NumberInput, SectionTitle, SelectInput, TextInput } from "../../shared/ui";
+import { ActionButton, Field, SectionTitle, SelectInput } from "../../shared/ui";
 
 type SessionCreatePanelProps = {
-  courses: string[];
-  divisions: string[];
   exams: ExamOption[];
-  form: SessionForm;
   formErrors: FormErrors;
-  schoolName: string;
-  selectedCourse: string;
-  selectedDivision: string;
   selectedExamId: string;
   isBusy: boolean;
   isLoadingExams: boolean;
-  onCourseChange: (value: string) => void;
   onCreateSession: () => void;
-  onDivisionChange: (value: string) => void;
-  onExpectedStudentCountChange: (value: number) => void;
-  onOperatorNameChange: (value: string) => void;
   onRefreshExams: () => void;
   onSelectedExamChange: (value: string) => void;
   roster: {
-    schoolYear: string;
-    setSchoolYear: (value: string) => void;
     snapshot: RosterSnapshot | null;
     sections: RosterSection[];
     selectedSectionId: string;
@@ -35,144 +22,64 @@ type SessionCreatePanelProps = {
 };
 
 export function SessionCreatePanel({
-  courses,
-  divisions,
   exams,
-  form,
   formErrors,
-  schoolName,
-  selectedCourse,
-  selectedDivision,
   selectedExamId,
   isBusy,
   isLoadingExams,
-  onCourseChange,
   onCreateSession,
-  onDivisionChange,
-  onExpectedStudentCountChange,
-  onOperatorNameChange,
   onRefreshExams,
   onSelectedExamChange,
   roster
 }: SessionCreatePanelProps) {
   const examOptions = exams.map(exam => ({ value: exam.id, label: exam.displayName }));
-  const schoolYearOptions = Array.from({ length: 3 }, (_, index) => String(new Date().getFullYear() - 1 + index));
   const rosterSectionOptions = roster.sections.map(section => ({
     value: section.id,
-    label: `${section.course ?? "Sin curso"} · ${section.division ?? "Sin división"}${section.shift ? ` · ${section.shift}` : ""} (${section.studentCount} alumnos)`
+    label: sectionLabel(section)
   }));
+  const rosterReady = roster.snapshot?.status.toLowerCase() === "ready";
+  const selectedSection = roster.sections.find(section => section.id === roster.selectedSectionId);
 
   return (
     <section className="panel">
       <SectionTitle
-        title="Datos de la toma"
-        description="Selecciona el examen local y define los datos operativos del aula."
+        title="Crear una toma"
+        description="Elegí la sección del padrón y el examen que van a realizar."
       />
 
       <div className="form-grid">
-        <Field label="Curso">
+        <Field label="Sección" error={formErrors.rosterSectionId}>
           <SelectInput
-            value={selectedCourse}
-            options={courses.map(value => ({ value, label: value }))}
-            onChange={onCourseChange}
+            value={roster.selectedSectionId}
+            options={rosterSectionOptions}
+            emptyLabel={roster.isLoading ? "Consultando padrón…" : "Elegí una sección"}
+            onChange={roster.setSelectedSectionId}
           />
         </Field>
 
-        <Field label="Division">
+        <Field label="Examen" error={formErrors.selectedExamId}>
           <SelectInput
-            value={selectedDivision}
-            options={divisions.map(value => ({ value, label: value }))}
-            onChange={onDivisionChange}
+            value={selectedExamId}
+            options={examOptions}
+            emptyLabel={isLoadingExams ? "Cargando exámenes…" : "Sin exámenes disponibles"}
+            onChange={onSelectedExamChange}
           />
         </Field>
       </div>
 
-      <div className="roster-panel" aria-labelledby="roster-title" aria-busy={roster.isLoading}>
-        <div className="roster-panel-header">
-          <div>
-            <h3 id="roster-title">Padrón nominal GE</h3>
-            <p>Incluido en esta versión de Plan Cope; no requiere conexión durante la toma.</p>
-          </div>
-        </div>
+      {selectedSection && (
+        <p className="selection-summary" role="status">
+          <strong>{sectionName(selectedSection)}</strong>
+          <span>{sectionDetails(selectedSection)}</span>
+        </p>
+      )}
 
-        <div className="form-grid">
-          <Field label="Ciclo lectivo">
-            <SelectInput
-              value={roster.schoolYear}
-              options={schoolYearOptions.map(value => ({ value, label: value }))}
-              onChange={roster.setSchoolYear}
-            />
-          </Field>
-          <Field label="Sección GE" error={formErrors.rosterSectionId}>
-            <SelectInput
-              value={roster.selectedSectionId}
-              options={rosterSectionOptions}
-              emptyLabel={roster.isLoading ? "Consultando padrón…" : "Selecciona una sección"}
-              onChange={roster.setSelectedSectionId}
-            />
-          </Field>
-        </div>
-
-        {roster.snapshot ? (
-          <>
-            <p className="roster-meta" role="status">
-              Padrón {roster.snapshot.status.toLowerCase()} · corte {new Date(roster.snapshot.fetchedAt).toLocaleString()} · {roster.snapshot.studentCount} alumnos nominalizados en {roster.sections.length} cursos/secciones disponibles.
-            </p>
-            {roster.snapshot.status.toLowerCase() !== "ready" && (
-              <p className="roster-meta">Este padrón no está disponible en el release instalado.</p>
-            )}
-          </>
-        ) : (
-          <div className="empty-state roster-empty" role="status">
-            <strong>{roster.isLoading ? "Consultando el padrón local…" : "No hay padrón local para este CUE y ciclo."}</strong>
-            <span>Instalá un release que incluya el padrón de esta escuela y ciclo lectivo.</span>
-          </div>
-        )}
-        {roster.error && <p className="error-banner" role="alert">{roster.error}</p>}
-      </div>
-
-      <Field label="Examen" error={formErrors.selectedExamId}>
-        <SelectInput
-          value={selectedExamId}
-          options={examOptions}
-          emptyLabel={isLoadingExams ? "Cargando examenes..." : "Sin examenes disponibles"}
-          onChange={onSelectedExamChange}
-        />
-      </Field>
-
-      <div className="form-grid">
-        <Field label="CUE" error={formErrors.cue}>
-          <TextInput value={form.cue} readOnly onChange={() => undefined} />
-        </Field>
-
-        <Field label="Escuela">
-          <TextInput value={schoolName} readOnly onChange={() => undefined} />
-        </Field>
-      </div>
-
-      <div className="form-grid">
-        <Field label="Curso y división GE" error={formErrors.classroomCode}>
-          <TextInput
-            value={roster.snapshot ? form.classroomCode || "Selecciona una sección GE" : "Actualizá el padrón para seleccionar"}
-            readOnly
-            onChange={() => undefined}
-          />
-        </Field>
-
-        <Field label="Alumnos esperados" error={formErrors.expectedStudentCount}>
-          <NumberInput
-            min={1}
-            max={500}
-            value={form.expectedStudentCount}
-            readOnly
-            onChange={onExpectedStudentCountChange}
-          />
-        </Field>
-      </div>
-
-      <Field label="Operador" error={formErrors.operatorName}>
-        <TextInput value={form.operatorName} onChange={onOperatorNameChange} />
-      </Field>
+      {roster.snapshot && (
+        <p className="roster-meta">
+          Padrón {roster.snapshot.schoolYear} · actualizado {new Date(roster.snapshot.fetchedAt).toLocaleDateString("es-AR")}
+        </p>
+      )}
+      {roster.error && <p className="error-banner" role="alert">{roster.error}</p>}
 
       {exams.length === 0 && !isLoadingExams && (
         <div className="empty-state">
@@ -190,8 +97,7 @@ export function SessionCreatePanel({
           isLoadingExams ||
           roster.isLoading ||
           !selectedExamId ||
-          !roster.snapshot ||
-          roster.snapshot.status.toLowerCase() !== "ready" ||
+          !rosterReady ||
           !roster.selectedSectionId
         }
         onClick={onCreateSession}
@@ -200,4 +106,19 @@ export function SessionCreatePanel({
       </ActionButton>
     </section>
   );
+}
+
+function sectionName(section: RosterSection): string {
+  return [section.course, section.division].filter(Boolean).join(" ") || "Sección sin nombre";
+}
+
+function sectionDetails(section: RosterSection): string {
+  return [section.level, section.shift && `Turno ${section.shift}`, `${section.studentCount} estudiantes`]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function sectionLabel(section: RosterSection): string {
+  const shift = section.shift ? ` · ${section.shift}` : "";
+  return `${sectionName(section)}${shift} · ${section.studentCount} estudiantes`;
 }
