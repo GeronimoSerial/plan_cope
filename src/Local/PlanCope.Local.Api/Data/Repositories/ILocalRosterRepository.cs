@@ -22,6 +22,10 @@ public interface ILocalRosterRepository
         string schoolYear,
         CancellationToken cancellationToken = default);
 
+    Task<LocalRosterSnapshotLookup?> GetLatestSnapshotAsync(
+        string cue,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<LocalRosterSectionLookup>> GetSectionsAsync(
         string cue,
         string schoolYear,
@@ -67,7 +71,8 @@ public sealed record LocalRosterSnapshotLookup(
     string Checksum,
     int SectionCount,
     int StudentCount,
-    string Status);
+    string Status,
+    string? SchoolName = null);
 
 public sealed record LocalRosterSectionLookup(
     string Id,

@@ -63,6 +63,7 @@ export type RosterSnapshot = {
   sectionCount: number;
   studentCount: number;
   status: string;
+  schoolName?: string | null;
 };
 
 export type RosterSection = {

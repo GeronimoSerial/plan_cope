@@ -15,13 +15,17 @@ public static class RosterEndpoints
             ILocalRosterRepository repository,
             CancellationToken cancellationToken) =>
         {
-            if (!CueCode.TryNormalize(cue, out var normalizedCue) || string.IsNullOrWhiteSpace(schoolYear))
+            if (!CueCode.TryNormalize(cue, out var normalizedCue))
             {
-                return Results.BadRequest(new { error = $"cue must contain exactly {CueCode.Length} digits and schoolYear is required." });
+                return Results.BadRequest(new { error = $"cue must contain exactly {CueCode.Length} digits." });
             }
 
-            var snapshot = await repository.GetLatestSnapshotAsync(normalizedCue, schoolYear, cancellationToken);
-            var sections = await repository.GetSectionsAsync(normalizedCue, schoolYear, cancellationToken);
+            var snapshot = string.IsNullOrWhiteSpace(schoolYear)
+                ? await repository.GetLatestSnapshotAsync(normalizedCue, cancellationToken)
+                : await repository.GetLatestSnapshotAsync(normalizedCue, schoolYear, cancellationToken);
+            var sections = snapshot is null
+                ? []
+                : await repository.GetSectionsAsync(normalizedCue, snapshot.SchoolYear, cancellationToken);
             return Results.Ok(new { snapshot, sections });
         });
 

@@ -44,6 +44,15 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
             cancellationToken: cancellationToken));
         if (existing is not null)
         {
+            await connection.ExecuteAsync(new CommandDefinition(
+                """
+                UPDATE local_roster_snapshots
+                SET school_name = COALESCE(NULLIF(@SchoolName, ''), school_name)
+                WHERE id = @Id;
+                """,
+                new { package.SchoolName, existing.Id },
+                transaction,
+                cancellationToken: cancellationToken));
             transaction.Commit();
             return new LocalRosterImportResult(false, existing.Id, existing.Checksum, existing.SectionCount, existing.StudentCount);
         }
@@ -51,9 +60,9 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
         await connection.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO local_roster_snapshots
-                (id, cue, school_year, fetched_at, checksum, section_count, student_count, status)
+                (id, cue, school_year, fetched_at, checksum, section_count, student_count, status, school_name)
             VALUES
-                (@SnapshotId, @Cue, @SchoolYear, @FetchedAt, @Checksum, @SectionCount, @StudentCount, @Status)
+                (@SnapshotId, @Cue, @SchoolYear, @FetchedAt, @Checksum, @SectionCount, @StudentCount, @Status, @SchoolName)
             ON CONFLICT (cue, school_year, checksum) DO NOTHING;
             """,
             new
@@ -65,7 +74,8 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
                 package.Checksum,
                 SectionCount = package.Sections.Count,
                 StudentCount = package.Sections.Sum(section => section.Students.Count),
-                package.Status
+                package.Status,
+                package.SchoolName
             },
             transaction,
             cancellationToken: cancellationToken));
@@ -190,13 +200,40 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
                    checksum AS Checksum,
                    section_count AS SectionCount,
                    student_count AS StudentCount,
-                   status AS Status
+                   status AS Status,
+                   school_name AS SchoolName
             FROM local_roster_snapshots
             WHERE cue = @Cue AND school_year = @SchoolYear
             ORDER BY fetched_at DESC, id DESC
             LIMIT 1;
             """,
             new { Cue = CueCode.Normalize(cue), SchoolYear = schoolYear.Trim() },
+            cancellationToken: cancellationToken));
+        return row?.ToDomain();
+    }
+
+    public async Task<LocalRosterSnapshotLookup?> GetLatestSnapshotAsync(
+        string cue,
+        CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateOpenConnection();
+        var row = await connection.QuerySingleOrDefaultAsync<LocalRosterSnapshotRow>(new CommandDefinition(
+            """
+            SELECT id AS Id,
+                   cue AS Cue,
+                   school_year AS SchoolYear,
+                   fetched_at AS FetchedAt,
+                   checksum AS Checksum,
+                   section_count AS SectionCount,
+                   student_count AS StudentCount,
+                   status AS Status,
+                   school_name AS SchoolName
+            FROM local_roster_snapshots
+            WHERE cue = @Cue
+            ORDER BY fetched_at DESC, id DESC
+            LIMIT 1;
+            """,
+            new { Cue = CueCode.Normalize(cue) },
             cancellationToken: cancellationToken));
         return row?.ToDomain();
     }
@@ -304,6 +341,7 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
         public long SectionCount { get; init; }
         public long StudentCount { get; init; }
         public string Status { get; init; } = string.Empty;
+        public string? SchoolName { get; init; }
 
         public LocalRosterSnapshotLookup ToDomain() => new(
             Id,
@@ -313,7 +351,8 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
             Checksum,
             checked((int)SectionCount),
             checked((int)StudentCount),
-            Status);
+            Status,
+            SchoolName);
     }
 
     private sealed class LocalRosterSectionRow

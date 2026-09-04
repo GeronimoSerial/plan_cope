@@ -6,14 +6,13 @@ export function toExamOption(exam: LocalExam): ExamOption {
   const course = metadata.grade ?? metadata.course ?? metadata.curso;
   const division = metadata.division ?? metadata.section ?? metadata.classroom;
   const title = metadata.title ?? exam.examCode;
-  const group = [course, division].filter(Boolean).join(" ");
 
   return {
     ...exam,
     title,
     course,
     division,
-    displayName: group ? `${title} - ${group} v${exam.versionNumber}` : `${title} v${exam.versionNumber}`
+    displayName: `${title} · versión ${exam.versionNumber}`
   };
 }
 

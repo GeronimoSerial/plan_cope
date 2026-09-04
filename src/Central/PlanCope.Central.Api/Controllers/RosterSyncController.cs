@@ -49,6 +49,14 @@ public sealed class RosterSyncController(
             return Problem("The roster snapshot exceeds the transport limits.", statusCode: StatusCodes.Status413PayloadTooLarge);
         }
 
+        var cueNumber = long.Parse(snapshot.Cue[..7], System.Globalization.CultureInfo.InvariantCulture);
+        var annex = int.Parse(snapshot.Cue[7..], System.Globalization.CultureInfo.InvariantCulture);
+        var schoolName = await dbContext.Schools
+            .AsNoTracking()
+            .Where(school => school.Cue == cueNumber && (school.Annex ?? 0) == annex)
+            .Select(school => school.Name)
+            .FirstOrDefaultAsync(cancellationToken);
+
         var package = new GeRosterPackageDto(
             snapshot.Id,
             snapshot.Cue,
@@ -75,7 +83,8 @@ public sealed class RosterSyncController(
                         student.FirstName,
                         student.LastName))
                     .ToList()))
-                .ToList());
+                .ToList(),
+            schoolName);
 
         // The checksum is part of the persisted snapshot and is also sent in the
         // package. Recompute it before transport so a corrupt central snapshot

@@ -11,9 +11,9 @@ export type SessionForm = {
 export function initialSessionForm(operatorName: string): SessionForm {
   return {
     cue: "",
-    classroomCode: "6A",
+    classroomCode: "",
     operatorName,
-    expectedStudentCount: 30
+    expectedStudentCount: 0
   };
 }
 
@@ -41,19 +41,6 @@ export function validateSessionForm(form: SessionForm, selectedExamId: string): 
   }
 
   return errors;
-}
-
-export function resolveSchoolName(cue: string): string {
-  const normalizedCue = cue.trim();
-  if (!normalizedCue) {
-    return "";
-  }
-
-  if (normalizedCue === "123456789") {
-    return "Escuela Demo";
-  }
-
-  return `Escuela CUE ${normalizedCue}`;
 }
 
 export function buildCreateSessionRequest(

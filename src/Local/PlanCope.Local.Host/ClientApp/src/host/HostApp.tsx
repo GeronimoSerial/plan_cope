@@ -18,6 +18,9 @@ export function HostApp() {
       <SchoolGate
         cue={delivery.sessionForm.form.cue}
         schoolName={delivery.sessionForm.schoolName}
+        hasRoster={delivery.roster.snapshot?.status.toLowerCase() === "ready" && delivery.roster.sections.length > 0}
+        isLoadingRoster={delivery.roster.isLoading}
+        rosterError={delivery.roster.error}
         onCueChange={value => delivery.sessionForm.updateForm("cue", value)}
         onContinue={() => setIsSchoolConfirmed(true)}
       />

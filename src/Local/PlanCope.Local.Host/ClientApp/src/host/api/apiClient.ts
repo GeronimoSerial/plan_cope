@@ -22,8 +22,8 @@ export class ApiClient {
     return this.post<unknown>("/api/sync/pull-exams", {}, signal);
   }
 
-  getLatestRoster(cue: string, schoolYear: string, signal?: AbortSignal): Promise<RosterResponse> {
-    const query = new URLSearchParams({ cue, schoolYear });
+  getLatestRoster(cue: string, signal?: AbortSignal): Promise<RosterResponse> {
+    const query = new URLSearchParams({ cue });
     return this.get<RosterResponse>(`/api/rosters/latest?${query.toString()}`, signal);
   }
 
