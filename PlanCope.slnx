@@ -22,6 +22,7 @@
     <Project Path="tests/PlanCope.Central.Api.Tests/PlanCope.Central.Api.Tests.csproj" />
     <Project Path="tests/PlanCope.E2E.Tests/PlanCope.E2E.Tests.csproj" />
     <Project Path="tests/PlanCope.Local.Api.Tests/PlanCope.Local.Api.Tests.csproj" />
+    <Project Path="tests/PlanCope.Local.Host.Tests/PlanCope.Local.Host.Tests.csproj" />
     <Project Path="tests/PlanCope.Shared.Tests/PlanCope.Shared.Tests.csproj" />
     <Project Path="tests/PlanCope.SyncCompat.Tests/PlanCope.SyncCompat.Tests.csproj" />
   </Folder>
