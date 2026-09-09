@@ -1,0 +1,62 @@
+name: plan-cope-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-plan_cope_central}
+      POSTGRES_USER: ${POSTGRES_USER:-plancope}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devpassword}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  migrate:
+    build:
+      context: ..
+      dockerfile: src/Central/PlanCope.Central.Api/Dockerfile
+      target: migrate
+    restart: "no"
+    environment:
+      ConnectionStrings__CentralDatabase: ${ConnectionStrings__CentralDatabase:-Server=postgres;Port=5432;Database=plan_cope_central;User Id=plancope;Password=devpassword;}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: ..
+      dockerfile: src/Central/PlanCope.Central.Api/Dockerfile
+      target: runtime
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__CentralDatabase: ${ConnectionStrings__CentralDatabase:-Server=postgres;Port=5432;Database=plan_cope_central;User Id=plancope;Password=devpassword;}
+      Auth__SigningKey: ${Auth__SigningKey:-dev-only-signing-key-0123456789abcdefghijklmnop}
+      GeApi__Username: ${GeApi__Username:-devuser}
+      GeApi__Password: ${GeApi__Password:-devpassword}
+    ports:
+      - "${API_PORT:-8080}:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: ..
+      dockerfile: src/Central/PlanCope.Central.Web/Dockerfile
+    environment:
+      CENTRAL_API_URL: http://api:8080
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
