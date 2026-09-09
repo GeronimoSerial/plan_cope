@@ -21,7 +21,6 @@ public static class LocalDataServiceCollectionExtensions
         services.AddSingleton<LocalDatabaseInitializer>();
         services.AddScoped<LocalDemoExamSeeder>();
         services.AddScoped<LocalAssetFileService>();
-        services.AddScoped<LocalExamImportService>();
         services.AddScoped<LocalExamPullService>();
         services.AddScoped<LocalRosterPullService>();
         services.AddSingleton<IEmbeddedRosterSource, EmbeddedRosterSource>();
