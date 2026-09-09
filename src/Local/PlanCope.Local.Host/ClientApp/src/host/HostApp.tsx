@@ -6,12 +6,17 @@ import { WorkspaceModeTabs } from "./components/WorkspaceModeTabs";
 import { ExamBuilderPage } from "./exam-builder/ExamBuilderPage";
 import { useDeliverySession } from "./hooks/useDeliverySession";
 import { useHostContext } from "./hooks/useHostContext";
+import { ActivationScreen, shouldShowActivation } from "./activation/ActivationScreen";
 
 export function HostApp() {
   const hostContext = useHostContext();
   const delivery = useDeliverySession(hostContext);
   const [isSchoolConfirmed, setIsSchoolConfirmed] = useState(false);
   const [workspaceMode, setWorkspaceMode] = useState<"sessions" | "builder">("sessions");
+
+  if (shouldShowActivation(hostContext.isActivated)) {
+    return <ActivationScreen />;
+  }
 
   if (!isSchoolConfirmed) {
     return (

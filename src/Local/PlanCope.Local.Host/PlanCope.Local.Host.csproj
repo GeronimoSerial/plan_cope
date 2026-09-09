@@ -5,11 +5,14 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ImplicitUsings>enable</ImplicitUsings>
 </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Microsoft.Web.WebView2" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
     <ProjectReference Include="..\PlanCope.Local.Api\PlanCope.Local.Api.csproj" />
   </ItemGroup>
 
