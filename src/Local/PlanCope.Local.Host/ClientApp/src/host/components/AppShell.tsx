@@ -14,16 +14,14 @@ export function AppShell({ status, children }: AppShellProps) {
         </div>
         <div>
           <h1>Plan Cope Local</h1>
-          <p>Consola institucional de toma en red escolar</p>
+          <p>Gestión de sesiones escolares</p>
         </div>
-        <strong>Nodo local</strong>
       </header>
 
       <div className="workspace">{children}</div>
 
       <footer className="footer">
-        <span>{status}</span>
-        <span>API embebida + SQLite local</span>
+        <span className="footer-status" role="status" aria-live="polite">{status}</span>
       </footer>
     </main>
   );

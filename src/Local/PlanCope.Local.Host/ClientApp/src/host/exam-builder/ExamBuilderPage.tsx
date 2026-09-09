@@ -27,16 +27,21 @@ type ExamBuilderPageProps = {
 const blockTypeLabels: Record<ExamBlockType, string> = {
   text: "Texto",
   image: "Imagen",
-  multiple_choice: "Opcion multiple",
+  multiple_choice: "Opción múltiple",
   true_false: "Verdadero/falso",
   short_answer: "Respuesta corta"
+};
+
+type BuilderStatus = {
+  tone: "info" | "success" | "error";
+  text: string;
 };
 
 export function ExamBuilderPage({ apiBaseUrl }: ExamBuilderPageProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedBlockType, setSelectedBlockType] = useState<ExamBlockType>("multiple_choice");
-  const [validationMessage, setValidationMessage] = useState("");
-  const [apiMessage, setApiMessage] = useState("");
+  const [validationStatus, setValidationStatus] = useState<BuilderStatus | null>(null);
+  const [apiStatus, setApiStatus] = useState<BuilderStatus | null>(null);
   const apiClient = useMemo(() => new ApiClient(apiBaseUrl), [apiBaseUrl]);
 
   const {
@@ -100,9 +105,12 @@ export function ExamBuilderPage({ apiBaseUrl }: ExamBuilderPageProps) {
 
     try {
       updateAssets([...values.assets, await imageFileToAsset(file)]);
-      setValidationMessage("");
+      setValidationStatus(null);
     } catch (error) {
-      setValidationMessage(error instanceof Error ? error.message : "No se pudo cargar la imagen.");
+      setValidationStatus({
+        tone: "error",
+        text: error instanceof Error ? error.message : "No se pudo cargar la imagen."
+      });
     }
   }
 
@@ -113,10 +121,13 @@ export function ExamBuilderPage({ apiBaseUrl }: ExamBuilderPageProps) {
   function validateCurrentExam(): LocalExamJson | null {
     try {
       const examJson = buildExamJson(values);
-      setValidationMessage("JSON valido para importar.");
+      setValidationStatus({ tone: "success", text: "La estructura del examen es válida." });
       return examJson;
     } catch (error) {
-      setValidationMessage(error instanceof Error ? error.message : "El examen no es valido.");
+      setValidationStatus({
+        tone: "error",
+        text: error instanceof Error ? error.message : "El examen no es válido."
+      });
       return null;
     }
   }
@@ -144,10 +155,13 @@ export function ExamBuilderPage({ apiBaseUrl }: ExamBuilderPageProps) {
     try {
       const content = await file.text();
       reset(normalizeExam(JSON.parse(content)));
-      setValidationMessage(`Importado ${file.name}.`);
-      setApiMessage("");
+      setValidationStatus({ tone: "success", text: `Archivo importado: ${file.name}.` });
+      setApiStatus(null);
     } catch (error) {
-      setValidationMessage(error instanceof Error ? error.message : "No se pudo importar el JSON.");
+      setValidationStatus({
+        tone: "error",
+        text: error instanceof Error ? error.message : "No se pudo importar el archivo."
+      });
     } finally {
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
@@ -161,12 +175,19 @@ export function ExamBuilderPage({ apiBaseUrl }: ExamBuilderPageProps) {
       return;
     }
 
+    setValidationStatus(null);
     try {
-      setApiMessage("Importando en la API local...");
+      setApiStatus({ tone: "info", text: "Guardando en este equipo…" });
       await apiClient.importExam(examJson);
-      setApiMessage(`Importado en API local: ${examJson.examCode} v${examJson.versionNumber ?? 1}.`);
+      setApiStatus({
+        tone: "success",
+        text: `Examen guardado en este equipo: ${examJson.examCode} v${examJson.versionNumber ?? 1}.`
+      });
     } catch (error) {
-      setApiMessage(error instanceof Error ? error.message : "La API local rechazo el examen.");
+      setApiStatus({
+        tone: "error",
+        text: error instanceof Error ? error.message : "No se pudo guardar el examen en este equipo."
+      });
     }
   }
 
@@ -174,36 +195,24 @@ export function ExamBuilderPage({ apiBaseUrl }: ExamBuilderPageProps) {
     <section className="builder-page">
       <div className="builder-toolbar">
         <div>
-          <p className="eyebrow">Autoria JSON-first</p>
-          <h2>Creador de examenes</h2>
+          <p className="eyebrow">Constructor de exámenes</p>
+          <h2>Nuevo examen</h2>
         </div>
         <div className="builder-actions">
-          <input
-            ref={fileInputRef}
-            className="visually-hidden"
-            type="file"
-            accept="application/json,.json"
-            onChange={event => void importJson(event.target.files?.[0])}
-          />
-          <button className="button button-secondary" type="button" onClick={() => fileInputRef.current?.click()}>
-            Importar JSON
-          </button>
-          <button className="button button-secondary" type="button" onClick={validateCurrentExam}>
-            Validar
-          </button>
-          <button className="button button-secondary" type="button" onClick={importIntoLocalApi}>
-            Importar en API local
-          </button>
-          <button className="button button-primary" type="button" onClick={exportJson}>
-            Exportar JSON
+          <button className="button button-primary" type="button" onClick={importIntoLocalApi}>
+            Guardar en este equipo
           </button>
         </div>
       </div>
 
-      {(validationMessage || apiMessage) && (
-        <div className="builder-status">
-          {validationMessage && <p>{validationMessage}</p>}
-          {apiMessage && <p>{apiMessage}</p>}
+      {validationStatus && (
+        <div className={`builder-status builder-status-${validationStatus.tone}`} role={validationStatus.tone === "error" ? "alert" : "status"}>
+          <p>{validationStatus.text}</p>
+        </div>
+      )}
+      {apiStatus && (
+        <div className={`builder-status builder-status-${apiStatus.tone}`} role={apiStatus.tone === "error" ? "alert" : "status"}>
+          <p>{apiStatus.text}</p>
         </div>
       )}
 
@@ -211,21 +220,16 @@ export function ExamBuilderPage({ apiBaseUrl }: ExamBuilderPageProps) {
         <div className="builder-main">
           <section className="panel">
             <div className="section-title">
-              <h2>Metadata</h2>
-              <p>Estos campos se exportan directo al formato local.</p>
+              <h2>Datos del examen</h2>
             </div>
             <div className="form-grid">
               <label className="field">
-                ID
-                <input className="control" {...register("id")} />
-              </label>
-              <label className="field">
-                Codigo de examen
+                Código de examen
                 <input className="control" {...register("examCode")} />
                 {errors.examCode && <span className="field-error">{errors.examCode.message}</span>}
               </label>
               <label className="field">
-                Titulo
+                Título
                 <input className="control" {...register("title")} />
                 {errors.title && <span className="field-error">{errors.title.message}</span>}
               </label>
@@ -246,25 +250,34 @@ export function ExamBuilderPage({ apiBaseUrl }: ExamBuilderPageProps) {
                 <input className="control" {...register("subject")} />
               </label>
             </div>
+            <details className="builder-subdetails">
+              <summary>Identificador técnico</summary>
+              <label className="field">
+                ID
+                <input className="control" {...register("id")} />
+              </label>
+            </details>
           </section>
 
           <section className="panel">
             <div className="section-title">
-              <h2>Assets</h2>
-              <p>Las imagenes quedan embebidas como base64.</p>
+              <h2>Imágenes</h2>
             </div>
             <label className="button button-secondary builder-file-button">
-              Cargar imagen
+              Agregar imagen
               <input type="file" accept="image/*" onChange={event => void addAsset(event.target.files?.[0])} />
             </label>
             <div className="asset-list">
-              {values.assets.length === 0 && <p className="empty-state">Todavia no hay assets cargados.</p>}
+              {values.assets.length === 0 && <p className="empty-state">Todavía no hay imágenes.</p>}
               {values.assets.map(asset => (
                 <div className="asset-row" key={asset.id}>
                   <img src={`data:${asset.mimeType};base64,${asset.contentBase64}`} alt={asset.fileName} />
                   <div>
                     <strong>{asset.fileName}</strong>
-                    <span>{asset.id}</span>
+                    <details className="asset-details">
+                      <summary>Ver identificador</summary>
+                      <span>{asset.id}</span>
+                    </details>
                   </div>
                   <button className="button button-secondary" type="button" onClick={() => removeAsset(asset.id)}>
                     Quitar
@@ -278,7 +291,6 @@ export function ExamBuilderPage({ apiBaseUrl }: ExamBuilderPageProps) {
             <div className="builder-section-header">
               <div className="section-title">
                 <h2>Bloques</h2>
-                <p>Alta, edicion, duplicado, eliminacion y orden manual inicial.</p>
               </div>
               <div className="builder-add-block">
                 <select
@@ -293,7 +305,7 @@ export function ExamBuilderPage({ apiBaseUrl }: ExamBuilderPageProps) {
                   ))}
                 </select>
                 <button className="button button-primary" type="button" onClick={addBlock}>
-                  Agregar
+                  Agregar bloque
                 </button>
               </div>
             </div>
@@ -318,17 +330,35 @@ export function ExamBuilderPage({ apiBaseUrl }: ExamBuilderPageProps) {
             </div>
           </section>
         </div>
-
-        <aside className="builder-side">
-          <section className="panel">
-            <div className="section-title">
-              <h2>JSON</h2>
-              <p>Vista de salida estable del builder.</p>
-            </div>
-            <pre className="json-preview">{jsonPreview}</pre>
-          </section>
-        </aside>
       </div>
+
+      <details className="builder-advanced">
+        <summary>Herramientas avanzadas</summary>
+        <div className="builder-advanced-content">
+          <div className="builder-actions builder-advanced-actions">
+            <input
+              ref={fileInputRef}
+              className="visually-hidden"
+              type="file"
+              accept="application/json,.json"
+              onChange={event => void importJson(event.target.files?.[0])}
+            />
+            <button className="button button-secondary" type="button" onClick={() => fileInputRef.current?.click()}>
+              Importar JSON
+            </button>
+            <button className="button button-secondary" type="button" onClick={validateCurrentExam}>
+              Validar estructura
+            </button>
+            <button className="button button-secondary" type="button" onClick={exportJson}>
+              Exportar JSON
+            </button>
+          </div>
+          <div>
+            <h3>Vista JSON</h3>
+            <pre className="json-preview">{jsonPreview}</pre>
+          </div>
+        </div>
+      </details>
     </section>
   );
 }
@@ -365,26 +395,32 @@ function BlockEditor({
           <span>#{index + 1}</span>
           <strong>{blockTypeLabels[block.type]}</strong>
         </div>
-        <div className="block-actions">
-          <button className="mini-button" type="button" disabled={isFirst} onClick={onMoveUp}>
-            Subir
-          </button>
-          <button className="mini-button" type="button" disabled={isLast} onClick={onMoveDown}>
-            Bajar
-          </button>
-          <button className="mini-button" type="button" onClick={onDuplicate}>
-            Duplicar
-          </button>
-          <button className="mini-button mini-button-danger" type="button" onClick={onRemove}>
-            Eliminar
-          </button>
-        </div>
+        <details className="block-actions-details">
+          <summary>Acciones</summary>
+          <div className="block-actions">
+            <button className="mini-button" type="button" disabled={isFirst} onClick={onMoveUp}>
+              Subir
+            </button>
+            <button className="mini-button" type="button" disabled={isLast} onClick={onMoveDown}>
+              Bajar
+            </button>
+            <button className="mini-button" type="button" onClick={onDuplicate}>
+              Duplicar
+            </button>
+            <button className="mini-button mini-button-danger" type="button" onClick={onRemove}>
+              Eliminar
+            </button>
+          </div>
+        </details>
       </header>
 
-      <label className="field">
-        ID del bloque
-        <input className="control" value={block.id} onChange={event => onChange({ ...block, id: event.target.value })} />
-      </label>
+      <details className="builder-subdetails">
+        <summary>Configuración avanzada</summary>
+        <label className="field">
+          ID del bloque
+          <input className="control" value={block.id} onChange={event => onChange({ ...block, id: event.target.value })} />
+        </label>
+      </details>
 
       {block.type === "text" && (
         <label className="field">
@@ -400,16 +436,16 @@ function BlockEditor({
       {block.type === "image" && (
         <div className="form-grid">
           <label className="field builder-wide">
-            Asset
+            Imagen
             <select
               className="control"
               value={block.config.assetId}
               onChange={event => onChange({ ...block, config: { ...block.config, assetId: event.target.value } })}
             >
-              <option value="">Seleccionar asset</option>
+              <option value="">Seleccionar imagen</option>
               {assets.map(asset => (
                 <option key={asset.id} value={asset.id}>
-                  {asset.fileName} ({asset.id})
+                  {asset.fileName}
                 </option>
               ))}
             </select>
@@ -571,7 +607,7 @@ function MultipleChoiceEditor({ block, onChange }: { block: MultipleChoiceBlock;
             ])
           }
         >
-          Agregar opcion
+          Agregar opción
         </button>
       </div>
     </>

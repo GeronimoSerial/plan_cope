@@ -4,8 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const links = [
-  { href: "/dashboard", label: "Inicio", icon: "🏠" },
-  { href: "/exams", label: "Exámenes", icon: "📝" }
+  { href: "/dashboard", label: "Inicio" },
+  { href: "/exams", label: "Exámenes" }
 ];
 
 export function Sidebar() {
@@ -29,7 +29,6 @@ export function Sidebar() {
               className="sidebar__link"
               aria-current={active ? "page" : undefined}
             >
-              <span aria-hidden="true">{link.icon}</span>
               {link.label}
             </Link>
           );

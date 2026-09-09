@@ -49,7 +49,7 @@ export function LoginForm({ redirectTo, expired }: LoginFormProps) {
       {expired && !serverError && <Banner tone="info">Tu sesión expiró. Volvé a ingresar.</Banner>}
       {serverError && <Banner tone="error">{serverError}</Banner>}
 
-      <div style={{ marginTop: "var(--space-4)" }}>
+      <div className="login-fields">
         <TextField
           label="Usuario"
           autoComplete="username"

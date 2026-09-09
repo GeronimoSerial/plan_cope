@@ -25,11 +25,11 @@ export default async function ExamsPage() {
       <PageHeader
         eyebrow="Exámenes"
         title="Tus exámenes"
-        description="Gestioná los exámenes de la central: creá, editá versiones y publicá."
+        description="Administrá tus exámenes."
         breadcrumbs={[{ label: "Inicio", href: "/dashboard" }, { label: "Exámenes" }]}
         actions={
           <Link href="/exams/new" className="button">
-            + Nuevo examen
+            Nuevo examen
           </Link>
         }
       />
@@ -37,12 +37,7 @@ export default async function ExamsPage() {
       {exams.length === 0 ? (
         <EmptyState
           title="Aún no hay exámenes"
-          description="Creá tu primer examen para empezar a construir preguntas y publicarlas."
-          action={
-            <Link href="/exams/new" className="button">
-              Crear el primero
-            </Link>
-          }
+          description="Creá un examen para comenzar."
         />
       ) : (
         <ExamList exams={exams} />

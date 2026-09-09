@@ -25,10 +25,10 @@ export function SchoolGate({
   return (
     <section className="school-gate">
       <div className="gate-card">
-        <p className="eyebrow">MINISTERIO DE EDUCACION | OPERATIVO LOCAL</p>
+        <p className="eyebrow">MINISTERIO DE EDUCACIÓN · OPERATIVO LOCAL</p>
         <h1>Plan Cope Local</h1>
         <p>
-          Ingresá el CUE de la escuela. Usaremos el padrón de Gestión Educativa guardado en este equipo.
+          Ingresá el CUE de la escuela para usar el padrón guardado en este equipo.
         </p>
 
         <Field label="CUE" error={cue.length > 0 && !cueIsValid ? `El CUE debe tener ${CUE_LENGTH} dígitos (incluye el anexo).` : undefined}>
@@ -47,7 +47,7 @@ export function SchoolGate({
             <span>{isLoadingRoster ? "Buscando el padrón…" : hasRoster ? "Escuela encontrada" : "Padrón no disponible"}</span>
             {!isLoadingRoster && hasRoster && <strong>{schoolName || `CUE ${cue}`}</strong>}
             {!isLoadingRoster && !hasRoster && (
-              <small>No hay un padrón sincronizado para este CUE en el equipo.</small>
+              <small>No hay un padrón sincronizado para este CUE en este equipo.</small>
             )}
           </div>
         )}

@@ -14,6 +14,8 @@ export function ExamBlock({ block, number, value, isMissing, onChange }: ExamBlo
   const kind = getBlockKind(block);
   const validation = parseValidation(block);
   const isRequired = validation.required === true;
+  const titleId = `question-title-${block.id}`;
+  const errorId = `question-error-${block.id}`;
 
   if (kind === "text") {
     const config = parseConfig<{ content?: string }>(block);
@@ -38,8 +40,13 @@ export function ExamBlock({ block, number, value, isMissing, onChange }: ExamBlo
     const config = parseConfig<{ question?: string; options?: Array<{ value: string; label: string }> }>(block);
     return (
       <section id={block.id} className="student-question">
-        <QuestionTitle number={number} text={config.question ?? ""} required={isRequired} />
-        <div className="student-options">
+        <QuestionTitle id={titleId} number={number} text={config.question ?? ""} required={isRequired} />
+        <fieldset
+          className="student-options"
+          aria-labelledby={titleId}
+          aria-describedby={isMissing ? errorId : undefined}
+        >
+          <legend className="student-option-legend">Opciones de respuesta</legend>
           {(config.options ?? []).map(option => (
             <label className="student-option" key={option.value}>
               <input
@@ -52,8 +59,8 @@ export function ExamBlock({ block, number, value, isMissing, onChange }: ExamBlo
               <span>{option.label}</span>
             </label>
           ))}
-        </div>
-        {isMissing && <p className="student-error">Esta respuesta es obligatoria.</p>}
+        </fieldset>
+        {isMissing && <p id={errorId} className="student-error" role="alert">Esta respuesta es obligatoria.</p>}
       </section>
     );
   }
@@ -62,8 +69,13 @@ export function ExamBlock({ block, number, value, isMissing, onChange }: ExamBlo
     const config = parseConfig<{ question?: string }>(block);
     return (
       <section id={block.id} className="student-question">
-        <QuestionTitle number={number} text={config.question ?? ""} required={isRequired} />
-        <div className="student-options">
+        <QuestionTitle id={titleId} number={number} text={config.question ?? ""} required={isRequired} />
+        <fieldset
+          className="student-options"
+          aria-labelledby={titleId}
+          aria-describedby={isMissing ? errorId : undefined}
+        >
+          <legend className="student-option-legend">Opciones de respuesta</legend>
           {[
             ["true", "Verdadero"],
             ["false", "Falso"]
@@ -79,8 +91,8 @@ export function ExamBlock({ block, number, value, isMissing, onChange }: ExamBlo
               <span>{label}</span>
             </label>
           ))}
-        </div>
-        {isMissing && <p className="student-error">Esta respuesta es obligatoria.</p>}
+        </fieldset>
+        {isMissing && <p id={errorId} className="student-error" role="alert">Esta respuesta es obligatoria.</p>}
       </section>
     );
   }
@@ -88,9 +100,17 @@ export function ExamBlock({ block, number, value, isMissing, onChange }: ExamBlo
   const config = parseConfig<{ prompt?: string }>(block);
   return (
     <section id={block.id} className="student-question">
-      <QuestionTitle number={number} text={config.prompt ?? ""} required={isRequired} />
-      <textarea rows={5} value={value} aria-label="Respuesta" onChange={event => onChange(event.target.value)} />
-      {isMissing && <p className="student-error">Esta respuesta es obligatoria.</p>}
+      <QuestionTitle id={titleId} number={number} text={config.prompt ?? ""} required={isRequired} />
+      <textarea
+        id={`answer-${block.id}`}
+        rows={5}
+        value={value}
+        aria-labelledby={titleId}
+        aria-describedby={isMissing ? errorId : undefined}
+        aria-invalid={isMissing}
+        onChange={event => onChange(event.target.value)}
+      />
+      {isMissing && <p id={errorId} className="student-error" role="alert">Esta respuesta es obligatoria.</p>}
     </section>
   );
 }

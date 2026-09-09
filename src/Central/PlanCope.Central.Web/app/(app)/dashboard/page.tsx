@@ -29,68 +29,44 @@ export default async function DashboardPage() {
     );
   }
 
-  const published = exams.filter(exam => exam.status.toLowerCase() === "published").length;
-  const drafts = exams.length - published;
-  const recent = exams.slice(0, 5);
+  const drafts = exams.filter(exam => exam.status.toLowerCase() === "draft");
+  const focus = (drafts.length > 0 ? drafts : exams).slice(0, 3);
+  const focusTitle = drafts.length > 0 ? "Borradores" : "Exámenes recientes";
 
   return (
     <>
       <PageHeader
         eyebrow="Inicio"
         title={`Hola, ${user?.displayName ?? ""}`}
-        description="Resumen de tu actividad en la central de exámenes."
+        description="Continuá con tu trabajo o creá un examen nuevo."
         actions={
           <Link href="/exams/new" className="button">
-            + Nuevo examen
+            Nuevo examen
           </Link>
         }
       />
 
-      <div className="grid grid--stats" style={{ marginBottom: "var(--space-5)" }}>
-        <div className="stat">
-          <div className="stat__value">{exams.length}</div>
-          <div className="stat__label">Exámenes totales</div>
-        </div>
-        <div className="stat">
-          <div className="stat__value">{published}</div>
-          <div className="stat__label">Publicados</div>
-        </div>
-        <div className="stat">
-          <div className="stat__value">{drafts}</div>
-          <div className="stat__label">En preparación</div>
-        </div>
-      </div>
-
       <div className="card">
         <div className="card__header">
-          <h2>Exámenes recientes</h2>
-          <Link href="/exams" className="button button--ghost button--sm">
-            Ver todos
-          </Link>
+          <h2>{focusTitle}</h2>
         </div>
         <div className="card__body">
-          {recent.length === 0 ? (
+          {focus.length === 0 ? (
             <EmptyState
               title="Aún no hay exámenes"
-              description="Creá tu primer examen para empezar a construir preguntas."
-              action={
-                <Link href="/exams/new" className="button">
-                  Crear el primero
-                </Link>
-              }
+              description="Creá un examen para comenzar."
             />
           ) : (
             <div className="resource-list">
-              {recent.map(exam => (
+              {focus.map(exam => (
                 <Link key={exam.id} href={`/exams/${exam.id}`} className="resource-card">
                   <div className="resource-card__title">
                     <span>{exam.title}</span>
                     <StatusBadge status={exam.status} />
                   </div>
-                  <div className="resource-card__meta">
-                    {exam.code}
-                    {exam.subject ? ` · ${exam.subject}` : ""} · {exam.versionCount} versión(es)
-                  </div>
+                  {(exam.code || exam.subject) && (
+                    <div className="resource-card__meta">{[exam.code, exam.subject].filter(Boolean).join(" · ")}</div>
+                  )}
                 </Link>
               ))}
             </div>

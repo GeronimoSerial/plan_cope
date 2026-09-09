@@ -43,8 +43,8 @@ export function SessionCreatePanel({
   return (
     <section className="panel">
       <SectionTitle
-        title="Crear una toma"
-        description="Elegí la sección del padrón y el examen que van a realizar."
+        title="Nueva sesión"
+        description="Elegí una sección y un examen."
       />
 
       <div className="form-grid">
@@ -69,7 +69,6 @@ export function SessionCreatePanel({
 
       {selectedSection && (
         <p className="selection-summary" role="status">
-          <strong>{sectionName(selectedSection)}</strong>
           <span>{sectionDetails(selectedSection)}</span>
         </p>
       )}
@@ -83,10 +82,10 @@ export function SessionCreatePanel({
 
       {exams.length === 0 && !isLoadingExams && (
         <div className="empty-state">
-          <strong>No hay examenes locales.</strong>
-          <span>Sincroniza o publica un examen en este equipo antes de crear una toma.</span>
+          <strong>No hay exámenes locales.</strong>
+          <span>Sincronizá o publicá un examen en este equipo para crear una sesión.</span>
           <ActionButton variant="secondary" disabled={isBusy} onClick={onRefreshExams}>
-            Reintentar carga
+            Reintentar
           </ActionButton>
         </div>
       )}
@@ -102,7 +101,7 @@ export function SessionCreatePanel({
         }
         onClick={onCreateSession}
       >
-        {isBusy ? "Creando sesion..." : "Crear sesion de toma"}
+        {isBusy ? "Creando sesión…" : "Crear sesión"}
       </ActionButton>
     </section>
   );
@@ -119,6 +118,5 @@ function sectionDetails(section: RosterSection): string {
 }
 
 function sectionLabel(section: RosterSection): string {
-  const shift = section.shift ? ` · ${section.shift}` : "";
-  return `${sectionName(section)}${shift} · ${section.studentCount} estudiantes`;
+  return sectionName(section);
 }

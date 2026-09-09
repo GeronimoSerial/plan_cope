@@ -16,11 +16,9 @@ export function ExamList({ exams }: ExamListProps) {
               <span>{exam.title}</span>
               <StatusBadge status={exam.status} />
             </div>
-            <div className="resource-card__meta">
-              {exam.code}
-              {exam.subject ? ` · ${exam.subject}` : ""}
-              {exam.level ? ` · ${exam.level}` : ""} · {exam.versionCount} versión(es)
-            </div>
+            {(exam.code || exam.subject) && (
+              <div className="resource-card__meta">{[exam.code, exam.subject].filter(Boolean).join(" · ")}</div>
+            )}
           </Link>
         </li>
       ))}

@@ -7,12 +7,14 @@ interface EmptyStateProps {
   action?: ReactNode;
 }
 
-export function EmptyState({ icon = "📋", title, description, action }: EmptyStateProps) {
+export function EmptyState({ icon, title, description, action }: EmptyStateProps) {
   return (
     <div className="empty-state">
-      <span className="empty-state__icon" aria-hidden="true">
-        {icon}
-      </span>
+      {icon && (
+        <span className="empty-state__icon" aria-hidden="true">
+          {icon}
+        </span>
+      )}
       <h3>{title}</h3>
       {description && <p>{description}</p>}
       {action}
