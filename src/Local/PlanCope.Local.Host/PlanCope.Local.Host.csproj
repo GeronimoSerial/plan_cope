@@ -13,6 +13,7 @@
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Microsoft.Web.WebView2" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" />
+    <PackageReference Include="Velopack" />
     <ProjectReference Include="..\PlanCope.Local.Api\PlanCope.Local.Api.csproj" />
   </ItemGroup>
 
