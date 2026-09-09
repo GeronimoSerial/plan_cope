@@ -14,6 +14,8 @@
     <Project Path="src/Shared/PlanCope.Shared.Infrastructure/PlanCope.Shared.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/tools/">
+    <Project Path="tools/PlanCope.RosterCrypto/PlanCope.RosterCrypto.csproj" />
+    <Project Path="tools/PlanCope.RosterCrypto.Tests/PlanCope.RosterCrypto.Tests.csproj" />
     <Project Path="tools/PlanCope.RosterReleaseTool/PlanCope.RosterReleaseTool.csproj" />
   </Folder>
   <Folder Name="/tests/">
