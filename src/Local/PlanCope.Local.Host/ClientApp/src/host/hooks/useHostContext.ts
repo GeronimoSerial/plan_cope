@@ -16,7 +16,8 @@ const fallbackContext: HostContext = {
   apiBaseUrl: "http://127.0.0.1:5055",
   lanBaseUrl: "http://127.0.0.1:5055",
   operatorName: "Operador",
-  port: 5055
+  port: 5055,
+  isActivated: false
 };
 
 export function useHostContext(): HostContext {

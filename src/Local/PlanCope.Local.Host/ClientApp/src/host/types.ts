@@ -5,6 +5,9 @@ export type HostContext = {
   lanBaseUrl: string;
   operatorName: string;
   port: number;
+  isActivated: boolean;
+  appVersion?: string;
+  updateChannel?: "stable" | "beta";
 };
 
 export type HostContextMessage = {

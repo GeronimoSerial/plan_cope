@@ -24,6 +24,7 @@ public static class LocalDataServiceCollectionExtensions
         services.AddScoped<LocalExamPullService>();
         services.AddScoped<LocalRosterPullService>();
         services.AddSingleton<IEmbeddedRosterSource, EmbeddedRosterSource>();
+        services.Configure<RosterBundleOptions>(configuration.GetSection(RosterBundleOptions.SectionName));
         services.AddScoped<EmbeddedRosterSeeder>();
         services.AddScoped<LocalOutboxPushService>();
         services.AddScoped<ILocalRosterRepository, LocalRosterRepository>();

@@ -11,7 +11,6 @@ dist/
 *.db
 *.db-shm
 *.db-wal
-*.roster.json
 *.log
 .agents/
 src/Central/PlanCope.Central.Web/tmp/**
@@ -25,3 +24,6 @@ PlanCope-padron-*.zip
 *padron*.zip
 *padrones*.zip
 secrets/
+
+# Exception: synthetic fixtures with fictional data, used by roster-crypto tests.
+!tools/PlanCope.RosterCrypto/Fixtures/*.roster.json

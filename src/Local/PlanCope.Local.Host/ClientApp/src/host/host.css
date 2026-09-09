@@ -32,6 +32,41 @@
   line-height: 1.55;
 }
 
+.activation-card {
+  display: grid;
+  gap: 14px;
+  max-width: 560px;
+}
+
+.activation-card label {
+  color: var(--primary-dark);
+  font-weight: 700;
+}
+
+.activation-card input {
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font: inherit;
+}
+
+.activation-card button {
+  min-height: 44px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--primary);
+  color: var(--on-primary);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.activation-card button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 .school-confirmation {
   display: grid;
   gap: 4px;

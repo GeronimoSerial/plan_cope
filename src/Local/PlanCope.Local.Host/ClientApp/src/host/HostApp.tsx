@@ -4,11 +4,16 @@ import { SchoolGate } from "./components/SchoolGate";
 import { SessionsWorkspace } from "./components/SessionsWorkspace";
 import { useDeliverySession } from "./hooks/useDeliverySession";
 import { useHostContext } from "./hooks/useHostContext";
+import { ActivationScreen, shouldShowActivation } from "./activation/ActivationScreen";
 
 export function HostApp() {
   const hostContext = useHostContext();
   const delivery = useDeliverySession(hostContext);
   const [isSchoolConfirmed, setIsSchoolConfirmed] = useState(false);
+
+  if (shouldShowActivation(hostContext.isActivated)) {
+    return <ActivationScreen />;
+  }
 
   if (!isSchoolConfirmed) {
     return (
