@@ -17,3 +17,11 @@ dist/
 src/Central/PlanCope.Central.Web/tmp/**
 .env.local
 *.tsbuildinfo
+
+# Nominal roster data — personal data of students. Never commit.
+*.roster.json
+*.roster.enc
+PlanCope-padron-*.zip
+*padron*.zip
+*padrones*.zip
+secrets/
