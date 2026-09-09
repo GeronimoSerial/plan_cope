@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using PlanCope.Central.Api.Auth;
@@ -22,6 +23,12 @@ builder.Services
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
     });
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new OpenApiInfo { Title = "Plan Cope Central API", Version = "v1" });
@@ -117,9 +124,24 @@ if (app.Environment.IsDevelopment())
     }
 }
 
+app.UseForwardedHeaders();
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+app.MapGet("/health/live", () => Results.Ok(new { status = "ok" }));
+app.MapGet("/health/ready", async (PlanCopeDbContext dbContext, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        return await dbContext.Database.CanConnectAsync(cancellationToken)
+            ? Results.Ok(new { status = "ready" })
+            : Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    }
+    catch (Exception)
+    {
+        return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    }
+});
 
 app.Run();
