@@ -69,15 +69,16 @@ export function QuestionList({
               ))}
             </select>
           </div>
-          <Button onClick={() => onAdd(newType)}>+ Agregar</Button>
+          <Button variant="secondary" onClick={() => onAdd(newType)}>
+            Agregar pregunta
+          </Button>
         </div>
       </div>
 
       {questions.length === 0 ? (
         <EmptyState
-          icon="❓"
           title="Todavía no hay preguntas"
-          description="Elegí un tipo de pregunta y agregala para empezar a construir el examen."
+          description="Elegí un tipo y agregá la primera pregunta."
         />
       ) : (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>

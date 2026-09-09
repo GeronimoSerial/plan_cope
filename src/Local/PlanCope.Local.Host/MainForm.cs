@@ -65,7 +65,11 @@ public partial class MainForm : Form
     {
         _localPort = FindAvailablePort(PreferredLocalPort);
         _lanBaseUrl = $"http://{GetLocalIpAddress()}:{_localPort}";
-        _api = LocalApiApplication.Build(["--urls", $"http://0.0.0.0:{_localPort}"]);
+        // Build initializes SQLite and seeds local data. Run it outside the
+        // WinForms synchronization context to avoid blocking the UI thread
+        // while repositories complete asynchronous database operations.
+        _api = await Task.Run(() =>
+            LocalApiApplication.Build(["--urls", $"http://0.0.0.0:{_localPort}"]));
         await _api.StartAsync();
     }
 

@@ -12,16 +12,11 @@ export function StudentShell({ children }: StudentShellProps) {
           <span />
         </div>
         <div>
-          <p className="student-eyebrow">Toma local de examen</p>
+          <p className="student-eyebrow">Examen local</p>
           <h1>Plan Cope</h1>
-          <p>Funciona dentro de la red de la escuela.</p>
         </div>
       </header>
       <div className="student-content">{children}</div>
-      <footer className="student-footer">
-        <span>Nodo local</span>
-        <span>API embebida + SQLite local</span>
-      </footer>
     </main>
   );
 }

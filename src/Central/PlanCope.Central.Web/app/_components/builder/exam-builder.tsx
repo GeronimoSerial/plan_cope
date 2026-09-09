@@ -22,11 +22,12 @@ interface ExamBuilderProps {
 }
 
 const TABS: TabItem[] = [
-  { id: "datos", label: "Datos generales" },
+  { id: "datos", label: "Datos" },
   { id: "preguntas", label: "Preguntas" },
   { id: "preview", label: "Vista previa" },
   { id: "publicar", label: "Publicar" }
 ];
+const TABS_ID = "exam-builder-tabs";
 
 type Banners = { tone: "info" | "success" | "error"; text: string } | null;
 
@@ -40,6 +41,9 @@ export function ExamBuilder({ versionId, status, initialDocument }: ExamBuilderP
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [banner, setBanner] = useState<Banners>(isPublished ? { tone: "info", text: "Versión publicada: solo lectura." } : null);
   const [saving, setSaving] = useState(false);
+  const tabs = isPublished
+    ? TABS.filter(tab => tab.id !== "preview").map(tab => (tab.id === "preguntas" ? { ...tab, label: "Vista previa" } : tab))
+    : TABS;
 
   const dirty = JSON.stringify(document) !== savedSnapshot;
 
@@ -136,23 +140,20 @@ export function ExamBuilder({ versionId, status, initialDocument }: ExamBuilderP
 
   return (
     <div className="stack">
-      <div className="row row--between">
-        <div>{dirty && !isPublished && <Banner tone="info">Tenés cambios sin guardar.</Banner>}</div>
-        <div className="row">
-          <ExportButton document={document} onError={text => setBanner({ tone: "error", text })} />
-          {!isPublished && (
-            <Button onClick={() => void save()} disabled={saving}>
-              {saving ? "Guardando…" : "Guardar"}
-            </Button>
-          )}
+      {!isPublished && (
+        <div className="row row--between builder-actions-bar">
+          <div>{dirty && <Banner tone="info">Tenés cambios sin guardar.</Banner>}</div>
+          <Button onClick={() => void save()} disabled={saving}>
+            {saving ? "Guardando…" : "Guardar"}
+          </Button>
         </div>
-      </div>
+      )}
 
       {banner && <Banner tone={banner.tone}>{banner.text}</Banner>}
 
-      <Tabs tabs={TABS} activeId={activeTab} onChange={setActiveTab} ariaLabel="Secciones del builder" />
+      <Tabs tabs={tabs} activeId={activeTab} onChange={setActiveTab} ariaLabel="Secciones del builder" idPrefix={TABS_ID} />
 
-      <TabPanel id="datos" active={activeTab === "datos"}>
+      <TabPanel id="datos" idPrefix={TABS_ID} active={activeTab === "datos"}>
         <div className="card">
           <div className="card__body">
             <div className="cols-2">
@@ -220,7 +221,7 @@ export function ExamBuilder({ versionId, status, initialDocument }: ExamBuilderP
         </div>
       </TabPanel>
 
-      <TabPanel id="preguntas" active={activeTab === "preguntas"}>
+      <TabPanel id="preguntas" idPrefix={TABS_ID} active={activeTab === "preguntas"}>
         {isPublished ? (
           <ExamPreview document={document} />
         ) : (
@@ -237,11 +238,17 @@ export function ExamBuilder({ versionId, status, initialDocument }: ExamBuilderP
         {errors.questions && <Banner tone="error">{errors.questions}</Banner>}
       </TabPanel>
 
-      <TabPanel id="preview" active={activeTab === "preview"}>
-        <ExamPreview document={document} />
-      </TabPanel>
+      {!isPublished && (
+        <TabPanel id="preview" idPrefix={TABS_ID} active={activeTab === "preview"}>
+          <div className="row row--between builder-preview-actions">
+            <span className="field__hint">Vista para revisar antes de publicar.</span>
+            <ExportButton document={document} onError={text => setBanner({ tone: "error", text })} />
+          </div>
+          <ExamPreview document={document} />
+        </TabPanel>
+      )}
 
-      <TabPanel id="publicar" active={activeTab === "publicar"}>
+      <TabPanel id="publicar" idPrefix={TABS_ID} active={activeTab === "publicar"}>
         {isPublished ? (
           <Banner tone="success">Esta versión ya está publicada.</Banner>
         ) : (

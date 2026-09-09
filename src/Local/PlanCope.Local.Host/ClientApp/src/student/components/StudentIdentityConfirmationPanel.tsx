@@ -19,18 +19,16 @@ export function StudentIdentityConfirmationPanel({
   return (
     <section className="student-gate" aria-labelledby="identity-confirmation-title">
       <div className="student-card student-identity-card">
-        <p className="eyebrow">Confirmación de identidad</p>
-        <h2 id="identity-confirmation-title">¿Sos {student.firstName}?</h2>
+        <p className="eyebrow">Confirmá tu identidad</p>
+        <h2 id="identity-confirmation-title">Revisá tus datos</h2>
         <div className="student-identity-summary" aria-live="polite">
           <strong>{student.displayName}</strong>
           <span>DNI {student.maskedDocument}</span>
         </div>
-        <p className="student-card-copy">
-          Verificá que estos datos sean tuyos. El examen comienza recién cuando confirmes.
-        </p>
+        <p className="student-card-copy">El examen comienza cuando confirmes.</p>
         <div className="student-identity-actions">
           <ActionButton disabled={isBusy} onClick={onConfirm}>
-            {isBusy ? "Iniciando..." : "Sí, soy yo"}
+            {isBusy ? "Iniciando…" : "Sí, soy yo"}
           </ActionButton>
           <ActionButton variant="secondary" disabled={isBusy} onClick={onCorrect}>
             Volver y corregir

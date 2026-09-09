@@ -28,13 +28,13 @@ export function ExamConfirmationPanel({ code, submittedAt }: ExamConfirmationPan
         </div>
         <h2>Examen enviado</h2>
         <p className="student-confirmation-copy">
-          Tu entrega se registro en este equipo. Conserva el codigo de confirmacion.
+          Tu entrega se registró. Conservá este código de confirmación.
         </p>
         <div className="student-confirmation-code-box">
-          <span className="student-confirmation-label">Codigo de confirmacion</span>
+          <span className="student-confirmation-label">Código de confirmación</span>
           <strong className="confirmation-code">{code}</strong>
           <button type="button" className="student-copy-button" onClick={handleCopy}>
-            {copied ? "Copiado" : "Copiar codigo"}
+            {copied ? "Copiado" : "Copiar código"}
           </button>
         </div>
         {formattedTime && <p className="student-confirmation-time">Entregado a las {formattedTime}</p>}
@@ -42,7 +42,7 @@ export function ExamConfirmationPanel({ code, submittedAt }: ExamConfirmationPan
           <span className="student-alert-icon" aria-hidden="true">
             !
           </span>
-          <span>No cierres esta pantalla hasta que el docente lo indique.</span>
+          <span>Esperá la indicación del docente.</span>
         </div>
       </div>
     </section>

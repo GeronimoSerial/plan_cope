@@ -37,12 +37,12 @@ export default async function LoginPage({
             PC
           </span>
           <div>
-            <strong style={{ fontSize: 18 }}>PlanCope Central</strong>
-            <p style={{ color: "var(--text-muted)", fontSize: 13 }}>Administración y builder de exámenes</p>
+            <strong className="auth-card__brand-title">PlanCope Central</strong>
+            <p className="auth-card__brand-subtitle">Administración de exámenes</p>
           </div>
         </div>
-        <h1 style={{ fontSize: 22, marginBottom: 4 }}>Iniciar sesión</h1>
-        <p style={{ color: "var(--text-muted)", fontSize: 14 }}>Ingresá con tu cuenta institucional.</p>
+        <h1 className="auth-card__title">Iniciar sesión</h1>
+        <p className="auth-card__intro">Ingresá con tu cuenta institucional.</p>
         <LoginForm redirectTo={redirectTo} expired={expired} />
       </div>
     </main>

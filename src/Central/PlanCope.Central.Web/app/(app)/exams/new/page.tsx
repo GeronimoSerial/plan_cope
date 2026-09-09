@@ -10,7 +10,7 @@ export default function NewExamPage() {
       <PageHeader
         eyebrow="Exámenes"
         title="Nuevo examen"
-        description="Definí los datos generales. Después vas a poder crear versiones y construir las preguntas."
+        description="Completá los datos principales para comenzar."
         breadcrumbs={[
           { label: "Inicio", href: "/dashboard" },
           { label: "Exámenes", href: "/exams" },

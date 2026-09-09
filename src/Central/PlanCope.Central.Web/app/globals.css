@@ -34,8 +34,8 @@
   --radius-sm: 6px;
   --radius: 10px;
   --radius-lg: 14px;
-  --shadow-sm: 0 1px 2px rgba(20, 33, 61, 0.06);
-  --shadow: 0 6px 18px rgba(20, 33, 61, 0.08);
+  --shadow-sm: none;
+  --shadow: none;
 
   /* Espaciado */
   --space-1: 4px;
@@ -260,6 +260,11 @@ textarea {
   gap: var(--space-3);
   flex-wrap: wrap;
 }
+.page-header__description {
+  color: var(--text-muted);
+  margin-top: var(--space-2);
+  max-width: 60ch;
+}
 .eyebrow {
   color: var(--brand);
   font-size: 12px;
@@ -445,6 +450,28 @@ textarea.input {
   font-weight: 600;
 }
 
+.form-section {
+  display: grid;
+  gap: var(--space-2);
+}
+.form-section--with-error {
+  margin-top: var(--space-4);
+}
+.form-details {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  margin: var(--space-2) 0 var(--space-4);
+}
+.form-details > summary {
+  padding: var(--space-3) 0;
+  color: var(--brand-strong);
+  cursor: pointer;
+  font-weight: 700;
+}
+.form-details__body {
+  padding: 0 0 var(--space-2);
+}
+
 /* ---------------- Tabs ---------------- */
 .tabs__list {
   display: flex;
@@ -566,6 +593,13 @@ textarea.input {
   justify-content: space-between;
   gap: var(--space-3);
 }
+.resource-card__title > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.resource-card__title .badge {
+  flex-shrink: 0;
+}
 .resource-card__meta {
   color: var(--text-muted);
   font-size: 13px;
@@ -578,13 +612,13 @@ textarea.input {
   display: grid;
   place-items: center;
   padding: var(--space-5);
-  background: linear-gradient(160deg, var(--brand-strong), #0e1f4a);
+  background: var(--bg);
 }
 .auth-card {
   width: min(420px, 100%);
   background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow);
   padding: var(--space-6);
 }
 .auth-card__brand {
@@ -592,6 +626,22 @@ textarea.input {
   align-items: center;
   gap: var(--space-3);
   margin-bottom: var(--space-5);
+}
+.auth-card__brand-title {
+  display: block;
+  font-size: 18px;
+}
+.auth-card__brand-subtitle,
+.auth-card__intro {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.auth-card__title {
+  font-size: 22px;
+  margin-bottom: var(--space-1);
+}
+.login-fields {
+  margin-top: var(--space-4);
 }
 
 /* ---------------- Spinner ---------------- */
@@ -719,6 +769,13 @@ textarea.input {
   box-shadow: var(--shadow);
   padding: var(--space-5);
 }
+.dialog__title {
+  font-size: 18px;
+}
+.dialog__description {
+  color: var(--text-muted);
+  margin-top: var(--space-2);
+}
 .dialog__actions {
   display: flex;
   justify-content: flex-end;
@@ -742,5 +799,53 @@ textarea.input {
   }
   .cols-2 {
     grid-template-columns: 1fr;
+  }
+}
+
+.builder-actions-bar,
+.builder-preview-actions {
+  align-items: center;
+}
+.builder-preview-actions {
+  margin-bottom: var(--space-3);
+}
+
+@media (max-width: 600px) {
+  .sidebar {
+    flex-wrap: wrap;
+  }
+  .sidebar__brand {
+    flex: 1 1 auto;
+  }
+  .sidebar__nav {
+    width: 100%;
+  }
+  .sidebar__link {
+    flex: 1;
+    justify-content: center;
+  }
+  .app-header {
+    height: auto;
+    min-height: var(--header-h);
+    padding: var(--space-3) var(--space-4);
+    gap: var(--space-3);
+  }
+  .app-header__meta {
+    min-width: 0;
+  }
+  .app-header__meta strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .app-content {
+    padding: var(--space-4);
+  }
+  .page-header {
+    flex-direction: column;
+  }
+  .page-header__actions,
+  .page-header__actions .button {
+    width: 100%;
   }
 }

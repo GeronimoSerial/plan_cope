@@ -14,7 +14,6 @@ import type { ExamVersion } from "../../_lib/contracts";
 interface VersionManagerProps {
   examId: string;
   initialVersions: ExamVersion[];
-  examSubject: string | null;
 }
 
 export function VersionManager({ examId, initialVersions }: VersionManagerProps) {
@@ -43,7 +42,7 @@ export function VersionManager({ examId, initialVersions }: VersionManagerProps)
       <div className="card__header">
         <h2>Versiones</h2>
         <Button onClick={() => void createVersion()} disabled={creating}>
-          {creating ? "Creando…" : "+ Nueva versión"}
+          {creating ? "Creando…" : "Nueva versión"}
         </Button>
       </div>
       <div className="card__body stack">
@@ -51,9 +50,8 @@ export function VersionManager({ examId, initialVersions }: VersionManagerProps)
 
         {versions.length === 0 ? (
           <EmptyState
-            icon="🗂️"
             title="Sin versiones todavía"
-            description="Creá una versión para empezar a construir las preguntas del examen."
+            description="Creá una versión para comenzar."
           />
         ) : (
           <ul className="resource-list" style={{ listStyle: "none", padding: 0, margin: 0 }}>
@@ -65,7 +63,7 @@ export function VersionManager({ examId, initialVersions }: VersionManagerProps)
                     <StatusBadge status={version.status} />
                   </div>
                   <div className="resource-card__meta">
-                    {version.blocks?.length ?? 0} pregunta(s) · esquema v{version.schemaVersion}
+                    {version.blocks?.length ?? 0} {(version.blocks?.length ?? 0) === 1 ? "pregunta" : "preguntas"}
                   </div>
                 </Link>
               </li>

@@ -72,17 +72,17 @@ export function PublishPanel({ versionId, defaultSubject, hasUnsavedChanges, onP
         <h2>Publicar versión</h2>
       </div>
       <form className="card__body stack" onSubmit={handleSubmit(onSubmit)} noValidate>
-        <p style={{ color: "var(--text-muted)" }}>
-          Al publicar, la versión queda inmutable y disponible para sincronizar con las escuelas.
-        </p>
         {hasUnsavedChanges && <Banner tone="info">Guardá los cambios antes de publicar.</Banner>}
         {error && <Banner tone="error">{error}</Banner>}
 
-        <div className="cols-2">
-          <TextField label="Materia" error={errors.subject?.message} {...register("subject")} />
-          <TextField label="Curso / grado" required error={errors.grade?.message} {...register("grade")} />
-        </div>
-        <TextField label="División (opcional)" error={errors.division?.message} {...register("division")} />
+        <TextField label="Curso / grado" required error={errors.grade?.message} {...register("grade")} />
+        <details className="form-details">
+          <summary>Más datos (opcionales)</summary>
+          <div className="form-details__body">
+            <TextField label="Materia" error={errors.subject?.message} {...register("subject")} />
+            <TextField label="División" error={errors.division?.message} {...register("division")} />
+          </div>
+        </details>
 
         <div className="row">
           <Button type="submit" disabled={hasUnsavedChanges}>
@@ -94,7 +94,7 @@ export function PublishPanel({ versionId, defaultSubject, hasUnsavedChanges, onP
       <ConfirmDialog
         open={confirmOpen}
         title="Publicar esta versión"
-        description="Una vez publicada no podrás editar las preguntas de esta versión. ¿Querés continuar?"
+        description="La versión quedará bloqueada para edición. ¿Querés continuar?"
         confirmLabel="Sí, publicar"
         busy={busy}
         onConfirm={() => void confirmPublish()}

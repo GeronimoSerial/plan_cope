@@ -42,7 +42,7 @@ export default async function ExamDetailPage({ params }: { params: Promise<{ exa
         actions={<StatusBadge status={exam.status} />}
       />
 
-      <VersionManager examId={examId} initialVersions={versions} examSubject={exam.subject ?? null} />
+      <VersionManager examId={examId} initialVersions={versions} />
     </>
   );
 }

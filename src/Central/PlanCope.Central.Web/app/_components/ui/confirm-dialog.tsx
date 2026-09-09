@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 import { Button } from "./button";
 
 interface ConfirmDialogProps {
@@ -25,6 +25,9 @@ export function ConfirmDialog({
   onCancel
 }: ConfirmDialogProps) {
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const dialogId = useId();
+  const titleId = `${dialogId}-title`;
+  const descriptionId = `${dialogId}-description`;
 
   useEffect(() => {
     if (open) {
@@ -55,13 +58,14 @@ export function ConfirmDialog({
         className="dialog"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="dialog-title"
+        aria-labelledby={titleId}
+        aria-describedby={description ? descriptionId : undefined}
         onClick={event => event.stopPropagation()}
       >
-        <h2 id="dialog-title" style={{ fontSize: 18 }}>
+        <h2 id={titleId} className="dialog__title">
           {title}
         </h2>
-        {description && <p style={{ color: "var(--text-muted)", marginTop: "var(--space-2)" }}>{description}</p>}
+        {description && <p id={descriptionId} className="dialog__description">{description}</p>}
         <div className="dialog__actions">
           <Button variant="secondary" onClick={onCancel} disabled={busy}>
             {cancelLabel}

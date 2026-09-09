@@ -58,10 +58,18 @@ export function ExamTakingPanel({
   return (
     <section className="student-exam">
       <header className="student-exam-header">
-        <h2>Responder examen</h2>
-        {studentName && <p className="student-exam-identity">Alumno: <strong>{studentName}</strong></p>}
+        <h2>Respondé el examen</h2>
+        {studentName && <p className="student-exam-identity">Estudiante: <strong>{studentName}</strong></p>}
         <div className="student-exam-progress">
-          <div className="student-progress-bar" aria-label={`Progreso ${completion}%`}>
+          <div
+            className="student-progress-bar"
+            role="progressbar"
+            aria-label="Progreso del examen"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={completion}
+            aria-valuetext={`${completion}% completado`}
+          >
             <span style={{ width: `${completion}%` }} />
           </div>
           <p className="student-progress-label">
@@ -75,7 +83,7 @@ export function ExamTakingPanel({
           </p>
         </div>
         <p className="student-legend">
-          <span className="student-required-mark">*</span> marca las preguntas obligatorias.
+          <span className="student-required-mark">*</span> indica una pregunta obligatoria.
         </p>
       </header>
 
@@ -96,19 +104,9 @@ export function ExamTakingPanel({
       </div>
 
       <div className="student-actions-bar">
-        <div className="student-actions-bar-info">
-          <span>
-            Respondidas: <strong>{answered}</strong> / {total}
-          </span>
-          {requiredMissing > 0 && (
-            <span>
-              Obligatorias faltantes: <strong>{requiredMissing}</strong>
-            </span>
-          )}
-        </div>
         <div className="student-actions">
           <ActionButton variant="secondary" disabled={isBusy} onClick={onSave}>
-            {isBusy ? "Guardando..." : "Guardar respuestas"}
+            {isBusy ? "Guardando…" : "Guardar respuestas"}
           </ActionButton>
           <ActionButton disabled={isBusy} onClick={() => setIsSubmitOpen(true)}>
             Enviar examen

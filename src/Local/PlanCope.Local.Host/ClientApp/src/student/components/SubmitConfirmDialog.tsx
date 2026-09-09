@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+
 type SubmitConfirmDialogProps = {
   answered: number;
   total: number;
@@ -14,13 +16,35 @@ export function SubmitConfirmDialog({
   onCancel
 }: SubmitConfirmDialogProps) {
   const hasMissing = missingRequiredCount > 0;
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    cancelButtonRef.current?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCancel();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onCancel]);
 
   return (
-    <div className="student-modal-backdrop" role="dialog" aria-modal="true" onClick={onCancel}>
+    <div
+      className="student-modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="submit-dialog-title"
+      aria-describedby="submit-dialog-description"
+      onClick={onCancel}
+    >
       <div className="student-modal" onClick={event => event.stopPropagation()}>
-        <h2>Confirmar envio</h2>
-        <p className="student-modal-intro">
-          Revisa tu estado antes de enviar. Una vez enviado no podras modificar tus respuestas.
+        <h2 id="submit-dialog-title">Confirmá el envío</h2>
+        <p id="submit-dialog-description" className="student-modal-intro">
+          Revisá tus respuestas. Después del envío no vas a poder modificarlas.
         </p>
         <div className="student-modal-summary">
           <div>
@@ -35,13 +59,12 @@ export function SubmitConfirmDialog({
           </div>
         </div>
         {hasMissing && (
-          <p className="student-modal-warning">
-            Tienes {missingRequiredCount} pregunta(s) obligatoria(s) sin responder. Completa todas las
-            obligatorias para poder enviar el examen.
+          <p className="student-modal-warning" role="alert">
+            Faltan {missingRequiredCount} preguntas obligatorias. Completalas antes de enviar.
           </p>
         )}
         <div className="student-modal-actions">
-          <button type="button" className="button button-secondary" onClick={onCancel}>
+          <button ref={cancelButtonRef} type="button" className="button button-secondary" onClick={onCancel}>
             Volver
           </button>
           <button

@@ -12,11 +12,13 @@ interface TabsProps {
   activeId: string;
   onChange: (id: string) => void;
   ariaLabel: string;
+  idPrefix?: string;
 }
 
 // Tablist accesible: roving focus + flechas izquierda/derecha + Home/End.
-export function Tabs({ tabs, activeId, onChange, ariaLabel }: TabsProps) {
-  const baseId = useId();
+export function Tabs({ tabs, activeId, onChange, ariaLabel, idPrefix }: TabsProps) {
+  const generatedId = useId();
+  const baseId = idPrefix ?? generatedId;
   const refs = useRef<Array<HTMLButtonElement | null>>([]);
 
   function focusTab(index: number) {
@@ -80,11 +82,15 @@ interface TabPanelProps {
   id: string;
   active: boolean;
   children: React.ReactNode;
+  idPrefix?: string;
 }
 
-export function TabPanel({ id, active, children }: TabPanelProps) {
+export function TabPanel({ id, active, children, idPrefix }: TabPanelProps) {
+  const fallbackId = useId();
+  const baseId = idPrefix ?? fallbackId;
+
   return (
-    <div role="tabpanel" aria-labelledby={`tab-${id}`} hidden={!active}>
+    <div id={`${baseId}-panel-${id}`} role="tabpanel" aria-labelledby={`${baseId}-tab-${id}`} hidden={!active}>
       {active && children}
     </div>
   );

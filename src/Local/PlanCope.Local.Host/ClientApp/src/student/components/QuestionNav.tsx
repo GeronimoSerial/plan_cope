@@ -17,7 +17,7 @@ export function QuestionNav({ blocks, answers }: QuestionNavProps) {
   };
 
   return (
-    <nav className="student-question-nav" aria-label="Indice de preguntas">
+    <nav className="student-question-nav" aria-label="Índice de preguntas">
       <p className="student-question-nav-title">Preguntas</p>
       <ol className="student-question-nav-list">
         {blocks.map((block, index) => {
@@ -34,13 +34,14 @@ export function QuestionNav({ blocks, answers }: QuestionNavProps) {
             : isAnswered
               ? "student-nav-answered"
               : "student-nav-pending";
-          const statusLabel = isMissing ? "Falta" : isAnswered ? "Ok" : "—";
+          const statusLabel = isMissing ? "Falta responder" : isAnswered ? "Respondida" : "Pendiente";
 
           return (
             <li key={block.id}>
               <button
                 type="button"
                 className={`student-question-nav-item ${statusClass}`}
+                aria-label={`Pregunta ${number}: ${statusLabel}`}
                 onClick={() => handleJump(block.id)}
               >
                 <span className="student-nav-number">{number}</span>

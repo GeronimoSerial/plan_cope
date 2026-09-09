@@ -51,44 +51,42 @@ export function CreateExamForm() {
     <form onSubmit={handleSubmit(onSubmit)} noValidate className="card">
       <div className="card__body">
         {serverError && <Banner tone="error">{serverError}</Banner>}
-        <div className="cols-2" style={{ marginTop: serverError ? "var(--space-4)" : 0 }}>
+        <div className={serverError ? "form-section form-section--with-error" : "form-section"}>
+          <TextField label="Código" placeholder="Ej. MAT-2026-01" required error={errors.code?.message} {...register("code")} />
           <TextField
-            label="Código"
-            placeholder="Ej. MAT-2026-01"
-            hint="Identificador único del examen."
+            label="Título"
+            placeholder="Ej. Evaluación de Matemática"
             required
-            error={errors.code?.message}
-            {...register("code")}
-          />
-          <TextField
-            label="Materia"
-            placeholder="Ej. Matemática"
-            error={errors.subject?.message}
-            {...register("subject")}
+            error={errors.title?.message}
+            {...register("title")}
           />
         </div>
-        <TextField
-          label="Título"
-          placeholder="Ej. Evaluación de Matemática — Unidad 1"
-          required
-          error={errors.title?.message}
-          {...register("title")}
-        />
-        <div className="cols-2">
-          <TextField
-            label="Curso / grado"
-            placeholder="Ej. 1° año"
-            error={errors.level?.message}
-            {...register("level")}
-          />
-          <TextField label="Área" placeholder="Ej. Ciencias exactas" error={errors.area?.message} {...register("area")} />
-        </div>
-        <TextAreaField
-          label="Descripción"
-          placeholder="Breve descripción del examen (opcional)."
-          error={errors.description?.message}
-          {...register("description")}
-        />
+        <details className="form-details">
+          <summary>Más datos (opcionales)</summary>
+          <div className="form-details__body">
+            <TextField
+              label="Materia"
+              placeholder="Ej. Matemática"
+              error={errors.subject?.message}
+              {...register("subject")}
+            />
+            <div className="cols-2">
+              <TextField
+                label="Curso / grado"
+                placeholder="Ej. 1° año"
+                error={errors.level?.message}
+                {...register("level")}
+              />
+              <TextField label="Área" placeholder="Ej. Ciencias exactas" error={errors.area?.message} {...register("area")} />
+            </div>
+            <TextAreaField
+              label="Descripción"
+              placeholder="Descripción breve (opcional)."
+              error={errors.description?.message}
+              {...register("description")}
+            />
+          </div>
+        </details>
         <div className="row">
           <Button type="submit" disabled={isSubmitting}>
             {isSubmitting ? "Creando…" : "Crear examen"}

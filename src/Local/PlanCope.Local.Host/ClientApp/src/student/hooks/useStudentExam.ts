@@ -31,7 +31,7 @@ export function useStudentExam() {
       await action();
       return true;
     } catch (exception) {
-      setError(exception instanceof Error ? exception.message : "No se pudo completar la operacion.");
+      setError(exception instanceof Error ? exception.message : "No se pudo completar la operación.");
       return false;
     } finally {
       setIsBusy(false);
@@ -57,7 +57,7 @@ export function useStudentExam() {
 
   const resolveStudent = useCallback(async () => {
     if (!sessionCode.trim()) {
-      setError("Completa el codigo de examen.");
+      setError("Completá el código de sesión.");
       return;
     }
 

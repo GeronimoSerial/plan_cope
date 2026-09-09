@@ -103,11 +103,11 @@ export function ActionButton({ children, disabled, variant = "primary", onClick 
   );
 }
 
-export function SectionTitle({ title, description }: { title: string; description: string }) {
+export function SectionTitle({ title, description }: { title: string; description?: string }) {
   return (
     <div className="section-title">
       <h2>{title}</h2>
-      <p>{description}</p>
+      {description && <p>{description}</p>}
     </div>
   );
 }

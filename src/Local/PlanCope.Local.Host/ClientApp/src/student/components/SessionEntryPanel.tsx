@@ -22,12 +22,10 @@ export function SessionEntryPanel({
   return (
     <section className="student-gate">
       <div className="student-card">
-        <p className="eyebrow">Acceso del alumno</p>
-        <h2>Ingresar al examen</h2>
-        <p className="student-card-copy">
-          Escribe el codigo que te indico el docente. Solo funciona dentro de la red de la escuela.
-        </p>
-        <Field label="Codigo de examen">
+        <p className="eyebrow">Acceso del estudiante</p>
+        <h2>Ingresá al examen</h2>
+        <p className="student-card-copy">Ingresá el código que te indicó el docente y tu DNI.</p>
+        <Field label="Código de sesión">
           <TextInput
             value={sessionCode}
             placeholder="Ej. ABC-123"
@@ -46,10 +44,10 @@ export function SessionEntryPanel({
             aria-describedby="student-document-help"
             onChange={event => onDocumentChange(event.target.value)}
           />
-          <span id="student-document-help" className="field-hint">Usamos tu DNI sólo para buscarte en el padrón de esta sección.</span>
+          <span id="student-document-help" className="field-hint">Usamos tu DNI para buscarte en el padrón.</span>
         </Field>
         <ActionButton disabled={isBusy || !sessionCode.trim() || !document.trim()} onClick={onResolveStudent}>
-          {isBusy ? "Buscando..." : "Buscar mis datos"}
+          {isBusy ? "Buscando…" : "Buscar mis datos"}
         </ActionButton>
         {error && <p className="error-banner" role="alert">{error}</p>}
       </div>

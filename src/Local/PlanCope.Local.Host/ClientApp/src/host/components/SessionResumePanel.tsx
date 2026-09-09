@@ -1,5 +1,5 @@
 import type { LocalSession } from "../types";
-import { ActionButton, Field, SectionTitle, TextInput } from "../../shared/ui";
+import { ActionButton, Field, TextInput } from "../../shared/ui";
 
 type SessionResumePanelProps = {
   activeSessions: LocalSession[];
@@ -19,29 +19,34 @@ export function SessionResumePanel({
   onResumeSession
 }: SessionResumePanelProps) {
   return (
-    <section className="panel">
-      <SectionTitle
-        title="Retomar una sesion"
-        description="Usa un codigo activo para reabrir una toma anterior en este equipo."
-      />
-      {activeSessions.length > 0 && (
-        <div className="session-list">
-          {activeSessions.slice(0, 4).map(session => (
-            <button key={session.id} type="button" onClick={() => onResumeSession(session.accessCode)}>
-              <strong>{session.accessCode}</strong>
-              <span>
-                {session.schoolCode} - {session.classroomCode ?? "Sin aula"} - {session.status}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-      <Field label="Codigo de sesion" error={accessCodeError}>
-        <TextInput value={resumeAccessCode} onChange={onResumeAccessCodeChange} />
-      </Field>
-      <ActionButton variant="secondary" disabled={isBusy} onClick={() => onResumeSession()}>
-        Reabrir por codigo
-      </ActionButton>
-    </section>
+    <details className="resume-details">
+      <summary>Retomar sesión</summary>
+      <div className="resume-details-content">
+        <p className="panel-description">Usá un código activo para volver a una sesión en este equipo.</p>
+        {activeSessions.length > 0 && (
+          <div className="session-list" aria-label="Sesiones recientes">
+            {activeSessions.slice(0, 4).map(session => (
+              <button
+                key={session.id}
+                type="button"
+                aria-label={`Reabrir sesión ${session.accessCode}`}
+                onClick={() => onResumeSession(session.accessCode)}
+              >
+                <strong>{session.accessCode}</strong>
+                <span>
+                  {session.schoolCode} · {session.classroomCode ?? "Sin aula"} · {session.status}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+        <Field label="Código de sesión" error={accessCodeError}>
+          <TextInput value={resumeAccessCode} onChange={onResumeAccessCodeChange} />
+        </Field>
+        <ActionButton variant="secondary" disabled={isBusy} onClick={() => onResumeSession()}>
+          Reabrir sesión
+        </ActionButton>
+      </div>
+    </details>
   );
 }
