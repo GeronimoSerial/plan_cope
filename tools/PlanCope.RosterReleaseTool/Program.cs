@@ -283,6 +283,15 @@ static async Task<int> RunBatchAsync(
         }
         catch (Exception exception)
         {
+            if (exception is GeApiException { StatusCode: System.Net.HttpStatusCode.BadRequest })
+            {
+                // GE utiliza 400 para CUE sin padrón/ciclo válido. Es una escuela
+                // sin datos utilizables, no un error que deba abortar la corrida.
+                empty++;
+                Console.WriteLine($"[{completed + empty + failed}/{cues.Count}] {currentCue}: sin padrón utilizable (GE 400).");
+                continue;
+            }
+
             failed++;
             var geError = exception as GeApiException;
             var error = geError?.StatusCode is { } statusCode
@@ -293,15 +302,27 @@ static async Task<int> RunBatchAsync(
         }
     }
 
+    var packageFiles = Directory.EnumerateFiles(outputDirectory, "*.roster.json").ToList();
+    var completedTotal = packageFiles.Count;
+    var totalStudentsTotal = 0;
+    foreach (var packageFile in packageFiles)
+    {
+        var package = JsonSerializer.Deserialize<GeRosterPackageDto>(await File.ReadAllTextAsync(packageFile), jsonOptions);
+        totalStudentsTotal += package?.StudentCount ?? 0;
+    }
+    var requestedTotal = previousSummary?.Requested ?? cues.Count;
+    var failedTotal = failures.Count;
+    var emptyTotal = Math.Max(0, requestedTotal - completedTotal - failedTotal);
+
     await File.WriteAllTextAsync(summaryPath, JsonSerializer.Serialize(new
     {
         schoolYear,
         finishedAt = DateTimeOffset.UtcNow,
-        requested = previousSummary?.Requested ?? cues.Count,
-        completed = (previousSummary?.Completed ?? 0) + completed,
-        empty = (previousSummary?.Empty ?? 0) + empty,
-        failed,
-        totalStudents = (previousSummary?.TotalStudents ?? 0) + totalStudents,
+        requested = requestedTotal,
+        completed = completedTotal,
+        empty = emptyTotal,
+        failed = failedTotal,
+        totalStudents = totalStudentsTotal,
         failures
     }, jsonOptions));
     Console.WriteLine($"Sincronización finalizada: listas={completed}, vacías={empty}, fallidas={failed}, alumnos={totalStudents}.");
