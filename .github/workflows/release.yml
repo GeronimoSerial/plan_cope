@@ -366,12 +366,18 @@ jobs:
 
   # Central API/Web deploy to the single Coolify project (decision 9). The project,
   # environment and server uuids below are NOT secrets — verified against the real Coolify
-  # API (v4.1.2) by the coordinator. The deploy-trigger token Actions uses is a separate
-  # credential the user provisions later (COOLIFY_DEPLOY_TOKEN); this job cannot run for
-  # real until that secret exists.
+  # API (v4.1.2). The deploy-trigger token Actions uses is a separate credential
+  # (COOLIFY_DEPLOY_TOKEN).
+  #
+  # This deliberately does NOT depend on `host`. Central (container images) and the desktop
+  # installer are two products with independent lifecycles: the installer needs an
+  # Authenticode certificate on a Windows runner, while Central needs only the GHCR images
+  # and the migrations. Coupling them meant a missing code-signing certificate blocked the
+  # web deploy, which is unrelated to it. `host` still runs and still fails loudly when it
+  # cannot sign — it just no longer gates Central.
   deploy-coolify:
     name: Deploy Central to Coolify
-    needs: [promote-mutable-tags, host, migrate-database]
+    needs: [validate, promote-mutable-tags, migrate-database]
     runs-on: ubuntu-latest
     env:
       COOLIFY_API_BASE: https://coolify.sistemas.mec.gob.ar/api/v1
@@ -450,7 +456,7 @@ jobs:
 
   github-release:
     name: Publish GitHub Release (metadata only)
-    needs: smoke-test
+    needs: [validate, smoke-test]
     runs-on: ubuntu-latest
     permissions:
       contents: write
