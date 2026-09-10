@@ -1,245 +1,379 @@
 # Plan Cope
 
-**Plataforma de evaluaciones offline-first para la Provincia de Corrientes.**
+**Offline-first assessment platform for schools in the Province of Corrientes, Argentina.**
 
-500–2000 escuelas · 20K–100K estudiantes · .NET 8 · PostgreSQL + SQLite
-
----
-
-## Estado general: Fase 3 en curso — Sync, publicación y operación
-
-La base técnica (Fases 1 y 2) está cerrada y compilando. El proyecto avanza hacia un flujo end-to-end: **crear examen en la nube → publicar → descargar en el nodo local → operar toma en la escuela**.
-
-| Área | Estado | Detalle |
-|---|---|---|
-| Modelo de dominio | ✅ Completo | 22 entidades centrales + 13 locales (records inmutables) |
-| Value objects | ✅ Completo | `ExamCode`, `CueCode`, `Grade` con validación |
-| Enums | ✅ Completo | 8 tipos (`BlockType`, `ExamStatus`, `SyncDirection`, etc.) |
-| Contratos API (DTOs) | ✅ Completo | Auth, Exams, Sync y Local con source-gen JSON |
-| Validación (FluentValidation) | ✅ Completo | Validadores registrados en DI compartido |
-| Central — EF Core | ✅ Esquema | DbContext + 24 entity configurations (6 esquemas PostgreSQL) |
-| Central — Migraciones SQL | ✅ Completo | `InitialCreate` para PostgreSQL |
-| Central — Auth | ✅ Completo | Login, refresh, perfil; JWT Bearer + BCrypt |
-| Central — Exámenes | ✅ Funcional | CRUD, versiones, bloques, assets, documento unificado |
-| Central — Publicación | ✅ Inicial | `POST /api/exams/versions/{id}/publish` + paquetes y targets |
-| Central — Sync pull | ✅ Inicial | `GET /api/sync/pull` con cursor y paquetes publicados |
-| Central — Swagger | ✅ Dev | OpenAPI + JWT en entorno Development |
-| Central Web (Next.js) | ✅ Funcional | Login, dashboard, exámenes, builder online y publicación |
-| Local — SQLite + DbUp | ✅ Completo | 11 tablas, 9 índices, migraciones embebidas |
-| Local — Repositorios Dapper | ✅ Completo | User, Exam, Session, Attempt, Outbox, SyncState |
-| Local — API | ✅ Funcional | Health, sesiones, importación JSON, sync status y pull |
-| Local — Sync pull | ✅ Inicial | `LocalExamPullService` + `POST /api/sync/pull-exams` |
-| Local — Sync push / outbox worker | ⏭️ Pendiente | Tabla `sync_outbox` lista; sin worker ni endpoint push central |
-| Local — WinForms Host | ✅ Shell | `MainForm` + WebView2 hospeda React (operador + alumno) |
-| Local — ClientApp | ✅ Base | Gate escuela, consola de sesiones, toma de examen, builder local |
-| Tests .NET | 🟡 Parcial | `LocalExamImportTests`, `LocalSessionFlowTests` |
-| Tests Central Web | 🟡 Parcial | Vitest: schemas Zod y mappers |
-| Logging (Serilog) | ⏭️ Pendiente | Paquete declarado; sin configuración |
-| Docker Compose | ⏭️ Pendiente | Carpeta `deploy/` vacía |
-| CI/CD | ⏭️ Pendiente | Sin workflows de GitHub Actions |
-| Empaquetado desktop (Velopack) | ⏭️ Pendiente | Planificado para distribución `.exe` |
+500–2000 schools · 20K–100K students · .NET 8 · PostgreSQL (Central) + SQLite (Local/offline)
 
 ---
 
-## Arquitectura
+## What this is
+
+Plan Cope lets the provincial education authority author and publish exams in the
+cloud, distribute them to schools, and run exam sessions on site — even when the
+school has no reliable internet connection.
+
+It is built around two environments with different constraints:
+
+- **Central (cloud):** authoring, publishing, and administration. A Next.js web
+  app talks to an ASP.NET Core API backed by PostgreSQL. This is the *only* place
+  exams are authored.
+- **Local (school):** an offline node that downloads published exams and runs the
+  exam session. It is a WinForms desktop shell hosting a React UI in WebView2,
+  with its own local ASP.NET Core API and a SQLite database. Authoring has been
+  removed from the Local side; the desktop host now only administers sessions.
+
+The connectivity gap is bridged by a cursor-based *sync pull*: the Local node
+fetches published exam packages from Central and stores them locally. During a
+session the node runs entirely against local SQLite.
+
+**Key architectural decision:** EF Core on the Central side for the complex
+relational model; Dapper with raw SQL on the lightweight Local node.
+
+---
+
+## Architecture
 
 ```mermaid
 flowchart LR
-  subgraph Central["Central (Nube)"]
-    PG[(PostgreSQL 16)]
-    API["ASP.NET Core API"]
-    WEB["Next.js Central Web"]
+  subgraph Central["Central (Cloud)"]
+    PG[(PostgreSQL 17.9<br/>external Huawei RDS)]
+    API["ASP.NET Core API<br/>JWT auth"]
+    WEB["Next.js Central Web<br/>App Router"]
     PG --> API
-    WEB -->|BFF /api/central| API
+    WEB -->|BFF| API
   end
 
-  subgraph Local["Local (Escuela)"]
+  subgraph Local["Local (School)"]
     SQL[(SQLite WAL)]
-    LAPI["ASP.NET Core API"]
+    LAPI["Local ASP.NET Core API<br/>Dapper + DbUp"]
     HOST["WinForms + WebView2"]
-    UI["React ClientApp"]
+    UI["Vite + React ClientApp"]
     SQL --> LAPI
     HOST --> LAPI
     HOST --> UI
   end
 
   LAPI -->|GET /api/sync/pull| API
-  LAPI -.->|push outbox — pendiente| API
 ```
 
-**Decisión clave:** EF Core en Central para el modelo relacional complejo; Dapper + SQL crudo en el nodo local liviano.
-
 ---
 
-## Stack tecnológico
-
-| Capa | Tecnología | Versión |
-|---|---|---|
-| Runtime | .NET SDK | 10.0.301 (target .NET 8) |
-| Central DB | PostgreSQL + Npgsql EF Core | 8.0.4 |
-| Local DB | SQLite + Dapper + DbUp | 8.0.6 / 2.1.35 / 5.0.40 |
-| Central API | ASP.NET Core + JWT + Swagger | 8.x |
-| Central Web | Next.js + React + Zod + dnd-kit | 16.2.9 / 19.2.7 |
-| Local UI | Vite + React + TypeScript | latest |
-| Validación | FluentValidation + Zod | 11.11.0 / 4.4.3 |
-| Auth | JWT Bearer + BCrypt | 8.0.6 / 4.0.3 |
-| Desktop | Windows Forms + WebView2 | — |
-
----
-
-## Estructura del repositorio
+## Repository layout
 
 ```
 .
-├── PlanCope.slnx
+├── PlanCope.slnx                  # .NET solution (.slnx format)
 ├── package.json                   # npm workspaces (Central Web + Local Host UI)
 ├── Directory.Build.props
-├── Directory.Packages.props
-├── global.json
+├── Directory.Packages.props       # central NuGet version management
+├── global.json                    # pins .NET SDK
 ├── src/
 │   ├── Shared/
-│   │   ├── PlanCope.Shared.Domain/
-│   │   ├── PlanCope.Shared.Contracts/
-│   │   └── PlanCope.Shared.Infrastructure/
+│   │   ├── PlanCope.Shared.Domain/          # entities, value objects, enums
+│   │   ├── PlanCope.Shared.Contracts/       # API DTOs (source-generated JSON)
+│   │   └── PlanCope.Shared.Infrastructure/  # validation, shared services
 │   ├── Central/
-│   │   ├── PlanCope.Central.Api/          # API REST + EF Core
-│   │   ├── PlanCope.Central.Migrations/
-│   │   └── PlanCope.Central.Web/          # Next.js: builder y admin central
+│   │   ├── PlanCope.Central.Api/            # ASP.NET Core REST API + EF Core
+│   │   ├── PlanCope.Central.Migrations/     # EF Core migrations
+│   │   └── PlanCope.Central.Web/            # Next.js (App Router) — authoring + admin
 │   └── Local/
-│       ├── PlanCope.Local.Api/            # API offline + Dapper + sync pull
-│       └── PlanCope.Local.Host/           # WinForms + ClientApp React
+│       ├── PlanCope.Local.Api/              # offline API + Dapper + sync pull
+│       └── PlanCope.Local.Host/             # WinForms + WebView2 shell
+│           └── ClientApp/                   # Vite + React UI (embedded)
+├── tools/
+│   ├── PlanCope.RosterCrypto/               # roster envelope encryption
+│   ├── PlanCope.RosterCrypto.Tests/
+│   └── PlanCope.RosterReleaseTool/          # roster bundle packing CLI
 ├── tests/
 │   ├── PlanCope.Central.Api.Tests/
-│   ├── PlanCope.Local.Api.Tests/          # tests implementados
+│   ├── PlanCope.Local.Api.Tests/
+│   ├── PlanCope.Local.Host.Tests/
 │   ├── PlanCope.Shared.Tests/
 │   ├── PlanCope.E2E.Tests/
 │   └── PlanCope.SyncCompat.Tests/
-├── docs/
-│   ├── central-web-next-builder.md
-│   ├── local-exam-format.md
-│   └── exam-builder-implementation-plan.md
-└── deploy/                                # vacío — Docker pendiente
+├── deploy/
+│   ├── compose.dev.yml             # local dev: Postgres 17 + migrate + api + web
+│   ├── compose.ci.yml              # CI-only build + smoke test (no published ports)
+│   ├── smoke.sh                    # CI smoke test (migrate + API readiness)
+│   └── certs/huawei-rds-ca.pem     # public CA for the production RDS
+├── scripts/                        # build/sign/publish PowerShell + bash helpers
+├── docs/                           # deep-dive documentation (see links at the end)
+└── .github/workflows/
+    ├── ci.yml                      # build, test, containers, security scanning
+    └── release.yml                 # image + installer release (manual only)
 ```
 
 ---
 
-## Flujo funcional actual
+## Domain model
 
-### 1. Central (autoría y publicación)
-
-1. Levantar **Central API** (PostgreSQL + migraciones aplicadas).
-2. Levantar **Central Web**: `npm run central:web:dev`.
-3. Iniciar sesión en `/login`.
-4. Crear examen → versión → editar en el **builder** (`/exams/{id}/versions/{versionId}/builder`).
-5. Guardar bloques, previsualizar y **publicar** por materia, grado y división opcional.
-
-El builder incluye pestañas: datos generales, preguntas (drag-and-drop), vista previa, exportar JSON y publicar.
-
-### 2. Local (distribución y toma)
-
-1. Configurar `sync_state` en SQLite (`central_url`, `node_id`, `central_access_token`).
-2. Ejecutar pull: `POST /api/sync/pull-exams` o botón **Actualizar** en el Host.
-3. Abrir el Host local: identificación por CUE → consola de sesiones → acceso alumno en red local.
-
-Ver [`docs/central-web-next-builder.md`](docs/central-web-next-builder.md) para comandos y configuración de sync.
+- **Entities:** 22 core entities in the Central relational model and 13 Local
+  entities (immutable `record` types).
+- **Value objects:** `ExamCode`, `CueCode`, `Grade` — each self-validating.
+- **Enums:** 8 types, including `BlockType`, `ExamStatus`, and `SyncDirection`.
+- **Contracts:** API DTOs for Auth, Exams, Sync, and Local, serialized with
+  source-generated JSON.
+- **Validation:** FluentValidation validators registered in shared DI.
 
 ---
 
-## API Central (endpoints principales)
+## Roster (padrón) encryption
 
-| Método | Ruta | Descripción |
+The nominal roster — student names and DNIs for ~227,598 students across 1,440
+CUEs (schools) — travels **embedded and encrypted inside the desktop installer**.
+The operator only ever decrypts the single CUE they type in; the other 1,439
+stay encrypted at rest.
+
+Encryption is **envelope encryption per school (CUE)**:
+
+- A per-school data-encryption key (DEK) is random, 256-bit, and used with
+  **AES-256-GCM**.
+- DEKs are wrapped by a master key derived from the activation passphrase using
+  **Argon2id** (random salt per bundle).
+
+The exact binary container format, header layout, and CLI parameters are
+documented in [`docs/roster-bundle-format.md`](docs/roster-bundle-format.md).
+Activation behavior on the host is described in
+[`docs/activation-passphrase.md`](docs/activation-passphrase.md).
+
+> The default Argon2id parameters (19 MiB, 2 iterations, parallelism 1) must be
+> measured and tuned on real field hardware before a production release.
+
+---
+
+## Technology stack
+
+| Layer | Technology | Version |
 |---|---|---|
-| `GET` | `/api/health` | Health check + DB |
-| `POST` | `/api/auth/login` | Autenticación |
-| `POST` | `/api/auth/refresh` | Renovar token |
-| `GET` | `/api/auth/me` | Perfil del usuario |
-| `GET/POST` | `/api/exams` | Listar / crear exámenes |
-| `GET/POST` | `/api/exams/{id}/versions` | Versiones |
-| `PUT` | `/api/exams/versions/{id}/document` | Guardar documento del builder |
-| `POST` | `/api/exams/versions/{id}/publish` | Publicar paquete |
-| `GET` | `/api/sync/pull` | Pull cursor-based de paquetes publicados |
-
-Swagger UI disponible en Development: `/swagger`.
-
----
-
-## API Local (endpoints principales)
-
-| Método | Ruta | Descripción |
-|---|---|---|
-| `GET` | `/api/health` | Health check |
-| `GET` | `/api/sync/status` | Estado de sync y outbox pendiente |
-| `POST` | `/api/sync/pull-exams` | Descargar exámenes publicados desde Central |
-| — | `/api/sessions/*` | Gestión de sesiones de toma |
-| — | `/api/exams/*` | Catálogo local e importación JSON |
-
-Formato de examen local: [`docs/local-exam-format.md`](docs/local-exam-format.md).
-
-Preparación e importación offline del padrón nominal: [`docs/roster-release.md`](docs/roster-release.md).
+| Runtime | .NET SDK (targets .NET 8) | 10.0.301 |
+| Central DB | PostgreSQL on external Huawei Cloud RDS + Npgsql EF Core | 17.9 / 8.0.4 |
+| Local DB | SQLite + Dapper + DbUp | 8.0.6 / 2.1.35 / 5.0.40 |
+| Central API | ASP.NET Core + JWT + Swagger | 8.x |
+| Central Web | Next.js (App Router) + React + Zod + dnd-kit | 16.x / 19.x |
+| Local UI | Vite + React + TypeScript | latest |
+| Validation | FluentValidation + Zod | 11.11.0 / 4.4.3 |
+| Auth | JWT Bearer + BCrypt | 8.0.6 / 4.0.3 |
+| Roster crypto | Argon2id + AES-256-GCM (Konscious) | 1.3.1 |
+| Desktop | Windows Forms + WebView2 + Velopack | — / 1.0.2792.45 / 0.0.1251 |
 
 ---
 
-## Cómo ejecutar
+## Local development
 
-### Requisitos
+### Prerequisites
 
-- .NET SDK 10.0.301+
-- Node.js 20+ y npm
-- PostgreSQL 16 (para Central API)
-- Windows (para el Host WinForms + WebView2)
+- .NET 8 SDK (the repo pins SDK **10.0.301** in `global.json`; the projects
+  target `net8.0`)
+- Node.js **24** and npm
+- Docker (for the Compose-based stack)
+- Windows only if you need to build/run the WinForms host (`net8.0-windows`)
 
-### Comandos
+### Run the full Central stack with Docker Compose
 
-```powershell
-# Instalar dependencias JS (workspaces)
-npm install
+`deploy/compose.dev.yml` runs Postgres 17, applies EF Core migrations, then
+starts the API and Central Web with published ports:
 
-# Backend
+```bash
+docker compose -f deploy/compose.dev.yml up
+```
+
+- API: `http://localhost:8080`
+- Central Web: `http://localhost:3000`
+- Postgres: `localhost:5432`
+
+`POSTGRES_PASSWORD` is the only sensitive variable this file defaults for local
+use. Do not reuse those values anywhere else.
+
+### Native builds
+
+```bash
+# .NET
 dotnet build PlanCope.slnx
 dotnet test PlanCope.slnx
 
-# Central Web
-npm run central:web:dev
-
-# Tests del builder (Central Web)
-npm run test --workspace plancope-central-web
-
-# Migraciones Central (desde PlanCope.Central.Migrations)
-dotnet ef database update
+# JavaScript workspaces (Central Web + Local Host UI)
+npm ci
+npm run build --workspaces
 ```
 
-### Configuración Central API
+Then point `ClientApp` / the Host at a locally running Central API.
 
-- Connection string: `CentralDatabase` en `appsettings.Development.json`
-- **Obligatorio:** `Auth:SigningKey` con un secreto seguro
+### CI-only Compose
 
----
-
-## Fases completadas
-
-### Fase 1 — Fundaciones técnicas
-
-Base técnica completa: dominio compartido, contratos, validación, esquemas EF Core y SQLite, repositorios Dapper, shell WinForms + WebView2.
-
-### Fase 2 — Backend central funcional
-
-Migración PostgreSQL, autenticación JWT/BCrypt y endpoints base de exámenes. La solución compila y ejecuta tests (`dotnet build PlanCope.slnx`, `dotnet test PlanCope.slnx`).
+`deploy/compose.ci.yml` has the same service shape but no published ports and
+requires every sensitive variable with no default. It exists **only** for the
+CI `containers` job (build + smoke test). Coolify never uses this file and
+production does not run through it.
 
 ---
 
-## Próximos pasos
+## Continuous integration
 
-1. **Sync push** — worker de outbox local + `POST /api/sync/push` en Central
-2. **Docker Compose** — PostgreSQL + Central API para desarrollo
-3. **Serilog** — logging estructurado y correlación de sync
-4. **Tests ampliados** — Auth central, sync compat, E2E
-5. **CI/CD** — GitHub Actions (build + test + lint)
-6. **Velopack** — empaquetado y actualización del Host `.exe`
+`.github/workflows/ci.yml` runs on `pull_request` and `push` to `main`:
+
+| Job | Runner | What it does |
+|---|---|---|
+| `dotnet` | `windows-latest` | Restore, build with warnings-as-errors, test, build the WinForms host |
+| `js` | `ubuntu-latest` | `npm ci`, Vitest for both frontends, build both frontends |
+| `containers` | `ubuntu-latest` | Validate + build `compose.ci.yml`, then run `deploy/smoke.sh` |
+| `security` | `ubuntu-latest` | NuGet/`npm audit` vuln scans, Trivy image scans, SBOM + provenance attestation |
+
+The `dotnet` job runs on Windows because the desktop host targets
+`net8.0-windows`.
 
 ---
 
-## Documentación adicional
+## Release and deployment
 
-- [Central Web y distribución](docs/central-web-next-builder.md)
-- [Formato JSON de examen local](docs/local-exam-format.md)
-- [Plan del exam builder](docs/exam-builder-implementation-plan.md)
+Releases are **manual only**. `.github/workflows/release.yml` is triggered by
+`workflow_dispatch` and never runs automatically. Its inputs are:
+
+- `version` — strict SemVer (e.g. `1.2.3` or `1.2.3-rc.1`)
+- `channel` — `stable` or `beta`
+- `target` — `staging` or `production`
+- `target_url` — public base URL of the deployed Central instance
+
+The workflow then:
+
+1. Validates the SemVer string and checks the git tag does not already exist.
+2. Builds and pushes three Docker images to GHCR:
+   - `ghcr.io/geronimoserial/plan-cope-central-api`
+   - `ghcr.io/geronimoserial/plan-cope-central-web`
+   - `ghcr.io/geronimoserial/plan-cope-central-migrate` (runs EF Core migrations)
+3. Promotes mutable tags (`beta`, or `stable` + `latest`) **only after** the
+   immutable tags are confirmed present in GHCR.
+4. Builds and signs the Velopack Windows installer on `windows-latest`.
+5. Runs the migration job.
+6. Deploys Central API + Web to Coolify by resource UUID and waits for health.
+7. Runs a smoke test against `target_url`.
+8. Publishes a GitHub Release containing **SBOM and checksums only** — never the
+   installer. The installer carries the encrypted roster and this repository is
+   public, so it must never be a public Release asset.
+
+### Build/deploy separation
+
+**GitHub Actions builds; Coolify only consumes.** Coolify
+(`https://coolify.sistemas.mec.gob.ar`, self-hosted) never builds any image
+itself. Deploys are triggered through the Coolify API by UUID after both images
+are confirmed in GHCR. The Coolify token is never involved in the build.
+
+### Domains
+
+| Service | URL |
+|---|---|
+| Central API | `https://api.plancope.sistemas.mec.gob.ar` |
+| Central Web | `https://plancope.sistemas.mec.gob.ar` |
+
+Both are served behind a wildcard certificate for `*.sistemas.mec.gob.ar`.
+
+### Database
+
+Production uses an **external Huawei Cloud RDS for PostgreSQL 17.9** — not a
+container managed by Coolify. TLS 1.3 is mandatory server-side. The API connects
+with:
+
+```
+SSL Mode=VerifyCA;Root Certificate=/etc/ssl/certs/huawei-rds-ca.pem
+```
+
+The CA is baked into the API and migrate images from
+`deploy/certs/huawei-rds-ca.pem` (committed — it is a public CA, not a secret).
+
+`sslmode=verify-full` does **not** work today: the RDS server certificate is
+issued for the internal IP `172.16.50.2`, not the public IP the application
+actually dials, so full hostname/IP validation fails. `VerifyCA` is used
+instead. Never use `Trust Server Certificate=true`, and never use a plain
+`Require`.
+
+### Desktop packaging
+
+The desktop host (`src/Local/PlanCope.Local.Host`) is packaged and updated with
+**Velopack** as a self-contained `win-x64` application on `stable` and `beta`
+channels. The `vpk` CLI and `signtool` are only available on `windows-latest`
+in CI/release — they are never run on Linux.
+
+---
+
+## Configuration and secrets
+
+Sensitive values live in **GitHub Actions secrets** or **Coolify environment
+variables**. Never hardcode a value in the repository. The names in use are:
+
+| Name | Purpose |
+|---|---|
+| `COOLIFY_DEPLOY_TOKEN` | Trigger Coolify deploys by UUID |
+| `WINDOWS_SIGNING_PFX` | Code-signing certificate for the installer |
+| `WINDOWS_SIGNING_PASSWORD` | Password for the signing certificate |
+| `CENTRAL_DATABASE_CONNECTION_STRING` | Connection string for the CI migration job |
+| `ConnectionStrings__CentralDatabase` | Central API database connection |
+| `Auth__SigningKey` | JWT signing key |
+| `GeApi__Username` | GE API username |
+| `GeApi__Password` | GE API password |
+| `POSTGRES_PASSWORD` | **Local dev only** — Compose Postgres password |
+
+---
+
+## API reference
+
+### Central API
+
+| Method | Route | Description |
+|---|---|---|
+| `GET` | `/health/live` | Liveness probe |
+| `GET` | `/health/ready` | Readiness probe (checks DB) |
+| `GET` | `/api/health` | Health controller endpoint |
+| `POST` | `/api/auth/login` | Authenticate |
+| `POST` | `/api/auth/refresh` | Refresh token |
+| `GET` | `/api/auth/me` | Current user profile |
+| `GET/POST` | `/api/exams` | List / create exams |
+| `GET/POST` | `/api/exams/{id}/versions` | Exam versions |
+| `PUT` | `/api/exams/versions/{id}/document` | Save builder document |
+| `POST` | `/api/exams/versions/{id}/publish` | Publish a package |
+| `GET` | `/api/sync/pull` | Cursor-based pull of published packages |
+
+Swagger UI is available in Development at `/swagger`.
+
+### Local API
+
+| Method | Route | Description |
+|---|---|---|
+| `GET` | `/api/health` | Health check |
+| `GET` | `/api/sync/status` | Sync state and pending outbox |
+| `POST` | `/api/sync/pull-exams` | Download published exams from Central |
+| — | `/api/sessions/*` | Exam session management |
+| — | `/api/exams/*` | Local catalog and JSON import |
+
+Exam JSON format: [`docs/local-exam-format.md`](docs/local-exam-format.md).
+Offline roster preparation and import:
+[`docs/roster-release.md`](docs/roster-release.md).
+
+---
+
+## TODO
+
+1. **Provision `GeApi__Username` / `GeApi__Password` in Coolify.** Currently in
+   `PENDING_PROVISIONING`.
+2. **Restrict the Huawei RDS firewall to the Coolify server IP (`101.44.0.98`).**
+   The database is reachable from the public internet today and will hold the
+   names and DNIs of minors.
+3. **Bootstrap the first user and roles.** `core.roles` and `core.users` are
+   empty in production; `DevelopmentSeeder` only runs in the Development
+   environment.
+4. **Measure production Argon2id parameters** (memory, iterations, parallelism)
+   on real field hardware — not yet benchmarked.
+5. **`vpk`/`signtool` steps only run on `windows-latest` in CI** — never
+   exercised on Linux, so a break there stays invisible until a real Windows CI
+   run.
+
+---
+
+## Further documentation
+
+- [Encrypted roster bundle format](docs/roster-bundle-format.md)
+- [Activation passphrase](docs/activation-passphrase.md)
+- [Roster release process](docs/roster-release.md)
+- [Central Web and exam distribution](docs/central-web-next-builder.md)
+- [Local exam JSON format](docs/local-exam-format.md)
+- [Exam builder implementation plan](docs/exam-builder-implementation-plan.md)
+- [CI/CD, packaging, and build/deploy decoupling plan](docs/plan-cicd-batches.md)
+- [Velopack test matrix](docs/velopack-test-matrix.md)
