@@ -29,8 +29,20 @@ if [[ -z "$pinned_version" ]]; then
   exit 2
 fi
 
-vpk_output="$(vpk --version)"
-vpk_version="$(printf '%s\n' "$vpk_output" | head -n 1)"
+# vpk has no --version flag: it answers "Unrecognized command or argument
+# '--version'" and exits 1. The version is only printed in the help banner, as
+# "Velopack CLI <x.y.z>, for distributing applications." Help exits non-zero on
+# some vpk builds, so the status is tolerated and the parse is what validates.
+vpk_output="$(vpk -h 2>&1 || true)"
+vpk_version="$(printf '%s\n' "$vpk_output" \
+  | sed -n 's/.*Velopack CLI \([0-9][0-9.]*\).*/\1/p' \
+  | head -n 1)"
+
+if [[ -z "$vpk_version" ]]; then
+  echo "ERROR: Could not parse the vpk CLI version from 'vpk -h' output:" >&2
+  printf '%s\n' "$vpk_output" >&2
+  exit 2
+fi
 
 echo "Velopack package version (Directory.Packages.props): $pinned_version"
 echo "vpk CLI version:                                    $vpk_version"
