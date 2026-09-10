@@ -23,6 +23,10 @@ src/Central/PlanCope.Central.Web/tmp/**
 PlanCope-padron-*.zip
 *padron*.zip
 *padrones*.zip
+
+# Downloaded certificate bundles (e.g. browser "Certificate Download (1).zip"). Never
+# needed in the repo; the individual deploy/certs/*.pem files are tracked on purpose.
+Certificate Download*.zip
 secrets/
 
 # Exception: synthetic fixtures with fictional data, used by roster-crypto tests.
