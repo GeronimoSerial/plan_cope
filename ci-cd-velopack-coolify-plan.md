@@ -101,7 +101,7 @@ Archivos previstos:
 src/Central/PlanCope.Central.Api/Dockerfile
 src/Central/PlanCope.Central.Web/Dockerfile
 deploy/compose.dev.yml
-deploy/compose.coolify.yml
+deploy/compose.ci.yml
 ```
 
 Los Dockerfiles serán multi-stage, usarán un usuario sin privilegios e incluirán etiquetas OCI con repositorio, versión y commit.
