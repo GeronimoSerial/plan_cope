@@ -146,3 +146,4 @@ export interface InstallerReference {
   sha256: string;
   publishedAt: string;
 }
+
