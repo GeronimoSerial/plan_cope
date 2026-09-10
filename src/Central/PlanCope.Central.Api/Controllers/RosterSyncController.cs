@@ -13,7 +13,8 @@ namespace PlanCope.Central.Api.Controllers;
 [Route("api/sync")]
 public sealed class RosterSyncController(
     PlanCopeDbContext dbContext,
-    IGeRosterService rosterService) : ControllerBase
+    IGeRosterService rosterService,
+    IAuthorizationService authorizationService) : ControllerBase
 {
     [HttpGet("roster/{cue}/{schoolYear}")]
     public async Task<ActionResult<GeRosterPackageDto>> GetRoster(
@@ -29,6 +30,11 @@ public sealed class RosterSyncController(
         if (schoolYear.Length == 0 || schoolYear.Length > GeRosterTransportLimits.MaxSchoolYearLength)
         {
             return BadRequest("cue and schoolYear are required and must be within the supported limits.");
+        }
+
+        if (!(await authorizationService.AuthorizeAsync(User, cue, "RosterCueAccess")).Succeeded)
+        {
+            return Forbid();
         }
 
         var snapshot = await rosterService.GetLatestAsync(cue, schoolYear, cancellationToken);

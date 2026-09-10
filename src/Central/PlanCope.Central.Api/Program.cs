@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -99,7 +100,14 @@ builder.Services
             ClockSkew = TimeSpan.FromMinutes(1)
         };
     });
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("RosterCueAccess", policy => policy.Requirements.Add(new RosterScopeRequirement()));
+    options.AddPolicy("Admin", policy => policy.RequireRole("Admin"));
+    options.AddPolicy("Viewer", policy => policy.RequireRole("Viewer"));
+    options.AddPolicy("RosterProvince", policy => policy.RequireRole("RosterProvince"));
+});
+builder.Services.AddScoped<IAuthorizationHandler, RosterScopeAuthorizationHandler>();
 
 var app = builder.Build();
 
