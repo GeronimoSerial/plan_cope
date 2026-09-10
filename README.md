@@ -4,6 +4,8 @@
 
 500–2000 schools · 20K–100K students · .NET 8 · PostgreSQL (Central) + SQLite (Local/offline)
 
+**Status: in production.** Central (API + Web) has been live since release `0.1.0`.
+
 ---
 
 ## What this is
@@ -56,6 +58,21 @@ flowchart LR
   LAPI -->|GET /api/sync/pull| API
 ```
 
+### The two frontends are not the same stack
+
+This trips people up, so it's worth stating plainly:
+
+- **Central Web** (`src/Central/PlanCope.Central.Web`) is **Next.js with the App
+  Router**. It runs as a standalone Node.js server (`.next/standalone`), talks to
+  Central API as a BFF, and is the only place exams are authored.
+- **Local Host ClientApp** (`src/Local/PlanCope.Local.Host/ClientApp`) is **Vite +
+  React** — it does **not** use Next.js, has no server-side rendering, and is
+  built as a static bundle embedded into the WinForms host's WebView2 control.
+
+They share no framework code. They do share the root npm workspace (one
+`package.json`, one `package-lock.json`) purely for tooling convenience — see
+[Local development](#local-development).
+
 ---
 
 ## Repository layout
@@ -79,18 +96,18 @@ flowchart LR
 │   └── Local/
 │       ├── PlanCope.Local.Api/              # offline API + Dapper + sync pull
 │       └── PlanCope.Local.Host/             # WinForms + WebView2 shell
-│           └── ClientApp/                   # Vite + React UI (embedded)
+│           └── ClientApp/                   # Vite + React UI (embedded, NOT Next.js)
 ├── tools/
-│   ├── PlanCope.RosterCrypto/               # roster envelope encryption
+│   ├── PlanCope.RosterCrypto/               # roster envelope encryption (library + CLI)
 │   ├── PlanCope.RosterCrypto.Tests/
-│   └── PlanCope.RosterReleaseTool/          # roster bundle packing CLI
+│   └── PlanCope.RosterReleaseTool/          # roster bundle packing CLI, references Central.Api
 ├── tests/
 │   ├── PlanCope.Central.Api.Tests/
 │   ├── PlanCope.Local.Api.Tests/
-│   ├── PlanCope.Local.Host.Tests/
+│   ├── PlanCope.Local.Host.Tests/           # Windows-only: covers the File.Move gotcha, see below
 │   ├── PlanCope.Shared.Tests/
-│   ├── PlanCope.E2E.Tests/
-│   └── PlanCope.SyncCompat.Tests/
+│   ├── PlanCope.E2E.Tests/                  # references BOTH Central.Api and Local.Host
+│   └── PlanCope.SyncCompat.Tests/           # references Shared.Contracts only
 ├── deploy/
 │   ├── compose.dev.yml             # local dev: Postgres 17 + migrate + api + web
 │   ├── compose.ci.yml              # CI-only build + smoke test (no published ports)
@@ -99,9 +116,20 @@ flowchart LR
 ├── scripts/                        # build/sign/publish PowerShell + bash helpers
 ├── docs/                           # deep-dive documentation (see links at the end)
 └── .github/workflows/
-    ├── ci.yml                      # build, test, containers, security scanning
+    ├── ci.yml                      # orchestrator: detects changed modules, gates the PR
+    ├── ci-central-api.yml          # reusable: Central API + Shared + roster tools (ubuntu)
+    ├── ci-central-web.yml          # reusable: Central Web / Next.js (ubuntu)
+    ├── ci-local-app.yml            # reusable: Local API + Host + ClientApp (windows)
+    ├── ci-containers.yml           # reusable: compose build + smoke test (ubuntu)
+    ├── ci-security.yml             # reusable: dependency + image scanning, SBOM, attestations
     └── release.yml                 # image + installer release (manual only)
 ```
+
+`PlanCope.RosterReleaseTool` and `PlanCope.E2E.Tests` are easy to miss when
+reasoning about module boundaries because they cross them: the tool references
+`Central.Api` directly, and the E2E suite references both `Central.Api` and
+`Local.Host`. See [Continuous integration](#continuous-integration) for how CI
+actually treats them.
 
 ---
 
@@ -119,10 +147,10 @@ flowchart LR
 
 ## Roster (padrón) encryption
 
-The nominal roster — student names and DNIs for ~227,598 students across 1,440
-CUEs (schools) — travels **embedded and encrypted inside the desktop installer**.
-The operator only ever decrypts the single CUE they type in; the other 1,439
-stay encrypted at rest.
+The nominal roster — student names and DNIs for **227,598 students across 1,440
+CUEs** (schools, grouped into 13,429 sections) — travels **embedded and
+encrypted inside the desktop installer**. The operator only ever decrypts the
+single CUE they type in; the other 1,439 stay encrypted at rest.
 
 Encryption is **envelope encryption per school (CUE)**:
 
@@ -130,14 +158,50 @@ Encryption is **envelope encryption per school (CUE)**:
   **AES-256-GCM**.
 - DEKs are wrapped by a master key derived from the activation passphrase using
   **Argon2id** (random salt per bundle).
+- The manifest holds only CUE, byte offset, length, SHA-256, and the Argon2id
+  parameters used — **zero nominal data**. Verified directly against the real
+  bundle: it decrypts by CUE, rejects a wrong passphrase, rejects a
+  non-existent CUE, and none of 9 sampled names/surnames/DNIs/school names
+  appear anywhere in the ciphertext bytes.
 
 The exact binary container format, header layout, and CLI parameters are
 documented in [`docs/roster-bundle-format.md`](docs/roster-bundle-format.md).
 Activation behavior on the host is described in
 [`docs/activation-passphrase.md`](docs/activation-passphrase.md).
 
-> The default Argon2id parameters (19 MiB, 2 iterations, parallelism 1) must be
-> measured and tuned on real field hardware before a production release.
+### Packing a bundle
+
+```bash
+dotnet run --project tools/PlanCope.RosterCrypto -- pack \
+  --input <dir> --output <bundle.enc> --passphrase <p> \
+  [--memory-kib N --iterations N --parallelism N]
+```
+
+`<dir>` must contain `<9-digit CUE>-<year>.roster.json` files at its **first
+level** — the CLI uses `TopDirectoryOnly`, it does not recurse.
+
+### Argon2id parameters — closed decision, measured
+
+**64 MiB / 3 iterations / parallelism 1.**
+
+Measured on a 16-core dev box:
+
+| Parameters | Time |
+|---|---|
+| 19 MiB / 2 / 1 (code default — the OWASP floor) | 57 ms |
+| **64 MiB / 3 / 1 (chosen)** | **198 ms** |
+| 128 MiB / 2 / 1 | 317 ms |
+| 256 MiB / 2 / 1 | 628 ms |
+
+**Why:** the bundle travels on the machine, so an attacker who obtains it can
+brute-force the passphrase offline — the OWASP floor is calibrated for an
+online-attack threat model and is not enough here. Activation happens exactly
+once per machine, so 198 ms of one-time cost is negligible for the operator.
+
+**Honest gap:** this has **not** been measured on real school hardware — only
+on a 16-core development machine. Before shipping a release with a genuinely
+encrypted roster, re-measure on representative field hardware; if activation
+crawls on an old school machine, the parameters need revisiting.
 
 ---
 
@@ -182,7 +246,9 @@ docker compose -f deploy/compose.dev.yml up
 - Postgres: `localhost:5432`
 
 `POSTGRES_PASSWORD` is the only sensitive variable this file defaults for local
-use. Do not reuse those values anywhere else.
+use. Do not reuse those values anywhere else. This file, like `compose.ci.yml`,
+is **local/CI parity only** — neither is production. Production does not run
+Postgres in a container at all (see [Database](#database)).
 
 ### Native builds
 
@@ -198,28 +264,104 @@ npm run build --workspaces
 
 Then point `ClientApp` / the Host at a locally running Central API.
 
+### Logging in locally (and in production)
+
+`POST /api/auth/login` expects:
+
+```json
+{ "Username": "<email>", "Password": "<password>" }
+```
+
+The field is **`Username`, not `email`** — sending `email` returns `400`. A
+correct login returns `accessToken` and `user`; a wrong password returns `401`.
+The token carries `role` and `roster_scope` claims (see decision 13 in
+[`docs/plan-cicd-batches.md`](docs/plan-cicd-batches.md) for what `roster_scope`
+means).
+
 ### CI-only Compose
 
-`deploy/compose.ci.yml` has the same service shape but no published ports and
-requires every sensitive variable with no default. It exists **only** for the
-CI `containers` job (build + smoke test). Coolify never uses this file and
+`deploy/compose.ci.yml` has the same service shape as `compose.dev.yml` but no
+published ports and requires every sensitive variable with no default. It
+exists **only** for the CI `containers` job (build + smoke test) and uses
+Postgres 17 — not the production database. Coolify never uses this file and
 production does not run through it.
 
 ---
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on `pull_request` and `push` to `main`:
+CI is split **one reusable `workflow_call` file per module**, plus an
+orchestrator (`ci.yml`) that decides which modules a given push or PR actually
+touched. This exists because the old, monolithic four-job pipeline ran the
+*entire* test suite — including the Windows desktop Host build — on every
+single change, even a one-line edit to Central Web.
 
-| Job | Runner | What it does |
+### Why the gate job exists
+
+GitHub branch protection on `main` requires specific status *contexts* to
+report on a PR before it can merge, with `strict` mode (the branch must be
+up to date) and `enforce_admins` (no bypass, not even for the repo owner).
+
+If each module's workflow reported its own context directly and PRs used
+`paths:` filters to skip irrelevant ones, a PR that never touches, say,
+`containers`, would never make that context report at all — and a *required*
+context that never reports leaves the PR **permanently blocked**, with no way
+to merge it, ever (this was hit and cost real time in an earlier session of
+this project).
+
+The fix: only **one** job, `ci`, is a required status check. It always runs
+(`if: always()`), waits on every module job via `needs`, and fails if any of
+them failed or was cancelled — passing if the rest either succeeded or were
+skipped. Individual module jobs are invoked with an `if:` condition based on
+what changed, so an untouched module's job is *skipped*, not *absent* — and a
+skipped `needs` dependency still lets `ci` report.
+
+> **Branch protection itself is not touched by this change.** Updating the
+> required contexts (removing `dotnet`/`js`/`containers`/`security`, adding
+> `ci`) is a deliberate follow-up once the gate job is confirmed reporting
+> green on a real PR — see the PR description for this change.
+
+### What runs when
+
+| Reusable workflow | Runner | Triggered by changes to |
 |---|---|---|
-| `dotnet` | `windows-latest` | Restore, build with warnings-as-errors, test, build the WinForms host |
-| `js` | `ubuntu-latest` | `npm ci`, Vitest for both frontends, build both frontends |
-| `containers` | `ubuntu-latest` | Validate + build `compose.ci.yml`, then run `deploy/smoke.sh` |
-| `security` | `ubuntu-latest` | NuGet/`npm audit` vuln scans, Trivy image scans, SBOM + provenance attestation |
+| `ci-central-api.yml` | `ubuntu-latest` | `src/Central/PlanCope.Central.Api/**`, `src/Central/PlanCope.Central.Migrations/**`, `tests/PlanCope.Central.Api.Tests/**`, `tools/PlanCope.RosterReleaseTool/**`, or **any** shared-code path |
+| `ci-central-web.yml` | `ubuntu-latest` | `src/Central/PlanCope.Central.Web/**` only |
+| `ci-local-app.yml` | `windows-latest` | `src/Local/**`, `tests/PlanCope.Local.Api.Tests/**`, `tests/PlanCope.Local.Host.Tests/**`, `tests/PlanCope.E2E.Tests/**`, or **any** shared-code path |
+| `ci-containers.yml` | `ubuntu-latest` | `deploy/**`, both Dockerfiles, or the Central API/Web source they `COPY` |
+| `ci-security.yml` | `ubuntu-latest` | any of the above (it scans dependencies and images across the whole backend/frontend surface) |
 
-The `dotnet` job runs on Windows because the desktop host targets
-`net8.0-windows`.
+A change under `.github/workflows/**` always runs **every** module — a CI
+change that doesn't test itself is worthless. A change under any "shared"
+path (`src/Shared/**`, `tests/PlanCope.Shared.Tests/**`,
+`tests/PlanCope.SyncCompat.Tests/**`, `tools/PlanCope.RosterCrypto*/**`,
+`Directory.Packages.props`, `PlanCope.slnx`, `.editorconfig`) is real shared
+code, not an isolated module — it drags in `central-api`, `local-app`, and
+`containers` (all three actually build against it), but **not** `central-web`,
+which has no dependency on the .NET shared projects.
+
+**Cross-module edge cases, called out on purpose:**
+
+- `tools/PlanCope.RosterReleaseTool` references `Central.Api` directly, so it
+  is treated as part of the `central-api` filter, not `shared`, even though it
+  lives under `tools/`.
+- `tests/PlanCope.E2E.Tests` references **both** `Central.Api` and
+  `Local.Host`. It runs inside the `local-app` job (it needs the Windows-only
+  Host build anyway) and its own path, plus `local-app` and shared-path
+  changes, re-run it. A `central-api`-only change does **not** currently
+  re-run it — a known trade-off of drawing the module boundary this way, not
+  an oversight.
+
+**What did not change:**
+
+- `dotnet build ... -warnaserror` is preserved in every .NET module.
+- The Local module still builds and tests on `windows-latest` — see the
+  `File.Move` gotcha below; do not move it to Linux.
+- `deploy/smoke.sh` and `deploy/compose.ci.yml` (Postgres 17) are untouched.
+- `npm ci` runs against the **root** workspace lockfile in both
+  `ci-central-web.yml` and `ci-local-app.yml`, since both JS packages
+  (`plancope-central-web`, `plancope-local-host-ui`) share one
+  `package-lock.json`.
 
 ---
 
@@ -232,84 +374,144 @@ Releases are **manual only**. `.github/workflows/release.yml` is triggered by
 - `channel` — `stable` or `beta`
 - `target` — `staging` or `production`
 - `target_url` — public base URL of the deployed Central instance
+- `allow_unsigned` — explicit opt-in to build the Windows installer without an
+  Authenticode signature (see [Code signing](#code-signing--no-certificate-yet))
 
 The workflow then:
 
 1. Validates the SemVer string and checks the git tag does not already exist.
-2. Builds and pushes three Docker images to GHCR:
+2. Builds and pushes three Docker images to GHCR, all public:
    - `ghcr.io/geronimoserial/plan-cope-central-api`
    - `ghcr.io/geronimoserial/plan-cope-central-web`
-   - `ghcr.io/geronimoserial/plan-cope-central-migrate` (runs EF Core migrations)
+   - `ghcr.io/geronimoserial/plan-cope-central-migrate` (runs EF Core migrations,
+     one-shot job — see the `docker build --target` gotcha below)
 3. Promotes mutable tags (`beta`, or `stable` + `latest`) **only after** the
    immutable tags are confirmed present in GHCR.
-4. Builds and signs the Velopack Windows installer on `windows-latest`.
+4. Builds and signs the Velopack Windows installer on `windows-latest` — **this
+   installer never carries the roster**; see
+   [The installer, with and without the roster](#the-installer-with-and-without-the-roster).
 5. Runs the migration job.
-6. Deploys Central API + Web to Coolify by resource UUID and waits for health.
+6. Deploys Central API + Web to Coolify and waits for health.
 7. Runs a smoke test against `target_url`.
 8. Publishes a GitHub Release containing **SBOM and checksums only** — never the
-   installer. The installer carries the encrypted roster and this repository is
-   public, so it must never be a public Release asset.
+   installer (decision 6 in
+   [`docs/plan-cicd-batches.md`](docs/plan-cicd-batches.md)). The installer
+   carries no roster in this repo, but the rule is unconditional: nothing
+   installer-shaped becomes a public Release asset.
+
+Release `0.1.0` closed with all 8 jobs green, and Central has been serving
+production traffic since.
 
 ### Build/deploy separation
 
-**GitHub Actions builds; Coolify only consumes.** Coolify
-(`https://coolify.sistemas.mec.gob.ar`, self-hosted) never builds any image
-itself. Deploys are triggered through the Coolify API by UUID after both images
-are confirmed in GHCR. The Coolify token is never involved in the build.
+**GitHub Actions builds; Coolify only consumes** (decision 9). Coolify apps are
+of type `docker-image` — Coolify never builds anything itself, and never sees
+source code. Deploys are triggered through the Coolify API by resource UUID,
+after both images are confirmed present in GHCR. The Coolify token never has
+build access.
 
-### Domains
+### Domains, endpoints, and Coolify configuration
 
-| Service | URL |
-|---|---|
-| Central API | `https://api.plancope.sistemas.mec.gob.ar` |
-| Central Web | `https://plancope.sistemas.mec.gob.ar` |
-
-Both are served behind a wildcard certificate for `*.sistemas.mec.gob.ar`.
+Deployment endpoints, network topology, Coolify resource identifiers, and
+credential provisioning state are configuration that lives **outside this
+repository, on purpose** — see the closing note below.
 
 ### Database
 
 Production uses an **external Huawei Cloud RDS for PostgreSQL 17.9** — not a
-container managed by Coolify. TLS 1.3 is mandatory server-side. The API connects
-with:
+container, not the `compose.ci.yml`/`compose.dev.yml` Postgres, and not AWS.
+The connection string is:
 
 ```
 SSL Mode=VerifyCA;Root Certificate=/etc/ssl/certs/huawei-rds-ca.pem
 ```
 
-The CA is baked into the API and migrate images from
-`deploy/certs/huawei-rds-ca.pem` (committed — it is a public CA, not a secret).
+The CA is a **public, versioned-on-purpose** file
+(`deploy/certs/huawei-rds-ca.pem`), baked by the API's `Dockerfile` into both
+the `runtime` **and** `migrate` build targets at that exact path.
 
-`sslmode=verify-full` does **not** work today: the RDS server certificate is
-issued for the instance's internal address rather than the endpoint the application
-actually dials, so full hostname/IP validation fails. `VerifyCA` is used
-instead. Never use `Trust Server Certificate=true`, and never use a plain
-`Require`.
+`sslmode=verify-full` is **not reachable today**: the RDS server certificate is
+issued for the instance's internal address, not the endpoint clients actually
+dial, so hostname/IP validation would fail even with a fully valid CA chain.
+`VerifyCA` is the correct mode given that constraint. **Never** use
+`Trust Server Certificate=true`, and **never** use a plain `Require`.
 
-### Desktop packaging
+### Code signing — no certificate yet
 
-The desktop host (`src/Local/PlanCope.Local.Host`) is packaged and updated with
-**Velopack** as a self-contained `win-x64` application on `stable` and `beta`
-channels. The `vpk` CLI and `signtool` are only available on `windows-latest`
-in CI/release — they are never run on Linux.
+There is currently no code-signing certificate, and no free path to one:
+
+- Let's Encrypt issues only domain-validation (DV) TLS certificates; its own
+  FAQ states explicitly that it does not issue code-signing certificates.
+- Every root in the Windows Trusted Root Program with a code-signing EKU is
+  commercial, and since 2023 all of them require the private key to live in
+  FIPS 140-2 Level 2 hardware.
+- A self-signed certificate *does* sign the binary, but Windows does not trust
+  it — which is arguably **worse** than shipping unsigned, because it looks
+  signed without the SmartScreen reputation that comes with a trusted cert.
+
+Real options, to evaluate when this becomes a priority: a commercial OV/EV
+certificate, **Azure Trusted Signing**, or an internal ministry CA distributed
+by policy to the managed school fleet.
+
+Until one of those exists, `release.yml` refuses to produce a signed installer
+without an explicit `allow_unsigned=true`, and names the artifact
+`...-UNSIGNED` so it can never be mistaken for a distributable build. Windows
+SmartScreen warns on every install of an unsigned build — test only, never
+hand it to a school.
+
+### The installer, with and without the roster
+
+This is the part that surprises people, so read it carefully.
+
+**In this repository** (public), `release.yml` builds the Windows installer
+**without** the roster embedded, using `allow_unsigned=true` when there is no
+signing certificate.
+
+**The roster-bearing installer is built in a separate, private repository:**
+`GeronimoSerial/plan-cope-installer`.
+
+The reason isn't roster secrecy alone (decision 6 already covered that for
+Releases) — it's that **GitHub Actions build artifacts require read access to
+the repository that produced them**, and a public repository gives read access
+to any GitHub account. An installer artifact containing 227,598 minors' names
+and DNIs, produced as an Actions artifact in *this* repo, would be downloadable
+by anyone with a GitHub account, even though it never touches a public
+Release. That gap wasn't part of decision 6 and was only found later.
+
+The private-installer workflow:
+
+1. Checks out this public repository at a specific tag.
+2. Downloads the encrypted roster bundle from a **private** Release in
+   `plan-cope-installer` itself.
+3. Produces the installer as a **private** artifact with a **7-day retention**.
+4. Refuses to build at all without `NOMINALIZATION_DOCUMENT_HMAC_KEY` set to at
+   least 32 UTF-8 bytes.
+
+**The activation passphrase never enters CI in either repository.** The bundle
+that reaches the private repo is already encrypted; the passphrase is typed by
+the field operator once per machine, at activation time — see
+[`docs/activation-passphrase.md`](docs/activation-passphrase.md).
 
 ---
 
 ## Configuration and secrets
 
 Sensitive values live in **GitHub Actions secrets** or **Coolify environment
-variables**. Never hardcode a value in the repository. The names in use are:
+variables** (referenced here by name only — never by value). Never hardcode a
+value in the repository. The names in use are:
 
 | Name | Purpose |
 |---|---|
-| `COOLIFY_DEPLOY_TOKEN` | Trigger Coolify deploys by UUID |
-| `WINDOWS_SIGNING_PFX` | Code-signing certificate for the installer |
+| `COOLIFY_DEPLOY_TOKEN` | Trigger Coolify deploys by resource UUID |
+| `WINDOWS_SIGNING_PFX` | Code-signing certificate for the installer (currently unset — see [Code signing](#code-signing--no-certificate-yet)) |
 | `WINDOWS_SIGNING_PASSWORD` | Password for the signing certificate |
 | `CENTRAL_DATABASE_CONNECTION_STRING` | Connection string for the CI migration job |
 | `ConnectionStrings__CentralDatabase` | Central API database connection |
 | `Auth__SigningKey` | JWT signing key |
 | `GeApi__Username` | GE API username |
 | `GeApi__Password` | GE API password |
-| `POSTGRES_PASSWORD` | **Local dev only** — Compose Postgres password |
+| `POSTGRES_PASSWORD` | **Local dev / CI only** — Compose Postgres password |
+| `NOMINALIZATION_DOCUMENT_HMAC_KEY` | **`plan-cope-installer` repo only** — required, ≥32 UTF-8 bytes, gates whether that private workflow will build at all |
 
 ---
 
@@ -322,7 +524,7 @@ variables**. Never hardcode a value in the repository. The names in use are:
 | `GET` | `/health/live` | Liveness probe |
 | `GET` | `/health/ready` | Readiness probe (checks DB) |
 | `GET` | `/api/health` | Health controller endpoint |
-| `POST` | `/api/auth/login` | Authenticate |
+| `POST` | `/api/auth/login` | Authenticate — body is `{"Username": ..., "Password": ...}`, **not** `email` |
 | `POST` | `/api/auth/refresh` | Refresh token |
 | `GET` | `/api/auth/me` | Current user profile |
 | `GET/POST` | `/api/exams` | List / create exams |
@@ -349,26 +551,69 @@ Offline roster preparation and import:
 
 ---
 
+## Gotchas
+
+Real mistakes made while building this, kept here because they cost hours and
+are easy to repeat:
+
+1. **`docker build` without `--target` builds the *last* stage.** In the
+   Central API `Dockerfile`, `migrate` is the last stage — so a build without
+   an explicit target published the *migration tool* as if it were the API.
+   The resulting container applied migrations, exited `0`, and Coolify
+   reported the app as `exited`. This was broken from the commit that
+   introduced the multi-stage `Dockerfile` and stayed invisible because CI
+   builds through Compose, which does declare its targets. Both real build
+   paths now declare `--target` explicitly (`runtime` for the API,
+   `migrate` for the migration job).
+2. **`needs.<job>.outputs.*` referencing a job not listed in that job's
+   `needs:` resolves to an empty string — silently, no error.** GitHub Actions
+   does not fail the workflow; it just gives you `''`. This has already
+   consumed a real deploy. Every job that reads another job's `needs.*` value
+   must list that job in its own `needs:` array — check this explicitly when
+   touching any workflow.
+3. **`vpk` has no `--version` flag.** The version only appears in the banner
+   printed by `vpk -h`.
+4. **`vpk` names the installer with the pack id in front**
+   (`PlanCope.Local.Host-stable-Setup.exe`), so a prefix filter like `Setup*`
+   matches nothing.
+5. **`gh run download --name X` extracts into the current directory, not into
+   `X/`.** Pass `--dir X` explicitly.
+6. **`File.Move` on a `FileStream` opened with `FileShare.None` succeeds on
+   Linux and fails on Windows** — flushing a stream is not the same as
+   closing it. This is exactly why the Local module's test job runs on
+   `windows-latest` and must not move to Linux.
+7. **Branch protection has `strict: true`.** A PR with all-green checks can
+   still show as `BEHIND` once `main` moves — update the branch before
+   expecting it to merge.
+
+---
+
 ## TODO
 
-1. **Measure production Argon2id parameters** (memory, iterations, parallelism)
-   on real field hardware — not yet benchmarked. This blocks the first release
-   that ships a genuinely encrypted roster: too high and activation crawls on an
-   old school machine, too low and the encryption is decorative.
-2. **`vpk`/`signtool` steps only run on `windows-latest` in CI** — never
-   exercised on Linux, so a break there stays invisible until a real Windows CI
-   run. See [the Velopack test matrix](docs/velopack-test-matrix.md).
-3. **The installer is unsigned until a code-signing certificate exists.** A
-   release run must opt in with `allow_unsigned=true`; the resulting artifact is
-   named `...-UNSIGNED` and Windows SmartScreen warns on every install, so it is
-   suitable for testing only and not for distribution to schools.
+1. **Measure Argon2id parameters on real school hardware.** The 64 MiB / 3
+   iterations / parallelism 1 choice (198 ms) is measured on a 16-core dev
+   box only — see [Argon2id parameters](#argon2id-parameters--closed-decision-measured).
+   Not yet benchmarked on the machines this actually has to run on.
+2. **`vpk`/`signtool` steps only run on `windows-latest` in CI/release** —
+   never exercised on Linux, so a break there stays invisible until a real
+   Windows CI run. See [the Velopack test matrix](docs/velopack-test-matrix.md).
+3. **The installer is unsigned until a code-signing certificate exists.** See
+   [Code signing](#code-signing--no-certificate-yet) for the real options.
+4. **Confirm the `ci` gate reports green on a real PR, then update branch
+   protection** to require `ci` instead of the old `dotnet`/`js`/`containers`/
+   `security` contexts. This repository does not change branch protection
+   itself — that is a deliberate, separate step.
+5. **`tests/PlanCope.E2E.Tests` does not re-run on a `central-api`-only
+   change**, even though it exercises `Central.Api` — a known trade-off of the
+   per-module CI split (see [Continuous integration](#continuous-integration)).
+   Revisit if this ever causes a real regression to slip through.
 
-This repository is public. Deployment endpoints, network topology, credential
-provisioning state and database bootstrap status are deliberately **not**
-documented here — publishing the current hardening posture of a system that
-holds personal data of minors would hand an attacker a checklist. Operators
-track those items privately; ask the maintainer for access rather than inferring
-them from this repository.
+This repository is public. Deployment endpoints, network topology, Coolify
+resource identifiers, and credential provisioning state are deliberately
+**not** documented here — publishing the current hardening posture of a
+system that holds personal data of minors would hand an attacker a checklist.
+Operators track those items privately; ask the maintainer for access rather
+than inferring them from this repository.
 
 ---
 
