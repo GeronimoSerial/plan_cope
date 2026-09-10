@@ -1,0 +1,88 @@
+name: CI Security
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  security:
+    name: security
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          tool-cache: false
+          docker-images: false
+          large-packages: true
+          swap-storage: false
+      - name: Setup .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          global-json-file: global.json
+      - name: Restore .NET dependencies
+        run: dotnet restore PlanCope.slnx
+      - name: Scan .NET dependencies for known vulnerabilities
+        run: dotnet list PlanCope.slnx package --vulnerable --include-transitive
+      - name: Setup Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install JS dependencies
+        run: npm ci
+      - name: Audit JS dependencies (fail on high/critical)
+        run: npm audit --audit-level=high
+      - name: Build Central API image
+        run: docker build --target runtime -f src/Central/PlanCope.Central.Api/Dockerfile -t plan-cope-central-api:ci .
+      - name: Build Central Web image
+        run: docker build -f src/Central/PlanCope.Central.Web/Dockerfile -t plan-cope-central-web:ci .
+      - name: Scan Central API image
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: plan-cope-central-api:ci
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+          format: table
+      - name: Scan Central Web image
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: plan-cope-central-web:ci
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+          format: table
+      - name: Generate SBOM for Central API image
+        uses: anchore/sbom-action@df80a981bc6edbc4e220a492d3cbe9f5547a6e75 # v0.17.9
+        with:
+          image: plan-cope-central-api:ci
+          format: spdx-json
+          output-file: sbom-central-api.spdx.json
+      - name: Generate SBOM for Central Web image
+        uses: anchore/sbom-action@df80a981bc6edbc4e220a492d3cbe9f5547a6e75 # v0.17.9
+        with:
+          image: plan-cope-central-web:ci
+          format: spdx-json
+          output-file: sbom-central-web.spdx.json
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: sbom
+          path: |
+            sbom-central-api.spdx.json
+            sbom-central-web.spdx.json
+      - name: Attest SBOM provenance
+        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2 # v2.2.3
+        with:
+          subject-path: |
+            sbom-central-api.spdx.json
+            sbom-central-web.spdx.json

@@ -10,147 +10,123 @@ permissions:
   contents: read
 
 jobs:
-  dotnet:
-    name: dotnet
-    runs-on: windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - name: Setup .NET
-        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
-        with:
-          global-json-file: global.json
-      - name: Restore
-        run: dotnet restore PlanCope.slnx
-      - name: Build (warnings as errors)
-        run: dotnet build PlanCope.slnx --configuration Release --no-restore -warnaserror
-      - name: Test
-        run: dotnet test PlanCope.slnx --configuration Release --no-build --logger "console;verbosity=normal"
-      - name: Build PlanCope.Local.Host (WinForms)
-        run: dotnet build src/Local/PlanCope.Local.Host/PlanCope.Local.Host.csproj --configuration Release --no-restore
-
-  js:
-    name: js
+  changes:
+    name: changes
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      workflows: ${{ steps.filter.outputs.workflows }}
+      shared: ${{ steps.filter.outputs.shared }}
+      central-api: ${{ steps.filter.outputs.central-api }}
+      central-web: ${{ steps.filter.outputs.central-web }}
+      local-app: ${{ steps.filter.outputs.local-app }}
+      containers: ${{ steps.filter.outputs.containers }}
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - name: Setup Node.js
-        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+      - name: Detect changed modules
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
         with:
-          node-version: "24"
-          cache: npm
-      - name: Install dependencies
-        run: npm ci
-      - name: Test Central Web (Vitest)
-        run: npm run test --workspace plancope-central-web
-      - name: Test ClientApp (Vitest, if configured)
-        run: npm run test --workspace plancope-local-host-ui --if-present
-      - name: Build Central Web
-        run: npm run build --workspace plancope-central-web
-      - name: Build ClientApp
-        run: npm run build --workspace plancope-local-host-ui
+          filters: |
+            workflows:
+              - '.github/workflows/**'
+            shared:
+              - 'src/Shared/**'
+              - 'tests/PlanCope.Shared.Tests/**'
+              - 'tests/PlanCope.SyncCompat.Tests/**'
+              - 'tools/PlanCope.RosterCrypto/**'
+              - 'tools/PlanCope.RosterCrypto.Tests/**'
+              - 'Directory.Packages.props'
+              - 'Directory.Build.props'
+              - 'NuGet.config'
+              - 'dotnet-tools.json'
+              - 'PlanCope.slnx'
+              - '.editorconfig'
+              - 'global.json'
+            central-api:
+              - 'src/Central/PlanCope.Central.Api/**'
+              - 'src/Central/PlanCope.Central.Migrations/**'
+              - 'tests/PlanCope.Central.Api.Tests/**'
+              - 'tools/PlanCope.RosterReleaseTool/**'
+            central-web:
+              - 'src/Central/PlanCope.Central.Web/**'
+              - 'package.json'
+              - 'package-lock.json'
+            local-app:
+              - 'src/Local/**'
+              - 'tests/PlanCope.Local.Api.Tests/**'
+              - 'tests/PlanCope.Local.Host.Tests/**'
+              - 'tests/PlanCope.E2E.Tests/**'
+              - 'package.json'
+              - 'package-lock.json'
+            containers:
+              - 'deploy/**'
+              - 'src/Central/PlanCope.Central.Api/Dockerfile'
+              - 'src/Central/PlanCope.Central.Web/Dockerfile'
+              - 'src/Central/PlanCope.Central.Api/**'
+              - 'src/Central/PlanCope.Central.Migrations/**'
+              - 'src/Central/PlanCope.Central.Web/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'Directory.Build.props'
+              - 'Directory.Packages.props'
+              - 'NuGet.config'
+              - 'dotnet-tools.json'
+
+  central-api:
+    name: central-api
+    needs: changes
+    if: needs.changes.outputs.central-api == 'true' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.workflows == 'true'
+    uses: ./.github/workflows/ci-central-api.yml
+
+  central-web:
+    name: central-web
+    needs: changes
+    if: needs.changes.outputs.central-web == 'true' || needs.changes.outputs.workflows == 'true'
+    uses: ./.github/workflows/ci-central-web.yml
+
+  local-app:
+    name: local-app
+    needs: changes
+    if: needs.changes.outputs.local-app == 'true' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.workflows == 'true'
+    uses: ./.github/workflows/ci-local-app.yml
 
   containers:
     name: containers
-    runs-on: ubuntu-latest
-    env:
-      POSTGRES_PASSWORD: ci-only-password
-      ConnectionStrings__CentralDatabase: "Server=postgres;Port=5432;Database=plan_cope_central;User Id=plancope;Password=ci-only-password;"
-      Auth__SigningKey: ci-only-signing-key-0123456789abcdefghijklmnop
-      GeApi__Username: ci-user
-      GeApi__Password: ci-password
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - name: Free disk space
-        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
-        with:
-          tool-cache: false
-          docker-images: false
-          large-packages: true
-          swap-storage: false
-      - name: Validate compose config
-        run: docker compose -f deploy/compose.ci.yml config
-      - name: Build images (no push)
-        run: docker compose -f deploy/compose.ci.yml build
-      - name: Run smoke test (migrate + api health check)
-        run: ./deploy/smoke.sh
+    needs: changes
+    if: needs.changes.outputs.containers == 'true' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.workflows == 'true'
+    uses: ./.github/workflows/ci-containers.yml
 
   security:
     name: security
-    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.central-api == 'true' || needs.changes.outputs.central-web == 'true' || needs.changes.outputs.local-app == 'true' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.containers == 'true' || needs.changes.outputs.workflows == 'true'
     permissions:
       contents: read
       id-token: write
       attestations: write
+    uses: ./.github/workflows/ci-security.yml
+
+  ci:
+    name: ci
+    if: always()
+    needs: [changes, central-api, central-web, local-app, containers, security]
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - name: Free disk space
-        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
-        with:
-          tool-cache: false
-          docker-images: false
-          large-packages: true
-          swap-storage: false
-      - name: Setup .NET
-        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
-        with:
-          global-json-file: global.json
-      - name: Restore .NET dependencies
-        run: dotnet restore PlanCope.slnx
-      - name: Scan .NET dependencies for known vulnerabilities
-        run: dotnet list PlanCope.slnx package --vulnerable --include-transitive
-      - name: Setup Node.js
-        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
-        with:
-          node-version: "24"
-          cache: npm
-      - name: Install JS dependencies
-        run: npm ci
-      - name: Audit JS dependencies (fail on high/critical)
-        run: npm audit --audit-level=high
-      - name: Build Central API image
-        run: docker build --target runtime -f src/Central/PlanCope.Central.Api/Dockerfile -t plan-cope-central-api:ci .
-      - name: Build Central Web image
-        run: docker build -f src/Central/PlanCope.Central.Web/Dockerfile -t plan-cope-central-web:ci .
-      - name: Scan Central API image
-        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
-        with:
-          image-ref: plan-cope-central-api:ci
-          severity: CRITICAL,HIGH
-          exit-code: "0"
-          format: table
-      - name: Scan Central Web image
-        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
-        with:
-          image-ref: plan-cope-central-web:ci
-          severity: CRITICAL,HIGH
-          exit-code: "0"
-          format: table
-      - name: Generate SBOM for Central API image
-        uses: anchore/sbom-action@df80a981bc6edbc4e220a492d3cbe9f5547a6e75 # v0.17.9
-        with:
-          image: plan-cope-central-api:ci
-          format: spdx-json
-          output-file: sbom-central-api.spdx.json
-      - name: Generate SBOM for Central Web image
-        uses: anchore/sbom-action@df80a981bc6edbc4e220a492d3cbe9f5547a6e75 # v0.17.9
-        with:
-          image: plan-cope-central-web:ci
-          format: spdx-json
-          output-file: sbom-central-web.spdx.json
-      - name: Upload SBOM artifacts
-        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
-        with:
-          name: sbom
-          path: |
-            sbom-central-api.spdx.json
-            sbom-central-web.spdx.json
-      - name: Attest SBOM provenance
-        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2 # v2.2.3
-        with:
-          subject-path: |
-            sbom-central-api.spdx.json
-            sbom-central-web.spdx.json
+      - name: Verify all required jobs passed
+        run: |
+          for result in \
+            "${{ needs.changes.result }}" \
+            "${{ needs.central-api.result }}" \
+            "${{ needs.central-web.result }}" \
+            "${{ needs.local-app.result }}" \
+            "${{ needs.containers.result }}" \
+            "${{ needs.security.result }}"; do
+            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
+              echo "One or more required jobs failed or was cancelled: $result"
+              exit 1
+            fi
+          done
+          echo "All required jobs passed or were skipped."
