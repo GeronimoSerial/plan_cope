@@ -1,8 +1,9 @@
+# Local development parity only — production runs against an external Huawei Cloud RDS instance (PostgreSQL 17.9), not this container.
 name: plan-cope-dev
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-plan_cope_central}
       POSTGRES_USER: ${POSTGRES_USER:-plancope}
