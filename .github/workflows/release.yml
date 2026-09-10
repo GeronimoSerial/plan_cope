@@ -109,7 +109,12 @@ jobs:
           echo "IMAGE_MIGRATE=$REGISTRY/$NAMESPACE/plan-cope-central-migrate" >> "$GITHUB_ENV"
       - name: Build and push plan-cope-central-api
         run: |
+          # --target is mandatory, not cosmetic: `migrate` is the LAST stage of this
+          # Dockerfile, so a plain `docker build` publishes the migration tool under the
+          # API's name. The container then applies migrations, exits 0, and Coolify reports
+          # the app as exited — which is exactly how the 0.1.0 deploy failed.
           docker build -f src/Central/PlanCope.Central.Api/Dockerfile \
+            --target runtime \
             -t "$IMAGE_API:$VERSION_TAG" \
             -t "$IMAGE_API:$MINOR_TAG" \
             -t "$IMAGE_API:$SHA_TAG" .
@@ -118,7 +123,10 @@ jobs:
           done
       - name: Build and push plan-cope-central-web
         run: |
+          # Stated explicitly for the same reason, even though `runtime` happens to be last
+          # in the Web Dockerfile today: relying on stage order is what broke the API image.
           docker build -f src/Central/PlanCope.Central.Web/Dockerfile \
+            --target runtime \
             -t "$IMAGE_WEB:$VERSION_TAG" \
             -t "$IMAGE_WEB:$MINOR_TAG" \
             -t "$IMAGE_WEB:$SHA_TAG" .
