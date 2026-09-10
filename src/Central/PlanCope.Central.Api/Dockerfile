@@ -36,9 +36,10 @@ COPY --from=build --chown=app:app /out/api/ ./
 # well-known public CA and is committed to the repo on purpose. The API connects with
 # `SSL Mode=VerifyCA;Root Certificate=/etc/ssl/certs/huawei-rds-ca.pem` (never
 # `Trust Server Certificate=true`, never `SSL Mode=Require`). `sslmode=verify-full` is
-# NOT reachable today because the RDS server certificate is issued for the internal IP
-# 172.16.50.2, not the public IP 110.238.64.196 that clients actually connect to, so
-# hostname/IP validation would fail even with a valid CA chain.
+# NOT reachable today because the RDS server certificate is issued for the instance's
+# internal address rather than the endpoint clients actually dial, so hostname/IP
+# validation would fail even with a valid CA chain. This repository is public, so the
+# endpoint itself lives in configuration, not here.
 COPY --chmod=0644 deploy/certs/huawei-rds-ca.pem /etc/ssl/certs/huawei-rds-ca.pem
 USER app
 ENV ASPNETCORE_URLS=http://+:8080
@@ -69,8 +70,8 @@ ENV PATH="${PATH}:/root/.dotnet/tools"
 # well-known public CA and is committed to the repo on purpose. The migration tool
 # connects with `SSL Mode=VerifyCA;Root Certificate=/etc/ssl/certs/huawei-rds-ca.pem`
 # (never `Trust Server Certificate=true`, never `SSL Mode=Require`). `sslmode=verify-full`
-# is NOT reachable today because the RDS server certificate is issued for the internal IP
-# 172.16.50.2, not the public IP 110.238.64.196 that clients actually connect to, so
-# hostname/IP validation would fail even with a valid CA chain.
+# is NOT reachable today because the RDS server certificate is issued for the instance's
+# internal address rather than the endpoint clients actually dial, so hostname/IP
+# validation would fail even with a valid CA chain.
 COPY --chmod=0644 deploy/certs/huawei-rds-ca.pem /etc/ssl/certs/huawei-rds-ca.pem
 ENTRYPOINT ["sh", "-c", "dotnet ef database update --project src/Central/PlanCope.Central.Migrations/PlanCope.Central.Migrations.csproj --startup-project src/Central/PlanCope.Central.Migrations/PlanCope.Central.Migrations.csproj --configuration Release --connection \"$ConnectionStrings__CentralDatabase\""]

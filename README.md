@@ -280,7 +280,7 @@ The CA is baked into the API and migrate images from
 `deploy/certs/huawei-rds-ca.pem` (committed — it is a public CA, not a secret).
 
 `sslmode=verify-full` does **not** work today: the RDS server certificate is
-issued for the internal IP `172.16.50.2`, not the public IP the application
+issued for the instance's internal address rather than the endpoint the application
 actually dials, so full hostname/IP validation fails. `VerifyCA` is used
 instead. Never use `Trust Server Certificate=true`, and never use a plain
 `Require`.
@@ -351,19 +351,24 @@ Offline roster preparation and import:
 
 ## TODO
 
-1. **Provision `GeApi__Username` / `GeApi__Password` in Coolify.** Currently in
-   `PENDING_PROVISIONING`.
-2. **Restrict the Huawei RDS firewall to the Coolify server IP (`101.44.0.98`).**
-   The database is reachable from the public internet today and will hold the
-   names and DNIs of minors.
-3. **Bootstrap the first user and roles.** `core.roles` and `core.users` are
-   empty in production; `DevelopmentSeeder` only runs in the Development
-   environment.
-4. **Measure production Argon2id parameters** (memory, iterations, parallelism)
-   on real field hardware — not yet benchmarked.
-5. **`vpk`/`signtool` steps only run on `windows-latest` in CI** — never
+1. **Measure production Argon2id parameters** (memory, iterations, parallelism)
+   on real field hardware — not yet benchmarked. This blocks the first release
+   that ships a genuinely encrypted roster: too high and activation crawls on an
+   old school machine, too low and the encryption is decorative.
+2. **`vpk`/`signtool` steps only run on `windows-latest` in CI** — never
    exercised on Linux, so a break there stays invisible until a real Windows CI
-   run.
+   run. See [the Velopack test matrix](docs/velopack-test-matrix.md).
+3. **The installer is unsigned until a code-signing certificate exists.** A
+   release run must opt in with `allow_unsigned=true`; the resulting artifact is
+   named `...-UNSIGNED` and Windows SmartScreen warns on every install, so it is
+   suitable for testing only and not for distribution to schools.
+
+This repository is public. Deployment endpoints, network topology, credential
+provisioning state and database bootstrap status are deliberately **not**
+documented here — publishing the current hardening posture of a system that
+holds personal data of minors would hand an attacker a checklist. Operators
+track those items privately; ask the maintainer for access rather than inferring
+them from this repository.
 
 ---
 
