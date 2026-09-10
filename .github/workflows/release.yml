@@ -36,6 +36,10 @@ on:
         options:
           - staging
           - production
+      target_url:
+        description: 'Public base URL of the deployed Central instance; used by the Coolify wait and smoke test'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -315,3 +319,123 @@ jobs:
             ${{ env.VELOPACK_OUTPUT_DIR }}/*.nupkg
             ${{ env.VELOPACK_OUTPUT_DIR }}/Setup*.exe
             ${{ env.VELOPACK_OUTPUT_DIR }}/releases.*.json
+
+  # Central API/Web deploy to the single Coolify project (decision 9). The project,
+  # environment and server uuids below are NOT secrets — verified against the real Coolify
+  # API (v4.1.2) by the coordinator. The deploy-trigger token Actions uses is a separate
+  # credential the user provisions later (COOLIFY_DEPLOY_TOKEN); this job cannot run for
+  # real until that secret exists.
+  deploy-coolify:
+    name: Deploy Central to Coolify
+    needs: [promote-mutable-tags, host]
+    runs-on: ubuntu-latest
+    env:
+      COOLIFY_API_BASE: https://coolify.sistemas.mec.gob.ar/api/v1
+      COOLIFY_PROJECT_UUID: bpucczfs7kutjdavy3qoieha
+      COOLIFY_ENVIRONMENT_UUID: mapqyaant3x520pw4kp57lhh
+      COOLIFY_SERVER_UUID: nm2rc1csc3gzm0n3tkt95g5q
+    steps:
+      - name: Trigger Coolify deploy (by version tag)
+        env:
+          # PENDING PROVISIONING: the user must create this secret before this job can run
+          # for real. It is a deploy-trigger token, separate from the coordinator's root API
+          # key, and never a hardcoded value.
+          COOLIFY_DEPLOY_TOKEN: ${{ secrets.COOLIFY_DEPLOY_TOKEN }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          echo "Deploying Central API/Web (version $VERSION, target=$TARGET) to Coolify:"
+          echo "  project=$COOLIFY_PROJECT_UUID environment=$COOLIFY_ENVIRONMENT_UUID"
+          echo "  server=$COOLIFY_SERVER_UUID"
+          # Coolify v1 deploy endpoint (base API /api/v1/deploy). Without an application
+          # uuid available, the documented by-tag form is used: Coolify deploys the
+          # applications whose image tag filter matches $VERSION, i.e. the immutable tag
+          # pushed earlier by the 'images' job. Re-verify the exact query shape against the
+          # Coolify API reference on the first real run.
+          curl -fsS -X POST \
+            "$COOLIFY_API_BASE/deploy?force=false&tag=$VERSION" \
+            -H "Authorization: Bearer $COOLIFY_DEPLOY_TOKEN" \
+            -H "Accept: application/json"
+      - name: Wait for Central /health/ready (up to 5 minutes)
+        env:
+          TARGET_URL: ${{ inputs.target_url }}
+          WAIT_INTERVAL: "10"
+          WAIT_TIMEOUT: "300"
+        run: |
+          # Standalone active wait: poll /health/ready every WAIT_INTERVAL seconds until it
+          # returns 200, exit non-zero after WAIT_TIMEOUT seconds. Unit-testable locally with
+          # no GitHub state:
+          #   always 200:        (cd "$(mktemp -d)" && mkdir -p health && : > health/ready
+          #                       && python3 -m http.server 8090 &) then run this script with
+          #                       TARGET_URL=http://127.0.0.1:8090 -> exits 0
+          #   always times out:  run it against a URL that never answers, e.g.
+          #                       TARGET_URL=http://127.0.0.1:9 -> exits non-zero
+          set -euo pipefail
+          template="${TARGET_URL:?TARGET_URL is required: pass the target_url input}"
+          target="${template%/}/health/ready"
+          interval="${WAIT_INTERVAL:-10}"
+          timeout="${WAIT_TIMEOUT:-300}"
+          start="$(date +%s)"
+          until curl -fsS --max-time 10 "$target" >/dev/null 2>&1; do
+            now="$(date +%s)"
+            elapsed=$((now - start))
+            if [ "$elapsed" -ge "$timeout" ]; then
+              echo "::error::Deployment not healthy at $target after ${timeout}s." >&2
+              exit 1
+            fi
+            sleep "$interval"
+          done
+          echo "Deployment healthy: $target (after ${elapsed:-0}s)"
+
+  smoke-test:
+    name: Smoke test deployed Central
+    needs: deploy-coolify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Central /health/ready
+        env:
+          TARGET_URL: ${{ inputs.target_url }}
+        run: |
+          # Fail the workflow if the deployed instance is not healthy (parameterized host:
+          # no hardcoded public domain, comes from the target_url workflow input).
+          template="${TARGET_URL:?TARGET_URL is required: pass the target_url input}"
+          target="${template%/}/health/ready"
+          echo "Smoke test: $target"
+          curl -fsS --max-time 20 "$target"
+          echo ""
+          echo "Central /health/ready OK."
+
+  github-release:
+    name: Publish GitHub Release (metadata only)
+    needs: smoke-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    env:
+      VERSION: ${{ needs.validate.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Download SBOM and checksum artifacts (images job)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # gh run download avoids needing an external action pin.
+          gh run download "$GITHUB_RUN_ID" --name release-artifacts
+      - name: Create GitHub Release (no installer, per decision 6)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Decision 6: the Velopack installer that carries the encrypted padrón must NEVER
+          # be attached here — this repo is public, so a Release asset would be downloadable
+          # without authentication. Only build metadata, SBOMs and checksums are attached;
+          # the signed installer reaches users via the private channel (B7.T10, another unit).
+          gh release create "$VERSION" \
+            release-artifacts/sbom-central-api.spdx.json \
+            release-artifacts/sbom-central-web.spdx.json \
+            release-artifacts/plan-cope-central-api.sha256 \
+            release-artifacts/plan-cope-central-web.sha256 \
+            --target "$GITHUB_SHA" \
+            --title "PlanCope $VERSION" \
+            --notes "Metadata, SBOMs and checksums only — installer via private channel."
