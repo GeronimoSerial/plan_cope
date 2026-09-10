@@ -6,4 +6,10 @@ public sealed record LoginResponse(string AccessToken, string? RefreshToken, Use
 
 public sealed record RefreshTokenRequest(string RefreshToken);
 
-public sealed record UserProfileDto(string Id, string DisplayName, string Role, string? SchoolId);
+public sealed record UserProfileDto(
+    string Id,
+    string DisplayName,
+    string Role,
+    string? SchoolId,
+    string RosterScope,
+    IReadOnlyList<string> RosterCues);

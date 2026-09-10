@@ -90,6 +90,15 @@ public sealed class TokenService(IOptions<AuthOptions> options) : ITokenService
             claims.Add(new Claim("school_id", user.SchoolId));
         }
 
+        claims.Add(new Claim("roster_scope", user.RosterScope));
+        if (string.Equals(user.RosterScope, "school", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var cue in user.RosterCues)
+            {
+                claims.Add(new Claim("roster_cue", cue));
+            }
+        }
+
         return claims;
     }
 }
