@@ -101,6 +101,7 @@ jobs:
           echo "SHA_TAG=sha-$short" >> "$GITHUB_ENV"
           echo "IMAGE_API=$REGISTRY/$NAMESPACE/plan-cope-central-api" >> "$GITHUB_ENV"
           echo "IMAGE_WEB=$REGISTRY/$NAMESPACE/plan-cope-central-web" >> "$GITHUB_ENV"
+          echo "IMAGE_MIGRATE=$REGISTRY/$NAMESPACE/plan-cope-central-migrate" >> "$GITHUB_ENV"
       - name: Build and push plan-cope-central-api
         run: |
           docker build -f src/Central/PlanCope.Central.Api/Dockerfile \
@@ -118,6 +119,16 @@ jobs:
             -t "$IMAGE_WEB:$SHA_TAG" .
           for t in "$VERSION_TAG" "$MINOR_TAG" "$SHA_TAG"; do
             docker push "$IMAGE_WEB:$t"
+          done
+      - name: Build and push plan-cope-central-migrate
+        run: |
+          docker build -f src/Central/PlanCope.Central.Api/Dockerfile \
+            --target migrate \
+            -t "$IMAGE_MIGRATE:$VERSION_TAG" \
+            -t "$IMAGE_MIGRATE:$MINOR_TAG" \
+            -t "$IMAGE_MIGRATE:$SHA_TAG" .
+          for t in "$VERSION_TAG" "$MINOR_TAG" "$SHA_TAG"; do
+            docker push "$IMAGE_MIGRATE:$t"
           done
       - name: Generate SBOM for Central API image
         uses: anchore/sbom-action@df80a981bc6edbc4e220a492d3cbe9f5547a6e75 # v0.17.9
@@ -320,6 +331,39 @@ jobs:
             ${{ env.VELOPACK_OUTPUT_DIR }}/Setup*.exe
             ${{ env.VELOPACK_OUTPUT_DIR }}/releases.*.json
 
+  # Applies EF Core migrations to the Central Postgres database before the API/Web
+  # deploy. Runs the dedicated `migrate` stage of the Central API Dockerfile as a
+  # one-shot container, using the same immutable version tag the `images` job pushed.
+  migrate-database:
+    name: Apply Central database migrations
+    needs: [validate, images]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    env:
+      REGISTRY: ghcr.io
+      NAMESPACE: geronimoserial
+      VERSION: ${{ needs.validate.outputs.version }}
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run database migrations
+        env:
+          # PENDING PROVISIONING: the user must create this secret before this job can run
+          # for real. It is the Central Postgres connection string (includes the
+          # SSL Mode=VerifyCA settings and the Root Certificate path), provided by the
+          # operator and never a hardcoded value.
+          ConnectionStrings__CentralDatabase: ${{ secrets.CENTRAL_DATABASE_CONNECTION_STRING }}
+        run: |
+          docker run --rm \
+            -e ConnectionStrings__CentralDatabase \
+            "$REGISTRY/$NAMESPACE/plan-cope-central-migrate:$VERSION"
+
   # Central API/Web deploy to the single Coolify project (decision 9). The project,
   # environment and server uuids below are NOT secrets — verified against the real Coolify
   # API (v4.1.2) by the coordinator. The deploy-trigger token Actions uses is a separate
@@ -327,15 +371,17 @@ jobs:
   # real until that secret exists.
   deploy-coolify:
     name: Deploy Central to Coolify
-    needs: [promote-mutable-tags, host]
+    needs: [promote-mutable-tags, host, migrate-database]
     runs-on: ubuntu-latest
     env:
       COOLIFY_API_BASE: https://coolify.sistemas.mec.gob.ar/api/v1
       COOLIFY_PROJECT_UUID: bpucczfs7kutjdavy3qoieha
       COOLIFY_ENVIRONMENT_UUID: mapqyaant3x520pw4kp57lhh
       COOLIFY_SERVER_UUID: nm2rc1csc3gzm0n3tkt95g5q
+      COOLIFY_APP_API_UUID: tasgykkawfya2239x17un90k
+      COOLIFY_APP_WEB_UUID: p7td4mjenfdnhcbjlszfkgzs
     steps:
-      - name: Trigger Coolify deploy (by version tag)
+      - name: Trigger Coolify deploy (by resource uuid)
         env:
           # PENDING PROVISIONING: the user must create this secret before this job can run
           # for real. It is a deploy-trigger token, separate from the coordinator's root API
@@ -347,13 +393,10 @@ jobs:
           echo "Deploying Central API/Web (version $VERSION, target=$TARGET) to Coolify:"
           echo "  project=$COOLIFY_PROJECT_UUID environment=$COOLIFY_ENVIRONMENT_UUID"
           echo "  server=$COOLIFY_SERVER_UUID"
-          # Coolify v1 deploy endpoint (base API /api/v1/deploy). Without an application
-          # uuid available, the documented by-tag form is used: Coolify deploys the
-          # applications whose image tag filter matches $VERSION, i.e. the immutable tag
-          # pushed earlier by the 'images' job. Re-verify the exact query shape against the
-          # Coolify API reference on the first real run.
+          # Coolify v1 deploy endpoint (base API /api/v1/deploy). Both applications are
+          # deployed together by their resource uuid: the API and the Web app.
           curl -fsS -X POST \
-            "$COOLIFY_API_BASE/deploy?force=false&tag=$VERSION" \
+            "$COOLIFY_API_BASE/deploy?uuid=$COOLIFY_APP_API_UUID,$COOLIFY_APP_WEB_UUID&force=false" \
             -H "Authorization: Bearer $COOLIFY_DEPLOY_TOKEN" \
             -H "Accept: application/json"
       - name: Wait for Central /health/ready (up to 5 minutes)

@@ -31,8 +31,9 @@ manual adicional:
 
 **Criterio de finalización verificable**: `gh workflow run release.yml -f version=X.Y.Z -f
 channel=stable -f target=production` termina en verde y dentro de los 20 minutos posteriores
-`GET https://central.<dominio>/health` responde `200` con el commit esperado en el cuerpo, y
-`GET https://central.<dominio>/descargas` exige sesión y sirve el instalador de esa versión.
+`GET https://api.plancope.sistemas.mec.gob.ar/health` responde `200` con el commit esperado en el
+cuerpo, y `GET https://plancope.sistemas.mec.gob.ar/descargas` (Central Web) exige sesión y sirve
+el instalador de esa versión.
 
 ---
 
@@ -56,6 +57,9 @@ delegada debe citar el número de decisión que la justifica cuando corresponda.
 | 11 | Datos persistentes se mueven a `%LocalAppData%\PlanCope\` con `PLANCOPE_DATA_DIR` y migración única de una base legada | Las actualizaciones de Velopack reemplazan binarios, no deben tocar datos |
 | 12 | Velopack para actualizaciones de escritorio, `win-x64` self-contained, canales `stable`/`beta` | Estándar de actualización sin fricción para instalaciones offline-first |
 | 13 | El alcance de acceso al padrón se modela con un claim `roster_scope` (`province` \| `school`): Planeamiento accede a los 1.440 CUEs por rol, las escuelas sólo a los suyos vía `user_schools` | Confirmado por el usuario. El alcance provincial es un rol, no una fila comodín en `user_schools`: así se audita quién lo tiene y se revoca sin tocar datos. Denegar por defecto si falta el claim |
+| 14 | La base de datos de producción es un Huawei Cloud RDS externo para PostgreSQL 17.9 (host `110.238.64.196:5432`, base `plan_cope`), no un Postgres administrado por Coolify | Coolify eliminó el Postgres administrado que tenía; la base ya fue migrada y verificada (30 tablas en los schemas `core`/`exam`/`roster`/`sync`/`audit`/`publication`/`settings`, `__EFMigrationsHistory` en `public`, cero datos nominales) contra el RDS real |
+| 15 | Los dominios de producción son fijos: Central API en `https://api.plancope.sistemas.mec.gob.ar`, Central Web en `https://plancope.sistemas.mec.gob.ar`, ambos bajo el certificado wildcard `*.sistemas.mec.gob.ar` | Ya provisionados y verificados en Coolify (proyecto `bpucczfs7kutjdavy3qoieha`, ambiente `mapqyaant3x520pw4kp57lhh`, servidor `nm2rc1csc3gzm0n3tkt95g5q`) |
+| 16 | Coolify sólo consume imágenes (`docker-image` apps) publicadas en GHCR por `release.yml`; nunca construye nada. La conexión al RDS usa `SSL Mode=VerifyCA;Root Certificate=/etc/ssl/certs/huawei-rds-ca.pem` (CA público de Huawei, committeado en `deploy/certs/huawei-rds-ca.pem`, copiado a esa ruta exacta en la imagen); `sslmode=verify-full` no es alcanzable porque el certificado del servidor RDS está emitido para la IP interna 172.16.50.2 y no para la IP pública | El certificado del servidor RDS está emitido para la IP interna 172.16.50.2, no para la IP pública; por eso se usa la CA pública de Huawei (`VerifyCA`) y no `verify-full` |
 
 ---
 
@@ -378,11 +382,11 @@ mezcla de ramas — declarar explícitamente si se ejecuta en paralelo).
 | B4.T2 | `src/Central/PlanCope.Central.Web/Dockerfile` (nuevo) | Multi-stage (`deps`/`build` con Node, `runtime` con salida `standalone` de Next.js), usuario no root, mismas labels OCI | `docker build -f src/Central/PlanCope.Central.Web/Dockerfile -t plan-cope-central-web:test .` sale 0 |
 | B4.T3 | `src/Central/PlanCope.Central.Web/next.config.*` | Confirmar/activar `output: "standalone"` | `rg "output.*standalone" src/Central/PlanCope.Central.Web/next.config.*` encuentra coincidencia |
 | B4.T4 | `deploy/compose.dev.yml` (nuevo) | `postgres`, `migrate`, `api`, `web` para desarrollo local, con puertos publicados | `docker compose -f deploy/compose.dev.yml config` sale 0 |
-| B4.T5 | `deploy/compose.coolify.yml` (nuevo) | Igual composición sin puertos publicados en `postgres`; `${VAR:?}` en toda variable sensible (`POSTGRES_PASSWORD`, `ConnectionStrings__CentralDatabase`, `Auth__SigningKey`, `GeApi__Username`, `GeApi__Password`) | `docker compose -f deploy/compose.coolify.yml config` sale distinto de 0 si falta una variable requerida, y 0 si todas están seteadas en el entorno de prueba |
-| B4.T6 | `deploy/compose.coolify.yml`, servicio `postgres` | Agregar volumen nombrado persistente + healthcheck (`pg_isready`) | `docker compose -f deploy/compose.coolify.yml config` muestra el volumen y el healthcheck |
-| B4.T7 | `deploy/compose.coolify.yml`, servicio `migrate` | Servicio de una sola ejecución (`restart: "no"`) que corre un EF Core migration bundle contra `postgres`, y `api` depende de `migrate` con `condition: service_completed_successfully` | `docker compose -f deploy/compose.coolify.yml config` valida sin error de dependencia circular |
+| B4.T5 | `deploy/compose.ci.yml` (nuevo) | Igual composición sin puertos publicados en `postgres`; `${VAR:?}` en toda variable sensible (`POSTGRES_PASSWORD`, `ConnectionStrings__CentralDatabase`, `Auth__SigningKey`, `GeApi__Username`, `GeApi__Password`) | `docker compose -f deploy/compose.ci.yml config` sale distinto de 0 si falta una variable requerida, y 0 si todas están seteadas en el entorno de prueba |
+| B4.T6 | `deploy/compose.ci.yml`, servicio `postgres` | Agregar volumen nombrado persistente + healthcheck (`pg_isready`) | `docker compose -f deploy/compose.ci.yml config` muestra el volumen y el healthcheck |
+| B4.T7 | `deploy/compose.ci.yml`, servicio `migrate` | Servicio de una sola ejecución (`restart: "no"`) que corre un EF Core migration bundle contra `postgres`, y `api` depende de `migrate` con `condition: service_completed_successfully` | `docker compose -f deploy/compose.ci.yml config` valida sin error de dependencia circular |
 | B4.T8 | `src/Central/PlanCope.Central.Api/Program.cs` | Agregar `UseForwardedHeaders` y separar `/health/live` de `/health/ready` (ready devuelve 503 si Postgres no responde) | `curl -sf http://localhost:8080/health/live` sale 0 con Postgres apagado; `curl -sf http://localhost:8080/health/ready` sale distinto de 0 en el mismo escenario |
-| B4.T9 | `deploy/` | Smoke test end-to-end: `docker compose -f deploy/compose.coolify.yml up -d` con variables de prueba, esperar `healthy`, pegarle a `/health/ready` | Script de smoke test sale 0 |
+| B4.T9 | `deploy/` | Smoke test end-to-end: `docker compose -f deploy/compose.ci.yml up -d` con variables de prueba, esperar `healthy`, pegarle a `/health/ready` | Script de smoke test sale 0 |
 
 **Criterios de salida**: ambas imágenes construyen; `docker compose config` válido en dev y en
 modo Coolify; readiness responde 503 con Postgres caído y 200 cuando está arriba; ninguna variable
@@ -406,7 +410,7 @@ B4.T3/B4.T8); revertir esos dos archivos deja el resto sin efecto.
 |-------|--------------------|--------------|------------|
 | B5.T1 | `.github/workflows/ci.yml` (nuevo) | Job `dotnet` en `windows-latest`: restore, `dotnet build -warnaserror`, `dotnet test`, build de `PlanCope.Local.Host` (WinForms) | `act -j dotnet -W .github/workflows/ci.yml --list` reconoce el job (o, si `act` no está disponible, `yamllint .github/workflows/ci.yml` sale 0) |
 | B5.T2 | `.github/workflows/ci.yml` | Job `js` en `ubuntu-latest`: `npm ci`, Vitest de ambos workspaces, `npm run build` de Central Web y `ClientApp` | Igual verificación de sintaxis que B5.T1 |
-| B5.T3 | `.github/workflows/ci.yml` | Job `containers`: build de ambas imágenes sin push, `docker compose -f deploy/compose.coolify.yml config`, levantar `migrate` + smoke test contra Postgres efímero (servicio de GitHub Actions o contenedor en el job) | Igual verificación de sintaxis; smoke test local reproducido con `docker compose -f deploy/compose.dev.yml up --abort-on-container-exit migrate` sale 0 |
+| B5.T3 | `.github/workflows/ci.yml` | Job `containers`: build de ambas imágenes sin push, `docker compose -f deploy/compose.ci.yml config`, levantar `migrate` + smoke test contra Postgres efímero (servicio de GitHub Actions o contenedor en el job) | Igual verificación de sintaxis; smoke test local reproducido con `docker compose -f deploy/compose.dev.yml up --abort-on-container-exit migrate` sale 0 |
 | B5.T4 | `.github/workflows/ci.yml` | Job `security`: escaneo de dependencias (`dotnet list package --vulnerable`, `npm audit --audit-level=high`), escaneo de imágenes, generación de SBOM (`syft` o `anchore/sbom-action`), attestations (`actions/attest-build-provenance`) | Igual verificación de sintaxis |
 | B5.T5 | `.github/workflows/ci.yml` | Fijar cada `uses:` externo por SHA completo, no por tag flotante | `rg "uses: [a-zA-Z0-9./_-]+@v" .github/workflows/ci.yml` no encuentra coincidencias (todas deben ser `@<sha40>`) |
 | B5.T6 | `.github/workflows/ci.yml` | `permissions:` a nivel workflow con el mínimo privilegio (`contents: read` por defecto, `id-token: write` sólo en el job que lo necesite para attestations) | `rg "permissions:" .github/workflows/ci.yml` muestra un bloque explícito, no ausente |
@@ -538,9 +542,11 @@ CI/CD; sólo existen como configuración de runtime de Central API en Coolify.
 Estas preguntas deben responderse antes o durante el batch que las referencia. No se asumen
 respuestas por defecto.
 
-1. **¿La aplicación/proyecto de Coolify para Plan Cope ya existe en `coolify.sistemas.mec.gob.ar`,
-   y ya se emitió el token de API?** Bloquea Batch 7 (B7.T7, disparo de deploy). Sin esto, el
-   webhook y el token no pueden configurarse como GitHub Secrets.
+1. ~~**¿La aplicación/proyecto de Coolify para Plan Cope ya existe en `coolify.sistemas.mec.gob.ar`,
+   y ya se emitió el token de API?**~~ **RESUELTA** — el proyecto, ambiente y servidor de Coolify
+   para Plan Cope ya existen (uuids en decisión 15) y el secreto que dispara el deploy es
+   `COOLIFY_DEPLOY_TOKEN` (referenciado por nombre en `release.yml`); su provisionamiento por
+   parte del usuario es un paso pendiente separado, no bloqueante de la definición del workflow.
 2. **¿Dónde vive exactamente el artefacto del instalador privado?** Opciones mencionadas por el
    usuario: repositorio privado de GitHub con su propio mecanismo de Releases, o un volumen/objeto
    accesible desde Coolify. Bloquea B7.T10 y B7.T15 (cómo Central autentica para recuperarlo:

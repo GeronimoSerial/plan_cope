@@ -1,8 +1,9 @@
+# Used for local Docker Compose parity and the CI smoke test only. Coolify does NOT use this file — production consumes prebuilt images from GHCR directly (see docs/plan-cicd-batches.md).
 name: plan-cope
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-plan_cope_central}
       POSTGRES_USER: ${POSTGRES_USER:-plancope}

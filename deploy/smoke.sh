@@ -7,7 +7,7 @@ set -eu
 : "${GeApi__Username:?GeApi__Username is required}"
 : "${GeApi__Password:?GeApi__Password is required}"
 
-compose_file="$(dirname "$0")/compose.coolify.yml"
+compose_file="$(dirname "$0")/compose.ci.yml"
 
 cleanup() {
   docker compose -f "$compose_file" down --volumes --remove-orphans
