@@ -8,6 +8,7 @@ public sealed class PlanCopeDbContext(DbContextOptions<PlanCopeDbContext> option
     public DbSet<User> Users => Set<User>();
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<UserRoleAssignment> UserRoles => Set<UserRoleAssignment>();
+    public DbSet<UserSchoolAssignment> UserSchools => Set<UserSchoolAssignment>();
     public DbSet<Province> Provinces => Set<Province>();
     public DbSet<Department> Departments => Set<Department>();
     public DbSet<Locality> Localities => Set<Locality>();

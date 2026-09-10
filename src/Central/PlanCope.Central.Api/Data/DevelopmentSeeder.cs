@@ -27,6 +27,18 @@ public static class DevelopmentSeeder
             dbContext.Roles.Add(role);
         }
 
+        var provinceRole = await dbContext.Roles.FirstOrDefaultAsync(x => x.Code == "RosterProvince", cancellationToken);
+        if (provinceRole is null)
+        {
+            provinceRole = new Role(
+                NewId(),
+                "RosterProvince",
+                "Alcance provincial de padrón",
+                "Acceso de lectura a los 1.440 CUEs sin fila en user_schools (decisión 13).",
+                now);
+            dbContext.Roles.Add(provinceRole);
+        }
+
         var user = await dbContext.Users.FirstOrDefaultAsync(x => x.Email == email, cancellationToken);
         if (user is null)
         {
