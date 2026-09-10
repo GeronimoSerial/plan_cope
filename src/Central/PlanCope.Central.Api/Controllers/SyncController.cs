@@ -174,6 +174,7 @@ public sealed class SyncController(PlanCopeDbContext dbContext) : ControllerBase
         }
     }
 
+#pragma warning disable CS1998
     private async Task AddAttemptAsync(PushItem item, JsonElement payload, CancellationToken cancellationToken)
     {
         if (!payload.TryGetProperty("attempt", out var attemptElement))
@@ -236,6 +237,7 @@ public sealed class SyncController(PlanCopeDbContext dbContext) : ControllerBase
                 receivedAt));
         }
     }
+#pragma warning restore CS1998
 
     private static DateTimeOffset? ParseOptionalDate(string? value) =>
         DateTimeOffset.TryParse(value, out var parsed) ? parsed : null;

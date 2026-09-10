@@ -8,7 +8,9 @@ namespace PlanCope.Central.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/rosters")]
-public sealed class RostersController(IGeRosterService rosterService) : ControllerBase
+public sealed class RostersController(
+    IGeRosterService rosterService,
+    IAuthorizationService authorizationService) : ControllerBase
 {
     [HttpPost("refresh")]
     public async Task<ActionResult<GeRosterRefreshResult>> Refresh(
@@ -19,6 +21,11 @@ public sealed class RostersController(IGeRosterService rosterService) : Controll
         {
             ModelState.AddModelError(nameof(request.Cue), $"cue must contain exactly {CueCode.Length} digits.");
             return ValidationProblem(ModelState);
+        }
+
+        if (!(await authorizationService.AuthorizeAsync(User, cue, "RosterCueAccess")).Succeeded)
+        {
+            return Forbid();
         }
 
         try
@@ -50,6 +57,11 @@ public sealed class RostersController(IGeRosterService rosterService) : Controll
             return BadRequest($"cue must contain exactly {CueCode.Length} digits.");
         }
 
+        if (!(await authorizationService.AuthorizeAsync(User, normalizedCue, "RosterCueAccess")).Succeeded)
+        {
+            return Forbid();
+        }
+
         var snapshot = await rosterService.GetLatestAsync(normalizedCue, schoolYear, cancellationToken);
         return snapshot is null
             ? NotFound()
@@ -74,6 +86,11 @@ public sealed class RostersController(IGeRosterService rosterService) : Controll
         if (!CueCode.TryNormalize(cue, out var normalizedCue))
         {
             return BadRequest($"cue must contain exactly {CueCode.Length} digits.");
+        }
+
+        if (!(await authorizationService.AuthorizeAsync(User, normalizedCue, "RosterCueAccess")).Succeeded)
+        {
+            return Forbid();
         }
 
         var snapshot = await rosterService.GetLatestAsync(normalizedCue, schoolYear, cancellationToken);

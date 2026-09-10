@@ -1,0 +1,22 @@
+{
+  "snapshotId": "synthetic-180000200-2026",
+  "cue": "180000200",
+  "schoolYear": "2026",
+  "fetchedAt": "2026-01-15T12:00:00+00:00",
+  "checksum": "4574158f3b5063dc9713850138e6300d9b655e91a564972d6fb964873773ff97",
+  "sectionCount": 1,
+  "studentCount": 1,
+  "status": "available",
+  "schoolName": "Escuela Sintética Dos",
+  "sections": [{
+    "id": "synthetic-section-b",
+    "geSectionId": 900002,
+    "course": "2",
+    "division": "B",
+    "level": "Primario",
+    "shift": "Tarde",
+    "students": [
+      { "id": "synthetic-student-c", "sectionId": "synthetic-section-b", "gePersonId": 910003, "document": "99000003", "firstName": "Carla", "lastName": "Prueba" }
+    ]
+  }]
+}

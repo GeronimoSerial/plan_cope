@@ -5,17 +5,12 @@ import type {
   SessionProgress
 } from "../types";
 import type { ApiErrorPayload, LocalExam } from "../../shared/api-types";
-import type { LocalExamJson } from "../exam-builder/examTypes";
 
 export class ApiClient {
   constructor(private readonly baseUrl: string) {}
 
   getExams(signal?: AbortSignal): Promise<LocalExam[]> {
     return this.get<LocalExam[]>("/api/exams/", signal);
-  }
-
-  importExam(request: LocalExamJson, signal?: AbortSignal): Promise<unknown> {
-    return this.post<unknown>("/api/exams/import", request, signal);
   }
 
   pullExams(signal?: AbortSignal): Promise<unknown> {

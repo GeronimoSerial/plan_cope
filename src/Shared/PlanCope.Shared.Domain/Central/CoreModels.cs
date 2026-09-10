@@ -8,6 +8,8 @@ public sealed record Role(string Id, string Code, string Name, string? Descripti
 
 public sealed record UserRoleAssignment(string UserId, string RoleId, DateTimeOffset CreatedAt);
 
+public sealed record UserSchoolAssignment(string UserId, string Cue, DateTimeOffset CreatedAt);
+
 public sealed record Province(string Id, string Code, string Name, DateTimeOffset CreatedAt);
 
 public sealed record Department(string Id, string Code, string Name, string ProvinceId, DateTimeOffset CreatedAt);

@@ -1,0 +1,441 @@
+# Image release pipeline (B7.T1-B7.T5).
+#
+# Design decisions honored (see "Decisiones tomadas", docs/plan-cicd-batches.md):
+#   - Decision 6: the Velopack installer that carries the encrypted padrón is NEVER
+#     published as a public GitHub Release asset — this repo is public, so a Release
+#     asset would be downloadable without authentication. This workflow only publishes
+#     images to GHCR; the private installer delivery is handled outside this pipeline.
+#   - Decision 9: Central API and Central Web are deployed to the same Coolify server.
+#     GitHub Actions builds and publishes to GHCR; Coolify only consumes the images.
+#     The Coolify token never participates in the build (build/deploy separation).
+#
+# Unit 1 scope: trigger + validation, immutable image build/push to GHCR with SBOM,
+# checksums and attestations, and promotion of mutable tags (beta/stable/latest) only
+# after both immutable tags are confirmed present in the registry.
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (strict SemVer, e.g. 1.2.3 or 1.2.3-rc.1)'
+        required: true
+        type: string
+      channel:
+        description: 'Release channel'
+        required: true
+        type: choice
+        options:
+          - stable
+          - beta
+      target:
+        description: 'Deploy target'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      target_url:
+        description: 'Public base URL of the deployed Central instance; used by the Coolify wait and smoke test'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Validate version and tag availability
+        id: check
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          # Strict SemVer: X.Y.Z, optionally with a -prerelease suffix (no leading zeros).
+          if ! [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "::error::Invalid version '$VERSION'. Expected strict SemVer (X.Y.Z, optionally with -prerelease)." >&2
+            exit 1
+          fi
+          if [ -n "$(git tag -l "$VERSION")" ]; then
+            echo "::error::Git tag '$VERSION' already exists. Refusing to build a release for an existing tag." >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  images:
+    name: Build and push images
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      REGISTRY: ghcr.io
+      NAMESPACE: geronimoserial
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Login to GHCR
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Compute image tags
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          core="${VERSION%%-*}"
+          short="$(git rev-parse --short=8 HEAD)"
+          echo "VERSION_TAG=$VERSION" >> "$GITHUB_ENV"
+          echo "MINOR_TAG=${core%.*}" >> "$GITHUB_ENV"
+          echo "SHA_TAG=sha-$short" >> "$GITHUB_ENV"
+          echo "IMAGE_API=$REGISTRY/$NAMESPACE/plan-cope-central-api" >> "$GITHUB_ENV"
+          echo "IMAGE_WEB=$REGISTRY/$NAMESPACE/plan-cope-central-web" >> "$GITHUB_ENV"
+      - name: Build and push plan-cope-central-api
+        run: |
+          docker build -f src/Central/PlanCope.Central.Api/Dockerfile \
+            -t "$IMAGE_API:$VERSION_TAG" \
+            -t "$IMAGE_API:$MINOR_TAG" \
+            -t "$IMAGE_API:$SHA_TAG" .
+          for t in "$VERSION_TAG" "$MINOR_TAG" "$SHA_TAG"; do
+            docker push "$IMAGE_API:$t"
+          done
+      - name: Build and push plan-cope-central-web
+        run: |
+          docker build -f src/Central/PlanCope.Central.Web/Dockerfile \
+            -t "$IMAGE_WEB:$VERSION_TAG" \
+            -t "$IMAGE_WEB:$MINOR_TAG" \
+            -t "$IMAGE_WEB:$SHA_TAG" .
+          for t in "$VERSION_TAG" "$MINOR_TAG" "$SHA_TAG"; do
+            docker push "$IMAGE_WEB:$t"
+          done
+      - name: Generate SBOM for Central API image
+        uses: anchore/sbom-action@df80a981bc6edbc4e220a492d3cbe9f5547a6e75 # v0.17.9
+        with:
+          image: ${{ env.IMAGE_API }}:${{ env.VERSION_TAG }}
+          format: spdx-json
+          output-file: sbom-central-api.spdx.json
+      - name: Generate SBOM for Central Web image
+        uses: anchore/sbom-action@df80a981bc6edbc4e220a492d3cbe9f5547a6e75 # v0.17.9
+        with:
+          image: ${{ env.IMAGE_WEB }}:${{ env.VERSION_TAG }}
+          format: spdx-json
+          output-file: sbom-central-web.spdx.json
+      - name: Generate sha256 checksums
+        run: |
+          api_digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE_API:$VERSION_TAG" | sed -E 's#.*@sha256:##')"
+          web_digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE_WEB:$VERSION_TAG" | sed -E 's#.*@sha256:##')"
+          printf '%s  %s\n' "$api_digest" "$IMAGE_API:$VERSION_TAG" > plan-cope-central-api.sha256
+          printf '%s  %s\n' "$web_digest" "$IMAGE_WEB:$VERSION_TAG" > plan-cope-central-web.sha256
+      - name: Upload SBOM and checksum artifacts
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: release-artifacts
+          path: |
+            sbom-central-api.spdx.json
+            sbom-central-web.spdx.json
+            plan-cope-central-api.sha256
+            plan-cope-central-web.sha256
+      - name: Attest SBOM provenance
+        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2 # v2.2.3
+        with:
+          subject-path: |
+            sbom-central-api.spdx.json
+            sbom-central-web.spdx.json
+
+  promote-mutable-tags:
+    name: Promote mutable tags
+    needs: [validate, images]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      REGISTRY: ghcr.io
+      NAMESPACE: geronimoserial
+      VERSION: ${{ needs.validate.outputs.version }}
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify immutable tags exist in GHCR
+        run: |
+          docker manifest inspect "$REGISTRY/$NAMESPACE/plan-cope-central-api:$VERSION" >/dev/null
+          docker manifest inspect "$REGISTRY/$NAMESPACE/plan-cope-central-web:$VERSION" >/dev/null
+          echo "Both immutable tags ($REGISTRY/$NAMESPACE/plan-cope-central-*:$VERSION) exist in GHCR."
+      - name: Promote beta tag
+        if: ${{ inputs.channel == 'beta' }}
+        run: |
+          for img in plan-cope-central-api plan-cope-central-web; do
+            full="$REGISTRY/$NAMESPACE/$img"
+            docker pull "$full:$VERSION"
+            docker tag "$full:$VERSION" "$full:beta"
+            docker push "$full:beta"
+          done
+      - name: Promote stable and latest tags
+        if: ${{ inputs.channel == 'stable' }}
+        run: |
+          for img in plan-cope-central-api plan-cope-central-web; do
+            full="$REGISTRY/$NAMESPACE/$img"
+            docker pull "$full:$VERSION"
+            docker tag "$full:$VERSION" "$full:stable"
+            docker push "$full:stable"
+            docker tag "$full:$VERSION" "$full:latest"
+            docker push "$full:latest"
+          done
+
+  # Desktop Host: build the self-contained win-x64 bundle, package it with Velopack
+  # (full + delta + Setup), sign the payload and the installer, and upload everything as
+  # workflow artifacts. Nothing is published publicly here: the installer that carries the
+  # encrypted padrón must never be a public GitHub Release asset (decision 6, Batch 7).
+  # Private storage of these artifacts is a later, separate step (B7.T10, another unit).
+  host:
+    name: Build signed Velopack installer (Host)
+    needs: validate
+    runs-on: windows-latest
+    env:
+      HOST_PROJECT: src/Local/PlanCope.Local.Host/PlanCope.Local.Host.csproj
+      HOST_PUBLISH_DIR: artifacts/host/publish
+      VELOPACK_OUTPUT_DIR: artifacts/host/velopack
+      # Private update feed URL (repo/org variable set by the release operator once the
+      # private installer storage decision lands — B7.T10 / open question #2). Used only to
+      # fetch the previous release into the output dir for delta generation. Never public.
+      VELOPACK_UPDATE_URL: ${{ vars.VELOPACK_UPDATE_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Setup .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          global-json-file: global.json
+      - name: Install vpk CLI (pinned to the Velopack package version)
+        shell: bash
+        run: |
+          velopack_version="$(sed -n 's/.*Velopack.*Version="\([^"]*\)".*/\1/p' Directory.Packages.props | head -n1)"
+          if [ -z "$velopack_version" ]; then
+            echo "::error::Could not parse the pinned Velopack version from Directory.Packages.props." >&2
+            exit 1
+          fi
+          echo "Installing vpk CLI $velopack_version (matches the Velopack package pinned in the repo)."
+          dotnet tool install --global vpk --version "$velopack_version"
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+      - name: Verify vpk CLI version matches the pinned Velopack package
+        shell: bash
+        run: bash scripts/check-vpk-version.sh
+      - name: Publish PlanCope.Local.Host (Release, self-contained win-x64)
+        shell: pwsh
+        run: |
+          # Same publish shape Batch 6 established in scripts/Build-SchoolRelease.ps1
+          # (dotnet publish <csproj> -c Release -r <rid> -o <dir>). The school-release script
+          # uses --self-contained false for its per-CUE bundle; this is the distribution build:
+          # self-contained, win-x64 (decision 12).
+          dotnet publish $env:HOST_PROJECT `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -o $env:HOST_PUBLISH_DIR
+          if ($LASTEXITCODE -ne 0) {
+            throw "dotnet publish exited with code $LASTEXITCODE."
+          }
+      - name: Sign the published executable (Authenticode)
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_PFX: ${{ secrets.WINDOWS_SIGNING_PFX }}
+          WINDOWS_SIGNING_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
+        run: |
+          # Payload is signed BEFORE vpk pack so the files inside the full/delta packages carry
+          # the Authenticode signature; the Setup.exe generated by vpk is signed separately below.
+          $exe = Join-Path $env:HOST_PUBLISH_DIR 'PlanCope.Local.Host.exe'
+          if (-not (Test-Path -LiteralPath $exe)) {
+            throw "Published executable not found at $exe."
+          }
+          & ./scripts/sign-installer.ps1 -Path $exe
+      - name: Download previous release from the channel (for delta; skipped on first release)
+        id: download-prev
+        shell: bash
+        continue-on-error: true
+        run: |
+          # vpk download fetches the latest release already published on this channel into the
+          # output dir so vpk pack can diff against it and emit a delta package (the previous
+          # full package must sit in the output dir for a delta to be generated).
+          # If VELOPACK_UPDATE_URL is not configured yet, or nothing was ever published on this
+          # channel (first release), we skip: vpk pack then emits full + Setup with no delta,
+          # which is the correct first-release outcome and must not fail the job.
+          if [ -z "$VELOPACK_UPDATE_URL" ]; then
+            echo "VELOPACK_UPDATE_URL is unset; skipping previous-release download (no delta this run)."
+            exit 0
+          fi
+          mkdir -p "$VELOPACK_OUTPUT_DIR"
+          vpk download http \
+            --url "$VELOPACK_UPDATE_URL" \
+            --channel "${{ inputs.channel }}" \
+            --dir "$VELOPACK_OUTPUT_DIR"
+      - name: Pack Velopack releases (full, delta, Setup installer)
+        shell: bash
+        run: |
+          # Produces PlanCope.Local.Host-<version>-full.nupkg (and -delta.nupkg when a previous
+          # release was downloaded above), Setup.exe, and the releases.<channel>.json feed.
+          # NOTE: flags follow the current vpk CLI surface (see vpk-windows.mdx); re-check them
+          # against 'vpk pack --help' the first time this job actually runs in CI.
+          vpk pack \
+            --packId PlanCope.Local.Host \
+            --packVersion "${{ needs.validate.outputs.version }}" \
+            --packDir "$HOST_PUBLISH_DIR" \
+            --outputDir "$VELOPACK_OUTPUT_DIR" \
+            --mainExe PlanCope.Local.Host.exe \
+            --runtime win-x64 \
+            --channel "${{ inputs.channel }}"
+      - name: Sign the Velopack Setup installer (Authenticode)
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_PFX: ${{ secrets.WINDOWS_SIGNING_PFX }}
+          WINDOWS_SIGNING_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
+        run: |
+          $setup = Get-ChildItem -Path $env:VELOPACK_OUTPUT_DIR -Filter 'Setup*.exe' -File |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $setup) {
+            throw "vpk pack did not produce a Setup*.exe in $env:VELOPACK_OUTPUT_DIR."
+          }
+          & ./scripts/sign-installer.ps1 -Path $setup.FullName
+          Write-Host "Signed installer: $($setup.FullName)"
+      - name: Upload Velopack packages and signed installer
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: host-velopack-${{ needs.validate.outputs.version }}
+          path: |
+            ${{ env.VELOPACK_OUTPUT_DIR }}/*.nupkg
+            ${{ env.VELOPACK_OUTPUT_DIR }}/Setup*.exe
+            ${{ env.VELOPACK_OUTPUT_DIR }}/releases.*.json
+
+  # Central API/Web deploy to the single Coolify project (decision 9). The project,
+  # environment and server uuids below are NOT secrets — verified against the real Coolify
+  # API (v4.1.2) by the coordinator. The deploy-trigger token Actions uses is a separate
+  # credential the user provisions later (COOLIFY_DEPLOY_TOKEN); this job cannot run for
+  # real until that secret exists.
+  deploy-coolify:
+    name: Deploy Central to Coolify
+    needs: [promote-mutable-tags, host]
+    runs-on: ubuntu-latest
+    env:
+      COOLIFY_API_BASE: https://coolify.sistemas.mec.gob.ar/api/v1
+      COOLIFY_PROJECT_UUID: bpucczfs7kutjdavy3qoieha
+      COOLIFY_ENVIRONMENT_UUID: mapqyaant3x520pw4kp57lhh
+      COOLIFY_SERVER_UUID: nm2rc1csc3gzm0n3tkt95g5q
+    steps:
+      - name: Trigger Coolify deploy (by version tag)
+        env:
+          # PENDING PROVISIONING: the user must create this secret before this job can run
+          # for real. It is a deploy-trigger token, separate from the coordinator's root API
+          # key, and never a hardcoded value.
+          COOLIFY_DEPLOY_TOKEN: ${{ secrets.COOLIFY_DEPLOY_TOKEN }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          echo "Deploying Central API/Web (version $VERSION, target=$TARGET) to Coolify:"
+          echo "  project=$COOLIFY_PROJECT_UUID environment=$COOLIFY_ENVIRONMENT_UUID"
+          echo "  server=$COOLIFY_SERVER_UUID"
+          # Coolify v1 deploy endpoint (base API /api/v1/deploy). Without an application
+          # uuid available, the documented by-tag form is used: Coolify deploys the
+          # applications whose image tag filter matches $VERSION, i.e. the immutable tag
+          # pushed earlier by the 'images' job. Re-verify the exact query shape against the
+          # Coolify API reference on the first real run.
+          curl -fsS -X POST \
+            "$COOLIFY_API_BASE/deploy?force=false&tag=$VERSION" \
+            -H "Authorization: Bearer $COOLIFY_DEPLOY_TOKEN" \
+            -H "Accept: application/json"
+      - name: Wait for Central /health/ready (up to 5 minutes)
+        env:
+          TARGET_URL: ${{ inputs.target_url }}
+          WAIT_INTERVAL: "10"
+          WAIT_TIMEOUT: "300"
+        run: |
+          # Standalone active wait: poll /health/ready every WAIT_INTERVAL seconds until it
+          # returns 200, exit non-zero after WAIT_TIMEOUT seconds. Unit-testable locally with
+          # no GitHub state:
+          #   always 200:        (cd "$(mktemp -d)" && mkdir -p health && : > health/ready
+          #                       && python3 -m http.server 8090 &) then run this script with
+          #                       TARGET_URL=http://127.0.0.1:8090 -> exits 0
+          #   always times out:  run it against a URL that never answers, e.g.
+          #                       TARGET_URL=http://127.0.0.1:9 -> exits non-zero
+          set -euo pipefail
+          template="${TARGET_URL:?TARGET_URL is required: pass the target_url input}"
+          target="${template%/}/health/ready"
+          interval="${WAIT_INTERVAL:-10}"
+          timeout="${WAIT_TIMEOUT:-300}"
+          start="$(date +%s)"
+          until curl -fsS --max-time 10 "$target" >/dev/null 2>&1; do
+            now="$(date +%s)"
+            elapsed=$((now - start))
+            if [ "$elapsed" -ge "$timeout" ]; then
+              echo "::error::Deployment not healthy at $target after ${timeout}s." >&2
+              exit 1
+            fi
+            sleep "$interval"
+          done
+          echo "Deployment healthy: $target (after ${elapsed:-0}s)"
+
+  smoke-test:
+    name: Smoke test deployed Central
+    needs: deploy-coolify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Central /health/ready
+        env:
+          TARGET_URL: ${{ inputs.target_url }}
+        run: |
+          # Fail the workflow if the deployed instance is not healthy (parameterized host:
+          # no hardcoded public domain, comes from the target_url workflow input).
+          template="${TARGET_URL:?TARGET_URL is required: pass the target_url input}"
+          target="${template%/}/health/ready"
+          echo "Smoke test: $target"
+          curl -fsS --max-time 20 "$target"
+          echo ""
+          echo "Central /health/ready OK."
+
+  github-release:
+    name: Publish GitHub Release (metadata only)
+    needs: smoke-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    env:
+      VERSION: ${{ needs.validate.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Download SBOM and checksum artifacts (images job)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # gh run download avoids needing an external action pin.
+          gh run download "$GITHUB_RUN_ID" --name release-artifacts
+      - name: Create GitHub Release (no installer, per decision 6)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Decision 6: the Velopack installer that carries the encrypted padrón must NEVER
+          # be attached here — this repo is public, so a Release asset would be downloadable
+          # without authentication. Only build metadata, SBOMs and checksums are attached;
+          # the signed installer reaches users via the private channel (B7.T10, another unit).
+          gh release create "$VERSION" \
+            release-artifacts/sbom-central-api.spdx.json \
+            release-artifacts/sbom-central-web.spdx.json \
+            release-artifacts/plan-cope-central-api.sha256 \
+            release-artifacts/plan-cope-central-web.sha256 \
+            --target "$GITHUB_SHA" \
+            --title "PlanCope $VERSION" \
+            --notes "Metadata, SBOMs and checksums only — installer via private channel."

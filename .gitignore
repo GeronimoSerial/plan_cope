@@ -11,9 +11,19 @@ dist/
 *.db
 *.db-shm
 *.db-wal
-*.roster.json
 *.log
 .agents/
 src/Central/PlanCope.Central.Web/tmp/**
 .env.local
 *.tsbuildinfo
+
+# Nominal roster data — personal data of students. Never commit.
+*.roster.json
+*.roster.enc
+PlanCope-padron-*.zip
+*padron*.zip
+*padrones*.zip
+secrets/
+
+# Exception: synthetic fixtures with fictional data, used by roster-crypto tests.
+!tools/PlanCope.RosterCrypto/Fixtures/*.roster.json

@@ -27,15 +27,6 @@ public static class ExamEndpoints
             return Results.Ok(blocks);
         });
 
-        group.MapPost("/import", async (
-            ImportLocalExamRequest request,
-            LocalExamImportService importer,
-            CancellationToken cancellationToken) =>
-        {
-            var result = await importer.ImportAsync(request, cancellationToken);
-            return result.IsValid ? Results.Ok(result.Response) : Results.BadRequest(new { errors = result.Errors });
-        });
-
         return endpoints;
     }
 

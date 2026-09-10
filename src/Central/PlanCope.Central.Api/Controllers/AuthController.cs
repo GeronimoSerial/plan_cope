@@ -28,7 +28,15 @@ public sealed class AuthController(PlanCopeDbContext dbContext, ITokenService to
         }
 
         var role = await GetPrimaryRoleAsync(user.Id, cancellationToken);
-        var profile = new UserProfileDto(user.Id, user.FullName, role, null);
+        var cues = await dbContext.UserSchools
+            .Where(x => x.UserId == user.Id)
+            .OrderBy(x => x.Cue)
+            .Select(x => x.Cue)
+            .ToListAsync(cancellationToken);
+
+        var rosterScope = string.Equals(role, "RosterProvince", StringComparison.Ordinal) ? "province" : "school";
+        IReadOnlyList<string> rosterCues = rosterScope == "province" ? [] : cues;
+        var profile = new UserProfileDto(user.Id, user.FullName, role, null, rosterScope, rosterCues);
 
         return Ok(new LoginResponse(
             tokenService.CreateAccessToken(profile),
@@ -71,7 +79,15 @@ public sealed class AuthController(PlanCopeDbContext dbContext, ITokenService to
         }
 
         var role = await GetPrimaryRoleAsync(user.Id, cancellationToken);
-        var profile = new UserProfileDto(user.Id, user.FullName, role, null);
+        var cues = await dbContext.UserSchools
+            .Where(x => x.UserId == user.Id)
+            .OrderBy(x => x.Cue)
+            .Select(x => x.Cue)
+            .ToListAsync(cancellationToken);
+
+        var rosterScope = string.Equals(role, "RosterProvince", StringComparison.Ordinal) ? "province" : "school";
+        IReadOnlyList<string> rosterCues = rosterScope == "province" ? [] : cues;
+        var profile = new UserProfileDto(user.Id, user.FullName, role, null, rosterScope, rosterCues);
 
         return Ok(new LoginResponse(
             tokenService.CreateAccessToken(profile),
@@ -87,6 +103,10 @@ public sealed class AuthController(PlanCopeDbContext dbContext, ITokenService to
         var displayName = User.FindFirstValue(ClaimTypes.Name);
         var role = User.FindFirstValue(ClaimTypes.Role);
         var schoolId = User.FindFirstValue("school_id");
+        var rosterScope = User.FindFirstValue("roster_scope") ?? "school";
+        IReadOnlyList<string> rosterCues = rosterScope == "province"
+            ? []
+            : User.FindAll("roster_cue").Select(static x => x.Value).ToList();
 
         if (string.IsNullOrWhiteSpace(userId) ||
             string.IsNullOrWhiteSpace(displayName) ||
@@ -95,7 +115,7 @@ public sealed class AuthController(PlanCopeDbContext dbContext, ITokenService to
             return Unauthorized();
         }
 
-        return Ok(new UserProfileDto(userId, displayName, role, schoolId));
+        return Ok(new UserProfileDto(userId, displayName, role, schoolId, rosterScope, rosterCues));
     }
 
     private async Task<string> GetPrimaryRoleAsync(string userId, CancellationToken cancellationToken)

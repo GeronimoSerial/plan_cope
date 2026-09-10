@@ -1,10 +1,13 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using PlanCope.Central.Api.Auth;
 using PlanCope.Central.Api.Data;
 using PlanCope.Central.Api.Integrations.Ge;
+using PlanCope.Central.Api.Services;
 using PlanCope.Shared.Infrastructure.DependencyInjection;
 using System.Text;
 using System.Text.Json.Serialization;
@@ -22,6 +25,12 @@ builder.Services
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
     });
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new OpenApiInfo { Title = "Plan Cope Central API", Version = "v1" });
@@ -68,6 +77,32 @@ builder.Services.AddHttpClient<IGeApiClient, GeApiClient>((serviceProvider, clie
     client.Timeout = TimeSpan.FromSeconds(Math.Clamp(options.TimeoutSeconds, 1, 300));
 });
 
+// Private installer storage (B7.T15): backed by the Releases API of the private GitHub repo
+// that scripts/publish-private-installer.ps1 uploads to. Configuration comes from the
+// environment only — PLANCOPE_PRIVATE_INSTALLER_REPO and INSTALLER_REPO_TOKEN (never a
+// literal). If either is missing the endpoint stays available but returns 503 via the
+// fallback implementation; a missing optional config must not crash startup.
+var installerRepo = builder.Configuration["PLANCOPE_PRIVATE_INSTALLER_REPO"];
+var installerToken = builder.Configuration["INSTALLER_REPO_TOKEN"];
+if (!string.IsNullOrWhiteSpace(installerRepo) && !string.IsNullOrWhiteSpace(installerToken))
+{
+    builder.Services.Configure<InstallerStorageOptions>(options =>
+    {
+        options.Repo = installerRepo!;
+        options.Token = installerToken!;
+    });
+    builder.Services.AddHttpClient<IInstallerStorage, GitHubReleaseInstallerStorage>((serviceProvider, client) =>
+    {
+        var options = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<InstallerStorageOptions>>().Value;
+        client.BaseAddress = new Uri("https://api.github.com/", UriKind.Absolute);
+        client.Timeout = TimeSpan.FromSeconds(30);
+    });
+}
+else
+{
+    builder.Services.AddScoped<IInstallerStorage, NotConfiguredInstallerStorage>();
+}
+
 var authOptions = builder.Configuration.GetSection(AuthOptions.SectionName).Get<AuthOptions>() ?? new AuthOptions();
 if (string.IsNullOrWhiteSpace(authOptions.SigningKey))
 {
@@ -92,7 +127,14 @@ builder.Services
             ClockSkew = TimeSpan.FromMinutes(1)
         };
     });
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("RosterCueAccess", policy => policy.Requirements.Add(new RosterScopeRequirement()));
+    options.AddPolicy("Admin", policy => policy.RequireRole("Admin"));
+    options.AddPolicy("Viewer", policy => policy.RequireRole("Viewer"));
+    options.AddPolicy("RosterProvince", policy => policy.RequireRole("RosterProvince"));
+});
+builder.Services.AddScoped<IAuthorizationHandler, RosterScopeAuthorizationHandler>();
 
 var app = builder.Build();
 
@@ -117,9 +159,24 @@ if (app.Environment.IsDevelopment())
     }
 }
 
+app.UseForwardedHeaders();
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+app.MapGet("/health/live", () => Results.Ok(new { status = "ok" }));
+app.MapGet("/health/ready", async (PlanCopeDbContext dbContext, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        return await dbContext.Database.CanConnectAsync(cancellationToken)
+            ? Results.Ok(new { status = "ready" })
+            : Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    }
+    catch (Exception)
+    {
+        return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    }
+});
 
 app.Run();

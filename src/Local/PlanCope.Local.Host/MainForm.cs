@@ -7,6 +7,8 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using PlanCope.Local.Api;
+using PlanCope.Local.Host.Services;
+using Microsoft.Data.Sqlite;
 
 namespace PlanCope.Local.Host;
 
@@ -29,9 +31,13 @@ public partial class MainForm : Form
     private WebApplication? _api;
     private string _lanBaseUrl = string.Empty;
     private int _localPort = PreferredLocalPort;
+    private readonly DataDirectoryResolver _directories;
+    private readonly ActivationKeyStore _activationKeyStore;
 
-    public MainForm()
+    public MainForm(DataDirectoryResolver directories, ActivationKeyStore activationKeyStore)
     {
+        _directories = directories;
+        _activationKeyStore = activationKeyStore;
         InitializeComponent();
         Controls.Add(_loadingLabel);
     }
@@ -69,7 +75,15 @@ public partial class MainForm : Form
         // WinForms synchronization context to avoid blocking the UI thread
         // while repositories complete asynchronous database operations.
         _api = await Task.Run(() =>
-            LocalApiApplication.Build(["--urls", $"http://0.0.0.0:{_localPort}"]));
+            LocalApiApplication.Build([
+                "--urls", $"http://0.0.0.0:{_localPort}",
+                "--ConnectionStrings:LocalDatabase", new SqliteConnectionStringBuilder
+                {
+                    DataSource = _directories.DatabasePath,
+                    Cache = SqliteCacheMode.Shared
+                }.ToString(),
+                "--Local:AssetsPath", _directories.AssetsDirectory
+            ]));
         await _api.StartAsync();
     }
 
@@ -112,6 +126,9 @@ public partial class MainForm : Form
             case "host:openStudentView":
                 OpenLocalStudentView(message.AccessCode);
                 break;
+            case "host:activate":
+                Activate(message.Passphrase);
+                break;
         }
     }
 
@@ -130,11 +147,24 @@ public partial class MainForm : Form
                 apiBaseUrl = $"http://127.0.0.1:{_localPort}",
                 lanBaseUrl = _lanBaseUrl,
                 operatorName = Environment.UserName,
-                port = _localPort
+                port = _localPort,
+                isActivated = _activationKeyStore.HasStoredKey
             }
         };
 
         _webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, JsonOptions));
+    }
+
+    private void Activate(string? passphrase)
+    {
+        if (_activationKeyStore.HasStoredKey || string.IsNullOrWhiteSpace(passphrase))
+        {
+            PostHostContext();
+            return;
+        }
+
+        _activationKeyStore.Store(System.Text.Encoding.UTF8.GetBytes(passphrase));
+        PostHostContext();
     }
 
     private static Uri ResolveClientAppUri(CoreWebView2 coreWebView)
@@ -232,5 +262,5 @@ public partial class MainForm : Form
         Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
     }
 
-    private sealed record HostBridgeMessage(string Type, string? AccessCode);
+    private sealed record HostBridgeMessage(string Type, string? AccessCode, string? Passphrase);
 }

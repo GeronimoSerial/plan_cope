@@ -1,0 +1,5 @@
+scripts:
+  setup: bash scripts/orca-worktree-setup.sh
+
+defaultTabs:
+  - title: Workspace

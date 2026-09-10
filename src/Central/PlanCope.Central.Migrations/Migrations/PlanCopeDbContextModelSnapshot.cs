@@ -766,20 +766,20 @@ namespace PlanCope.Central.Migrations.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("DeliverySessionId")
+                        .HasColumnType("text");
+
                     b.Property<string>("DocumentLast4")
                         .HasMaxLength(4)
                         .HasColumnType("character varying(4)");
 
-                    b.Property<string>("DeliverySessionId")
-                        .HasColumnType("text");
+                    b.Property<int?>("GePersonId")
+                        .HasColumnType("integer");
 
                     b.Property<string>("IdempotencyKey")
                         .IsRequired()
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
-
-                    b.Property<int?>("GePersonId")
-                        .HasColumnType("integer");
 
                     b.Property<DateTimeOffset>("ReceivedAt")
                         .HasColumnType("timestamp with time zone");
@@ -1211,6 +1211,26 @@ namespace PlanCope.Central.Migrations.Migrations
                     b.ToTable("user_roles", "core");
                 });
 
+            modelBuilder.Entity("PlanCope.Shared.Domain.Central.UserSchoolAssignment", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Cue")
+                        .HasMaxLength(9)
+                        .HasColumnType("character varying(9)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("UserId", "Cue");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("user_schools", "core");
+                });
+
             modelBuilder.Entity("PlanCope.Shared.Domain.Central.GeRosterSection", b =>
                 {
                     b.HasOne("PlanCope.Shared.Domain.Central.GeRosterSnapshot", "Snapshot")
@@ -1239,6 +1259,15 @@ namespace PlanCope.Central.Migrations.Migrations
                     b.Navigation("Section");
 
                     b.Navigation("Snapshot");
+                });
+
+            modelBuilder.Entity("PlanCope.Shared.Domain.Central.UserSchoolAssignment", b =>
+                {
+                    b.HasOne("PlanCope.Shared.Domain.Central.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("PlanCope.Shared.Domain.Central.GeRosterSection", b =>
