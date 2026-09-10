@@ -337,10 +337,15 @@ jobs:
           WINDOWS_SIGNING_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
           ALLOW_UNSIGNED: ${{ inputs.allow_unsigned }}
         run: |
-          $setup = Get-ChildItem -Path $env:VELOPACK_OUTPUT_DIR -Filter 'Setup*.exe' -File |
+          # vpk names the installer after the pack id, e.g. PlanCope.Local.Host-win-Setup.exe,
+          # so a 'Setup*' prefix filter finds nothing even though vpk reported
+          # "Complete: Building setup package". Match the suffix instead.
+          $setup = Get-ChildItem -Path $env:VELOPACK_OUTPUT_DIR -Filter '*Setup*.exe' -File |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
           if (-not $setup) {
-            throw "vpk pack did not produce a Setup*.exe in $env:VELOPACK_OUTPUT_DIR."
+            # List what is actually there, so the next mismatch diagnoses itself.
+            $found = (Get-ChildItem -Path $env:VELOPACK_OUTPUT_DIR -File | ForEach-Object { $_.Name }) -join ', '
+            throw "No *Setup*.exe in $env:VELOPACK_OUTPUT_DIR. Files present: $found"
           }
           if ([string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_PFX) -and $env:ALLOW_UNSIGNED -eq 'true') {
             Write-Host "::warning title=Unsigned installer::$($setup.Name) is NOT signed (allow_unsigned=true). Windows SmartScreen will warn on every install. Do not hand this build to schools."
@@ -356,7 +361,7 @@ jobs:
           name: host-velopack-${{ needs.validate.outputs.version }}${{ inputs.allow_unsigned && '-UNSIGNED' || '' }}
           path: |
             ${{ env.VELOPACK_OUTPUT_DIR }}/*.nupkg
-            ${{ env.VELOPACK_OUTPUT_DIR }}/Setup*.exe
+            ${{ env.VELOPACK_OUTPUT_DIR }}/*Setup*.exe
             ${{ env.VELOPACK_OUTPUT_DIR }}/releases.*.json
 
   # Applies EF Core migrations to the Central Postgres database before the API/Web
@@ -498,8 +503,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # gh run download avoids needing an external action pin.
-          gh run download "$GITHUB_RUN_ID" --name release-artifacts
+          # gh run download avoids needing an external action pin. --dir is required:
+          # with --name it extracts the artifact's contents into the target directory
+          # without creating a folder named after the artifact, so the release step's
+          # release-artifacts/<file> paths would not resolve.
+          gh run download "$GITHUB_RUN_ID" --name release-artifacts --dir release-artifacts
+          ls -la release-artifacts
       - name: Create GitHub Release (no installer, per decision 6)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
