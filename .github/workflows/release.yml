@@ -1,0 +1,194 @@
+# Image release pipeline (B7.T1-B7.T5).
+#
+# Design decisions honored (see "Decisiones tomadas", docs/plan-cicd-batches.md):
+#   - Decision 6: the Velopack installer that carries the encrypted padrón is NEVER
+#     published as a public GitHub Release asset — this repo is public, so a Release
+#     asset would be downloadable without authentication. This workflow only publishes
+#     images to GHCR; the private installer delivery is handled outside this pipeline.
+#   - Decision 9: Central API and Central Web are deployed to the same Coolify server.
+#     GitHub Actions builds and publishes to GHCR; Coolify only consumes the images.
+#     The Coolify token never participates in the build (build/deploy separation).
+#
+# Unit 1 scope: trigger + validation, immutable image build/push to GHCR with SBOM,
+# checksums and attestations, and promotion of mutable tags (beta/stable/latest) only
+# after both immutable tags are confirmed present in the registry.
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (strict SemVer, e.g. 1.2.3 or 1.2.3-rc.1)'
+        required: true
+        type: string
+      channel:
+        description: 'Release channel'
+        required: true
+        type: choice
+        options:
+          - stable
+          - beta
+      target:
+        description: 'Deploy target'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Validate version and tag availability
+        id: check
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          # Strict SemVer: X.Y.Z, optionally with a -prerelease suffix (no leading zeros).
+          if ! [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "::error::Invalid version '$VERSION'. Expected strict SemVer (X.Y.Z, optionally with -prerelease)." >&2
+            exit 1
+          fi
+          if [ -n "$(git tag -l "$VERSION")" ]; then
+            echo "::error::Git tag '$VERSION' already exists. Refusing to build a release for an existing tag." >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  images:
+    name: Build and push images
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      REGISTRY: ghcr.io
+      NAMESPACE: geronimoserial
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Login to GHCR
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Compute image tags
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          core="${VERSION%%-*}"
+          short="$(git rev-parse --short=8 HEAD)"
+          echo "VERSION_TAG=$VERSION" >> "$GITHUB_ENV"
+          echo "MINOR_TAG=${core%.*}" >> "$GITHUB_ENV"
+          echo "SHA_TAG=sha-$short" >> "$GITHUB_ENV"
+          echo "IMAGE_API=$REGISTRY/$NAMESPACE/plan-cope-central-api" >> "$GITHUB_ENV"
+          echo "IMAGE_WEB=$REGISTRY/$NAMESPACE/plan-cope-central-web" >> "$GITHUB_ENV"
+      - name: Build and push plan-cope-central-api
+        run: |
+          docker build -f src/Central/PlanCope.Central.Api/Dockerfile \
+            -t "$IMAGE_API:$VERSION_TAG" \
+            -t "$IMAGE_API:$MINOR_TAG" \
+            -t "$IMAGE_API:$SHA_TAG" .
+          for t in "$VERSION_TAG" "$MINOR_TAG" "$SHA_TAG"; do
+            docker push "$IMAGE_API:$t"
+          done
+      - name: Build and push plan-cope-central-web
+        run: |
+          docker build -f src/Central/PlanCope.Central.Web/Dockerfile \
+            -t "$IMAGE_WEB:$VERSION_TAG" \
+            -t "$IMAGE_WEB:$MINOR_TAG" \
+            -t "$IMAGE_WEB:$SHA_TAG" .
+          for t in "$VERSION_TAG" "$MINOR_TAG" "$SHA_TAG"; do
+            docker push "$IMAGE_WEB:$t"
+          done
+      - name: Generate SBOM for Central API image
+        uses: anchore/sbom-action@df80a981bc6edbc4e220a492d3cbe9f5547a6e75 # v0.17.9
+        with:
+          image: ${{ env.IMAGE_API }}:${{ env.VERSION_TAG }}
+          format: spdx-json
+          output-file: sbom-central-api.spdx.json
+      - name: Generate SBOM for Central Web image
+        uses: anchore/sbom-action@df80a981bc6edbc4e220a492d3cbe9f5547a6e75 # v0.17.9
+        with:
+          image: ${{ env.IMAGE_WEB }}:${{ env.VERSION_TAG }}
+          format: spdx-json
+          output-file: sbom-central-web.spdx.json
+      - name: Generate sha256 checksums
+        run: |
+          api_digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE_API:$VERSION_TAG" | sed -E 's#.*@sha256:##')"
+          web_digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE_WEB:$VERSION_TAG" | sed -E 's#.*@sha256:##')"
+          printf '%s  %s\n' "$api_digest" "$IMAGE_API:$VERSION_TAG" > plan-cope-central-api.sha256
+          printf '%s  %s\n' "$web_digest" "$IMAGE_WEB:$VERSION_TAG" > plan-cope-central-web.sha256
+      - name: Upload SBOM and checksum artifacts
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: release-artifacts
+          path: |
+            sbom-central-api.spdx.json
+            sbom-central-web.spdx.json
+            plan-cope-central-api.sha256
+            plan-cope-central-web.sha256
+      - name: Attest SBOM provenance
+        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2 # v2.2.3
+        with:
+          subject-path: |
+            sbom-central-api.spdx.json
+            sbom-central-web.spdx.json
+
+  promote-mutable-tags:
+    name: Promote mutable tags
+    needs: [validate, images]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      REGISTRY: ghcr.io
+      NAMESPACE: geronimoserial
+      VERSION: ${{ needs.validate.outputs.version }}
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify immutable tags exist in GHCR
+        run: |
+          docker manifest inspect "$REGISTRY/$NAMESPACE/plan-cope-central-api:$VERSION" >/dev/null
+          docker manifest inspect "$REGISTRY/$NAMESPACE/plan-cope-central-web:$VERSION" >/dev/null
+          echo "Both immutable tags ($REGISTRY/$NAMESPACE/plan-cope-central-*:$VERSION) exist in GHCR."
+      - name: Promote beta tag
+        if: ${{ inputs.channel == 'beta' }}
+        run: |
+          for img in plan-cope-central-api plan-cope-central-web; do
+            full="$REGISTRY/$NAMESPACE/$img"
+            docker pull "$full:$VERSION"
+            docker tag "$full:$VERSION" "$full:beta"
+            docker push "$full:beta"
+          done
+      - name: Promote stable and latest tags
+        if: ${{ inputs.channel == 'stable' }}
+        run: |
+          for img in plan-cope-central-api plan-cope-central-web; do
+            full="$REGISTRY/$NAMESPACE/$img"
+            docker pull "$full:$VERSION"
+            docker tag "$full:$VERSION" "$full:stable"
+            docker push "$full:stable"
+            docker tag "$full:$VERSION" "$full:latest"
+            docker push "$full:latest"
+          done

@@ -1,0 +1,19 @@
+# yamllint config for GitHub Actions workflows.
+#
+# Defaults are tuned for hand-written config, not GitHub Actions files: this
+# repo pins every `uses:` step by full commit SHA (security convention, see
+# docs/plan-cicd-batches.md decision on supply-chain pinning), which pushes
+# many lines well past 80 columns. Wrapping those lines would make the SHA
+# pin harder to read and diff, not easier, so line-length is relaxed instead
+# of forcing artificial wraps. `truthy` is disabled because GitHub Actions
+# requires the bare `on:` key, which yamllint's default truthy check flags
+# as a boolean-like key.
+extends: default
+
+rules:
+  line-length:
+    max: 130
+  truthy: disable
+  document-start: disable
+  comments:
+    min-spaces-from-content: 1
