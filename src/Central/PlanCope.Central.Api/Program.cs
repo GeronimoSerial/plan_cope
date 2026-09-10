@@ -7,6 +7,7 @@ using Microsoft.OpenApi.Models;
 using PlanCope.Central.Api.Auth;
 using PlanCope.Central.Api.Data;
 using PlanCope.Central.Api.Integrations.Ge;
+using PlanCope.Central.Api.Services;
 using PlanCope.Shared.Infrastructure.DependencyInjection;
 using System.Text;
 using System.Text.Json.Serialization;
@@ -75,6 +76,32 @@ builder.Services.AddHttpClient<IGeApiClient, GeApiClient>((serviceProvider, clie
     client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/') + "/", UriKind.Absolute);
     client.Timeout = TimeSpan.FromSeconds(Math.Clamp(options.TimeoutSeconds, 1, 300));
 });
+
+// Private installer storage (B7.T15): backed by the Releases API of the private GitHub repo
+// that scripts/publish-private-installer.ps1 uploads to. Configuration comes from the
+// environment only — PLANCOPE_PRIVATE_INSTALLER_REPO and INSTALLER_REPO_TOKEN (never a
+// literal). If either is missing the endpoint stays available but returns 503 via the
+// fallback implementation; a missing optional config must not crash startup.
+var installerRepo = builder.Configuration["PLANCOPE_PRIVATE_INSTALLER_REPO"];
+var installerToken = builder.Configuration["INSTALLER_REPO_TOKEN"];
+if (!string.IsNullOrWhiteSpace(installerRepo) && !string.IsNullOrWhiteSpace(installerToken))
+{
+    builder.Services.Configure<InstallerStorageOptions>(options =>
+    {
+        options.Repo = installerRepo!;
+        options.Token = installerToken!;
+    });
+    builder.Services.AddHttpClient<IInstallerStorage, GitHubReleaseInstallerStorage>((serviceProvider, client) =>
+    {
+        var options = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<InstallerStorageOptions>>().Value;
+        client.BaseAddress = new Uri("https://api.github.com/", UriKind.Absolute);
+        client.Timeout = TimeSpan.FromSeconds(30);
+    });
+}
+else
+{
+    builder.Services.AddScoped<IInstallerStorage, NotConfiguredInstallerStorage>();
+}
 
 var authOptions = builder.Configuration.GetSection(AuthOptions.SectionName).Get<AuthOptions>() ?? new AuthOptions();
 if (string.IsNullOrWhiteSpace(authOptions.SigningKey))

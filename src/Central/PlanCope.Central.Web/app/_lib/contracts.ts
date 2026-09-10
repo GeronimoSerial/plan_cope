@@ -134,3 +134,15 @@ export interface PublishExamVersionResponse {
   checksum: string;
   targets?: PublicationTarget[];
 }
+
+// Instalador de escritorio publicado en el repo privado (B7.T15). El downloadUrl es una URL
+// privada/autenticada (requiere el token del storage); el navegador no puede autenticarse
+// contra GitHub, por lo que una descarga realmente publica requeriria que el API hiciera de
+// proxy (fuera de alcance).
+export interface InstallerReference {
+  version: string;
+  channel: string;
+  downloadUrl: string;
+  sha256: string;
+  publishedAt: string;
+}
