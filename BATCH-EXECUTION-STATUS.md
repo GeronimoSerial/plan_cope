@@ -215,3 +215,39 @@ three concurrent dispatches measured at 67 s wall against ~200 s serial) and
 re-dispatching**, since two 7-minute timeouts were one compile error the leader never looked
 for; and **name the existing file** when a slice needs infrastructure, since a working solution
 thirty lines away in a sibling project was reinvented worse.
+
+---
+
+## Resumed — B0 is code-complete, verified by the coordinator
+
+Ran independently, not taken from the leader's report:
+
+- `dotnet test PlanCope.slnx` → **122 passed, 0 failed**, across all seven test assemblies,
+  including the E2E scenario (1/1) and SyncCompat at 46.
+- `dotnet build PlanCope.slnx -warnaserror` → **0 warnings, 0 errors**.
+- CI step renamed to "Test ClientApp (Vitest)" — the name no longer contradicts the run line.
+
+**Task 5 solved without crossing the boundary.** The leader confirmed the prediction that
+`WebApplicationFactory` never starts a real listener, and instead of building the real Kestrel
+binding it was not authorised to build, it pointed Local's two named HTTP clients at Central's
+in-memory TestServer handler. No socket, no port, no production code touched — and it escalated
+rather than deciding.
+
+**The duplication was worse than reported, and the fix changed direction because of it.** The
+leader offered the two `JsonDocumentFriendlyModelCustomizer` copies as "different internal
+approach, same rule". Reading both shows they are **not equivalent**: the E2E copy sets the
+converter through the fluent builder because — per its own comment — the convention-level API
+does not survive model finalisation once `HasColumnType("jsonb")` is configured on the property.
+The Central copy uses exactly that convention-level path, and passes today only because nothing
+in `AuthControllerTests` exercises a jsonb property hard enough to expose it.
+
+So one copy is **latently broken**, which is worse than two identical copies: it will look fine
+until someone adds a jsonb-backed assertion to the Central suite, and then fail for a reason
+nobody connects to this. Authorised: one shared source file carrying the **fluent-builder**
+implementation, linked into both csprojs via `<Compile Include>`. No new project — that is the
+limit of what was approved.
+
+**Remaining to close B0:** commit tasks 4, 5 and 6 as work units (still untracked), then the
+unification as a separate commit, re-verifying Central stays at 30/30.
+
+**Still not closeable by any agent:** task 1's production-snapshot verification.
