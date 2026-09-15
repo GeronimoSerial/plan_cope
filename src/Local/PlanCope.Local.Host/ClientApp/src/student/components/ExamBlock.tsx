@@ -25,7 +25,7 @@ export function ExamBlock({ block, number, value, isMissing, onChange }: ExamBlo
   if (kind === "image") {
     const config = parseConfig<{ assetId?: string; alt?: string; caption?: string }>(block);
     return (
-      <section id={block.id} className="student-question">
+      <section className="student-question">
         <img
           className="student-image"
           src={`/api/assets/${encodeURIComponent(config.assetId ?? "")}`}
@@ -39,7 +39,7 @@ export function ExamBlock({ block, number, value, isMissing, onChange }: ExamBlo
   if (kind === "multiple_choice") {
     const config = parseConfig<{ question?: string; options?: Array<{ value: string; label: string }> }>(block);
     return (
-      <section id={block.id} className="student-question">
+      <section className="student-question">
         <QuestionTitle id={titleId} number={number} text={config.question ?? ""} required={isRequired} />
         <fieldset
           className="student-options"
@@ -68,7 +68,7 @@ export function ExamBlock({ block, number, value, isMissing, onChange }: ExamBlo
   if (kind === "true_false") {
     const config = parseConfig<{ question?: string }>(block);
     return (
-      <section id={block.id} className="student-question">
+      <section className="student-question">
         <QuestionTitle id={titleId} number={number} text={config.question ?? ""} required={isRequired} />
         <fieldset
           className="student-options"
@@ -99,7 +99,7 @@ export function ExamBlock({ block, number, value, isMissing, onChange }: ExamBlo
 
   const config = parseConfig<{ prompt?: string }>(block);
   return (
-    <section id={block.id} className="student-question">
+    <section className="student-question">
       <QuestionTitle id={titleId} number={number} text={config.prompt ?? ""} required={isRequired} />
       <textarea
         id={`answer-${block.id}`}
