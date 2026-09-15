@@ -294,3 +294,11 @@ differs subtly is worse than two identical copies.
 
 **What only the coordinator can watch:** B1, B3 and B8 are supposed to touch disjoint trees. If
 two of them start editing the same file, that is a plan-level collision, not a leader error.
+
+## Wave review log
+
+| Cycle | Finding |
+|---|---|
+| wave +9 min | Reaper: **four healthy dispatches, zero stuck** — B1 ×1, **B8 ×3 concurrent**. The fan-out protocol worked on first use: B8 ran three simultaneous slices where B0 would have run them one after another. B1's wave file is named `w0-b…`, so it is waving too. No commits yet in any worktree; expected this early. **B3 spent 135 k tokens and 8 min on a read-only fork survey before its first dispatch.** Judged legitimate, not drift: it produced ground truth with file:line citations, confirmed `scoringPolicy` exists nowhere yet before designing against §2.7, and is now writing **two disjoint** Wave 1 briefs. Correcting thoroughness here would repeat the mistake I avoided in B0 cycle 2. Sent a cost note instead — one upfront fork, never one per wave, since a fork inherits full parent context. Gates restated per batch: B3 owns the grading single-source (§7 determinism proven by **shared** golden files, and a formula implemented once per side fails the batch even if both sides pass) and the no-implicit-grading rule (**a sensible-looking default policy is the failure mode, not a missing one**). B1 received the inherited B0 finding — `LoginResponse` with a missing access token deserialises to null — with the instruction to decide explicitly rather than silently inherit it, plus the two-level revocation distinction and the reminder that its DTOs are a published surface B2 consumes. |
+
+**Caveat on the reaper, noted honestly:** `write_bytes` counts *all* process I/O, including opencode's own session DB — so rising bytes proves the process is alive and working, not that it is writing to the worktree. It still separates a spinning model (zero bytes) from a working one; it does not prove code was produced. `git status` remains the only proof of that.
