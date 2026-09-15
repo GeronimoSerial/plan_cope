@@ -72,6 +72,21 @@ Re-dispatch narrower. Re-sending the identical brief with a longer timeout loops
 
 ---
 
+## A blind spot the 10-minute cycle introduced
+
+A dispatch's ceiling is 480 s. At a 10-minute review cadence, a dispatch can start **and die**
+between two probes, so the reaper's "SPINNING for two consecutive cycles" rule can never fire —
+by the second probe the process is always gone. That is not theoretical: the first E2E dispatch
+timed out mid-write inside exactly that gap, and the only trace was a half-written file the
+*leader* noticed before the coordinator did.
+
+Two things follow. A healthy reading never means nothing was reaped in between — cross-check the
+dispatch log against `git status` for a slice that ended without an entry. And when the reaper
+reports SPINNING, arm a `Monitor` on the pid rather than waiting for a cycle that will arrive
+after the outcome is already decided.
+
+---
+
 ## DONE
 
 Nothing yet. No batch is closed until the coordinator validates it independently of the
@@ -120,9 +135,20 @@ Unit A — schema:
 
 Unit B — tests and CI:
 
-- [ ] 4 · `tests/PlanCope.SyncCompat.Tests` — xunit + ≥15 real contract tests
-- [ ] 5 · `tests/PlanCope.E2E.Tests` — xunit + ≥1 green end-to-end scenario
-- [ ] 6 · `ci-local-app.yml:46` — remove the `npm run test --if-present` silent no-op
+- [x] 4 · `SyncCompat.Tests` — DONE. `ContractToleranceTests.cs` closed the gap: both
+      `ignores_unknown_extra_property` (additive tolerance) and `missing_X_becomes_null` (required-field
+      presence) now exist. Was: 40 tests across three files, asserting **wire shape**
+      (`TryGetProperty(camelCaseName)` on `RootElement`), which is the instrument that actually fails on a
+      rename. Clears the ≥15 minimum. **Incomplete**: the plan names three properties and only round-trip
+      is covered. Additive-change tolerance and required-field presence are absent — see review log, +57 min.
+- [!] 5 · `E2E.Tests` — **builds now, but the test FAILS.** CS0718 resolved. The scenario dies in EF
+      model validation: `AnswerKey.CorrectAnswer` is `jsonb` (`ExamEntityConfiguration.cs:73`), which Npgsql
+      maps and the InMemory provider does not. **The repo already solved this** — `AuthControllerTests.cs:82-93`
+      runs the same `PlanCopeDbContext` on InMemory via `AddSingleton<IModelCustomizer, …>` +
+      `UseInternalServiceProvider`. The E2E factory used `ReplaceService<IModelCustomizer, …>` instead, which
+      empirically does not take effect. Also a DRY defect: `JsonDocumentFriendlyModelCustomizer` is now defined
+      twice, privately, in two test projects. Next wall predicted (unverified): Local's sync services build their
+      own `HttpClient` from `central_url` while `WebApplicationFactory` starts no real listener.
 
 Acceptance gates still unverified: `PRAGMA foreign_key_check` empty on a production-shaped
 database, migration reversible, rollback rehearsed, `dotnet build PlanCope.slnx -warnaserror`
@@ -150,3 +176,42 @@ Blocked on B0 per §4. See the track table above.
 | +27 min | Reaper: **healthy** (pid 705378, 254 s, bytes+=2.6 MB); live argv re-read from `/proc` confirms `timeout -k 30 420`. Leader responded well to all three prior findings: it recorded the byte-dictation justification in the dispatch log exactly as asked, and **independently found a second broken write path I had missed** — `LocalRosterRepository.ImportAsync:60` also inserts without ensuring a `schools` row, not just `SessionRepository`. Task 3 dispatched as a single DRY helper. **New coordinator catch, sent before acceptance:** the leader justified removing the four read-path `CueCode.Normalize` calls with "callers already pass normalised cues". True for reads — I verified `RosterEndpoints.cs:18,38` and `SessionEndpoints.cs:46`. But it never checked the write path, and **the write path does not normalise**: `ImportAsync` persists `package.Cue` raw, past an `OrdinalIgnoreCase` guard. Removing the reads first yields a silent lookup miss — roster on disk, school cannot see it, no error, offline, undiagnosable. Strictly worse than the double-normalisation being removed. Mandated ordering (write, then reads, then an explicit decision on already-raw rows, which `008` propagates into the new parent table) and a test importing a cue that actually needs normalising, since every existing test seeds pre-normalised values. |
 | +37 min | Reaper: **healthy** (pid 719817, 888 KB written); live argv carries `timeout -k 30 420`. **The leader refuted my previous finding, and it was right.** I claimed `ImportAsync` persists `package.Cue` raw. It does — but `LocalRosterPackageValidator.cs:19,27-30` is called unconditionally at `LocalRosterRepository.cs:14` and *throws* unless the cue is byte-identical to its own normalised form. A reject-gate, as strong as a coerce-gate here. And `CueCode` is digit-only, so my `OrdinalIgnoreCase` concern was inert — a CUE has no letters to vary case by. The leader traced this instead of complying, recorded the reasoning, and **declined to add a second `Normalize` inside `ImportAsync` because that would have created a second normalisation authority** — the exact DRY violation the plan names. Correct call. I closed its one unproven residual myself: `SessionRepository.CreateAsync` has exactly one caller, `SessionEndpoints.cs:81`, which normalises at line 46; `EmbeddedRosterSeeder.cs:49` passes the same gate. Every write path reaches canonical form. **Unit A accepted on coordinator-run evidence.** Unit B (tasks 4-6) dispatched next, with a warning that a round-trip assertion passes through a renamed field — the contract tests must assert wire shape. |
 | +47 min | Reaper: no live dispatch; the task-4 dispatch had already returned and the leader was reading its output. Slice A4 logged and accepted on evidence — the offline-gate guard test exists, local suite 26/26. Unit A complete at code level. **Intervened on durability, not quality.** The leader is 39 min and **61.3k tokens into a single turn** with tasks 4-6 still ahead, and **all of Unit A is still uncommitted**. An Orca terminal does not survive a session restart: the files would live, the reasoning would not — including the validator reject-gate analysis, which is not reconstructible from the diff. Instructed: commit Unit A now as three reviewable work units (Central migration / Local 008 + FK rebuild / CueCode sweep + helper), tests in the commit with the code they cover; and make `B0-PROGRESS.md` self-sufficient on **why**, not just what — the reject-gate reasoning, the fixture-vs-production-bug distinction, and which brief shapes produced usable deepseek output, which is the most valuable and least recoverable thing it knows. Told it to stop at a committed boundary and report honestly if context runs short, rather than push through into a half-finished tree. Agreed with its call that the 11-digit CUE literal is non-blocking; asked for the one-character fix to ride along on the next test slice, since a test seeded with a value production cannot produce will mislead someone eventually. |
+| +57 min | Reaper: **healthy** (pid 746353, 2.9 MB). **Checkpoint landed**: three clean conventional commits (`bcfbf9a`, `9bc986e`, `f4c26bf`) split along the seams requested, no AI attribution — Unit A is durable, and the context-loss risk I flagged last cycle is closed. Task 4's tests assert wire shape as warned, 40 tests, minimum cleared. **Gap found in task 4:** the plan names *round-trip, additive-change tolerance, required-field presence*; only round-trip exists. Zero tests mention unknown/extra fields, and every `required` hit is a payload literal, not an assertion. This is the one that matters — Central and Local drift by design, so the day Central emits a DTO with a new field, an older Local client that throws instead of ignoring breaks **every un-updated school on its next sync, offline, at once**. I checked the current behaviour to make the slice precise: `UnmappedMemberHandling` is configured nowhere, so the default `Skip` already tolerates unknown members. The behaviour is correct; the test that **pins** it is missing, and nothing would fail if someone added `Disallow` later. Also applied the new protocol's disjointness rule against itself: this slice edits the same SyncCompat files as the live dispatch, so it **cannot** join the task 5+6 wave. |
+| +67 min | Reaper: **healthy** (pid 756800, 1.5 MB). Task 4 gap closed properly — `ContractToleranceTests.cs` has both legs. Task 6 done. `Program.cs` touched, and the diff is the right minimal one: `public partial class Program;`, exactly what `WebApplicationFactory` needs and nothing more — KISS held under a change that invites scope creep. The live dispatch declares its file set explicitly in the brief, so the new protocol is being applied, not just acknowledged. Three items sent. **(1) Durability slip** — the dispatch log stops at A4 while three slices have landed since; a log written retrospectively is a summary, and summaries are what this topology exists to distrust. Told to backfill before the next dispatch, not at batch end. **(2)** CI step still named "…if configured" after `--if-present` was removed — a name that now lies, and a step name is documentation someone reads before the run line. **(3) Handoff finding for B1, explicitly not to be fixed here:** the leader's own test records `LoginResponse` with a missing access token deserialising to null rather than being rejected. Pinning it is right; a hostile auth response deserialising "successfully" into a null token is a hazard for any consumer that does not null-check — but authentication is B1 scope, so it must be inherited, not chased. |
+| +77 min | Reaper: **SPINNING** (pid 768568, 353 s, cpu+=486 ticks, **bytes+=0**) — the reasoning-loop signature, first real firing of that classifier. Not killed: 127 s of its own ceiling remained, and killing on a 15 s sample turns a model that is thinking into a false positive. Reading the dispatch's argv surfaced something the reaper alone would not have: **this is the second attempt at the same slice.** The brief says the target file was "written by a previous pass that ran out of time" — so a first E2E dispatch already died on its timeout **inside the 10-minute blind spot**, and the leader caught it before I did. It re-dispatched correctly, narrowing the file set to exactly one path rather than extending the clock. Armed a `Monitor` on the pid instead of waiting for the next cycle, which would have arrived after the outcome was already decided. If this attempt also writes nothing, the slice needs a structural change — a third attempt at the same shape is the loop the protocol forbids. |
+| +82 min | Monitor fired: **second consecutive E2E dispatch ended having written zero bytes** (file unchanged at 13 499 bytes). Structural-change trigger met. **Diagnosed in three seconds with a build the leader never ran:** `PublishPullRunPushTests.cs(223,26) CS0718 — LocalApiApplication: static types cannot be used as type arguments`. The factory inherits `WebApplicationFactory<LocalApiApplication>` and that class is `public static`. The implementer was not weak; **the task was impossible as specified**, so it reasoned until the clock ran out, twice, doing exactly what it was asked. The general lesson sent to the leader: **when a dispatch returns nothing, build before re-dispatching — diagnosis is leader work.** A 3-second build would have saved two 7-minute timeouts. Also warned that the obvious fix, `WebApplicationFactory<Program>`, will hit an ambiguity: `Program` is declared in the **global** namespace by both `PlanCope.Local.Api/Program.cs` (pre-existing) and `PlanCope.Central.Api/Program.cs` (added this batch), and this test references both assemblies — flagged as predicted, not observed, since the build stopped at CS0718 first. Suggested a dedicated non-static marker per assembly, left the choice to the leader, and required it to re-dispatch **surgically** — naming the type and the line — because "finish this 296-line file" is a brief with no edges, which is why it produced nothing twice. |
+| +92 min | Reaper: no live dispatch. CS0718 fixed, **E2E compiles**. Ran the test myself rather than accepting a build-green report — **it fails**, in EF model validation, before the scenario executes: `AnswerKey.CorrectAnswer` is `jsonb` and the InMemory provider cannot map `JsonDocument`. **The important part is that this repo had already solved it**: `AuthControllerTests.cs:82-93` runs the very same `PlanCopeDbContext` on InMemory using `AddSingleton<IModelCustomizer, JsonDocumentFriendlyModelCustomizer>` on an internal service provider. The slice reinvented it with `ReplaceService<…>`, which reads equivalent and empirically is not. That is §6 rule 1 — never assume something does not exist — violated thirty lines away in a sibling test project, and it produced a **DRY defect too**: the customiser is now declared twice, privately, in two files. Instruction to the leader generalises it: when a slice needs infrastructure, name the existing file that already does it and tell the implementer to copy that pattern. Also drew a boundary — if the predicted HTTP-transport wall appears next, **stop and report**; binding a real socket between Local and Central in tests is an infrastructure decision reserved to the coordinator. |
+
+---
+
+## Session close — 2026-09-15
+
+Coordinator polling stopped (cron `864af999` deleted). The B0 leader terminal
+`term_644ee4dd-c98a-47af-8618-1a1054b7ca1d` is **still alive and still owns the batch** — it was
+not stopped, because killing in-flight work is the owner's call.
+
+**Committed and durable** on `feat/b0-foundations`: `bcfbf9a`, `9bc986e`, `f4c26bf` — plan tasks
+1, 2 and 3. Unit A survives a session restart.
+
+**Uncommitted in the working tree**, real work that would survive on disk but is unattributed:
+tasks 4 and 6 (the SyncCompat contract suite including `ContractToleranceTests.cs`, and the
+`ci-local-app.yml` no-op removal) plus the failing E2E scaffold. **First action on resume: commit
+tasks 4 and 6 as their own work units.** They are done and green; only task 5 is not.
+
+**Open, and not closeable by any agent here:**
+
+1. Task 1's migration has never run against a restored production snapshot — no Postgres is
+   reachable from this worktree. Needs whoever owns a snapshot environment.
+2. Task 5 fails. Fix is known and named above. If the predicted HTTP-transport wall follows,
+   it is an infrastructure decision for the coordinator, not the leader.
+3. `LoginResponse` with a missing access token deserialises to `null` rather than being
+   rejected — pinned by test, **carried to B1**, deliberately not fixed in B0.
+4. The CI step is still named "Test ClientApp (Vitest, if configured)" after `--if-present`
+   was removed.
+
+**Carried forward for B1:** `scripts/LEVEL3-DISPATCH-PROTOCOL.md` (fan out disjoint slices —
+three concurrent dispatches measured at 67 s wall against ~200 s serial) and
+`scripts/reap-stuck-opencode.sh`. Two lessons this batch paid for in full: **build before
+re-dispatching**, since two 7-minute timeouts were one compile error the leader never looked
+for; and **name the existing file** when a slice needs infrastructure, since a working solution
+thirty lines away in a sibling project was reinvented worse.
