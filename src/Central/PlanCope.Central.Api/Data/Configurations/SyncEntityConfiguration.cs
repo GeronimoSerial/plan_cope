@@ -15,7 +15,51 @@ public sealed class RegisteredNodeConfiguration : IEntityTypeConfiguration<Regis
         builder.Property(static x => x.NodeCode).HasMaxLength(128).IsRequired();
         builder.Property(static x => x.DeviceName).HasMaxLength(256);
         builder.Property(static x => x.Status).HasMaxLength(32).IsRequired();
+        builder.Property(static x => x.FingerprintHash).HasMaxLength(256).IsRequired();
+        builder.Property(static x => x.FingerprintComponents).HasColumnType("jsonb").IsRequired();
+        builder.Property(static x => x.Cue).HasMaxLength(32).IsRequired();
+        builder.Property(static x => x.ActivationKeyId).HasMaxLength(64);
+        builder.Property(static x => x.AppVersion).HasMaxLength(64);
         builder.HasIndex(static x => x.NodeCode).IsUnique();
+        builder.HasIndex(static x => x.Cue);
+    }
+}
+
+public sealed class ActivationKeyConfiguration : IEntityTypeConfiguration<ActivationKey>
+{
+    public void Configure(EntityTypeBuilder<ActivationKey> builder)
+    {
+        builder.ToTable("activation_keys", "sync");
+        builder.HasKey(static x => x.Id);
+        builder.Property(static x => x.Id).HasMaxLength(64).IsRequired();
+        builder.Property(static x => x.KeyHash).HasMaxLength(256).IsRequired();
+        builder.Property(static x => x.KeyPrefix).HasMaxLength(8).IsRequired();
+        builder.Property(static x => x.IssuedBy).HasMaxLength(64).IsRequired();
+        builder.Property(static x => x.RevokedReason).HasMaxLength(256);
+        builder.Property(static x => x.ScopeCue).HasMaxLength(32);
+        builder.Property(static x => x.Note).HasMaxLength(512);
+        builder.HasIndex(static x => x.KeyHash).IsUnique();
+        builder.HasIndex(static x => x.KeyPrefix);
+        builder.HasIndex(static x => x.ScopeCue);
+    }
+}
+
+public sealed class NodeCredentialConfiguration : IEntityTypeConfiguration<NodeCredential>
+{
+    public void Configure(EntityTypeBuilder<NodeCredential> builder)
+    {
+        builder.ToTable("node_credentials", "sync");
+        builder.HasKey(static x => x.Id);
+        builder.Property(static x => x.Id).HasMaxLength(64).IsRequired();
+        builder.Property(static x => x.NodeId).HasMaxLength(64).IsRequired();
+        builder.Property(static x => x.RefreshTokenHash).HasMaxLength(256).IsRequired();
+        builder.Property(static x => x.RotatedFrom).HasMaxLength(64);
+        builder.HasIndex(static x => x.RefreshTokenHash).IsUnique();
+        builder.HasIndex(static x => x.NodeId);
+        builder.HasOne<NodeCredential>()
+            .WithMany()
+            .HasForeignKey(static x => x.RotatedFrom)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }
 
