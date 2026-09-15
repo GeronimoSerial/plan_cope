@@ -10,7 +10,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.Hosting;
-using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -27,6 +26,7 @@ using PlanCope.Shared.Contracts.Local;
 using PlanCope.Shared.Domain;
 using PlanCope.Shared.Domain.Central;
 using PlanCope.Shared.Domain.Local;
+using PlanCope.TestSupport;
 using Xunit;
 
 namespace PlanCope.E2E.Tests;
@@ -292,45 +292,4 @@ public sealed class PublishPullRunPushTests
         }
     }
 
-    private sealed class JsonDocumentFriendlyModelCustomizer : ModelCustomizer
-    {
-        public JsonDocumentFriendlyModelCustomizer(ModelCustomizerDependencies dependencies) : base(dependencies)
-        {
-        }
-
-        public override void Customize(ModelBuilder modelBuilder, DbContext context)
-        {
-            base.Customize(modelBuilder, context);
-
-            // Setting the converter through the mutable/convention-level property API here
-            // does not survive model finalization when a relational HasColumnType("jsonb")
-            // is already configured on the same property (AnswerKeyConfiguration etc.) - the
-            // InMemory validator still rejects it as unmapped. Re-applying it through the
-            // fluent builder (same mechanism entity configurations use) does take effect.
-            foreach (var entityType in modelBuilder.Model.GetEntityTypes().ToList())
-            {
-                foreach (var property in entityType.GetProperties().ToList())
-                {
-                    if (property.ClrType == typeof(JsonDocument))
-                    {
-                        modelBuilder.Entity(entityType.ClrType)
-                            .Property(property.Name)
-                            .HasConversion(JsonDocumentConverter.Instance);
-                    }
-                }
-            }
-        }
-    }
-
-    private sealed class JsonDocumentConverter : ValueConverter<JsonDocument, string>
-    {
-        public static readonly JsonDocumentConverter Instance = new();
-
-        private JsonDocumentConverter()
-            : base(
-                static document => document.RootElement.GetRawText(),
-                static raw => JsonDocument.Parse(raw))
-        {
-        }
-    }
 }

@@ -12,6 +12,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Shared with PlanCope.Central.Api.Tests - single source, see the file's own remarks. -->
+    <Compile Include="..\PlanCope.Central.Api.Tests\JsonDocumentFriendlyModelCustomizer.cs" Link="JsonDocumentFriendlyModelCustomizer.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
   </ItemGroup>
