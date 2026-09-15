@@ -18,6 +18,102 @@ import type {
 } from "../types";
 import { isValidCue } from "../domain/cue";
 
+const PROGRESS_POLL_MS = 3000;
+const PROGRESS_POLL_MAX_MS = 30000;
+
+type ProgressPollerOptions = {
+  accessCode: string;
+  fetchProgress: (signal?: AbortSignal) => Promise<SessionProgress>;
+  onProgress: (progress: SessionProgress) => void;
+  onError: () => void;
+};
+
+function progressChanged(previous: SessionProgress, next: SessionProgress): boolean {
+  return (
+    previous.submittedCount !== next.submittedCount ||
+    previous.inProgressCount !== next.inProgressCount ||
+    previous.completionPercentage !== next.completionPercentage
+  );
+}
+
+export function createProgressPoller(options: ProgressPollerOptions): () => void {
+  const { accessCode, fetchProgress, onProgress, onError } = options;
+
+  if (!accessCode) {
+    return () => {};
+  }
+
+  const controller = new AbortController();
+  let cancelled = false;
+  let generation = 0;
+  let intervalMs = PROGRESS_POLL_MS;
+  let previous: SessionProgress | null = null;
+
+  const schedule = (ms: number) => {
+    if (cancelled) {
+      return;
+    }
+
+    const gen = ++generation;
+    setTimeout(() => {
+      if (cancelled || gen !== generation) {
+        return;
+      }
+      void poll(gen);
+    }, ms);
+  };
+
+  const poll = async (gen: number) => {
+    if (cancelled || gen !== generation) {
+      return;
+    }
+    if (document.visibilityState !== "visible") {
+      return;
+    }
+
+    let next: SessionProgress;
+    try {
+      next = await fetchProgress(controller.signal);
+    } catch {
+      if (cancelled || gen !== generation) {
+        return;
+      }
+      onError();
+      intervalMs = Math.min(intervalMs * 2, PROGRESS_POLL_MAX_MS);
+      schedule(intervalMs);
+      return;
+    }
+
+    if (cancelled || gen !== generation) {
+      return;
+    }
+
+    const changed = previous === null || progressChanged(previous, next);
+    previous = next;
+    onProgress(next);
+    intervalMs = changed ? PROGRESS_POLL_MS : Math.min(intervalMs * 2, PROGRESS_POLL_MAX_MS);
+    schedule(intervalMs);
+  };
+
+  const handleVisibilityChange = () => {
+    if (cancelled || document.visibilityState !== "visible") {
+      return;
+    }
+    intervalMs = PROGRESS_POLL_MS;
+    schedule(intervalMs);
+  };
+
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  schedule(0);
+
+  return () => {
+    cancelled = true;
+    generation += 1;
+    controller.abort();
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+  };
+}
+
 export type DeliverySessionState = ReturnType<typeof useDeliverySession>;
 
 export function useDeliverySession(hostContext: HostContext) {
@@ -240,27 +336,18 @@ export function useDeliverySession(hostContext: HostContext) {
     }
   }, [api, resumeAccessCode]);
 
-  const refreshProgress = useCallback(async () => {
-    if (!session?.accessCode) {
-      return;
-    }
-
-    try {
-      setProgress(await api.getSessionProgress(session.accessCode));
-    } catch {
-      setStatus("No se pudo actualizar el progreso.");
-    }
-  }, [api, session?.accessCode]);
-
   useEffect(() => {
     if (!session?.accessCode) {
       return;
     }
 
-    void refreshProgress();
-    const intervalId = window.setInterval(refreshProgress, 3000);
-    return () => window.clearInterval(intervalId);
-  }, [refreshProgress, session?.accessCode]);
+    return createProgressPoller({
+      accessCode: session.accessCode,
+      fetchProgress: signal => api.getSessionProgress(session.accessCode, signal),
+      onProgress: setProgress,
+      onError: () => setStatus("No se pudo actualizar el progreso.")
+    });
+  }, [api, session?.accessCode]);
 
   return {
     examCatalog: {
