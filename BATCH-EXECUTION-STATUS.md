@@ -251,3 +251,46 @@ limit of what was approved.
 unification as a separate commit, re-verifying Central stays at 30/30.
 
 **Still not closeable by any agent:** task 1's production-snapshot verification.
+
+---
+
+# B0 CLOSED — merged to `main` as `c36ae67`
+
+Verified by the coordinator, not from the leader's report: **122 tests pass across all seven
+assemblies** (E2E 1/1, SyncCompat 46, Central 30, Local 26), and
+`dotnet build PlanCope.slnx -warnaserror` is **0 warnings, 0 errors** on the merged tree.
+
+Six work-unit commits, conventional, no AI attribution: `bcfbf9a` Central unique CUE ·
+`9bc986e` Local schools table · `f4c26bf` CUE-on-write + ensure-schools-row · `23f6765`
+SyncCompat contract suite · `e84853e` E2E publish-pull-run-push · `217442f` CI no-op removal ·
+`dab2ad1` shared model customiser · `2f592c2` briefs and dispatch log.
+
+**One item deliberately left open, and no agent here can close it:** task 1's migration has never
+run against a restored production snapshot — no Postgres is reachable from these worktrees. It
+needs whoever owns a snapshot environment.
+
+---
+
+# Parallel wave launched — B1 ‖ B3 ‖ B8
+
+The largest concurrent set §4 allows after B0. §4 forbids B1‖B2, B3‖B4 and B5‖B2, so these three
+are the ceiling, not a choice.
+
+| Batch | Worktree | Terminal |
+|---|---|---|
+| B1 · activation keys | `b1-activation-keys` | `term_ebf7c8c4-25c5-4af8-a587-1205a6d5b80d` |
+| B3 · grading engine | `b3-grading-engine` | `term_ab81b55d-a40a-4d59-82ad-41920f0d28c3` |
+| B8 · performance | `b8-performance` | `term_9c2e7b10-439a-493e-b822-e5a14272d530` |
+
+All three rebased onto `c36ae67`, Sonnet 5 confirmed from the rendered banner (not from the send
+receipt — a receipt proves delivery, never that anything received it). Review cycle back to
+**5 minutes** (`2be45a20`).
+
+**Their mandates ship with B0's lessons already in them**, so nothing is re-learned at cost:
+fan out disjoint slices in waves rather than one at a time; build before re-dispatching, because
+two 7-minute timeouts in B0 were one compile error nobody looked for; name the existing file when
+a slice needs infrastructure; a green build is not a green test; and duplication where one copy
+differs subtly is worse than two identical copies.
+
+**What only the coordinator can watch:** B1, B3 and B8 are supposed to touch disjoint trees. If
+two of them start editing the same file, that is a plan-level collision, not a leader error.
