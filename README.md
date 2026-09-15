@@ -184,24 +184,39 @@ level** — the CLI uses `TopDirectoryOnly`, it does not recurse.
 
 **64 MiB / 3 iterations / parallelism 1.**
 
-Measured on a 16-core dev box:
+Measured on this 16-core dev box (re-run via
+`tools/PlanCope.RosterCrypto.Tests/Argon2idBenchmarkTests.cs`, 5 samples per
+parameter set, median reported):
 
-| Parameters | Time |
+| Parameters | Median time (samples) |
 |---|---|
-| 19 MiB / 2 / 1 (code default — the OWASP floor) | 57 ms |
-| **64 MiB / 3 / 1 (chosen)** | **198 ms** |
-| 128 MiB / 2 / 1 | 317 ms |
-| 256 MiB / 2 / 1 | 628 ms |
+| 19 MiB / 2 / 1 (code default — the OWASP floor) | 59 ms (56, 70, 70, 59, 55) |
+| **64 MiB / 3 / 1 (chosen)** | **257 ms (267, 286, 257, 246, 249)** |
+| 128 MiB / 2 / 1 | 365 ms (365, 390, 403, 359, 361) |
+| 256 MiB / 2 / 1 | 759 ms (774, 748, 800, 758, 759) |
+
+End-to-end through the real production path
+`EnvelopeDecryption.DecryptCueAsync` (bundle header parse + Argon2id
+derivation + AES-GCM unwrap/decrypt) at the chosen parameters: **277 ms**.
 
 **Why:** the bundle travels on the machine, so an attacker who obtains it can
 brute-force the passphrase offline — the OWASP floor is calibrated for an
 online-attack threat model and is not enough here. Activation happens exactly
-once per machine, so 198 ms of one-time cost is negligible for the operator.
+once per machine, so a few hundred ms of one-time cost is negligible for the
+operator.
 
-**Honest gap:** this has **not** been measured on real school hardware — only
-on a 16-core development machine. Before shipping a release with a genuinely
-encrypted roster, re-measure on representative field hardware; if activation
-crawls on an old school machine, the parameters need revisiting.
+**Honest gap:** these numbers are from a 16-core development machine — this is
+**still not** a 2-core / 4 GB / HDD school box, so do not read them as
+field-representative. Before shipping a release with a genuinely encrypted
+roster, re-measure on representative field hardware; if activation crawls on
+an old school machine, the parameters need revisiting.
+
+**Recommendation:** keep 64 MiB / 3 / 1. Activation is a one-time, interactive
+operator step, and even a conservative 2–4× slowdown on weak field hardware
+would land the derivation near one second — well within tolerance, so the
+offline-attack headroom is not worth giving up. Re-measure on a real school
+box only to confirm the operator experience; do not treat a slower field
+number as grounds to weaken parameters without owner sign-off.
 
 ---
 
@@ -591,8 +606,9 @@ are easy to repeat:
 ## TODO
 
 1. **Measure Argon2id parameters on real school hardware.** The 64 MiB / 3
-   iterations / parallelism 1 choice (198 ms) is measured on a 16-core dev
-   box only — see [Argon2id parameters](#argon2id-parameters--closed-decision-measured).
+   iterations / parallelism 1 choice (median 257 ms derivation, 277 ms
+   end-to-end) is measured on a 16-core dev box only — see
+   [Argon2id parameters](#argon2id-parameters--closed-decision-measured).
    Not yet benchmarked on the machines this actually has to run on.
 2. **`vpk`/`signtool` steps only run on `windows-latest` in CI/release** —
    never exercised on Linux, so a break there stays invisible until a real
