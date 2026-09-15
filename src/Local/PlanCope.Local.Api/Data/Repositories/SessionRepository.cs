@@ -13,7 +13,10 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
             """;
 
         using var connection = connectionFactory.CreateOpenConnection();
-        await connection.ExecuteAsync(new CommandDefinition(sql, session, cancellationToken: cancellationToken));
+        using var transaction = connection.BeginTransaction();
+        await Schools.EnsureRowAsync(connection, transaction, session.SchoolCode, cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition(sql, session, transaction, cancellationToken: cancellationToken));
+        transaction.Commit();
     }
 
     public async Task<LocalDeliverySession?> GetByIdAsync(string id, CancellationToken cancellationToken = default)

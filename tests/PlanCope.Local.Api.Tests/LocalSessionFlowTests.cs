@@ -397,6 +397,10 @@ public sealed class LocalSessionFlowTests
             using var connection = CreateConnection();
             using var transaction = connection.BeginTransaction();
             Execute(connection, transaction, """
+                INSERT OR IGNORE INTO schools (cue, created_at) VALUES ($cue, $fetched);
+                """,
+                ("$cue", cue), ("$fetched", DateTimeOffset.UtcNow.ToString("O")));
+            Execute(connection, transaction, """
                 INSERT INTO local_roster_snapshots (id, cue, school_year, fetched_at, checksum, section_count, student_count, status)
                 VALUES ($id, $cue, $year, $fetched, $checksum, 1, 2, $status);
                 """,
