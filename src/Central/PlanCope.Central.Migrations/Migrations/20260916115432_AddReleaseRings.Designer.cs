@@ -3,6 +3,7 @@ using System;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using PlanCope.Central.Api.Data;
@@ -12,9 +13,11 @@ using PlanCope.Central.Api.Data;
 namespace PlanCope.Central.Migrations.Migrations
 {
     [DbContext(typeof(PlanCopeDbContext))]
-    partial class PlanCopeDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260916115432_AddReleaseRings")]
+    partial class AddReleaseRings
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -541,97 +544,6 @@ namespace PlanCope.Central.Migrations.Migrations
                     b.ToTable("block_options", "exam");
                 });
 
-            modelBuilder.Entity("PlanCope.Shared.Domain.Central.ExamRollup", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<int>("AttemptCount")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Course")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("Cue")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("ExamVersionId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("SchoolYear")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
-
-                    b.Property<double>("ScoreMaxSum")
-                        .HasColumnType("double precision");
-
-                    b.Property<double>("ScoreSum")
-                        .HasColumnType("double precision");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Cue", "SchoolYear", "Course", "ExamVersionId")
-                        .IsUnique();
-
-                    b.ToTable("exam_rollups", "stats");
-                });
-
-            modelBuilder.Entity("PlanCope.Shared.Domain.Central.ExamRollupBlock", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<int>("BlankCount")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("BlockId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<int>("CorrectCount")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("IncorrectCount")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("PartialCount")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("RollupId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<double>("ScoreMaxSum")
-                        .HasColumnType("double precision");
-
-                    b.Property<double>("ScoreSum")
-                        .HasColumnType("double precision");
-
-                    b.Property<int>("UngradableCount")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RollupId", "BlockId")
-                        .IsUnique();
-
-                    b.ToTable("exam_rollup_blocks", "stats");
-                });
-
             modelBuilder.Entity("PlanCope.Shared.Domain.Central.ExamVersion", b =>
                 {
                     b.Property<string>("Id")
@@ -819,42 +731,6 @@ namespace PlanCope.Central.Migrations.Migrations
                         .IsUnique();
 
                     b.ToTable("roster_students", "roster");
-                });
-
-            modelBuilder.Entity("PlanCope.Shared.Domain.Central.GradingPolicyAssignment", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<DateTimeOffset>("AssignedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("AssignedBy")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("ExamVersionId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("Note")
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<string>("ScoringPolicy")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ExamVersionId")
-                        .IsUnique();
-
-                    b.ToTable("grading_policies", "exam");
                 });
 
             modelBuilder.Entity("PlanCope.Shared.Domain.Central.Locality", b =>
@@ -1214,37 +1090,6 @@ namespace PlanCope.Central.Migrations.Migrations
                         .IsUnique();
 
                     b.ToTable("registered_nodes", "sync");
-                });
-
-            modelBuilder.Entity("PlanCope.Shared.Domain.Central.ReleaseHealthReport", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Detail")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
-
-                    b.Property<bool>("Healthy")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("NodeId")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<DateTimeOffset>("ReportedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Version")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("release_health_reports", "sync");
                 });
 
             modelBuilder.Entity("PlanCope.Shared.Domain.Central.ReleaseRing", b =>
@@ -1611,15 +1456,6 @@ namespace PlanCope.Central.Migrations.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("user_schools", "core");
-                });
-
-            modelBuilder.Entity("PlanCope.Shared.Domain.Central.ExamRollupBlock", b =>
-                {
-                    b.HasOne("PlanCope.Shared.Domain.Central.ExamRollup", null)
-                        .WithMany()
-                        .HasForeignKey("RollupId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("PlanCope.Shared.Domain.Central.GeRosterSection", b =>
