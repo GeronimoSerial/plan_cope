@@ -84,3 +84,19 @@ export async function getLatestInstaller(channel = "stable"): Promise<InstallerR
 
   return text ? (JSON.parse(text) as InstallerReference) : (undefined as unknown as InstallerReference);
 }
+
+export interface ActivationKeySummary {
+  id: string;
+  keyPrefix: string;
+  issuedAt: string;
+  expiresAt?: string | null;
+  maxActivations: number;
+  activationCount: number;
+  revokedAt?: string | null;
+  revokedReason?: string | null;
+  note?: string | null;
+}
+
+export function listActivationKeys(): Promise<ActivationKeySummary[]> {
+  return serverGet<ActivationKeySummary[]>("/api/admin/activation/keys");
+}
