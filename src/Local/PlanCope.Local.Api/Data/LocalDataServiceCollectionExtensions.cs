@@ -1,5 +1,4 @@
 using Microsoft.Data.Sqlite;
-using Dapper;
 using PlanCope.Local.Api.Data.Repositories;
 using PlanCope.Local.Api.Endpoints;
 using PlanCope.Local.Api.Services;
@@ -58,7 +57,6 @@ public static class LocalDataServiceCollectionExtensions
         services.AddScoped<RevocationEnforcer>();
         services.AddHostedService<RevocationEnforcementHostedService>();
 
-        DefaultTypeMap.MatchNamesWithUnderscores = true;
 
         return services;
     }
