@@ -12,7 +12,7 @@ export function HostApp() {
   const [isSchoolConfirmed, setIsSchoolConfirmed] = useState(false);
 
   if (shouldShowActivation(hostContext.isActivated)) {
-    return <ActivationScreen />;
+    return <ActivationScreen apiBaseUrl={hostContext.apiBaseUrl} />;
   }
 
   if (!isSchoolConfirmed) {
