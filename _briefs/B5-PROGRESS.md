@@ -64,7 +64,7 @@ trying. Confirmed by reading `LocalOutboxPushService.cs` end to end before writi
 | 4 | Full-jitter backoff layered over the outbox's row-level backoff | **DONE** | See the decision record above. `LocalOutboxPushService.RequeueAsync` untouched. |
 | 5 | Never sync during an active session | **DONE**, test-proven | `SyncBackgroundService` checks `ISessionRepository.GetActiveAsync` (status `active`/`paused`) before any network call, every tick, with no exception. `SyncBackgroundServiceTests.Never_calls_central_while_a_session_is_active` seeds an active session behind a handler that throws on any HTTP call and asserts zero calls. |
 | 6 | Fix `last_pull_at` / `last_exam_pull_cursor` key mismatch | **DONE** | `LocalExamPullService.PullAsync` now writes both: `last_exam_pull_cursor` (unchanged, still the pagination cursor) and a new, separate `last_pull_at` timestamp (same JSON-serialized-`DateTimeOffset` pattern `LocalOutboxPushService` already used for `last_push_at`). `/api/sync/status`'s existing `last_pull_at` read now resolves. |
-| 7 | Operator-visible sync state: last success, pending, last error, next attempt | **DONE** | `/api/sync/status` now also returns `lastError` (from `sync_last_error`) and `nextAttempt` (from `sync_next_attempt_at`), both written every `SyncBackgroundService` cycle. `healthy` changed from a hardcoded `true` to `string.IsNullOrEmpty(lastError)`. |
+| 7 | Operator-visible sync state: last success, pending, last error, next attempt | **DONE**, corrected after coordinator review | `/api/sync/status` returns `lastError`, `nextAttempt`, and a separate `offline` boolean. **Correction (commit `0491f5e`):** the first version wrote the probe-failure reason into `sync_last_error`, which made an offline school (operating normally) show `healthy: false` with a populated error — indistinguishable from a genuine fault. Fixed by splitting connectivity from error: a new `sync_offline` key is flipped by the probe alone (`true`/`false`, untouched during the session-gate skip since there is no probe result to report then); `sync_last_error` is now written only by genuine pull/push failures while actually connected. `healthy` stays `string.IsNullOrEmpty(lastError)`, deliberately not folded together with `offline` — an offline node with zero errors is healthy and offline at once. |
 | 8 | Revocation detection, one site only | **DONE (pre-existing from B2, verified not duplicated)** | See the decision record above. No new detection code; `SyncBackgroundService`'s automatic calls are what actually makes the existing detection fire promptly instead of waiting for an operator. |
 
 ## NOT VERIFIED — named explicitly, per the leader mandate
@@ -145,5 +145,13 @@ trusting the green run — both assertions are real (call-count/exception-captur
 actual `sync_state` row reads for the write-path proof), not vacuous.
 
 Every dispatch stayed within the 1-3-file budget. No dispatch needed a second attempt for being
-too broad. All four commits pushed individually to `feat/b5-autonomous-sync` immediately after
-each wave's review, per the durability rule.
+too broad. All commits pushed individually to `feat/b5-autonomous-sync` immediately after each
+wave's review, per the durability rule.
+
+**Wave 4** (single dispatch, post-coordinator-review correction): the coordinator's review
+confirmed the DRY revocation gate and the session gate, but caught that task 7's first version
+conflated "no connectivity" with "a fault" — an offline school (normal, not broken) reported
+`healthy: false` with an error message describing the probe failure, indistinguishable from a
+real error. Fixed by splitting the concepts (`sync_offline` vs `sync_last_error`, see task 7
+above), commit `0491f5e`, two files (`SyncBackgroundService.cs`, `SyncEndpoints.cs`), `rc=0`,
+built and tested green, pushed.
