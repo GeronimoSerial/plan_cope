@@ -77,23 +77,21 @@ jobs:
       - name: Install EF tools
         run: dotnet tool restore
       - name: Apply all migrations
+        # PlanCope.Central.Migrations references PlanCope.Central.Api, not the other way
+        # round, so it is its own startup project. Passing --startup-project Central.Api
+        # fails with "Could not load assembly 'PlanCope.Central.Migrations'".
         run: |
           dotnet ef database update \
-            --project src/Central/PlanCope.Central.Migrations/PlanCope.Central.Migrations.csproj \
-            --startup-project src/Central/PlanCope.Central.Api/PlanCope.Central.Api.csproj
+            --project src/Central/PlanCope.Central.Migrations/PlanCope.Central.Migrations.csproj
       - name: Rehearse rollback of the most recent migration
         run: |
           set -e
-          # Roll back to the second-newest migration, then forward again. A Down() that
-          # does not reverse its Up() fails here rather than during a production incident.
-          previous=$(dotnet ef migrations list \
-            --project src/Central/PlanCope.Central.Migrations/PlanCope.Central.Migrations.csproj \
-            --startup-project src/Central/PlanCope.Central.Api/PlanCope.Central.Api.csproj \
-            --no-build --prefix-output | grep '^data:' | sed 's/^data: //' | tail -2 | head -1)
+          proj=src/Central/PlanCope.Central.Migrations/PlanCope.Central.Migrations.csproj
+          # Roll back to the second-newest migration, then forward again. A Down() that does
+          # not reverse its Up() fails here rather than during a production incident.
+          previous=$(dotnet ef migrations list --project "$proj" --no-build --no-connect \
+            | grep -E '^[0-9]{14}_' | tail -2 | head -1)
+          test -n "$previous"
           echo "Rolling back to: $previous"
-          dotnet ef database update "$previous" \
-            --project src/Central/PlanCope.Central.Migrations/PlanCope.Central.Migrations.csproj \
-            --startup-project src/Central/PlanCope.Central.Api/PlanCope.Central.Api.csproj
-          dotnet ef database update \
-            --project src/Central/PlanCope.Central.Migrations/PlanCope.Central.Migrations.csproj \
-            --startup-project src/Central/PlanCope.Central.Api/PlanCope.Central.Api.csproj
+          dotnet ef database update "$previous" --project "$proj" --no-build
+          dotnet ef database update --project "$proj" --no-build
