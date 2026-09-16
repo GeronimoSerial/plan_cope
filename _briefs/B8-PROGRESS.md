@@ -1,5 +1,10 @@
 # B8 · Performance — progress
 
+**Status: ACCEPTED by coordinator, 2026-09-15.** PR #20, all 8 CI checks green. Merges after
+#19 (B0), per the plan's dependency order. No further work belongs in this worktree — see
+"Handoff notes for other batches / the owner" at the end of this file for what's still open
+and whose problem it now is.
+
 Leader: this session (Sonnet, level-2). All implementation dispatched to level-3
 (opencode / deepseek-v4-flash) per `scripts/LEVEL3-DISPATCH-PROTOCOL.md`. No production code
 written by the leader; two infra/measurement judgement calls below were the leader's/
@@ -182,3 +187,28 @@ substitutes chosen on this machine, nothing more. Named per task:
 - **Reference-profile budgets are unverified targets**, not measurements — no hardware
   available in this environment. Needs a pass on real 2-core/4GB/HDD hardware or Windows CI
   before the batch can be considered fully closed on this point.
+
+## Handoff notes for other batches / the owner
+
+Written down rather than acted on, per the coordinator's instruction not to keep growing an
+accepted batch. Not this worktree's problem to solve, but each blocks something concrete:
+
+- **Project-level constraint, not B8-specific:** the win-x64 WinForms + WebView2 Host
+  (`PlanCope.Local.Host`) cannot build in this or any Linux CI/dev environment — it is
+  unverifiable here **by construction**, not by omission. This silently limits every batch
+  that touches `src/Local/PlanCope.Local.Host`, not just this one. Whatever environment
+  eventually runs `windows-latest` CI or owns real Windows hardware is where the four
+  unproven B8 acceptance criteria (cold start, jank, idle CPU, real Argon2id timing) and the
+  real win-x64 R2R/trim verification all need to land.
+- **B7 coordination point:** `UpdateStatus.tsx` was left untouched in B8 (task 1 named this
+  explicitly as B7's call, not B8's). Whoever leads B7 should confirm whether it's adopted
+  before anyone deletes it.
+- **B4 dependency:** the plan's literal ask ("covering indexes for the B4 rollup queries")
+  could not be done because B4 doesn't exist on this branch yet. Whoever leads B4 should
+  check `src/Local/PlanCope.Local.Api/Data/Migrations/002_Indexes.sql` and
+  `009_PerformanceIndexes.sql` for the existing indexing pattern before adding rollup-query
+  indexes of their own.
+- **Argon2id parameters are a live, unresolved security trade-off**, not just a
+  measurement gap (plan §6 risk list). Current recommendation is to hold 64 MiB/3/1, but that
+  recommendation rests on a 16-core dev-machine number. Do not let a later "activation feels
+  slow" report on real hardware turn into a parameter change without owner sign-off.
