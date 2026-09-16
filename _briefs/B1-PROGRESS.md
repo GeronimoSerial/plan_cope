@@ -132,6 +132,23 @@ lands, a single narrow follow-up pass wires:
   short-circuits cheaply on the anonymous redeem route without touching the DB or the auth
   middleware first.
 
+## Shared-file note for B3's reconciliation of `SyncModels.cs`
+
+B1 changed `src/Shared/PlanCope.Shared.Domain/Central/SyncModels.cs` by +20/-1: extending
+`RegisteredNode` (fingerprint/enrolment/revocation fields) and adding `ActivationKey` and
+`NodeCredential`. Reviewed against what B3 (scoring policy) plausibly needs, to answer the
+coordinator's question directly: **no concept here looks like a plausible duplicate under another
+name.** `ActivationKey`/`NodeCredential` are node-identity/credentialing types — a different domain
+from exam scoring policy — and nothing about them (Argon2id hashing, refresh-token rotation,
+fingerprint matching) has an analogue in what §2.7/§B3 describes (`exam.grading_policies`:
+`policy`, `assigned_by`, `assigned_at`).
+
+One convention, not a duplicate, worth naming anyway: `ActivationKey.IssuedBy`/`IssuedAt` is the
+same "actor + timestamp" audit-pair shape as `exam.grading_policies.assigned_by`/`assigned_at`.
+If B3 is inventing its own naming for that pair, no action needed — this isn't a shared concept
+that needs collapsing, just two independent uses of an obvious pattern. Flagging it only so B3
+doesn't waste time wondering whether it's supposed to reuse something from B1; it isn't.
+
 ## What local green does NOT prove — substitutions named explicitly
 
 Per the coordinator's standing rule: a green `dotnet test` here proves the code works against the
