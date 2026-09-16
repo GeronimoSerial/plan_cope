@@ -1,5 +1,4 @@
 using Microsoft.Data.Sqlite;
-using Dapper;
 using PlanCope.Local.Api.Data.Repositories;
 using PlanCope.Local.Api.Endpoints;
 using PlanCope.Local.Api.Services;
@@ -56,7 +55,6 @@ public static class LocalDataServiceCollectionExtensions
         services.AddScoped<IOutboxRepository, OutboxRepository>();
         services.AddScoped<ISyncStateRepository, SyncStateRepository>();
 
-        DefaultTypeMap.MatchNamesWithUnderscores = true;
 
         return services;
     }
