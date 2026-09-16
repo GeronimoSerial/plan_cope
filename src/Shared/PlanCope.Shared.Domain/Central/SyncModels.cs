@@ -2,7 +2,22 @@ using System.Text.Json;
 
 namespace PlanCope.Shared.Domain.Central;
 
-public sealed record RegisteredNode(string Id, string? SchoolId, string NodeCode, string? DeviceName, string Status, DateTimeOffset? LastSeenAt, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
+public sealed record RegisteredNode(
+    string Id,
+    string? SchoolId,
+    string NodeCode,
+    string? DeviceName,
+    string Status,
+    DateTimeOffset? LastSeenAt,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
+    string FingerprintHash,
+    JsonDocument FingerprintComponents,
+    string Cue,
+    string? ActivationKeyId,
+    DateTimeOffset EnrolledAt,
+    DateTimeOffset? RevokedAt,
+    string? AppVersion);
 
 public sealed record CentralDeliverySession(string Id, string RemoteLocalId, string? SchoolId, string? ExamVersionId, string? ClassroomCode, string? CommissionCode, string Status, DateTimeOffset? StartedAt, DateTimeOffset? EndedAt, DateTimeOffset? SyncedAt, DateTimeOffset CreatedAt);
 
@@ -34,3 +49,7 @@ public sealed record SyncInbox(string Id, string? SourceNodeId, string EventType
 public sealed record SyncCursor(string Id, string NodeId, string CursorKey, string CursorValue, DateTimeOffset UpdatedAt);
 
 public sealed record SyncAttempt(string Id, string? NodeId, string Direction, string Status, DateTimeOffset StartedAt, DateTimeOffset? FinishedAt, JsonDocument? Summary, JsonDocument? Error);
+
+public sealed record ActivationKey(string Id, string KeyHash, string KeyPrefix, string IssuedBy, DateTimeOffset IssuedAt, DateTimeOffset? ExpiresAt, int MaxActivations, int ActivationCount, DateTimeOffset? RevokedAt, string? RevokedReason, string? ScopeCue, string? Note);
+
+public sealed record NodeCredential(string Id, string NodeId, string RefreshTokenHash, DateTimeOffset IssuedAt, DateTimeOffset ExpiresAt, string? RotatedFrom, DateTimeOffset? RevokedAt);

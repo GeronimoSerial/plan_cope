@@ -10,4 +10,6 @@ public interface ITokenService
     string CreateRefreshToken(UserProfileDto user);
 
     ClaimsPrincipal ValidateRefreshToken(string refreshToken);
+
+    string CreateNodeAccessToken(string nodeId, string cue, TimeSpan lifetime);
 }
