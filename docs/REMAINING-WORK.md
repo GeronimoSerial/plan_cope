@@ -45,21 +45,32 @@ B9 alone.** The critical path runs through B2, which blocks two of the four.
 
 ## Open defects
 
-### A test passes on Linux and fails on Windows CI
+### A Windows-only test failure that did NOT reproduce — treat as flaky, not as a live defect
 
 `PlanCope.Local.Api.Tests.ExamScoringPolicyPullTests.PullAsync_PersistsScoringPolicy_FromPublishedPackage`
-fails on `windows-latest` with:
+failed once on `windows-latest` with:
 
 > `System.InvalidOperationException: A parameterless default constructor or one matching
 > signature (System.String id, System.String key, System.String value_json, System.String
 > updated_at) is required for PlanCope.Shared.Domain.Local.SyncState materialization`
 
-It passes locally on Linux (26/26). The record and the `SELECT` appear to agree
-(`SyncState(Id, Key, ValueJson, UpdatedAt)` against `SELECT id, key, value_json, updated_at`),
-so the cause is not obvious from either side alone — which is exactly why it survived four
-merges. **It is on `main`, it blocks PR #25, and it is invisible to every local run.**
+**This was first recorded here as an open defect on `main`. That was wrong, and the correction
+matters more than the original entry.** Re-checked: `main`'s four most recent runs are all
+green, including the merges that carry that test, and the failure appeared only on one pull
+request whose base was stale. Rebasing that branch onto green `main` and re-running did **not**
+reproduce it.
 
-Start by running that single test on a Windows host.
+What is actually known: it failed **once**, on a stale base, and has not failed since. That is
+the signature of a flaky test, not a broken one — and a test that fails one run in N is still a
+real problem, so this is recorded rather than deleted. The record and the `SELECT` agree
+(`SyncState(Id, Key, ValueJson, UpdatedAt)` against `SELECT id, key, value_json, updated_at`),
+which is consistent with a Dapper type-map cache that is populated differently depending on
+which test ran first.
+
+If it recurs: the fix is almost certainly a global
+`DefaultTypeMap.MatchNamesWithUnderscores = true` rather than anything in the record. Do not
+spend time on it until it recurs — **a handover document that sends the next person hunting a
+bug that is not there costs more than the entry saves.**
 
 ---
 
