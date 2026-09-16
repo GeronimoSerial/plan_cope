@@ -1,15 +1,47 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AppShell } from "./components/AppShell";
 import { SchoolGate } from "./components/SchoolGate";
 import { SessionsWorkspace } from "./components/SessionsWorkspace";
 import { useDeliverySession } from "./hooks/useDeliverySession";
 import { useHostContext } from "./hooks/useHostContext";
 import { ActivationScreen, shouldShowActivation } from "./activation/ActivationScreen";
+import { EnrolmentScreen } from "./enrolment/EnrolmentScreen";
 
 export function HostApp() {
   const hostContext = useHostContext();
   const delivery = useDeliverySession(hostContext);
   const [isSchoolConfirmed, setIsSchoolConfirmed] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const checkLockStatus = () => {
+      fetch(`${hostContext.apiBaseUrl}/api/activation/status`)
+        .then(response => (response.ok ? response.json() : null))
+        .then(data => {
+          if (!cancelled && data && typeof data.isLocked === "boolean") {
+            setIsLocked(data.isLocked);
+          }
+        })
+        .catch(() => {
+          /* transient failure — keep the last known lock state, do not flip to unlocked */
+        });
+    };
+    checkLockStatus();
+    const interval = setInterval(checkLockStatus, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [hostContext.apiBaseUrl]);
+
+  if (isLocked) {
+    return (
+      <main className="school-gate">
+        <EnrolmentScreen apiBaseUrl={hostContext.apiBaseUrl} variant="reactivate" onDone={() => setIsLocked(false)} />
+      </main>
+    );
+  }
 
   if (shouldShowActivation(hostContext.isActivated)) {
     return <ActivationScreen apiBaseUrl={hostContext.apiBaseUrl} />;

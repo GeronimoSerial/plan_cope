@@ -12,6 +12,7 @@ const KEY_LENGTH = BRAND_LENGTH + PAYLOAD_LENGTH + CHECKSUM_LENGTH;
 
 type EnrolmentScreenProps = {
   apiBaseUrl: string;
+  variant?: "enrol" | "reactivate";
   onDone?: () => void; // called after a successful redeem, so the parent can close/hide this screen
 };
 
@@ -72,11 +73,29 @@ export function isValidActivationKeyFormat(rawKey: string): boolean {
   return normalized.slice(BRAND_LENGTH + PAYLOAD_LENGTH, KEY_LENGTH) === checksum;
 }
 
-export function EnrolmentScreen({ apiBaseUrl, onDone }: EnrolmentScreenProps) {
+export function EnrolmentScreen({ apiBaseUrl, variant = "enrol", onDone }: EnrolmentScreenProps) {
   const [activationKey, setActivationKey] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [succeeded, setSucceeded] = useState(false);
+
+  const isReactivate = variant === "reactivate";
+  const copy = isReactivate
+    ? {
+        eyebrow: "Equipo bloqueado",
+        heading: "Reactivar este equipo",
+        intro: "Este equipo fue bloqueado. Ingresá una clave de activación nueva para recuperarlo.",
+        successHeading: "Equipo reactivado correctamente.",
+        successBody: "El equipo ya puede volver a usarse con normalidad."
+      }
+    : {
+        eyebrow: "Inscripción del equipo",
+        heading: "Inscribir este equipo",
+        intro:
+          "Ingresá la clave de inscripción entregada con la activación. Podés hacerlo en cualquier momento: el equipo sigue funcionando igual sin inscribirse.",
+        successHeading: "Equipo inscripto correctamente.",
+        successBody: "Este equipo ya puede usar el servicio de exámenes."
+      };
 
   const isValid = isValidActivationKeyFormat(activationKey);
 
@@ -124,21 +143,18 @@ export function EnrolmentScreen({ apiBaseUrl, onDone }: EnrolmentScreenProps) {
   if (succeeded) {
     return (
       <div className="gate-card">
-        <p className="eyebrow">Inscripción del equipo</p>
-        <h1>Equipo inscripto correctamente.</h1>
-        <p>Este equipo ya puede usar el servicio de exámenes.</p>
+        <p className="eyebrow">{copy.eyebrow}</p>
+        <h1>{copy.successHeading}</h1>
+        <p>{copy.successBody}</p>
       </div>
     );
   }
 
   return (
     <form className="gate-card" onSubmit={redeem}>
-      <p className="eyebrow">Inscripción del equipo</p>
-      <h1>Inscribir este equipo</h1>
-      <p>
-        Ingresá la clave de inscripción entregada con la activación. Podés hacerlo en
-        cualquier momento: el equipo sigue funcionando igual sin inscribirse.
-      </p>
+      <p className="eyebrow">{copy.eyebrow}</p>
+      <h1>{copy.heading}</h1>
+      <p>{copy.intro}</p>
 
       <Field
         label="Clave de activación"
