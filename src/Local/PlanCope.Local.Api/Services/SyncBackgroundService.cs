@@ -68,8 +68,8 @@ public sealed class SyncBackgroundService(
                         var maxDelay = Math.Min(BackoffCapSeconds, BackoffBaseSeconds * Math.Pow(2, cappedExponent));
                         var delaySeconds = Random.Shared.NextDouble() * maxDelay;
 
-                        await UpsertStateAsync(syncStateRepository, "sync_last_error",
-                            JsonSerializer.Serialize($"connectivity probe failed: {probe.Reason}", JsonOptions),
+                        await UpsertStateAsync(syncStateRepository, "sync_offline",
+                            JsonSerializer.Serialize(true, JsonOptions),
                             stoppingToken);
                         await UpsertStateAsync(syncStateRepository, "sync_next_attempt_at",
                             JsonSerializer.Serialize(DateTimeOffset.UtcNow.AddSeconds(delaySeconds), JsonOptions),
@@ -79,6 +79,10 @@ public sealed class SyncBackgroundService(
                     else
                     {
                         attempt = 0;
+
+                        await UpsertStateAsync(syncStateRepository, "sync_offline",
+                            JsonSerializer.Serialize(false, JsonOptions),
+                            stoppingToken);
 
                         var pull = await examPullService.PullAsync(stoppingToken);
                         if (!pull.Success)
