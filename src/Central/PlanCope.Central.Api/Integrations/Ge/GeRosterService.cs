@@ -350,7 +350,7 @@ public sealed class GeRosterService(
         string schoolYear,
         CancellationToken cancellationToken = default)
     {
-        var normalizedCue = NormalizeCue(cue);
+        var normalizedCue = CueCode.Normalize(cue);
         var normalizedSchoolYear = schoolYear?.Trim() ?? string.Empty;
         return rosterStore.GetLatestAsync(normalizedCue, normalizedSchoolYear, cancellationToken);
     }
@@ -368,8 +368,6 @@ public sealed class GeRosterService(
 
         return await rosterStore.GetSectionsAsync(latest.Id, cancellationToken);
     }
-
-    private static string NormalizeCue(string? cue) => CueCode.Normalize(cue);
 
     private static GeRosterRefreshResult ToRefreshResult(GeRosterSnapshot snapshot, bool created)
     {

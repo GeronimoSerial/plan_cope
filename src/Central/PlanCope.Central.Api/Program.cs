@@ -180,3 +180,5 @@ app.MapGet("/health/ready", async (PlanCopeDbContext dbContext, CancellationToke
 });
 
 app.Run();
+
+public partial class Program;

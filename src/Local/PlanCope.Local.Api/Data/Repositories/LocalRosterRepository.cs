@@ -1,7 +1,6 @@
 using Dapper;
 using PlanCope.Local.Api.Services;
 using PlanCope.Shared.Contracts.Sync;
-using PlanCope.Shared.Domain.ValueObjects;
 
 namespace PlanCope.Local.Api.Data.Repositories;
 
@@ -56,6 +55,8 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
             transaction.Commit();
             return new LocalRosterImportResult(false, existing.Id, existing.Checksum, existing.SectionCount, existing.StudentCount);
         }
+
+        await Schools.EnsureRowAsync(connection, transaction, package.Cue, cancellationToken);
 
         await connection.ExecuteAsync(new CommandDefinition(
             """
@@ -207,7 +208,7 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
             ORDER BY fetched_at DESC, id DESC
             LIMIT 1;
             """,
-            new { Cue = CueCode.Normalize(cue), SchoolYear = schoolYear.Trim() },
+            new { Cue = cue, SchoolYear = schoolYear.Trim() },
             cancellationToken: cancellationToken));
         return row?.ToDomain();
     }
@@ -233,7 +234,7 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
             ORDER BY fetched_at DESC, id DESC
             LIMIT 1;
             """,
-            new { Cue = CueCode.Normalize(cue) },
+            new { Cue = cue },
             cancellationToken: cancellationToken));
         return row?.ToDomain();
     }
@@ -267,7 +268,7 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
             GROUP BY s.id, s.snapshot_id, s.ge_section_id, s.course, s.division, s.level, s.shift
             ORDER BY s.course, s.division, s.id;
             """,
-            new { Cue = CueCode.Normalize(cue), SchoolYear = schoolYear.Trim() },
+            new { Cue = cue, SchoolYear = schoolYear.Trim() },
             cancellationToken: cancellationToken));
         return rows.Select(static row => row.ToDomain()).ToList();
     }
@@ -295,7 +296,7 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
             return new(false, "El snapshot del padrón no existe en este equipo.");
         }
 
-        if (!string.Equals(snapshot.Cue, CueCode.Normalize(cue), StringComparison.Ordinal) ||
+        if (!string.Equals(snapshot.Cue, cue, StringComparison.Ordinal) ||
             !string.Equals(snapshot.SchoolYear, schoolYear.Trim(), StringComparison.Ordinal))
         {
             return new(false, "El snapshot no corresponde al CUE y ciclo lectivo seleccionados.");

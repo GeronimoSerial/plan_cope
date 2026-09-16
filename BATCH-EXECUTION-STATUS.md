@@ -1,0 +1,364 @@
+# Batch execution status
+
+Coordinator-owned (Opus). Updated on a 5-minute review cycle. Leaders do not write here —
+they write `_briefs/B<n>-PROGRESS.md` inside their own worktree, and the coordinator
+verifies those claims against `git diff` and `pgrep -x opencode` before recording anything below.
+
+**A `worker_done` is a claim, not evidence.** Nothing is marked DONE here on a leader's say-so.
+
+---
+
+## Topology in use
+
+Three tiers, per `PROJECT-CLOSURE-PLAN.md` §6.
+
+| Level | Who | Invocation | Notes |
+|---|---|---|---|
+| 1 · coordinator | Opus, this session | — | owns the graph, gates each batch, does the polling |
+| 2 · batch leader | Sonnet 5 | `orca-ide terminal create --command 'claude --model sonnet --dangerously-skip-permissions'` | **never** `worktree create --agent claude` — that silently launches Opus |
+| 3 · implementer | DeepSeek V4 Flash | `timeout 420 opencode run --auto --format json -m opencode-go/deepseek-v4-flash "<slice>"` | foreground, synchronous; `--auto` required; `v4.1-flash` is broken |
+
+Verified environment: Orca 1.4.202, repo `18fe34e5-6ebc-4cb9-b9bc-54ea758e94b9`,
+`opencode` at `/home/gero/.opencode/bin/opencode`.
+
+---
+
+## Parallelisation reality
+
+`PROJECT-CLOSURE-PLAN.md` §4 caps concurrency below the five-worktree fan-out originally
+requested. B0 is the root of B1, B3 and B9, so **nothing runs beside it**. The largest safe
+concurrent set after B0 lands is `{B1, B3, B8}` — three. §4 forbids B1‖B2, B3‖B4 and B5‖B2
+outright, because B2 consumes B1's contracts and B4 reads B3's result tables.
+
+Track plan agreed with the owner: run B0 alone, then fan out as dependencies land.
+
+| Track | Batches | Unblocks when |
+|---|---|---|
+| T1 | B0 → B9 | B0 now; B9 after B5, B7, B8 |
+| T2 | B1 → B2 → B5 | B0 merged |
+| T3 | B3 → B4 | B0 merged |
+| T4 | B6 | B3 and B4 merged |
+| T5 | B7, B8 | B7 after B2; B8 effectively after B0 |
+
+---
+
+## Guard against a runaway level-3 dispatch
+
+A level-2 leader dispatches `opencode` in the **foreground**, so it is blocked for the whole
+call and structurally cannot watch itself. Only the coordinator can. Two failures look
+identical from the leader's seat and need opposite handling:
+
+| Class | Signature | Action |
+|---|---|---|
+| **SPINNING** | CPU rising, `write_bytes` flat — the reasoning loop | Do not kill. Its own `timeout` still has room. Re-probe next cycle; act on two consecutive hits. |
+| **ESCAPED** | Age > `timeout` + grace, so SIGTERM was ignored or never sent | Kill `-9`, plus its children — `opencode` spawns them and a bare kill leaves them holding the tty. |
+
+`scripts/reap-stuck-opencode.sh` samples `/proc/<pid>/stat` and `/proc/<pid>/io` twice, 15 s
+apart, and classifies every live dispatch. It runs **first** on every 5-minute review cycle.
+Exit 0 always — it is a probe, not a gate.
+
+The leader's invocation was hardened to match:
+
+```bash
+timeout -k 30 420 opencode run --auto --format json -m opencode-go/deepseek-v4-flash "<brief>"
+```
+
+`-k 30` is the part that matters. Plain `timeout` sends SIGTERM only, and a runtime deep in a
+reasoning loop can outlive it — the leader's Bash call returns while the process keeps burning
+CPU. `-k 30` follows with SIGKILL.
+
+**A dispatch that dies on its timeout means the slice was too wide, not that the model failed.**
+Re-dispatch narrower. Re-sending the identical brief with a longer timeout loops again.
+
+---
+
+## A blind spot the 10-minute cycle introduced
+
+A dispatch's ceiling is 480 s. At a 10-minute review cadence, a dispatch can start **and die**
+between two probes, so the reaper's "SPINNING for two consecutive cycles" rule can never fire —
+by the second probe the process is always gone. That is not theoretical: the first E2E dispatch
+timed out mid-write inside exactly that gap, and the only trace was a half-written file the
+*leader* noticed before the coordinator did.
+
+Two things follow. A healthy reading never means nothing was reaped in between — cross-check the
+dispatch log against `git status` for a slice that ended without an entry. And when the reaper
+reports SPINNING, arm a `Monitor` on the pid rather than waiting for a cycle that will arrive
+after the outcome is already decided.
+
+---
+
+## DONE
+
+Nothing yet. No batch is closed until the coordinator validates it independently of the
+leader's report (§6).
+
+### Coordinator groundwork (verified)
+
+- `PROJECT-CLOSURE-PLAN.md` committed to `main` as `fc57d01`; `.codegraph/` gitignored.
+- Worktree `b0-foundations` created on `feat/b0-foundations`, rebased onto `fc57d01` so the
+  leader can read the plan.
+- Sonnet 5 leader launched and confirmed by banner (`Sonnet 5 with medium effort`), not by
+  the send receipt — a receipt proves delivery, never that anything received it.
+
+---
+
+## PENDING
+
+### B0 · Foundations — IN PROGRESS
+
+Worktree `/home/gero/orca/workspaces/plan_cope/b0-foundations`, branch `feat/b0-foundations`.
+Leader terminal `term_644ee4dd-c98a-47af-8618-1a1054b7ca1d`.
+
+Unit A — schema:
+
+- [x] 1 · `core.schools.Cue` unique — **build-verified only**. Migration `20260915220905_MakeSchoolsCueUnique`
+      with a duplicate-check PL/pgSQL block and a reversible `Down()`. **NOT run against a production
+      snapshot** — no Postgres reachable from this worktree. Escalation: needs whoever owns a snapshot
+      environment. Not closeable until then.
+- [x] 2 · local `008_Schools.sql` — DONE at code level. The offline-first regression it introduced is
+      **resolved at the write path**, not papered over: `Schools.EnsureRowAsync` is a single helper called
+      from both `LocalRosterRepository.ImportAsync` and `SessionRepository.CreateAsync`. Guarded by
+      `CreateAsync_UpsertsSchoolsRow_WhenSchoolHasNoRosterSnapshot`. Local suite 25/25. SQLite cannot `ALTER TABLE ADD FOREIGN KEY`,
+      so it uses the mandatory 12-step rebuild. Paired with `SchoolsForeignKeyTests.cs`, which asserts
+      `PRAGMA foreign_key_check` empty *and* that a dangling `school_code` actually throws — declared
+      FKs that are never enforced would otherwise pass.
+- [ ] 3 · `CueCode` at every boundary; normalise on write, never on read. IN FLIGHT. **The write path does
+      not normalise at all** — `LocalRosterRepository.ImportAsync` inserts `package.Cue` raw from Central's
+      payload, and `LocalRosterPullService.cs:84` guards it with `OrdinalIgnoreCase`, so a cue differing only
+      in a normalisable form passes and is persisted raw. The read-side calls are the only thing masking it.
+      Mandated order: normalise on write **first**, then remove the reads, then decide explicitly about rows
+      already written raw. **Three defects located
+      by the coordinator, both must be resolved rather than preserved:** `LocalRosterRepository.cs`
+      normalises on READ at lines 210, 236, 270, 298 (defensive double-normalisation that hides whether
+      the write path works), and `GeRosterService.cs:372` wraps the single source in a private
+      `NormalizeCue` alias — a second name is how a second implementation eventually gets born.
+
+Unit B — tests and CI:
+
+- [x] 4 · `SyncCompat.Tests` — DONE. `ContractToleranceTests.cs` closed the gap: both
+      `ignores_unknown_extra_property` (additive tolerance) and `missing_X_becomes_null` (required-field
+      presence) now exist. Was: 40 tests across three files, asserting **wire shape**
+      (`TryGetProperty(camelCaseName)` on `RootElement`), which is the instrument that actually fails on a
+      rename. Clears the ≥15 minimum. **Incomplete**: the plan names three properties and only round-trip
+      is covered. Additive-change tolerance and required-field presence are absent — see review log, +57 min.
+- [!] 5 · `E2E.Tests` — **builds now, but the test FAILS.** CS0718 resolved. The scenario dies in EF
+      model validation: `AnswerKey.CorrectAnswer` is `jsonb` (`ExamEntityConfiguration.cs:73`), which Npgsql
+      maps and the InMemory provider does not. **The repo already solved this** — `AuthControllerTests.cs:82-93`
+      runs the same `PlanCopeDbContext` on InMemory via `AddSingleton<IModelCustomizer, …>` +
+      `UseInternalServiceProvider`. The E2E factory used `ReplaceService<IModelCustomizer, …>` instead, which
+      empirically does not take effect. Also a DRY defect: `JsonDocumentFriendlyModelCustomizer` is now defined
+      twice, privately, in two test projects. Next wall predicted (unverified): Local's sync services build their
+      own `HttpClient` from `central_url` while `WebApplicationFactory` starts no real listener.
+
+Acceptance gates still unverified: `PRAGMA foreign_key_check` empty on a production-shaped
+database, migration reversible, rollback rehearsed, `dotnet build PlanCope.slnx -warnaserror`
+green, E2E running on `windows-latest`.
+
+Open escalations: none raised yet. Two are expected — duplicate CUEs in production, and
+`delivery_sessions.school_code` rows with no matching roster snapshot.
+
+### B1 – B9 — NOT STARTED
+
+Blocked on B0 per §4. See the track table above.
+
+---
+
+## Review log
+
+| Time | Finding |
+|---|---|
+| launch | Leader started, mandate delivered, turn confirmed started from the rendered screen. |
+| +1 min | Healthy. Leader is reading code to decide (rg over schema, DbUp scripts, test shells, CI file) before writing slice briefs — explicitly allowed by its mandate. `pgrep -x opencode` empty, which at this stage is expected, not drift: it has not reached a dispatch yet. No production code written; `git status` shows only the untracked `_briefs/`. Already confirmed from the repo that the `Cue` index exists and is non-unique, matching plan task 1. |
+| +6 min | Healthy, no correction issued. Leader verified the level-3 primitive exists before relying on it (`which opencode` → v1.18.31, independently re-probed by the coordinator: exit 0, no hang), then went on reading existing tests (`MigrationDiscoveryTests.cs`) to learn the project's conventions before writing slice briefs. That is the right order — a brief written blind to existing conventions produces output the leader has to throw away. `pgrep -x opencode` = 0 and `_briefs/B0-PROGRESS.md` still absent, both expected: no dispatch has been issued yet. Zero production code written, `git status` still only the untracked `_briefs/`. **Intervening at this point would itself be the error** — the drift signal is a leader writing code, not a leader reading it. |
+| +12 min | **Delegation confirmed by positive evidence**, and the runaway guard installed. Leader wrote a slice brief, dispatched with the exact mandated command, and `pgrep -x opencode` returned a live pid in the correct cwd — 3.9 MB written across a 15 s sample, so real work, not a loop. `CoreEntityConfiguration.cs` is modified by the implementer, not the leader. `_briefs/B0-PROGRESS.md` now exists and is honest: it records that no production snapshot is reachable from this worktree, so the migration's "tested against a restored production snapshot" criterion **will be reported as NOT verified rather than silently skipped**. Correction issued (hardening, not drift): `timeout` → `timeout -k 30 420`, bare `opencode run` forbidden outright, and the narrower-not-longer rule for a slice that dies on its clock. Reaper wired as step 1 of the cycle; cron replaced (`a0ef7e96` → `c498a269`). |
+| +17 min | Reaper: **healthy** (pid 691002, 232 s, cpu+=346, bytes+=1.5 MB). Hardening confirmed applied — the live dispatch's real argv carries `timeout -k 30 420`, read from `/proc`, not from the leader's claim. Task 1 accepted on evidence (migration read in full, `-warnaserror` clean). **DRY verified clean by the coordinator**: every normalisation in `src/` routes through `CueCode`, zero reimplementations. Three findings sent. The one that matters: **the leader is dictating production code rather than delegating it** — slice A2 hands the implementer the complete `008_Schools.sql` character-for-character, making it author and reviewer of the same bytes. Not reverted: the 12-step rebuild is order-sensitive, the SQL reads correct, and the paired test is genuine independent verification. Rule set for every slice after: **specify behaviour, constraints and acceptance — never bytes**; and if a slice truly needs verbatim SQL, record the reason in the dispatch log so the choice is visible instead of silent. |
+| +22 min | Reaper: no live dispatch — correct, A2 returned. **Escalation: the migration introduced an offline-first regression, and I stopped the leader before it patched the symptom.** A2's own test passes, but the full project run went red on `LocalSessionFlowTests` and `LocalRosterRepositoryTests`. I investigated independently rather than waiting for the leader's reading, and the red is correct: `SessionRepository.cs:11` is the only production path inserting into `delivery_sessions`, **nothing in production ever inserts into `schools`** (the only INSERTs are the one-time backfill inside `008` itself), and `LocalSqliteConnectionFactory.cs:15` sets `PRAGMA foreign_keys=ON` on every connection — so the new FK is enforced at runtime, not decorative. Net effect: a freshly activated school whose CUE has no roster snapshot **cannot start its first session offline**. That breaks the §7 Offline gate and §6 rule 3 outright. The five-minute fix — seeding a `schools` row in the test helper — turns the suite green and ships the bug; I forbade it explicitly. Instructed: fix the **write path**, single source, `INSERT OR IGNORE` into `schools` at session creation, decision recorded with reasoning before implementing, then delegated by behaviour not bytes, with acceptance requiring a test that creates a session for a CUE with no roster snapshot. Also flagged: the A2 dispatch-log entry was still unwritten. |
+| +27 min | Reaper: **healthy** (pid 705378, 254 s, bytes+=2.6 MB); live argv re-read from `/proc` confirms `timeout -k 30 420`. Leader responded well to all three prior findings: it recorded the byte-dictation justification in the dispatch log exactly as asked, and **independently found a second broken write path I had missed** — `LocalRosterRepository.ImportAsync:60` also inserts without ensuring a `schools` row, not just `SessionRepository`. Task 3 dispatched as a single DRY helper. **New coordinator catch, sent before acceptance:** the leader justified removing the four read-path `CueCode.Normalize` calls with "callers already pass normalised cues". True for reads — I verified `RosterEndpoints.cs:18,38` and `SessionEndpoints.cs:46`. But it never checked the write path, and **the write path does not normalise**: `ImportAsync` persists `package.Cue` raw, past an `OrdinalIgnoreCase` guard. Removing the reads first yields a silent lookup miss — roster on disk, school cannot see it, no error, offline, undiagnosable. Strictly worse than the double-normalisation being removed. Mandated ordering (write, then reads, then an explicit decision on already-raw rows, which `008` propagates into the new parent table) and a test importing a cue that actually needs normalising, since every existing test seeds pre-normalised values. |
+| +37 min | Reaper: **healthy** (pid 719817, 888 KB written); live argv carries `timeout -k 30 420`. **The leader refuted my previous finding, and it was right.** I claimed `ImportAsync` persists `package.Cue` raw. It does — but `LocalRosterPackageValidator.cs:19,27-30` is called unconditionally at `LocalRosterRepository.cs:14` and *throws* unless the cue is byte-identical to its own normalised form. A reject-gate, as strong as a coerce-gate here. And `CueCode` is digit-only, so my `OrdinalIgnoreCase` concern was inert — a CUE has no letters to vary case by. The leader traced this instead of complying, recorded the reasoning, and **declined to add a second `Normalize` inside `ImportAsync` because that would have created a second normalisation authority** — the exact DRY violation the plan names. Correct call. I closed its one unproven residual myself: `SessionRepository.CreateAsync` has exactly one caller, `SessionEndpoints.cs:81`, which normalises at line 46; `EmbeddedRosterSeeder.cs:49` passes the same gate. Every write path reaches canonical form. **Unit A accepted on coordinator-run evidence.** Unit B (tasks 4-6) dispatched next, with a warning that a round-trip assertion passes through a renamed field — the contract tests must assert wire shape. |
+| +47 min | Reaper: no live dispatch; the task-4 dispatch had already returned and the leader was reading its output. Slice A4 logged and accepted on evidence — the offline-gate guard test exists, local suite 26/26. Unit A complete at code level. **Intervened on durability, not quality.** The leader is 39 min and **61.3k tokens into a single turn** with tasks 4-6 still ahead, and **all of Unit A is still uncommitted**. An Orca terminal does not survive a session restart: the files would live, the reasoning would not — including the validator reject-gate analysis, which is not reconstructible from the diff. Instructed: commit Unit A now as three reviewable work units (Central migration / Local 008 + FK rebuild / CueCode sweep + helper), tests in the commit with the code they cover; and make `B0-PROGRESS.md` self-sufficient on **why**, not just what — the reject-gate reasoning, the fixture-vs-production-bug distinction, and which brief shapes produced usable deepseek output, which is the most valuable and least recoverable thing it knows. Told it to stop at a committed boundary and report honestly if context runs short, rather than push through into a half-finished tree. Agreed with its call that the 11-digit CUE literal is non-blocking; asked for the one-character fix to ride along on the next test slice, since a test seeded with a value production cannot produce will mislead someone eventually. |
+| +57 min | Reaper: **healthy** (pid 746353, 2.9 MB). **Checkpoint landed**: three clean conventional commits (`bcfbf9a`, `9bc986e`, `f4c26bf`) split along the seams requested, no AI attribution — Unit A is durable, and the context-loss risk I flagged last cycle is closed. Task 4's tests assert wire shape as warned, 40 tests, minimum cleared. **Gap found in task 4:** the plan names *round-trip, additive-change tolerance, required-field presence*; only round-trip exists. Zero tests mention unknown/extra fields, and every `required` hit is a payload literal, not an assertion. This is the one that matters — Central and Local drift by design, so the day Central emits a DTO with a new field, an older Local client that throws instead of ignoring breaks **every un-updated school on its next sync, offline, at once**. I checked the current behaviour to make the slice precise: `UnmappedMemberHandling` is configured nowhere, so the default `Skip` already tolerates unknown members. The behaviour is correct; the test that **pins** it is missing, and nothing would fail if someone added `Disallow` later. Also applied the new protocol's disjointness rule against itself: this slice edits the same SyncCompat files as the live dispatch, so it **cannot** join the task 5+6 wave. |
+| +67 min | Reaper: **healthy** (pid 756800, 1.5 MB). Task 4 gap closed properly — `ContractToleranceTests.cs` has both legs. Task 6 done. `Program.cs` touched, and the diff is the right minimal one: `public partial class Program;`, exactly what `WebApplicationFactory` needs and nothing more — KISS held under a change that invites scope creep. The live dispatch declares its file set explicitly in the brief, so the new protocol is being applied, not just acknowledged. Three items sent. **(1) Durability slip** — the dispatch log stops at A4 while three slices have landed since; a log written retrospectively is a summary, and summaries are what this topology exists to distrust. Told to backfill before the next dispatch, not at batch end. **(2)** CI step still named "…if configured" after `--if-present` was removed — a name that now lies, and a step name is documentation someone reads before the run line. **(3) Handoff finding for B1, explicitly not to be fixed here:** the leader's own test records `LoginResponse` with a missing access token deserialising to null rather than being rejected. Pinning it is right; a hostile auth response deserialising "successfully" into a null token is a hazard for any consumer that does not null-check — but authentication is B1 scope, so it must be inherited, not chased. |
+| +77 min | Reaper: **SPINNING** (pid 768568, 353 s, cpu+=486 ticks, **bytes+=0**) — the reasoning-loop signature, first real firing of that classifier. Not killed: 127 s of its own ceiling remained, and killing on a 15 s sample turns a model that is thinking into a false positive. Reading the dispatch's argv surfaced something the reaper alone would not have: **this is the second attempt at the same slice.** The brief says the target file was "written by a previous pass that ran out of time" — so a first E2E dispatch already died on its timeout **inside the 10-minute blind spot**, and the leader caught it before I did. It re-dispatched correctly, narrowing the file set to exactly one path rather than extending the clock. Armed a `Monitor` on the pid instead of waiting for the next cycle, which would have arrived after the outcome was already decided. If this attempt also writes nothing, the slice needs a structural change — a third attempt at the same shape is the loop the protocol forbids. |
+| +82 min | Monitor fired: **second consecutive E2E dispatch ended having written zero bytes** (file unchanged at 13 499 bytes). Structural-change trigger met. **Diagnosed in three seconds with a build the leader never ran:** `PublishPullRunPushTests.cs(223,26) CS0718 — LocalApiApplication: static types cannot be used as type arguments`. The factory inherits `WebApplicationFactory<LocalApiApplication>` and that class is `public static`. The implementer was not weak; **the task was impossible as specified**, so it reasoned until the clock ran out, twice, doing exactly what it was asked. The general lesson sent to the leader: **when a dispatch returns nothing, build before re-dispatching — diagnosis is leader work.** A 3-second build would have saved two 7-minute timeouts. Also warned that the obvious fix, `WebApplicationFactory<Program>`, will hit an ambiguity: `Program` is declared in the **global** namespace by both `PlanCope.Local.Api/Program.cs` (pre-existing) and `PlanCope.Central.Api/Program.cs` (added this batch), and this test references both assemblies — flagged as predicted, not observed, since the build stopped at CS0718 first. Suggested a dedicated non-static marker per assembly, left the choice to the leader, and required it to re-dispatch **surgically** — naming the type and the line — because "finish this 296-line file" is a brief with no edges, which is why it produced nothing twice. |
+| +92 min | Reaper: no live dispatch. CS0718 fixed, **E2E compiles**. Ran the test myself rather than accepting a build-green report — **it fails**, in EF model validation, before the scenario executes: `AnswerKey.CorrectAnswer` is `jsonb` and the InMemory provider cannot map `JsonDocument`. **The important part is that this repo had already solved it**: `AuthControllerTests.cs:82-93` runs the very same `PlanCopeDbContext` on InMemory using `AddSingleton<IModelCustomizer, JsonDocumentFriendlyModelCustomizer>` on an internal service provider. The slice reinvented it with `ReplaceService<…>`, which reads equivalent and empirically is not. That is §6 rule 1 — never assume something does not exist — violated thirty lines away in a sibling test project, and it produced a **DRY defect too**: the customiser is now declared twice, privately, in two files. Instruction to the leader generalises it: when a slice needs infrastructure, name the existing file that already does it and tell the implementer to copy that pattern. Also drew a boundary — if the predicted HTTP-transport wall appears next, **stop and report**; binding a real socket between Local and Central in tests is an infrastructure decision reserved to the coordinator. |
+
+---
+
+## Session close — 2026-09-15
+
+Coordinator polling stopped (cron `864af999` deleted). The B0 leader terminal
+`term_644ee4dd-c98a-47af-8618-1a1054b7ca1d` is **still alive and still owns the batch** — it was
+not stopped, because killing in-flight work is the owner's call.
+
+**Committed and durable** on `feat/b0-foundations`: `bcfbf9a`, `9bc986e`, `f4c26bf` — plan tasks
+1, 2 and 3. Unit A survives a session restart.
+
+**Uncommitted in the working tree**, real work that would survive on disk but is unattributed:
+tasks 4 and 6 (the SyncCompat contract suite including `ContractToleranceTests.cs`, and the
+`ci-local-app.yml` no-op removal) plus the failing E2E scaffold. **First action on resume: commit
+tasks 4 and 6 as their own work units.** They are done and green; only task 5 is not.
+
+**Open, and not closeable by any agent here:**
+
+1. Task 1's migration has never run against a restored production snapshot — no Postgres is
+   reachable from this worktree. Needs whoever owns a snapshot environment.
+2. Task 5 fails. Fix is known and named above. If the predicted HTTP-transport wall follows,
+   it is an infrastructure decision for the coordinator, not the leader.
+3. `LoginResponse` with a missing access token deserialises to `null` rather than being
+   rejected — pinned by test, **carried to B1**, deliberately not fixed in B0.
+4. The CI step is still named "Test ClientApp (Vitest, if configured)" after `--if-present`
+   was removed.
+
+**Carried forward for B1:** `scripts/LEVEL3-DISPATCH-PROTOCOL.md` (fan out disjoint slices —
+three concurrent dispatches measured at 67 s wall against ~200 s serial) and
+`scripts/reap-stuck-opencode.sh`. Two lessons this batch paid for in full: **build before
+re-dispatching**, since two 7-minute timeouts were one compile error the leader never looked
+for; and **name the existing file** when a slice needs infrastructure, since a working solution
+thirty lines away in a sibling project was reinvented worse.
+
+---
+
+## Resumed — B0 is code-complete, verified by the coordinator
+
+Ran independently, not taken from the leader's report:
+
+- `dotnet test PlanCope.slnx` → **122 passed, 0 failed**, across all seven test assemblies,
+  including the E2E scenario (1/1) and SyncCompat at 46.
+- `dotnet build PlanCope.slnx -warnaserror` → **0 warnings, 0 errors**.
+- CI step renamed to "Test ClientApp (Vitest)" — the name no longer contradicts the run line.
+
+**Task 5 solved without crossing the boundary.** The leader confirmed the prediction that
+`WebApplicationFactory` never starts a real listener, and instead of building the real Kestrel
+binding it was not authorised to build, it pointed Local's two named HTTP clients at Central's
+in-memory TestServer handler. No socket, no port, no production code touched — and it escalated
+rather than deciding.
+
+**The duplication was worse than reported, and the fix changed direction because of it.** The
+leader offered the two `JsonDocumentFriendlyModelCustomizer` copies as "different internal
+approach, same rule". Reading both shows they are **not equivalent**: the E2E copy sets the
+converter through the fluent builder because — per its own comment — the convention-level API
+does not survive model finalisation once `HasColumnType("jsonb")` is configured on the property.
+The Central copy uses exactly that convention-level path, and passes today only because nothing
+in `AuthControllerTests` exercises a jsonb property hard enough to expose it.
+
+So one copy is **latently broken**, which is worse than two identical copies: it will look fine
+until someone adds a jsonb-backed assertion to the Central suite, and then fail for a reason
+nobody connects to this. Authorised: one shared source file carrying the **fluent-builder**
+implementation, linked into both csprojs via `<Compile Include>`. No new project — that is the
+limit of what was approved.
+
+**Remaining to close B0:** commit tasks 4, 5 and 6 as work units (still untracked), then the
+unification as a separate commit, re-verifying Central stays at 30/30.
+
+**Still not closeable by any agent:** task 1's production-snapshot verification.
+
+---
+
+# B0 CLOSED — merged to `main` as `c36ae67`
+
+Verified by the coordinator, not from the leader's report: **122 tests pass across all seven
+assemblies** (E2E 1/1, SyncCompat 46, Central 30, Local 26), and
+`dotnet build PlanCope.slnx -warnaserror` is **0 warnings, 0 errors** on the merged tree.
+
+Six work-unit commits, conventional, no AI attribution: `bcfbf9a` Central unique CUE ·
+`9bc986e` Local schools table · `f4c26bf` CUE-on-write + ensure-schools-row · `23f6765`
+SyncCompat contract suite · `e84853e` E2E publish-pull-run-push · `217442f` CI no-op removal ·
+`dab2ad1` shared model customiser · `2f592c2` briefs and dispatch log.
+
+**One item deliberately left open, and no agent here can close it:** task 1's migration has never
+run against a restored production snapshot — no Postgres is reachable from these worktrees. It
+needs whoever owns a snapshot environment.
+
+---
+
+# Parallel wave launched — B1 ‖ B3 ‖ B8
+
+The largest concurrent set §4 allows after B0. §4 forbids B1‖B2, B3‖B4 and B5‖B2, so these three
+are the ceiling, not a choice.
+
+| Batch | Worktree | Terminal |
+|---|---|---|
+| B1 · activation keys | `b1-activation-keys` | `term_ebf7c8c4-25c5-4af8-a587-1205a6d5b80d` |
+| B3 · grading engine | `b3-grading-engine` | `term_ab81b55d-a40a-4d59-82ad-41920f0d28c3` |
+| B8 · performance | `b8-performance` | `term_9c2e7b10-439a-493e-b822-e5a14272d530` |
+
+All three rebased onto `c36ae67`, Sonnet 5 confirmed from the rendered banner (not from the send
+receipt — a receipt proves delivery, never that anything received it). Review cycle back to
+**5 minutes** (`2be45a20`).
+
+**Their mandates ship with B0's lessons already in them**, so nothing is re-learned at cost:
+fan out disjoint slices in waves rather than one at a time; build before re-dispatching, because
+two 7-minute timeouts in B0 were one compile error nobody looked for; name the existing file when
+a slice needs infrastructure; a green build is not a green test; and duplication where one copy
+differs subtly is worse than two identical copies.
+
+**What only the coordinator can watch:** B1, B3 and B8 are supposed to touch disjoint trees. If
+two of them start editing the same file, that is a plan-level collision, not a leader error.
+
+## Wave review log
+
+| Cycle | Finding |
+|---|---|
+| wave +9 min | Reaper: **four healthy dispatches, zero stuck** — B1 ×1, **B8 ×3 concurrent**. The fan-out protocol worked on first use: B8 ran three simultaneous slices where B0 would have run them one after another. B1's wave file is named `w0-b…`, so it is waving too. No commits yet in any worktree; expected this early. **B3 spent 135 k tokens and 8 min on a read-only fork survey before its first dispatch.** Judged legitimate, not drift: it produced ground truth with file:line citations, confirmed `scoringPolicy` exists nowhere yet before designing against §2.7, and is now writing **two disjoint** Wave 1 briefs. Correcting thoroughness here would repeat the mistake I avoided in B0 cycle 2. Sent a cost note instead — one upfront fork, never one per wave, since a fork inherits full parent context. Gates restated per batch: B3 owns the grading single-source (§7 determinism proven by **shared** golden files, and a formula implemented once per side fails the batch even if both sides pass) and the no-implicit-grading rule (**a sensible-looking default policy is the failure mode, not a missing one**). B1 received the inherited B0 finding — `LoginResponse` with a missing access token deserialises to null — with the instruction to decide explicitly rather than silently inherit it, plus the two-level revocation distinction and the reminder that its DTOs are a published surface B2 consumes. |
+
+**Caveat on the reaper, noted honestly:** `write_bytes` counts *all* process I/O, including opencode's own session DB — so rising bytes proves the process is alive and working, not that it is writing to the worktree. It still separates a spinning model (zero bytes) from a working one; it does not prove code was produced. `git status` remains the only proof of that.
+| wave +19 min | **The reaper cried wolf, and fixing it was this cycle's real work.** It reported two B3 dispatches as SPINNING at 86 s. The numbers contradicted the verdict: one had `cpu+=13` ticks across a 15 s window — about 0.9 % of a core, a process blocked on the model API, not one looping. A real reasoning loop pins a core. Fifty-five seconds later that same pid read **healthy with 2.3 MB written**. It was a false positive, and acting on it would have told a working leader its slice was dead and to throw the output away. **A classifier that cries wolf is worse than no classifier**, because the correction it triggers is destructive. Fixed: `starting` below 150 s, `waiting` under 100 CPU ticks per sample, SPINNING only for hard CPU burn past the young window. Validated on the live processes, documented in the protocol, committed. No leader was told anything based on the bad reading. Batch state: **B1** — its first wave burned the timeout exploring and wrote nothing, and the leader diagnosed that itself, pre-resolved the EF conventions and re-dispatched sharpened rather than extending the clock; that is lessons 1 and 2 applied without being told. **B3** — two concurrent slices, fanning out. **B8** — first artefact on disk, `Argon2idBenchmarkTests.cs`. No cross-batch file collision. |
+| wave +29 min | Reaper: **ten concurrent dispatches** — B8 ×7, B3 ×2, B1 ×1. Three SPINNING (B3 831531 at 372 s with 108 s left; B8 839490 and 839498 at 203 s with 277 s each), none killed — their own clocks have room, and the classifier fix from last cycle means these are hard-CPU readings, not the young/idle false positives it used to emit. **No cross-batch file collision**: B1 is in Central sync/activation, B3 in Shared contracts and exams, B8 in Local ClientApp and build config. Noted as a future collision point, not a problem now — B1 rewrites `PlanCopeDbContextModelSnapshot.cs`, the single generated file every Central migration touches, so any later batch adding a Central migration (B6) will conflict there. **B8 made two infrastructure calls reserved to the coordinator; I verified both independently and approved them.** (1) It deleted the nested `ClientApp/package-lock.json` — the root `package.json` does declare `workspaces` including that path, so a nested lockfile drifts from the root one and defeats `npm ci` determinism. Correct layout, not a shortcut. (2) It removed seven dependencies and `WorkspaceModeTabs.tsx`; I grepped the ClientApp source for each rather than trusting the claim — **zero imports, zero references, all of them**. `zod` especially warranted the check: a runtime validator that is actually used fails at runtime, not at build. **One decision returned to B8 as mine:** its bundle-budget gate fails CI at a flat 300 000 bytes. The script is good, but **a budget pinned near today's size breaks on the first legitimate feature, and then someone under deadline deletes the gate instead of thinking — a budget everyone routes around is worse than no budget.** Instructed to measure `dist/` after the optimisations land and record both the number and the chosen headroom, so a future failure reads as "you regressed" rather than "the budget was always too tight". |
+| wave +39 min | Reaper: 2 live in B3 (one healthy 4.2 MB, one SPINNING at 153 s with 327 s left, not killed). **B1 and B8 each landed their first work-unit commit** — `5096c6e` activation key schema and issuance service (~700 hand-written lines plus a generated Designer), `9981d20` low-end reference profile and performance budgets. §7 **PII gate verified intact**: B3 edits `SyncController.cs` but at the DTO projection near line 316, nowhere near the scrub at 250-281. §2.7 **verified, not assumed**: `ScoringPolicy` is inside `ExamPackageChecksum` line 28, so the policy rides in the exam document and enters the publication checksum — an exam cannot change its scoring rule after students sat it. Two findings sent to B3. (1) `string? ScoringPolicy` is declared on three DTOs and **nothing anywhere throws, rejects or requires it** — read as engine work still ahead, but the nullable type is how implicit grading arrives by accident; told to make null a loud named failure, never a fallback, because **a wrong mark is invisible in a way a crash is not**. (2) **Version skew, visible only to the coordinator because it spans two batches**: B0 pinned that unknown fields are ignored and missing fields become null, and `ScoringPolicy` is additive — so an un-updated Local client silently drops it and lands on null. Either the engine defaults (grading with a policy nobody assigned) or it rejects (a school that cannot grade, offline, with no way to fix it). Told B3 to decide deliberately and record why; my read is that rejecting wins because **a school that cannot grade raises a support call and a school that grades wrong does not** — and that this makes the Local-side version gate part of B3 rather than a surprise B5 inherits. |
+| wave +49 min | Reaper: 2 live in B1 (one healthy, one `starting` — the classifier fix correctly holding fire instead of crying wolf). **B8 is at five commits and a clean tree**, and its work verified well under scrutiny: its sqlite pragma tuning touches the same file as B0's FK enforcement, so I checked — **`PRAGMA foreign_keys=ON` is preserved**; silently dropping it would have disabled every foreign key B0 added, with no test failing. Its commit message also states that B4's rollup indexes stay blocked until B4 lands, *no speculative indexes for queries that don't exist yet* — KISS rule 9 applied unprompted. Its polling backoff (3 s → 30 s) resets to 3 s the moment progress changes and on visibility change, so a teacher watching a live exam does not sit on stale data; that was the failure mode worth checking and it is handled. **B1**: one commit, clean. **B3: eighteen modified files and zero commits** — the durability pattern that nearly cost us B0. Told to commit before the next dispatch, split into the three stories its tree already contains, because **B3 is the batch whose judgement calls are invisible in the diff**: nobody later can reconstruct from `string? ScoringPolicy` why it is nullable or what was decided about version skew. Also flagged that it is editing B0's contract pins in `PublishPullRunPushTests` and `ExamsContractTests` — legitimate, since it changed the contract, but it must be deliberate and named in the commit message: **a pin quietly edited to match new behaviour is a pin that no longer pins anything.** And told it to run `dotnet test PlanCope.slnx`, not just its own project, since it touched Shared contracts every side consumes. |
+
+**Added to every review cycle after the B3 fork incident:** read the terminal's thread indicator.
+`●` marks the ACTIVE thread; if it sits on `fork` doing anything other than reading, the leader
+has stopped leading. Second signal, cheaper: a missing `_briefs/B<n>-PROGRESS.md` while siblings
+have theirs means there is no dispatch log, and it cannot be reconstructed afterwards.
+
+| Cycle | Finding |
+|---|---|
+| wave +59 min | Reaper: 3 healthy, none stuck. **The new thread-indicator check earned itself immediately.** B1 and B8 are single-threaded and clean. **B3's fork is still active** at 197.7 k tokens with my stop order sitting `1 queued` behind its turn — the correction has not landed yet. B1's own transcript shows the discipline I want quoted back: *"Confirmo disjunción de archivos antes de despachar la wave"*, *"Sin colisiones de escritura reales"*, *"rc=0. Reviso el diff antes de confiar en el reporte."* B8 wrote its PROGRESS file and checked its own commits for AI attribution unprompted. **Because B3's level-2 review is compromised, I reviewed its three commits myself.** Two of my three worries cleared, and I told B3 so plainly: the contract-pin edits are purely **additive** — every change adds `AssertHasProperty(root, "scoringPolicy")` and removes no assertion, so the pin followed the contract and gained coverage; and all grading logic is inside `PlanCope.Shared.Grading` with the resolver ending in a `throw`, not a default arm — my earlier grep missed that throw and I said so. **The finding that survived is the dangerous one:** `AllOrNothing = 0` is the enum's **zero value**, so `default(ScoringPolicy)` is a *valid, silently-passing* policy the resolver's throw can never catch. The string→enum boundary does not exist yet (no `Enum.TryParse` for it anywhere), so nothing rejects null. Combined with the version skew from last cycle: an un-updated Local client drops the additive field, gets null, converts, and grades every multi-select all-or-nothing — **a student who answered three of four options correctly scores zero, with no exception, no log and no failing test.** Recommended `Unspecified = 0` with the real policies shifted up, so the default becomes unrepresentable and the existing throw catches it for free: **defaults you cannot express are stronger than rules you must remember.** |
+| wave +69 min | Reaper: B1 has one `waiting` and one SPINNING (302 s of clock left, not killed). **The fork correction landed in full**: B3's fork is closed, the main thread is back, `_briefs/B3-PROGRESS.md` exists, and it committed `e388658 docs(b3): record wave 1 dispatch history and reject-not-default decision`. Its own words — *"The research fork actually went ahead and executed the full B3 mandate"* — are the honest reporting this chain depends on; it stated the drift rather than smoothing it. **B3 declined my enum recommendation and was right to.** I proposed `Unspecified = 0`; it kept `AllOrNothing = 0` and made the type nullable end to end instead — `ExamVersion.DeclaredScoringPolicy` is `ScoringPolicy?`, `GradingEngine` takes `ScoringPolicy?`, and `overridePolicy ?? Declared…` feeds a throw of `UngradableExamException`. Same guarantee via the type system rather than a sentinel member, with less surface — no fake enum value every switch must remember. Verified by reading the files. **The risk moved rather than vanished:** the DTOs still carry `string? ScoringPolicy` and there is still no string→enum conversion anywhere. When it is written, `Enum.TryParse` **sets its out parameter to `default(TEnum)` on failure** — so ignoring the bool silently yields `AllOrNothing` for a null, empty, misspelled or unknown policy, the nullable engine never sees a null, `UngradableExamException` never fires, and the §7 gate is breached one layer below where B3 defended it. Required: failure must produce `null`, never the out parameter, plus a test covering absent / empty / unknown asserting the exception in all three — which is also where the recorded version-skew decision gets **proven rather than merely documented**. B8 at six commits, B1 at one plus five dirty; both single-threaded and clean. |
+| wave +79 min | Reaper: one healthy dispatch in B3; B1 and B8 quiet. All three **single-threaded** — the fork is gone and has not returned. **B1 landed `f241db5` and cleared the §2.8 revocation gate properly**, verified by reading the handler rather than the commit message: `POST keys/{id}/revoke` and `POST nodes/{id}/revoke` are separate routes on separate resources, so **the URL itself prevents the confusion** — an admin cannot revoke a machine when they meant a key. `RevokeKey` carries the semantic in code, not just documentation: *"Revoking a key stops future enrolments through it; nodes already enrolled keep working untouched."* Idempotent, authorised, `NotFound`/`Forbid` handled. Its rate limiter also **fails closed** — *"No usable client IP means no rate limiting is possible; refuse instead of bypassing"* — which is the opposite of the usual reflex and the right call on a bearer-secret endpoint. **Outstanding and now chased a second time:** the inherited B0 finding (`LoginResponse` missing access token → null) appears **nowhere** in `B1-PROGRESS.md`. It was raised at the start of this wave precisely so it would not be silently inherited, and it still is. Told B1 that *"we did not get to it" is an acceptable answer written down and not an acceptable answer left unwritten.* **Question raised, not an accusation:** `ActivationRateLimitMiddleware` counts in `IMemoryCache`, which is per-process — if Central ever runs multiple instances the effective limit multiplies by instance count, weakening the guard exactly where it matters, someone brute-forcing a bearer secret across 1 440 schools. Asked B1 to state the topology in PROGRESS rather than add a distributed cache on its own initiative, since that is an infrastructure decision reserved to the coordinator. B8 steady at seven commits, clean. |
+
+---
+
+## Pushed, and the "test against real" gap is now half closed
+
+23 local commits were sitting unpushed. Two obstacles, both worth recording:
+
+- The active `gh` account (`serialgeronimo`) has **no push permission** on this repo; the
+  owning account (`GeronimoSerial`) was inactive. Switched — note this changes the active
+  account **globally**, for every repo on this machine, and `gh auth switch` reverses it.
+- `main` is protected and requires the `ci` status check, so nothing merges without CI. That
+  is the constraint working, not an obstacle.
+
+Four branches pushed; **B0 is PR #19**.
+
+### The gap, named precisely
+
+Only `ci-containers.yml` ever stood up a Postgres. `ci-central-api.yml` ran `dotnet test`
+against InMemory and nothing else — so B0's migration had **no environment anywhere**, local
+or CI, in which it could run against a real Postgres. That is why task 1 stayed open.
+
+Added a `central-migrations` job: a real `postgres:16-alpine` service, `dotnet ef database
+update` applying every migration from empty, then a rollback to the previous migration and
+forward again.
+
+**What it proves:** the migrations are valid Postgres, they apply in order, and each `Down()`
+genuinely reverses its `Up()` — a broken rollback now fails in CI instead of during an
+incident.
+
+**What it cannot prove, and no CI job can:** that production *data* survives them.
+`core.schools.Cue` going unique is the live example — an empty database has no duplicate CUEs
+to find. **That still needs a restored production snapshot and an owner with access to one.**
+The job closes the structural half of task 1 and leaves the data half honestly open.
+
+### Standing rule now in force for every leader
+
+Push after every work-unit commit, not at batch end — the worktree and terminal are mortal,
+origin is not, and pushing is what makes CI run. And a green local suite is not a pass: it
+proves the code works against the substitutes the leader chose. Anything that cannot be
+verified for real here must be named in PROGRESS, together with what the substitution cannot
+prove. When CI disagrees with a local run, **that difference is the finding**.
+| wave +89 min | **All three leaders acted on the push-and-verify rule, and two of them exceeded it.** Everything is pushed; zero unpushed commits anywhere. **B3 out-reviewed me on my own finding.** I warned that `Enum.TryParse` sets its out parameter to `default(TEnum)` on failure. Its `ScoringPolicyParser` handles that — and found two hazards I never mentioned, either of which would have defeated *my* version of the fix: `TryParse` **accepts numeric strings**, so `"0"` returns true as `AllOrNothing`, and it accepts comma-separated flags lists. Its answer — match the trimmed input against canonical member names case-insensitively *before* trusting any parsed value — closes all three. **B1 answered both owed decisions structurally rather than by compliance**: it declines to touch `LoginResponse` (out of its boundary) but made every property on its own `ActivationRedeemResponse`/`ActivationRefreshResponse` `required`, so **it cannot inherit the defect by construction** — and it escalated `LoginResponse` upward rather than letting it default to nobody's. **B8 committed `docs(b8): name what local verification does not prove`.** **The new CI job failed on its first run, and the failure was MINE, not a migration defect:** `PlanCope.Central.Migrations` references `PlanCope.Central.Api`, not the reverse, so `--startup-project Central.Api` cannot load the migrations assembly. I had invented an EF invocation instead of checking the project references — **the exact "name the existing mechanism, do not reinvent it" lesson I had given B3 one cycle earlier.** Reproduced locally, fixed, pushed, with the reason left in the workflow so nobody re-adds the flag. |
+| wave +99 min | All three leaders single-threaded, clean, everything pushed. **B8 opened PR #20 itself and refused to call the batch done while a check was pending** — *"local-app already passed, 3m4s, real CI, not my local run"*. **Verdict given: B8 is CODE-COMPLETE and does NOT close.** Four of its five acceptance criteria say *on the reference profile* — cold start, 100-question render, idle CPU, Argon2id on real hardware — and none can be produced here. Its own notes say so, including that the win-x64 WinForms + WebView2 target **cannot build in this environment at all**, so the ClientApp work is verified as web assets and never inside the shipping host. **A performance batch whose numbers come from a 16-core dev machine has not measured a 2-core machine with a 5400 rpm disk — it has measured a different computer.** It merges anyway (the plan requires B8 before B9) with the verification debt travelling at the top of its PR, naming the hardware needed. **`central-migrations` failed a second time, and again the fault was mine.** I could not get CI logs mid-run, so I stood up `postgres:16-alpine` locally and reproduced it: the job set `ConnectionStrings__CentralDatabase`, which is what the **running app** reads — but `dotnet ef` uses `PlanCopeDbContextFactory`, a design-time factory that reads **`PLANCOPE_CENTRAL_DB`** and otherwise falls through to a hardcoded `localhost:5432`. Two variables for two contexts; I used the runtime one for the tooling. **That is twice in one cycle I reinvented instead of reading what the repo already had** — the same lesson I handed B3. Fixed, and **verified locally against a real Postgres before pushing**: all five migrations apply from empty, and `MakeSchoolsCueUnique` reverts and re-applies cleanly. **That is B0 task 1's "migration is reversible, rollback rehearsed" criterion actually proven for the first time** — the duplicate-CUE data question still needs a production snapshot. |
+| wave +109 min | **`central-migrations` PASSES.** Migrations apply to a real Postgres from empty and the rollback rehearsal succeeds in CI — B0 task 1's *"migration is reversible, rollback rehearsed"* criterion is now proven in the only environment that decides merges. The duplicate-CUE data question still needs a production snapshot. **B3's parser tests are the best in this wave**: all five cases I named, plus whitespace-only, plus one I did not think to ask for — `Every_string_the_parser_rejects_leaves_the_engine_unable_to_grade_a_multiple_choice_block`, which proves the parser's `null` actually reaches `UngradableExamException`. **That is the difference between testing a unit and testing an invariant.** **And underneath them, a hole that made the best of them invisible:** B3 created `tests/PlanCope.Shared.Grading.Tests`, it is in `PlanCope.slnx`, and it appears in **no workflow**. These pipelines enumerate projects by hand; they do not discover them. So those tests pass locally and never run where merging is decided — the exact gap the owner told us to close, in the greenest batch of the three. Told B3 to wire it into `ci-central-api.yml` and to check `ci.yml`'s path filters, since **a job that never triggers is the same hole one level up**. Its new test project is retroactively authorised — the plan mandates `PlanCope.Shared.Grading`, so its tests have nowhere else to live — but it must be recorded as a decision, not pass unremarked. **Audited all seven test projects on `main`: every one is covered.** So this is not pre-existing rot — it is a CI design that **fails open**, where any new test project is silently unrun. Closed it structurally with `scripts/check-test-projects-in-ci.sh`, wired into the always-running `changes` job: CI now fails when a test project exists on disk that no workflow runs. Same principle as the enum: **a default you cannot express beats a rule you must remember.** |
+| wave +119 min | No live dispatches — **all three batches are in PR review**. #19 B0, #20 B8, #21 B1. **B8 ACCEPTED: PR #20 is fully green, eight of eight checks on real CI.** Its PR description is the best artefact of this wave: it opens *"CODE-COMPLETE, NOT VERIFIED — do not read as done"*, marks each of the five criteria PROVEN or NOT PROVEN with the reason, and names the hardware needed to close the four that are not. **A reviewer cannot skim it and come away believing the batch is finished** — which is where most honest reporting fails, by burying the caveat below the accomplishment. It also answered the budget question better than I asked it: 350 000 against a measured 250 159, with the reasoning that a gate pinned near today's size *"is the first thing deleted under deadline pressure"*. **Project-level constraint recorded, bigger than B8:** the win-x64 WinForms + WebView2 Host **cannot build in this environment at all**, so everything about the shipping desktop application is unverified here **by construction, not by omission** — that silently limits every batch touching Local, not just B8. **Merge order set:** #19 first (B0 is the root and both other branches sit on it), then #20 (the plan requires B8 before B9 so E2E measures the optimised build), then #21. I am also holding my own coordination commits off the B0 branch — every push restarts its CI and I was blocking the queue I am trying to drain. B3 has 11 dirty files, wiring its test project into CI. |

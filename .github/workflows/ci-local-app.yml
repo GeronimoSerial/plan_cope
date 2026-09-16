@@ -42,7 +42,7 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
-      - name: Test ClientApp (Vitest, if configured)
-        run: npm run test --workspace plancope-local-host-ui --if-present
+      - name: Test ClientApp (Vitest)
+        run: npm run test --workspace plancope-local-host-ui
       - name: Build ClientApp
         run: npm run build --workspace plancope-local-host-ui

@@ -1,8 +1,6 @@
-using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using PlanCope.Central.Api.Auth;
@@ -10,6 +8,7 @@ using PlanCope.Central.Api.Controllers;
 using PlanCope.Central.Api.Data;
 using PlanCope.Shared.Contracts.Auth;
 using PlanCope.Shared.Domain.Central;
+using PlanCope.TestSupport;
 using Xunit;
 
 namespace PlanCope.Central.Api.Tests;
@@ -127,40 +126,5 @@ public sealed class AuthControllerTests
     private static string NewId()
     {
         return Guid.NewGuid().ToString("N");
-    }
-
-    private sealed class JsonDocumentFriendlyModelCustomizer : ModelCustomizer
-    {
-        public JsonDocumentFriendlyModelCustomizer(ModelCustomizerDependencies dependencies) : base(dependencies)
-        {
-        }
-
-        public override void Customize(ModelBuilder modelBuilder, DbContext context)
-        {
-            base.Customize(modelBuilder, context);
-
-            foreach (var entityType in modelBuilder.Model.GetEntityTypes())
-            {
-                foreach (var property in entityType.GetProperties())
-                {
-                    if (property.ClrType == typeof(JsonDocument))
-                    {
-                        property.SetValueConverter(JsonDocumentConverter.Instance);
-                    }
-                }
-            }
-        }
-    }
-
-    private sealed class JsonDocumentConverter : ValueConverter<JsonDocument, string>
-    {
-        public static readonly JsonDocumentConverter Instance = new();
-
-        private JsonDocumentConverter()
-            : base(
-                static document => document.RootElement.GetRawText(),
-                static raw => JsonDocument.Parse(raw))
-        {
-        }
     }
 }

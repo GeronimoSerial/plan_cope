@@ -31,3 +31,6 @@ secrets/
 
 # Exception: synthetic fixtures with fictional data, used by roster-crypto tests.
 !tools/PlanCope.RosterCrypto/Fixtures/*.roster.json
+
+# CodeGraph index (per-checkout, never shared)
+.codegraph/

@@ -95,7 +95,7 @@ public sealed class SchoolConfiguration : IEntityTypeConfiguration<School>
         builder.Property(static x => x.Code).HasMaxLength(64).IsRequired();
         builder.Property(static x => x.Name).HasMaxLength(256).IsRequired();
         builder.Property(static x => x.Status).HasMaxLength(32).IsRequired();
-        builder.HasIndex(static x => x.Cue);
+        builder.HasIndex(static x => x.Cue).IsUnique();
         builder.HasIndex(static x => x.LocalityId);
     }
 }
