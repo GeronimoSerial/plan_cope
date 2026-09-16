@@ -15,6 +15,28 @@ export type HostContextMessage = {
   context: HostContext;
 };
 
+export type UpdateStatusState =
+  | "idle"
+  | "notConfigured"
+  | "checking"
+  | "upToDate"
+  | "downloading"
+  | "integrityFailed"
+  | "readyPendingSessionClose"
+  | "readyToApply"
+  | "error";
+
+export type UpdateStatus = {
+  state: UpdateStatusState;
+  targetVersion?: string;
+  message?: string;
+};
+
+export type UpdateStatusMessage = {
+  type: "host:updateStatus";
+  status: UpdateStatus;
+};
+
 export type NativeBridge = {
   postMessage: (message: unknown) => void;
 };

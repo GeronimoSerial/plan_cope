@@ -4,10 +4,13 @@ using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using PlanCope.Local.Api;
+using PlanCope.Local.Api.Data.Repositories;
 using PlanCope.Local.Host.Services;
+using PlanCope.Shared.Domain.Local;
 using Microsoft.Data.Sqlite;
 
 namespace PlanCope.Local.Host;
@@ -33,15 +36,27 @@ public partial class MainForm : Form
     private int _localPort = PreferredLocalPort;
     private bool _phaseAComplete;
     private readonly HttpClient _localHttp = new();
+    private readonly HttpClient _centralHttp = new();
     private readonly DataDirectoryResolver _directories;
     private readonly ActivationKeyStore _activationKeyStore;
+    private readonly UpdateHealthTracker _healthTracker;
 
-    public MainForm(DataDirectoryResolver directories, ActivationKeyStore activationKeyStore)
+    private UpdateService? _updateService;
+    private string? _updateChannel;
+    private string? _updateAccessToken;
+    private string _updateState = "idle";
+    private string? _updateTargetVersion;
+    private string? _updateMessage;
+    private readonly System.Windows.Forms.Timer _sessionGateTimer = new() { Interval = 30000, Enabled = false };
+
+    public MainForm(DataDirectoryResolver directories, ActivationKeyStore activationKeyStore, UpdateHealthTracker healthTracker)
     {
         _directories = directories;
         _activationKeyStore = activationKeyStore;
+        _healthTracker = healthTracker;
         InitializeComponent();
         Controls.Add(_loadingLabel);
+        _sessionGateTimer.Tick += (_, _) => _ = EvaluateSessionGateAsync();
     }
 
     private async void MainForm_Shown(object? sender, EventArgs e)
@@ -88,6 +103,24 @@ public partial class MainForm : Form
             ]));
         await _api.StartAsync();
         await RefreshPhaseAStatusAsync();
+        InitializeUpdateService();
+    }
+
+    private void InitializeUpdateService()
+    {
+        var feedUrl = Environment.GetEnvironmentVariable("PLANCOPE_UPDATE_FEED_URL");
+        if (string.IsNullOrWhiteSpace(feedUrl))
+        {
+            return;
+        }
+
+        var channelName = Environment.GetEnvironmentVariable("PLANCOPE_UPDATE_CHANNEL") is { } c && !string.IsNullOrWhiteSpace(c)
+            ? c
+            : "stable";
+        var channel = channelName.Equals("beta", StringComparison.OrdinalIgnoreCase) ? UpdateChannel.Beta : UpdateChannel.Stable;
+        var backend = new VelopackUpdateBackend(feedUrl, channelName, () => _updateAccessToken);
+        _updateService = new UpdateService(backend, channel);
+        _updateChannel = channelName;
     }
 
     private async Task RefreshPhaseAStatusAsync()
@@ -126,6 +159,13 @@ public partial class MainForm : Form
         }
 
         PostHostContext();
+
+        var version = GetInstalledAppVersion();
+        if (version is not null)
+        {
+            _healthTracker.MarkHealthy(version);
+            _ = ReportHealthAsync(version, healthy: true, detail: null);
+        }
     }
 
     private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
@@ -150,6 +190,12 @@ public partial class MainForm : Form
             case "host:activationComplete":
                 _ = OnActivationCompleteAsync(message.Passphrase);
                 break;
+            case "host:checkForUpdates":
+                _ = HandleCheckForUpdatesAsync();
+                break;
+            case "host:confirmRestart":
+                _ = HandleConfirmRestartAsync();
+                break;
         }
     }
 
@@ -169,11 +215,253 @@ public partial class MainForm : Form
                 lanBaseUrl = _lanBaseUrl,
                 operatorName = Environment.UserName,
                 port = _localPort,
-                isActivated = _phaseAComplete
+                isActivated = _phaseAComplete,
+                appVersion = GetInstalledAppVersion(),
+                updateChannel = _updateChannel
             }
         };
 
         _webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, JsonOptions));
+    }
+
+    private void PushUpdateStatus()
+    {
+        if (_webView.CoreWebView2 is null)
+        {
+            return;
+        }
+
+        var payload = new
+        {
+            type = "host:updateStatus",
+            status = new
+            {
+                state = _updateState,
+                targetVersion = _updateTargetVersion,
+                message = _updateMessage
+            }
+        };
+
+        _webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, JsonOptions));
+    }
+
+    internal static string? GetInstalledAppVersion()
+        => Velopack.Locators.VelopackLocator.IsCurrentSet
+            ? Velopack.Locators.VelopackLocator.Current.CurrentlyInstalledVersion?.ToString()
+            : null;
+
+    private async Task HandleCheckForUpdatesAsync()
+    {
+        if (_updateService is null)
+        {
+            _updateState = "notConfigured";
+            _updateTargetVersion = null;
+            _updateMessage = null;
+            PushUpdateStatus();
+            return;
+        }
+
+        try
+        {
+            _updateState = "checking";
+            _updateTargetVersion = null;
+            _updateMessage = null;
+            PushUpdateStatus();
+
+            // Read the node access token once for this check+download sequence. Velopack's
+            // downloader invokes the Func<string?> provider on every HTTP request; re-reading
+            // the persisted token from SQLite there would block a background thread repeatedly
+            // for no benefit within one short-lived check+download. Deliberate tradeoff.
+            _updateAccessToken = ReadCentralAccessToken();
+
+            var result = await _updateService.CheckForUpdatesAsync();
+            if (!result.UpdateAvailable)
+            {
+                _updateState = "upToDate";
+                PushUpdateStatus();
+                return;
+            }
+
+            _updateState = "downloading";
+            _updateTargetVersion = result.TargetVersion;
+            PushUpdateStatus();
+
+            await _updateService.DownloadUpdateAsync(result.Sha256 ?? string.Empty);
+            if (_updateService.LastDownloadIntegrityFailed)
+            {
+                _updateState = "integrityFailed";
+                _updateMessage = "La actualizacion no paso la verificacion SHA-256.";
+                PushUpdateStatus();
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(result.TargetVersion) &&
+                !string.IsNullOrEmpty(result.Sha256) &&
+                !string.IsNullOrEmpty(result.FileName))
+            {
+                _healthTracker.MarkPendingRestart(
+                    result.TargetVersion,
+                    result.FileName,
+                    result.Sha256,
+                    Environment.GetEnvironmentVariable("PLANCOPE_UPDATE_FEED_URL") ?? string.Empty);
+            }
+
+            await EvaluateSessionGateAsync();
+        }
+        catch (Exception exception)
+        {
+            _updateState = "error";
+            _updateMessage = exception.Message;
+            PushUpdateStatus();
+        }
+    }
+
+    private async Task HandleConfirmRestartAsync()
+    {
+        if (_updateService is null)
+        {
+            _updateState = "notConfigured";
+            _updateTargetVersion = null;
+            _updateMessage = null;
+            PushUpdateStatus();
+            return;
+        }
+
+        // Re-check the gate now: a session may have started since the confirm control appeared.
+        if (await HasActiveSessionAsync())
+        {
+            _updateState = "readyPendingSessionClose";
+            _updateMessage = null;
+            PushUpdateStatus();
+            StartSessionGatePolling();
+            return;
+        }
+
+        if (!_updateService.TryApplyAndRestart(userConfirmedRestart: true))
+        {
+            _updateState = "error";
+            _updateMessage = "No se pudo aplicar la actualizacion.";
+            PushUpdateStatus();
+        }
+    }
+
+    private async Task EvaluateSessionGateAsync()
+    {
+        if (await HasActiveSessionAsync())
+        {
+            _updateState = "readyPendingSessionClose";
+            _updateMessage = null;
+            PushUpdateStatus();
+            StartSessionGatePolling();
+            return;
+        }
+
+        _updateState = "readyToApply";
+        _updateMessage = null;
+        PushUpdateStatus();
+        StopSessionGatePolling();
+    }
+
+    private void StartSessionGatePolling()
+    {
+        if (!_sessionGateTimer.Enabled)
+        {
+            _sessionGateTimer.Start();
+        }
+    }
+
+    private void StopSessionGatePolling()
+    {
+        if (_sessionGateTimer.Enabled)
+        {
+            _sessionGateTimer.Stop();
+        }
+    }
+
+    private async Task<bool> HasActiveSessionAsync()
+    {
+        try
+        {
+            using var response = await _localHttp.GetAsync($"http://127.0.0.1:{_localPort}/api/sessions/active");
+            response.EnsureSuccessStatusCode();
+            var sessions = await JsonSerializer.DeserializeAsync<List<LocalDeliverySession>>(response.Content.ReadAsStream(), JsonOptions);
+            return sessions is { Count: > 0 };
+        }
+        catch
+        {
+            // Fail safe: when the session state cannot be determined, assume a session is
+            // active so an update is never applied during a possibly-running exam.
+            return true;
+        }
+    }
+
+    private string? ReadCentralAccessToken()
+    {
+        if (_api is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            using var scope = _api.Services.CreateScope();
+            var repository = scope.ServiceProvider.GetService<ISyncStateRepository>();
+            var state = repository?.GetAsync("central_access_token").GetAwaiter().GetResult();
+            if (string.IsNullOrWhiteSpace(state?.ValueJson))
+            {
+                return null;
+            }
+
+            using var document = JsonDocument.Parse(state.ValueJson);
+            return document.RootElement.ValueKind is JsonValueKind.String
+                ? document.RootElement.GetString()
+                : document.RootElement.GetRawText();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Reports launch health to Central as fire-and-forget telemetry so a bad release is visible
+    /// before it reaches the whole fleet. Never throws into the caller and never blocks anything:
+    /// a failed report is silently dropped. Returns immediately when no feed is configured —
+    /// there is nothing to report to. The feed URL is the same <c>PLANCOPE_UPDATE_FEED_URL</c>
+    /// <see cref="InitializeUpdateService"/> reads; Central exposes the endpoint at
+    /// <c>{feedUrl}/health</c>.
+    /// </summary>
+    private async Task ReportHealthAsync(string version, bool healthy, string? detail)
+    {
+        var feedUrl = Environment.GetEnvironmentVariable("PLANCOPE_UPDATE_FEED_URL");
+        if (string.IsNullOrWhiteSpace(feedUrl))
+        {
+            return;
+        }
+
+        try
+        {
+            var token = ReadCentralAccessToken();
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{feedUrl.TrimEnd('/')}/health")
+            {
+                Content = new StringContent(
+                    JsonSerializer.Serialize(new { version, healthy, detail }, JsonOptions),
+                    System.Text.Encoding.UTF8,
+                    "application/json")
+            };
+
+            if (!string.IsNullOrWhiteSpace(token))
+            {
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            }
+
+            using var response = await _centralHttp.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+        }
+        catch
+        {
+            // Fire-and-forget: never surface a failed health report.
+        }
     }
 
     private void SendStoredPassphrase()

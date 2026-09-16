@@ -41,11 +41,12 @@ public static class LocalDataServiceCollectionExtensions
         services.AddScoped<INodeIdentityRepository, NodeIdentityRepository>();
         services.AddScoped<NodeCredentialRefresher>();
         services.AddTransient<CentralCredentialHandler>();
-        services.AddHttpClient(nameof(LocalExamPullService)).AddHttpMessageHandler<CentralCredentialHandler>();
-        services.AddHttpClient(nameof(LocalRosterPullService)).AddHttpMessageHandler<CentralCredentialHandler>();
-        services.AddHttpClient(nameof(LocalOutboxPushService)).AddHttpMessageHandler<CentralCredentialHandler>();
+        services.AddHttpClient(nameof(LocalExamPullService)).AddHttpMessageHandler<CentralCredentialHandler>().AddSyncResilience();
+        services.AddHttpClient(nameof(LocalRosterPullService)).AddHttpMessageHandler<CentralCredentialHandler>().AddSyncResilience();
+        services.AddHttpClient(nameof(LocalOutboxPushService)).AddHttpMessageHandler<CentralCredentialHandler>().AddSyncResilience();
         services.AddHttpClient(nameof(NodeCredentialRefresher));
         services.AddHttpClient(nameof(EnrolmentEndpoints)).AddHttpMessageHandler<CentralCredentialHandler>();
+        services.AddHttpClient(nameof(SyncBackgroundService), client => client.Timeout = TimeSpan.FromSeconds(5));
         services.AddScoped<ILocalUserRepository, LocalUserRepository>();
         services.AddScoped<ILocalExamRepository, LocalExamRepository>();
         services.AddScoped<ISessionRepository, SessionRepository>();
@@ -56,6 +57,7 @@ public static class LocalDataServiceCollectionExtensions
         services.AddScoped<ISyncStateRepository, SyncStateRepository>();
         services.AddScoped<RevocationEnforcer>();
         services.AddHostedService<RevocationEnforcementHostedService>();
+        services.AddHostedService<SyncBackgroundService>();
 
 
         return services;

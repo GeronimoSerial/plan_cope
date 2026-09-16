@@ -66,6 +66,11 @@ public sealed class LocalExamPullService(
         }
 
         await UpsertStateStringAsync("last_exam_pull_cursor", pull.NextCursor, cancellationToken);
+        await syncStateRepository.UpsertAsync(new SyncState(
+            Guid.NewGuid().ToString("N"),
+            "last_pull_at",
+            JsonSerializer.Serialize(DateTimeOffset.UtcNow, JsonOptions),
+            DateTimeOffset.UtcNow.ToString("O")), cancellationToken);
         return new LocalExamPullResult(true, imported, pull.NextCursor, null);
     }
 
