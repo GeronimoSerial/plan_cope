@@ -51,7 +51,10 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16-alpine
+        # postgres:17-alpine — matches deploy/compose.ci.yml and compose.dev.yml. Verifying
+        # migrations against a different major version than the project runs is verifying a
+        # different database: constraint and index behaviour differs across majors.
+        image: postgres:17-alpine
         env:
           POSTGRES_USER: plancope
           POSTGRES_PASSWORD: ci-only-password
