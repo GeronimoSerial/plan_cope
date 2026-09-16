@@ -53,6 +53,8 @@ public static class LocalDataServiceCollectionExtensions
         services.AddScoped<IAttemptRepository, AttemptRepository>();
         services.AddScoped<IOutboxRepository, OutboxRepository>();
         services.AddScoped<ISyncStateRepository, SyncStateRepository>();
+        services.AddScoped<RevocationEnforcer>();
+        services.AddHostedService<RevocationEnforcementHostedService>();
 
         DefaultTypeMap.MatchNamesWithUnderscores = true;
 
