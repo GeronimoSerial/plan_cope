@@ -1,0 +1,115 @@
+name: Deploy Production
+
+# Manual on purpose.
+#
+# Production is several migrations behind main, so the first run of this
+# workflow applies a batch of schema changes at once. That is a decision a
+# person makes with their eyes open, not something a merge does on its way past.
+#
+# Order matters and is not negotiable: migrate BEFORE the API restarts. The API
+# has no migrate-on-boot; if the new image starts against the old schema it
+# serves errors against columns that do not exist yet.
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (latest, or sha-<commit> to roll back)"
+        required: true
+        default: "latest"
+      skip_migrations:
+        description: "Skip migrations (only when you have already applied them)"
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  API_UUID: tasgykkawfya2239x17un90k
+  WEB_UUID: p7td4mjenfdnhcbjlszfkgzs
+  API_HEALTH: https://api.plancope.sistemas.mec.gob.ar/health/ready
+  WEB_HEALTH: https://plancope.sistemas.mec.gob.ar/login
+
+jobs:
+  deploy:
+    name: deploy
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Record the state we are deploying over
+        run: |
+          echo "Deploying tag: ${{ inputs.image_tag }}"
+          echo "API health before:"
+          curl -sS -o /dev/null -w '  %{http_code}\n' "$API_HEALTH" || true
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Apply migrations
+        if: ${{ !inputs.skip_migrations }}
+        env:
+          # NOTE: this connection string must use `SSL Mode=Require`, not
+          # `VerifyCA`. The API container mounts a Huawei RDS CA at
+          # /etc/ssl/certs/huawei-rds-ca.pem; the migrate image does not have
+          # it, so VerifyCA fails here with a certificate error that looks
+          # nothing like a TLS problem.
+          CONN: ${{ secrets.PLANCOPE_PROD_DB }}
+        run: |
+          if [ -z "$CONN" ]; then
+            echo "::error::PLANCOPE_PROD_DB is not set. Refusing to deploy a new API image over an unmigrated schema."
+            exit 1
+          fi
+          docker run --rm \
+            -e ConnectionStrings__CentralDatabase="$CONN" \
+            "ghcr.io/${{ github.repository_owner }}/plan-cope-central-migrate:${{ inputs.image_tag }}"
+
+      - name: Redeploy API
+        env:
+          TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+        run: |
+          code=$(curl -sS -o /tmp/api.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            "https://coolify.sistemas.mec.gob.ar/api/v1/deploy?uuid=$API_UUID&force=false")
+          cat /tmp/api.json; echo
+          [ "$code" = "200" ] || { echo "::error::Coolify returned $code for the API"; exit 1; }
+
+      - name: Redeploy Web
+        env:
+          TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+        run: |
+          code=$(curl -sS -o /tmp/web.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            "https://coolify.sistemas.mec.gob.ar/api/v1/deploy?uuid=$WEB_UUID&force=false")
+          cat /tmp/web.json; echo
+          [ "$code" = "200" ] || { echo "::error::Coolify returned $code for the Web"; exit 1; }
+
+      - name: Verify the deploy actually landed
+        run: |
+          # A queued deploy returns 200 immediately, so the API call succeeding
+          # proves nothing about the running app. Poll the real health routes.
+          ok=0
+          for i in $(seq 1 40); do
+            sleep 15
+            api=$(curl -sS -o /dev/null -w '%{http_code}' "$API_HEALTH" || echo 000)
+            web=$(curl -sS -o /dev/null -w '%{http_code}' "$WEB_HEALTH" || echo 000)
+            echo "attempt $i: api=$api web=$web"
+            if [ "$api" = "200" ] && [ "$web" = "200" ]; then ok=1; break; fi
+          done
+          if [ "$ok" != "1" ]; then
+            echo "::error::Health checks never came back green. Production may be down — check Coolify logs."
+            exit 1
+          fi
+          echo "### Deployed \`${{ inputs.image_tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "API and Web both answering 200." >> "$GITHUB_STEP_SUMMARY"
