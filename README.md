@@ -218,6 +218,18 @@ offline-attack headroom is not worth giving up. Re-measure on a real school
 box only to confirm the operator experience; do not treat a slower field
 number as grounds to weaken parameters without owner sign-off.
 
+### Two-phase activation
+
+Activation is split into two phases with separate failure modes. **Phase A** is offline: the
+operator's passphrase derives a key via Argon2id that unlocks the encrypted roster through a
+DPAPI-protected local secret — a school can complete this and run exam sessions with the
+network cable unplugged. **Phase B** is online: the node presents an activation key plus its
+hardware fingerprint to Central and receives a revocable node credential (short-lived access
+token plus refresh token). Revocation is drain-then-lock: a revoked node keeps working until
+its active exam session ends, pushes every pending outbox item to Central, and only then wipes
+its local roster and credentials and locks pending re-activation — it never loses data
+mid-session and never discards unsynced work. See [Activation passphrase](docs/activation-passphrase.md) for the full model.
+
 ---
 
 ## Technology stack
