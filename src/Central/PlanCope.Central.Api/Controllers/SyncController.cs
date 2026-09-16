@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -9,6 +10,8 @@ using PlanCope.Shared.Contracts.Exams;
 using PlanCope.Shared.Contracts.Sync;
 using PlanCope.Shared.Domain.Central;
 using PlanCope.Shared.Domain.Local;
+using PlanCope.Shared.Grading;
+using GradingExamVersion = PlanCope.Shared.Grading.ExamVersion;
 
 namespace PlanCope.Central.Api.Controllers;
 
@@ -18,6 +21,11 @@ namespace PlanCope.Central.Api.Controllers;
 public sealed class SyncController(PlanCopeDbContext dbContext) : ControllerBase
 {
     private static readonly JsonSerializerOptions SyncJsonOptions = new(JsonSerializerDefaults.Web);
+
+    private static readonly JsonSerializerOptions BlocksJsonOptions = new()
+    {
+        Converters = { new JsonStringEnumConverter() }
+    };
 
     [HttpGet("pull")]
     public async Task<ActionResult<PullResponse>> Pull([FromQuery] string nodeId, [FromQuery] string? cursor, [FromQuery] int limit = 50, CancellationToken cancellationToken = default)
@@ -174,7 +182,6 @@ public sealed class SyncController(PlanCopeDbContext dbContext) : ControllerBase
         }
     }
 
-#pragma warning disable CS1998
     private async Task AddAttemptAsync(PushItem item, JsonElement payload, CancellationToken cancellationToken)
     {
         if (!payload.TryGetProperty("attempt", out var attemptElement))
@@ -194,8 +201,9 @@ public sealed class SyncController(PlanCopeDbContext dbContext) : ControllerBase
         DateTimeOffset? submittedAt = ParseOptionalDate(attempt.SubmittedAt);
         DateTimeOffset? verifiedAt = ParseOptionalDate(attempt.VerifiedAt);
         var receivedAt = DateTimeOffset.UtcNow;
+        var receivedAttemptId = Guid.NewGuid().ToString("N");
         dbContext.ReceivedStudentAttempts.Add(new ReceivedStudentAttempt(
-            Guid.NewGuid().ToString("N"),
+            receivedAttemptId,
             attempt.Id,
             attempt.DeliverySessionId,
             attempt.StudentCode,
@@ -215,29 +223,126 @@ public sealed class SyncController(PlanCopeDbContext dbContext) : ControllerBase
             attempt.VerificationSource,
             verifiedAt));
 
-        if (!payload.TryGetProperty("answers", out var answersElement) || answersElement.ValueKind != JsonValueKind.Array)
+        var receivedAnswers = new List<ReceivedSubmissionAnswer>();
+        if (payload.TryGetProperty("answers", out var answersElement) && answersElement.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var answerElement in answersElement.EnumerateArray())
+            {
+                var answer = answerElement.Deserialize<SubmissionAnswer>(SyncJsonOptions)
+                    ?? throw new JsonException("The answer payload is invalid.");
+                if (string.IsNullOrWhiteSpace(answer.BlockId))
+                {
+                    throw new JsonException("An answer is missing its block id.");
+                }
+
+                var receivedAnswer = new ReceivedSubmissionAnswer(
+                    Guid.NewGuid().ToString("N"),
+                    attempt.Id,
+                    answer.BlockId,
+                    JsonDocument.Parse(answer.AnswerJson),
+                    receivedAt);
+                dbContext.ReceivedSubmissionAnswers.Add(receivedAnswer);
+                receivedAnswers.Add(receivedAnswer);
+            }
+        }
+
+        var examVersionRemoteId = ReadOptionalString(payload, "examVersionRemoteId");
+        if (examVersionRemoteId is not null)
+        {
+            await RecomputeGradeAsync(receivedAttemptId, examVersionRemoteId, receivedAnswers, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Independently recomputes the attempt grade from Central's own exam definition and adds a
+    /// <see cref="CentralAttemptResult"/> to the same change-set as the attempt itself. An unknown
+    /// <paramref name="examVersionRemoteId"/> is treated exactly like an absent one: no grade, no
+    /// row, no failed push — Central never guesses a policy or fabricates a grade.
+    /// </summary>
+    private async Task RecomputeGradeAsync(
+        string receivedAttemptId,
+        string examVersionRemoteId,
+        IReadOnlyList<ReceivedSubmissionAnswer> answers,
+        CancellationToken cancellationToken)
+    {
+        var examVersion = await dbContext.ExamVersions
+            .SingleOrDefaultAsync(x => x.Id == examVersionRemoteId, cancellationToken);
+        if (examVersion is null)
         {
             return;
         }
 
-        foreach (var answerElement in answersElement.EnumerateArray())
+        var blocks = await dbContext.ExamBlocks
+            .Where(x => x.ExamVersionId == examVersion.Id)
+            .OrderBy(x => x.OrderIndex)
+            .ToListAsync(cancellationToken);
+        var blockIds = blocks.Select(static x => x.Id).ToList();
+        var answerKeys = await dbContext.AnswerKeys
+            .Where(x => blockIds.Contains(x.ExamBlockId))
+            .ToListAsync(cancellationToken);
+        var answerKeyByBlockId = answerKeys.ToDictionary(static x => x.ExamBlockId);
+
+        var gradableBlocks = new List<GradableBlock>(blocks.Count);
+        foreach (var block in blocks)
         {
-            var answer = answerElement.Deserialize<SubmissionAnswer>(SyncJsonOptions)
-                ?? throw new JsonException("The answer payload is invalid.");
-            if (string.IsNullOrWhiteSpace(answer.BlockId))
+            var answerKey = answerKeyByBlockId.TryGetValue(block.Id, out var key) ? key : null;
+            gradableBlocks.Add(GradingJsonMapper.MapBlock(
+                block.Id,
+                block.BlockType,
+                answerKey?.ScoreValue,
+                answerKey is null ? null : ToJsonElement(answerKey.CorrectAnswer)));
+        }
+
+        var blocksById = blocks.ToDictionary(static x => x.Id);
+        var submitted = new Dictionary<string, SubmittedAnswer>();
+        foreach (var received in answers)
+        {
+            if (!blocksById.TryGetValue(received.BlockId, out var block))
             {
-                throw new JsonException("An answer is missing its block id.");
+                continue;
             }
 
-            dbContext.ReceivedSubmissionAnswers.Add(new ReceivedSubmissionAnswer(
+            var mapped = GradingJsonMapper.MapSubmittedAnswer(block.BlockType, received.Answer.RootElement);
+            if (mapped is not null)
+            {
+                submitted[received.BlockId] = mapped;
+            }
+        }
+
+        try
+        {
+            var result = new GradingEngine().Grade(new GradingExamVersion
+            {
+                ExamVersionId = examVersion.Id,
+                DeclaredScoringPolicy = ScoringPolicyParser.Parse(examVersion.ScoringPolicy),
+                Blocks = gradableBlocks
+            }, submitted);
+
+            dbContext.CentralAttemptResults.Add(new CentralAttemptResult(
                 Guid.NewGuid().ToString("N"),
-                attempt.Id,
-                answer.BlockId,
-                JsonDocument.Parse(answer.AnswerJson),
-                receivedAt));
+                receivedAttemptId,
+                result.GradingSchemaVersion,
+                result.ScoringPolicy?.ToString(),
+                "graded",
+                result.Score,
+                result.ScoreMax,
+                JsonDocument.Parse(JsonSerializer.Serialize(result.Blocks, BlocksJsonOptions)),
+                DateTimeOffset.UtcNow));
+        }
+        catch (UngradableExamException)
+        {
+            dbContext.CentralAttemptResults.Add(new CentralAttemptResult(
+                Guid.NewGuid().ToString("N"),
+                receivedAttemptId,
+                GradingSchemaVersion.Current,
+                null,
+                "ungradable",
+                null,
+                null,
+                null,
+                DateTimeOffset.UtcNow));
         }
     }
-#pragma warning restore CS1998
 
     private static DateTimeOffset? ParseOptionalDate(string? value) =>
         DateTimeOffset.TryParse(value, out var parsed) ? parsed : null;
