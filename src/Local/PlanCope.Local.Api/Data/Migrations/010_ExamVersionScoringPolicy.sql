@@ -1,0 +1,1 @@
+ALTER TABLE local_exam_versions ADD COLUMN scoring_policy TEXT NULL;

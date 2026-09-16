@@ -28,6 +28,7 @@ public sealed class ExamVersionConfiguration : IEntityTypeConfiguration<ExamVers
         builder.Property(static x => x.ExamId).HasMaxLength(64).IsRequired();
         builder.Property(static x => x.Status).HasMaxLength(32).IsRequired();
         builder.Property(static x => x.Metadata).HasColumnType("jsonb");
+        builder.Property(static x => x.ScoringPolicy).HasMaxLength(64);
         builder.HasIndex(static x => new { x.ExamId, x.VersionNumber }).IsUnique();
     }
 }

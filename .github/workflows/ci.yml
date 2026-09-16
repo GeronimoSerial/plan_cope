@@ -35,6 +35,7 @@ jobs:
             shared:
               - 'src/Shared/**'
               - 'tests/PlanCope.Shared.Tests/**'
+              - 'tests/PlanCope.Shared.Grading.Tests/**'
               - 'tests/PlanCope.SyncCompat.Tests/**'
               - 'tools/PlanCope.RosterCrypto/**'
               - 'tools/PlanCope.RosterCrypto.Tests/**'

@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using PlanCope.Central.Api.Data;
+using PlanCope.Central.Api.Services;
 using PlanCope.Shared.Contracts.Exams;
 using PlanCope.Shared.Domain.Central;
 
@@ -116,7 +117,8 @@ public sealed class ExamsController(
             null,
             null,
             now,
-            now);
+            now,
+            request.ScoringPolicy);
 
         var validation = await versionValidator.ValidateAsync(version, cancellationToken);
         if (!validation.IsValid)
@@ -348,21 +350,14 @@ public sealed class ExamsController(
 
         var targets = BuildTargets(request, exam);
         var publishedAssets = assets.Select(ToPublishedDto).ToList();
-        var checksumPayload = JsonSerializer.Serialize(new
-        {
-            ExamId = exam.Id,
-            exam.Code,
-            exam.Title,
-            VersionId = version.Id,
-            version.VersionNumber,
-            version.SchemaVersion,
-            Metadata = ToJsonElement(version.Metadata),
-            Blocks = blocks.Select(ToDto),
-            AnswerKeys = answerKeys.Select(ToDto),
-            Assets = publishedAssets,
-            Targets = targets
-        });
-        var checksum = HexSha256(Encoding.UTF8.GetBytes(checksumPayload));
+        var checksum = ExamPackageChecksum.Compute(
+            exam,
+            version,
+            blocks.Select(ToDto).ToList(),
+            answerKeys.Select(ToDto).ToList(),
+            publishedAssets,
+            targets,
+            ToJsonElement(version.Metadata));
         var now = DateTimeOffset.UtcNow;
         var package = new PublicationPackage(
             NewId(),
@@ -377,6 +372,7 @@ public sealed class ExamsController(
                 versionId = version.Id,
                 versionNumber = version.VersionNumber,
                 schemaVersion = version.SchemaVersion,
+                scoringPolicy = version.ScoringPolicy,
                 targets
             })),
             "Published",
@@ -483,7 +479,7 @@ public sealed class ExamsController(
         dbContext.AnswerKeys.AddRange(newAnswerKeys);
 
         var metadata = request.Metadata.HasValue ? ToJsonDocument(request.Metadata.Value) : version.Metadata;
-        var updatedVersion = version with { Metadata = metadata, UpdatedAt = now };
+        var updatedVersion = version with { Metadata = metadata, UpdatedAt = now, ScoringPolicy = request.ScoringPolicy ?? version.ScoringPolicy };
         dbContext.Entry(version).CurrentValues.SetValues(updatedVersion);
 
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -507,7 +503,8 @@ public sealed class ExamsController(
             ToJsonElement(version.Metadata),
             blocks.Select(ToDto).ToList(),
             answerKeys.Select(ToDto).ToList(),
-            assets.Select(ToDto).ToList());
+            assets.Select(ToDto).ToList(),
+            version.ScoringPolicy);
     }
 
     private static BlockDto ToDto(ExamBlock block)
