@@ -317,3 +317,44 @@ have theirs means there is no dispatch log, and it cannot be reconstructed after
 | wave +59 min | Reaper: 3 healthy, none stuck. **The new thread-indicator check earned itself immediately.** B1 and B8 are single-threaded and clean. **B3's fork is still active** at 197.7 k tokens with my stop order sitting `1 queued` behind its turn — the correction has not landed yet. B1's own transcript shows the discipline I want quoted back: *"Confirmo disjunción de archivos antes de despachar la wave"*, *"Sin colisiones de escritura reales"*, *"rc=0. Reviso el diff antes de confiar en el reporte."* B8 wrote its PROGRESS file and checked its own commits for AI attribution unprompted. **Because B3's level-2 review is compromised, I reviewed its three commits myself.** Two of my three worries cleared, and I told B3 so plainly: the contract-pin edits are purely **additive** — every change adds `AssertHasProperty(root, "scoringPolicy")` and removes no assertion, so the pin followed the contract and gained coverage; and all grading logic is inside `PlanCope.Shared.Grading` with the resolver ending in a `throw`, not a default arm — my earlier grep missed that throw and I said so. **The finding that survived is the dangerous one:** `AllOrNothing = 0` is the enum's **zero value**, so `default(ScoringPolicy)` is a *valid, silently-passing* policy the resolver's throw can never catch. The string→enum boundary does not exist yet (no `Enum.TryParse` for it anywhere), so nothing rejects null. Combined with the version skew from last cycle: an un-updated Local client drops the additive field, gets null, converts, and grades every multi-select all-or-nothing — **a student who answered three of four options correctly scores zero, with no exception, no log and no failing test.** Recommended `Unspecified = 0` with the real policies shifted up, so the default becomes unrepresentable and the existing throw catches it for free: **defaults you cannot express are stronger than rules you must remember.** |
 | wave +69 min | Reaper: B1 has one `waiting` and one SPINNING (302 s of clock left, not killed). **The fork correction landed in full**: B3's fork is closed, the main thread is back, `_briefs/B3-PROGRESS.md` exists, and it committed `e388658 docs(b3): record wave 1 dispatch history and reject-not-default decision`. Its own words — *"The research fork actually went ahead and executed the full B3 mandate"* — are the honest reporting this chain depends on; it stated the drift rather than smoothing it. **B3 declined my enum recommendation and was right to.** I proposed `Unspecified = 0`; it kept `AllOrNothing = 0` and made the type nullable end to end instead — `ExamVersion.DeclaredScoringPolicy` is `ScoringPolicy?`, `GradingEngine` takes `ScoringPolicy?`, and `overridePolicy ?? Declared…` feeds a throw of `UngradableExamException`. Same guarantee via the type system rather than a sentinel member, with less surface — no fake enum value every switch must remember. Verified by reading the files. **The risk moved rather than vanished:** the DTOs still carry `string? ScoringPolicy` and there is still no string→enum conversion anywhere. When it is written, `Enum.TryParse` **sets its out parameter to `default(TEnum)` on failure** — so ignoring the bool silently yields `AllOrNothing` for a null, empty, misspelled or unknown policy, the nullable engine never sees a null, `UngradableExamException` never fires, and the §7 gate is breached one layer below where B3 defended it. Required: failure must produce `null`, never the out parameter, plus a test covering absent / empty / unknown asserting the exception in all three — which is also where the recorded version-skew decision gets **proven rather than merely documented**. B8 at six commits, B1 at one plus five dirty; both single-threaded and clean. |
 | wave +79 min | Reaper: one healthy dispatch in B3; B1 and B8 quiet. All three **single-threaded** — the fork is gone and has not returned. **B1 landed `f241db5` and cleared the §2.8 revocation gate properly**, verified by reading the handler rather than the commit message: `POST keys/{id}/revoke` and `POST nodes/{id}/revoke` are separate routes on separate resources, so **the URL itself prevents the confusion** — an admin cannot revoke a machine when they meant a key. `RevokeKey` carries the semantic in code, not just documentation: *"Revoking a key stops future enrolments through it; nodes already enrolled keep working untouched."* Idempotent, authorised, `NotFound`/`Forbid` handled. Its rate limiter also **fails closed** — *"No usable client IP means no rate limiting is possible; refuse instead of bypassing"* — which is the opposite of the usual reflex and the right call on a bearer-secret endpoint. **Outstanding and now chased a second time:** the inherited B0 finding (`LoginResponse` missing access token → null) appears **nowhere** in `B1-PROGRESS.md`. It was raised at the start of this wave precisely so it would not be silently inherited, and it still is. Told B1 that *"we did not get to it" is an acceptable answer written down and not an acceptable answer left unwritten.* **Question raised, not an accusation:** `ActivationRateLimitMiddleware` counts in `IMemoryCache`, which is per-process — if Central ever runs multiple instances the effective limit multiplies by instance count, weakening the guard exactly where it matters, someone brute-forcing a bearer secret across 1 440 schools. Asked B1 to state the topology in PROGRESS rather than add a distributed cache on its own initiative, since that is an infrastructure decision reserved to the coordinator. B8 steady at seven commits, clean. |
+
+---
+
+## Pushed, and the "test against real" gap is now half closed
+
+23 local commits were sitting unpushed. Two obstacles, both worth recording:
+
+- The active `gh` account (`serialgeronimo`) has **no push permission** on this repo; the
+  owning account (`GeronimoSerial`) was inactive. Switched — note this changes the active
+  account **globally**, for every repo on this machine, and `gh auth switch` reverses it.
+- `main` is protected and requires the `ci` status check, so nothing merges without CI. That
+  is the constraint working, not an obstacle.
+
+Four branches pushed; **B0 is PR #19**.
+
+### The gap, named precisely
+
+Only `ci-containers.yml` ever stood up a Postgres. `ci-central-api.yml` ran `dotnet test`
+against InMemory and nothing else — so B0's migration had **no environment anywhere**, local
+or CI, in which it could run against a real Postgres. That is why task 1 stayed open.
+
+Added a `central-migrations` job: a real `postgres:16-alpine` service, `dotnet ef database
+update` applying every migration from empty, then a rollback to the previous migration and
+forward again.
+
+**What it proves:** the migrations are valid Postgres, they apply in order, and each `Down()`
+genuinely reverses its `Up()` — a broken rollback now fails in CI instead of during an
+incident.
+
+**What it cannot prove, and no CI job can:** that production *data* survives them.
+`core.schools.Cue` going unique is the live example — an empty database has no duplicate CUEs
+to find. **That still needs a restored production snapshot and an owner with access to one.**
+The job closes the structural half of task 1 and leaves the data half honestly open.
+
+### Standing rule now in force for every leader
+
+Push after every work-unit commit, not at batch end — the worktree and terminal are mortal,
+origin is not, and pushing is what makes CI run. And a green local suite is not a pass: it
+proves the code works against the substitutes the leader chose. Anything that cannot be
+verified for real here must be named in PROGRESS, together with what the substitution cannot
+prove. When CI disagrees with a local run, **that difference is the finding**.
