@@ -1066,8 +1066,21 @@ batch report. CI bundle-size budget.
    (zero JS coverage).
 6. Update `README.md` and `docs/` to match the delivered system, including the resolution
    of the decision-1 contradiction (1.3) and the two-phase activation model (2.2).
+7. **Harden `LoginResponse` — assigned here by the coordinator, 2026-09-15.** A
+   `LoginResponse` whose access token is *missing* deserialises to `null` rather than being
+   rejected; `UnmappedMemberHandling` is configured nowhere, so `System.Text.Json` tolerates
+   the shape. B0 pinned the behaviour with
+   `ContractToleranceTests.LoginResponse_missing_access_token_becomes_null` rather than
+   changing it, and B1 declined it as out of scope — correctly, since B1 defines its own node
+   credential contracts and made every property `required`, so it cannot inherit the defect.
+   The hazard: a malformed or hostile auth response deserialises *successfully* into a null
+   token, and any consumer that does not null-check proceeds as though authentication
+   happened. It lands in B9 because user authentication is already-shipped surface that no
+   batch owns as new work, and B9 is where shipped surface is hardened. If B9 tightens it,
+   the pinning test changes deliberately and the change is named in the commit message —
+   a pin quietly edited to match new behaviour is a pin that no longer pins anything.
 
-**Parallelisation.** Tasks 1–3 (UX) in parallel with 4–5 (tests). Task 6 last.
+**Parallelisation.** Tasks 1–3 (UX) in parallel with 4–5 (tests) and 7. Task 6 last.
 
 **Acceptance criteria.**
 - The DNI miss path shows no error styling, no alarming copy, and no name. Verified by a
