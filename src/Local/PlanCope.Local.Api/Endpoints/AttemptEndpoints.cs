@@ -185,6 +185,7 @@ public static class AttemptEndpoints
             ISessionRepository sessionRepository,
             IAttemptRepository attemptRepository,
             ILocalExamRepository examRepository,
+            IStatsRollupRepository statsRollupRepository,
             CancellationToken cancellationToken) =>
         {
             var attempt = await attemptRepository.GetByIdAsync(attemptId, cancellationToken);
@@ -245,6 +246,8 @@ public static class AttemptEndpoints
             {
                 return Results.Conflict(new { error = "El intento ya fue enviado por otra operación." });
             }
+
+            await statsRollupRepository.UpsertForAttemptAsync(attemptId, cancellationToken);
 
             return Results.Ok(new SubmitAttemptResponse(attemptId, confirmationCode, submittedAt));
         });

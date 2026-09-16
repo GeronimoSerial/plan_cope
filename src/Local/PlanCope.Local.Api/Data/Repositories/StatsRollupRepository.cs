@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Dapper;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging;
 using PlanCope.Local.Api.Data;
 
 namespace PlanCope.Local.Api.Data.Repositories;
@@ -13,10 +14,12 @@ public sealed class StatsRollupRepository : IStatsRollupRepository
     private const string UnassignedCourse = "sin_asignar";
 
     private readonly ILocalSqliteConnectionFactory _connectionFactory;
+    private readonly ILogger<StatsRollupRepository> _logger;
 
-    public StatsRollupRepository(ILocalSqliteConnectionFactory connectionFactory)
+    public StatsRollupRepository(ILocalSqliteConnectionFactory connectionFactory, ILogger<StatsRollupRepository> logger)
     {
         _connectionFactory = connectionFactory;
+        _logger = logger;
     }
 
     public async Task UpsertForAttemptAsync(string studentAttemptId, CancellationToken cancellationToken = default)
@@ -145,6 +148,44 @@ public sealed class StatsRollupRepository : IStatsRollupRepository
                 },
                 cancellationToken: cancellationToken));
         }
+    }
+
+    public async Task SelfHealIfInconsistentAsync(CancellationToken cancellationToken = default)
+    {
+        using var connection = _connectionFactory.CreateOpenConnection();
+
+        const string gradedCountSql = @"
+            SELECT COUNT(*)
+            FROM student_attempts sa
+            JOIN delivery_sessions ds ON ds.id = sa.delivery_session_id
+            JOIN attempt_results ar
+                   ON ar.student_attempt_id = sa.id
+                  AND ar.grading_schema_version = (SELECT MAX(grading_schema_version)
+                                                   FROM attempt_results
+                                                  WHERE student_attempt_id = sa.id)
+            WHERE ds.school_year IS NOT NULL
+              AND ds.roster_section_id IS NOT NULL
+              AND ar.status = 'graded'
+              AND ar.blocks_json IS NOT NULL";
+
+        const string rollupTotalSql = "SELECT COALESCE(SUM(attempt_count), 0) FROM stats_rollups";
+
+        var gradedCount = await connection.ExecuteScalarAsync<long>(
+            new CommandDefinition(gradedCountSql, cancellationToken: cancellationToken));
+        var rollupTotal = await connection.ExecuteScalarAsync<long>(
+            new CommandDefinition(rollupTotalSql, cancellationToken: cancellationToken));
+
+        if (gradedCount == rollupTotal)
+        {
+            return;
+        }
+
+        _logger.LogWarning(
+            "Stats rollup drift detected on startup: {GradedCount} graded attempts vs {RollupTotal} counted in stats_rollups. Rebuilding.",
+            gradedCount,
+            rollupTotal);
+
+        await RebuildAllAsync(cancellationToken);
     }
 
     public async Task RebuildTupleAsync(string cue, string schoolYear, string course, string examVersionId, CancellationToken cancellationToken = default)

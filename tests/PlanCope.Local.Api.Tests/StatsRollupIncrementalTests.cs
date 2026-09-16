@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging.Abstractions;
 using PlanCope.Local.Api.Data;
 using PlanCope.Local.Api.Data.Repositories;
 using Xunit;
@@ -30,7 +31,7 @@ public sealed class StatsRollupIncrementalTests : IDisposable
 
         SeedAttempt("att_1", "ds_1", "S_001", localSequence: 1, score: 1.5, scoreMax: 5.0, blocksJson);
 
-        var repository = new StatsRollupRepository(new TestConnectionFactory(connectionString));
+        var repository = new StatsRollupRepository(new TestConnectionFactory(connectionString), NullLogger<StatsRollupRepository>.Instance);
         await repository.UpsertForAttemptAsync("att_1");
 
         Assert.Equal(1, Count("SELECT COUNT(*) FROM stats_rollups"));
@@ -64,7 +65,7 @@ public sealed class StatsRollupIncrementalTests : IDisposable
         SeedAttempt("att_1", "ds_1", "S_001", localSequence: 1, score: 1.0, scoreMax: 2.0, attemptABlocks);
         SeedAttempt("att_2", "ds_1", "S_002", localSequence: 2, score: 1.0, scoreMax: 2.0, attemptBBlocks);
 
-        var repository = new StatsRollupRepository(new TestConnectionFactory(connectionString));
+        var repository = new StatsRollupRepository(new TestConnectionFactory(connectionString), NullLogger<StatsRollupRepository>.Instance);
         await repository.UpsertForAttemptAsync("att_1");
         await repository.UpsertForAttemptAsync("att_2");
 
@@ -88,7 +89,7 @@ public sealed class StatsRollupIncrementalTests : IDisposable
         const string blocksJson = "[{\"BlockId\":\"b1\",\"Outcome\":\"Correct\",\"Score\":1.0,\"ScoreMax\":1.0}]";
         SeedAttempt("att_1", "ds_1", "S_001", localSequence: 1, score: 1.0, scoreMax: 1.0, blocksJson);
 
-        var repository = new StatsRollupRepository(new TestConnectionFactory(connectionString));
+        var repository = new StatsRollupRepository(new TestConnectionFactory(connectionString), NullLogger<StatsRollupRepository>.Instance);
         await repository.UpsertForAttemptAsync("att_1");
 
         Assert.Equal(0, Count("SELECT COUNT(*) FROM stats_rollups"));
@@ -102,7 +103,7 @@ public sealed class StatsRollupIncrementalTests : IDisposable
         const string blocksJson = "[{\"BlockId\":\"b1\",\"Outcome\":\"Correct\",\"Score\":1.0,\"ScoreMax\":1.0}]";
         SeedAttempt("att_1", "ds_1", "S_001", localSequence: 1, score: 1.0, scoreMax: 1.0, blocksJson);
 
-        var repository = new StatsRollupRepository(new TestConnectionFactory(connectionString));
+        var repository = new StatsRollupRepository(new TestConnectionFactory(connectionString), NullLogger<StatsRollupRepository>.Instance);
         await repository.UpsertForAttemptAsync("att_1");
 
         Assert.Equal(0, Count("SELECT COUNT(*) FROM stats_rollups"));
@@ -116,7 +117,7 @@ public sealed class StatsRollupIncrementalTests : IDisposable
         const string blocksJson = "[]";
         SeedAttempt("att_1", "ds_1", "S_001", localSequence: 1, score: 0.0, scoreMax: 0.0, blocksJson, status: "ungradable");
 
-        var repository = new StatsRollupRepository(new TestConnectionFactory(connectionString));
+        var repository = new StatsRollupRepository(new TestConnectionFactory(connectionString), NullLogger<StatsRollupRepository>.Instance);
         await repository.UpsertForAttemptAsync("att_1");
 
         Assert.Equal(0, Count("SELECT COUNT(*) FROM stats_rollups"));

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AppShell } from "./components/AppShell";
 import { SchoolGate } from "./components/SchoolGate";
 import { SessionsWorkspace } from "./components/SessionsWorkspace";
+import { StatsWorkspace } from "./components/StatsWorkspace";
 import { useDeliverySession } from "./hooks/useDeliverySession";
 import { useHostContext } from "./hooks/useHostContext";
 import { ActivationScreen, shouldShowActivation } from "./activation/ActivationScreen";
@@ -12,6 +13,7 @@ export function HostApp() {
   const delivery = useDeliverySession(hostContext);
   const [isSchoolConfirmed, setIsSchoolConfirmed] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
+  const [activeTab, setActiveTab] = useState<"sessions" | "stats">("sessions");
 
   useEffect(() => {
     let cancelled = false;
@@ -63,7 +65,31 @@ export function HostApp() {
 
   return (
     <AppShell status={delivery.status} apiBaseUrl={hostContext.apiBaseUrl}>
-      <SessionsWorkspace delivery={delivery} />
+      <div className="mode-tabs">
+        <button
+          type="button"
+          className={activeTab === "sessions" ? "mode-tab mode-tab-active" : "mode-tab"}
+          onClick={() => setActiveTab("sessions")}
+        >
+          Sesiones
+        </button>
+        <button
+          type="button"
+          className={activeTab === "stats" ? "mode-tab mode-tab-active" : "mode-tab"}
+          onClick={() => setActiveTab("stats")}
+        >
+          Estadísticas
+        </button>
+      </div>
+      {activeTab === "sessions" ? (
+        <SessionsWorkspace delivery={delivery} />
+      ) : (
+        <StatsWorkspace
+          apiBaseUrl={hostContext.apiBaseUrl}
+          cue={delivery.sessionForm.form.cue}
+          schoolYear={delivery.roster.snapshot?.schoolYear}
+        />
+      )}
     </AppShell>
   );
 }

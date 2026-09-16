@@ -77,3 +77,43 @@ Two limits worth stating plainly. `write_bytes` counts *all* process I/O, includ
 own session database, so rising bytes proves the process is alive and doing work, never that it
 wrote to the worktree — `git status` is the only proof of that. And a dispatch can start and die
 between two review cycles, so a clean reading never proves nothing was reaped.
+
+## Sizing a brief
+
+**A brief costs what its FILE COUNT costs, not what its word count costs.**
+
+Measured on B4: a 14,944-byte, 213-line brief naming **23 distinct files** produced 47 tool
+calls across 28 steps — 29 reads, 16 bash, 2 glob — and **zero writes** before the clock
+killed it. Every step finished with `reason: "tool-calls"`, so the model was working the
+entire time. It simply never finished understanding, because it was asked to hold 23 files
+in its head before it was allowed to produce a line.
+
+Target per dispatch: **1–3 files it may write, plus at most 2–3 it must read.** More than
+that is not a narrow slice, it is a plan wearing a brief's clothes.
+
+The tell is in the log: `grep -c '"tool":"read"'` far exceeding the number of files the slice
+is supposed to produce. A healthy dispatch reads a little and writes; a doomed one reads
+until the buzzer.
+
+**Resolve the questions before you write the brief.** The leader has already read those files
+in order to write the brief at all — putting the answers in, with exact table and column
+shapes, costs nothing and stops the implementer re-deriving what is already known. B3 saved a
+full round-trip this way by settling an id-space question itself and handing over a fact
+instead of a reading list.
+
+## Calibration: "not writing" is not "looping"
+
+The reaper's zero-bytes reading was originally labelled SPINNING and described as "the
+reasoning-loop signature". **Measurement does not support that confidence.** Across this
+session those readings resolved roughly half and half: some dispatches died having written
+nothing, and others — including one that had been flat for 245 s — wrote their whole output
+in a late burst once the model finished reasoning.
+
+So the reading is renamed `NOT-WRITING` and states its own ambiguity. **The action is
+unchanged and was always right: do not kill, arm a `Monitor` on the pid, let the dispatch's
+own `timeout` decide.** What changes is the interpretation a leader is given, because telling
+one "your slice is looping" when it is thinking produces exactly the destructive correction —
+re-dispatch, discard output — that the guard exists to avoid.
+
+A classifier that overstates its confidence is worse than one that admits a coin flip, because
+the confident version gets acted on.

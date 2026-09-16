@@ -7,9 +7,11 @@
 #
 #   escaped   - older than its own `timeout`, so SIGTERM was ignored or never sent.
 #               Nothing will ever stop it. Kill it.
-#   spinning  - inside its window, burning CPU, writing nothing. This is the reasoning
-#               loop. Report it; let the dispatch's own timeout do the killing unless
-#               it crosses the hard ceiling.
+#   not-writing - inside its window, burning CPU, writing nothing. AMBIGUOUS. Measured
+#               outcomes split roughly evenly between a stuck loop and a model still
+#               thinking that wrote everything in a late burst. Report it; never act on
+#               it alone. Let the dispatch's own timeout decide unless it crosses the
+#               hard ceiling.
 #
 # Exit 0 always: this is a probe, not a gate.
 
@@ -66,8 +68,10 @@ for pid in $pids; do
     # looping. A real reasoning loop pins a core.
     echo "waiting pid=$pid age=${age}s cpu+=${d_cpu} ticks bytes+=0 cwd=$cwd — near-idle, blocked on the API, not looping"
   elif (( d_cpu >= IDLE_TICKS && d_bytes == 0 )); then
-    echo "SPINNING pid=$pid age=${age}s cpu+=${d_cpu} ticks bytes+=0 cwd=$cwd"
-    echo "  Burning CPU hard, writing nothing over ${SAMPLE}s — the reasoning-loop signature."
+    echo "NOT-WRITING pid=$pid age=${age}s cpu+=${d_cpu} ticks bytes+=0 cwd=$cwd"
+    echo "  Burning CPU, writing nothing over ${SAMPLE}s. This is AMBIGUOUS, not a verdict:"
+    echo "  measured outcomes are roughly half a stuck loop and half a model that was still"
+    echo "  thinking and wrote everything in a late burst. Do not correct the leader on it."
     echo "  Its own timeout still has $(( CEILING - age ))s to run. Do not kill yet;"
     echo "  re-probe next cycle. Exit 0 from this family is not evidence of work."
   else
