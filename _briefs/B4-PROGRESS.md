@@ -66,7 +66,18 @@ exact attempt/score counts.
 | 3 | Full-rebuild command for recovery / post-re-grade reconciliation | **DONE** | Repository method existed already (prior session) and is reconciliation-tested. This session exposed it as `POST /api/stats/rebuild`, calling `RebuildAllAsync`. No auth, no request body — matches this codebase's existing endpoint style, none of which has auth today. |
 | 4 | Local endpoints `GET /api/stats/school`, `/course`, `/exam` | **DONE** | `src/Local/PlanCope.Local.Api/Endpoints/StatsEndpoints.cs`. All three take `cue` (required), `schoolYear` (optional), `course` (optional, `/school` and `/exam` only). `/exam` includes the per-block breakdown (correct/partial/incorrect/blank/ungradable, always distinct). |
 | 5 | Operator UI (per-course/per-exam breakdown, per-block difficulty, blank-vs-incorrect split) | **DONE** | `StatsWorkspace.tsx` in `PlanCope.Local.Host/ClientApp`, wired into `HostApp.tsx` behind a "Sesiones / Estadísticas" tab switcher (reused the already-defined-but-unused `.mode-tabs` CSS). Course table + per-exam `<details>` block tables. |
-| 6 | CSV export | **DONE** | `GET /api/stats/export.csv?cue=&schoolYear=` — course-level CSV (`course,attempt_count,average_score_percent`), suppressed cells render `cohorte insuficiente`. Scope note: this is course-level only, not the per-block breakdown — task 6's stated purpose is "hand results to a supervisor," which the course-level summary satisfies; the block-level detail stays in the JSON/UI surface. If a future batch needs block-level CSV, this is where to add it. |
+| 6 | CSV export | **DONE** | `GET /api/stats/export.csv?cue=&schoolYear=` — course-level CSV (`course,attempt_count,average_score_percent`), suppressed cells render `cohorte insuficiente`. **Decision: course-level only, deliberately, not a gap** — see below. |
+
+### Decision: CSV export stays course-level, not per-block — owner-confirmed
+
+The plan puts CSV export in B4 for one stated purpose: a school with no connectivity still has to
+hand results to a supervisor. A supervisor needs course and exam figures, not per-block
+difficulty — per-block breakdown is a teaching instrument for whoever wrote the exam, and that
+person already has it, on-screen in `StatsWorkspace.tsx` and in the raw JSON from `/api/stats/exam`.
+Adding it to the CSV would be building for a use case nobody has stated, which is exactly what
+KISS forbids. If a supervisor turns out to need it in spreadsheet form, that is a present-tense
+reason and the right time to add a second export route — not now, on spec. Recorded here so
+whoever reads this next treats it as a decision to challenge on evidence, not a gap to "finish."
 
 **Cohort suppression** (unchanged from prior session, now actually wired to real callers):
 `PlanCope.Shared.Domain.CohortSuppression` / `SuppressibleValue<T>`. Every stats endpoint calls
@@ -114,23 +125,24 @@ about a runtime type-materialization mismatch; only a test that runs the actual 
   `dotnet build PlanCope.slnx -warnaserror`: 0 warnings/errors (includes the `tsc && vite build`
   step for the host UI); `dotnet test tests/PlanCope.Local.Api.Tests`: 41/41 pass (up from 40).
   Pushed for CI to judge independently.
-- **The pre-existing CI-only failure named by the prior session**
-  (`ExamScoringPolicyPullTests.PullAsync_PersistsScoringPolicy_FromPublishedPackage`, a Dapper
-  `SyncState` materialization error) **is no longer reproducing on Linux either, in this
-  session's runs** — it failed once early in this session, then passed on every subsequent run
-  with no code change to that path. Contradicts the prior note that it "passes on Linux
-  (confirmed here)." Treat it as flaky rather than deterministic on either OS until someone
-  investigates further; it is unrelated to any file this session touched (`SyncStateRepository`/
-  `LocalExamPullService`, nowhere near stats).
+- **`ExamScoringPolicyPullTests.PullAsync_PersistsScoringPolicy_FromPublishedPackage` — RESOLVED,
+  not flaky.** This session initially misjudged its intermittent failure as flakiness. Actual
+  root cause, confirmed by the coordinator: it was order-dependent — `Dapper.DefaultTypeMap
+  .MatchNamesWithUnderscores` was being set inside DI registration, so a repository constructed
+  directly (bypassing DI, as some tests do) never triggered it. Fixed on `main` in `bc26da1` via
+  a module initializer (`LocalDapperConfiguration.cs`) that sets it unconditionally at assembly
+  load, before any repository can be constructed either way. Confirmed present after rebasing this
+  branch onto current `main`. Not this batch's fix and not this batch's item — recorded here only
+  so nobody re-opens it as a B4 concern.
 
 ## What's left for whoever picks this up next
 
 1. **The 200ms and offline-unplugged criteria above** — hardware-gated, not code-gated.
-2. **CSV export is course-level only.** If an operator needs the per-block blank/incorrect
-   breakdown offline in spreadsheet form (not just on-screen), add a second export route.
-3. **No auth on `/api/stats/*` or the new `/api/stats/rebuild`.** Matches every other Local
-   endpoint in this codebase today (none of them have auth) — flagging in case that changes.
-4. ~~The plan's risk mitigation (periodic self-check + mismatch report) does not exist.~~ **CLOSED**
+2. **No auth on `/api/stats/*` or the new `/api/stats/rebuild`.** Matches every other Local
+   endpoint in this codebase today (none of them have auth) — Local runs on a machine already
+   unlocked by Phase A, so this is consistent, not a hole. If that changes, it is a Local-wide
+   decision, not a B4-specific one.
+3. ~~The plan's risk mitigation (periodic self-check + mismatch report) does not exist.~~ **CLOSED**
    this session: `SelfHealIfInconsistentAsync()` runs once at startup and self-heals via
    `RebuildAllAsync()` on drift — see the decision record above. It is a boot-time check, not a
    *periodic* one while the process stays running for days — if a school leaves the Local API
@@ -139,8 +151,10 @@ about a runtime type-materialization mismatch; only a test that runs the actual 
    timer was judged unnecessary for now (adds a background timer to a single-purpose offline app
    for a window that closes on the next restart anyway) but is the next increment if this proves
    insufficient in practice.
-5. Investigate the flaky `ExamScoringPolicyPullTests` test noted above — out of this batch's
-   scope, but worth a ticket.
+
+CSV export scope (course-level only) is a recorded, owner-confirmed decision, not an open item —
+see the decision record under task 6 above. `ExamScoringPolicyPullTests` is resolved on `main`
+(`bc26da1`), not an open item either — see the NOT VERIFIED section above.
 
 ## Test plan (this batch, cumulative with the prior session's)
 
