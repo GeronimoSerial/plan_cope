@@ -126,6 +126,43 @@ lands, a single narrow follow-up pass wires:
   short-circuits cheaply on the anonymous redeem route without touching the DB or the auth
   middleware first.
 
+## What local green does NOT prove — substitutions named explicitly
+
+Per the coordinator's standing rule: a green `dotnet test` here proves the code works against the
+substitutes chosen, not against production. Naming every substitution in this batch so far:
+
+- **Correction after checking, not assuming**: this repo does have a real-Postgres path —
+  `.github/workflows/ci-containers.yml` runs `deploy/smoke.sh`, which brings up `postgres:17-alpine`
+  via `deploy/compose.ci.yml`, runs the `migrate` service against it, then health-checks the API.
+  This has **not been run locally in this worktree** (no Postgres reachable here, by design — this
+  is a CI-only check), so the leader's own build/test runs in this log never applied
+  `20260915235041_AddActivationKeys` to a real database. Concretely unverified *by the leader*, and
+  first genuinely checked when this branch's CI runs: the `jsonb` column type on
+  `FingerprintComponents`/`AuditLog.Payload` (InMemory accepts things Postgres would reject here),
+  the unique index on `KeyHash`, the self-referencing FK on `NodeCredential.RotatedFrom` with
+  `OnDelete(Restrict)`, and whether `Up()` applies cleanly against a database already carrying B0's
+  schema and data. Flagging this as the first thing to check once CI runs on this branch, not as an
+  unowned gap — the mechanism to verify it exists, it just hasn't run against B1's changes yet.
+- **Rate limiting is verified single-process only.** `ActivationRateLimitMiddlewareTests` drives
+  the middleware in-process against one `IMemoryCache` instance. This proves the lockout logic is
+  correct; it proves nothing about the multi-instance case discussed above, because there is no
+  multi-instance test environment to prove it against even if warranted (Central is single-instance
+  today, so this is currently a non-issue, not an unverified claim — see the topology note above).
+- **Argon2id and SHA-256 hashing/verification round-trips are proven on this dev machine's CPU.**
+  Nothing about Argon2id's memory-hardness parameters (19 MiB, 2 iterations, 1 lane) has been
+  measured against the low-end reference hardware profile this project targets (per plan §7,
+  "low-end viability") — B1 has not touched or verified anything on that profile. If the redeem
+  endpoint's latency under those parameters matters on real school hardware, it is unverified.
+- **Contract compatibility** (`ActivationRedeemResponse`/`ActivationRefreshResponse` required-
+  everything design) is verified by unit tests serializing/deserializing in the same process with
+  the same `System.Text.Json` settings the API uses. It has not been round-tripped through an actual
+  HTTP call via `WebApplicationFactory`/`TestServer`, so wire-format edge cases (casing, `JsonDocument`
+  serialization of `FingerprintComponents` over real HTTP) are unverified.
+
+None of the above blocks opening a PR — they are exactly the kind of gap the coordinator asked to
+have named rather than silently passed over. CI is the next real check; if it disagrees with any
+green result recorded above, that disagreement is the finding, not a flake to re-run past.
+
 ## Outstanding from the plan's task 7 ("compensating controls")
 
 `max_activations` enforcement: done (Wave 0 + Slice R). Two-level revocation: done (Slice M).
