@@ -11,7 +11,21 @@ public sealed class TokenService(IOptions<AuthOptions> options) : ITokenService
 {
     private const string TokenTypeClaim = "token_type";
     private const string RefreshTokenType = "refresh";
+    private const string NodeAccessTokenType = "node_access";
     private readonly AuthOptions _options = options.Value;
+
+    public string CreateNodeAccessToken(string nodeId, string cue, TimeSpan lifetime)
+    {
+        var claims = new List<Claim>
+        {
+            new(JwtRegisteredClaimNames.Sub, nodeId),
+            new("node_id", nodeId),
+            new("cue", cue),
+            new(TokenTypeClaim, NodeAccessTokenType)
+        };
+
+        return CreateToken(claims, lifetime);
+    }
 
     public string CreateAccessToken(UserProfileDto user)
     {
