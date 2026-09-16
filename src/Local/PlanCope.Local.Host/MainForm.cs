@@ -31,6 +31,8 @@ public partial class MainForm : Form
     private WebApplication? _api;
     private string _lanBaseUrl = string.Empty;
     private int _localPort = PreferredLocalPort;
+    private bool _phaseAComplete;
+    private readonly HttpClient _localHttp = new();
     private readonly DataDirectoryResolver _directories;
     private readonly ActivationKeyStore _activationKeyStore;
 
@@ -85,6 +87,22 @@ public partial class MainForm : Form
                 "--Local:AssetsPath", _directories.AssetsDirectory
             ]));
         await _api.StartAsync();
+        await RefreshPhaseAStatusAsync();
+    }
+
+    private async Task RefreshPhaseAStatusAsync()
+    {
+        try
+        {
+            using var response = await _localHttp.GetAsync($"http://127.0.0.1:{_localPort}/api/activation/status");
+            response.EnsureSuccessStatusCode();
+            var status = await JsonSerializer.DeserializeAsync<ActivationStatus>(response.Content.ReadAsStream(), JsonOptions);
+            _phaseAComplete = status?.PhaseAComplete ?? false;
+        }
+        catch
+        {
+            _phaseAComplete = false;
+        }
     }
 
     private async Task StartWebViewAsync()
@@ -126,8 +144,11 @@ public partial class MainForm : Form
             case "host:openStudentView":
                 OpenLocalStudentView(message.AccessCode);
                 break;
-            case "host:activate":
-                Activate(message.Passphrase);
+            case "host:getStoredPassphrase":
+                SendStoredPassphrase();
+                break;
+            case "host:activationComplete":
+                _ = OnActivationCompleteAsync(message.Passphrase);
                 break;
         }
     }
@@ -148,22 +169,58 @@ public partial class MainForm : Form
                 lanBaseUrl = _lanBaseUrl,
                 operatorName = Environment.UserName,
                 port = _localPort,
-                isActivated = _activationKeyStore.HasStoredKey
+                isActivated = _phaseAComplete
             }
         };
 
         _webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, JsonOptions));
     }
 
-    private void Activate(string? passphrase)
+    private void SendStoredPassphrase()
     {
-        if (_activationKeyStore.HasStoredKey || string.IsNullOrWhiteSpace(passphrase))
+        if (_webView.CoreWebView2 is null)
         {
-            PostHostContext();
             return;
         }
 
-        _activationKeyStore.Store(System.Text.Encoding.UTF8.GetBytes(passphrase));
+        string? passphrase = null;
+        try
+        {
+            if (_activationKeyStore.HasStoredKey)
+            {
+                passphrase = System.Text.Encoding.UTF8.GetString(_activationKeyStore.Load());
+            }
+        }
+        catch
+        {
+            passphrase = null;
+        }
+
+        var payload = new
+        {
+            type = "host:storedPassphrase",
+            passphrase
+        };
+
+        _webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, JsonOptions));
+    }
+
+    private async Task OnActivationCompleteAsync(string? passphrase)
+    {
+        if (!string.IsNullOrWhiteSpace(passphrase))
+        {
+            try
+            {
+                _activationKeyStore.Store(System.Text.Encoding.UTF8.GetBytes(passphrase));
+            }
+            catch
+            {
+                // Storing the passphrase for later convenience must never
+                // block the user past an activation that already succeeded.
+            }
+        }
+
+        await RefreshPhaseAStatusAsync();
         PostHostContext();
     }
 
@@ -263,4 +320,5 @@ public partial class MainForm : Form
     }
 
     private sealed record HostBridgeMessage(string Type, string? AccessCode, string? Passphrase);
+    private sealed record ActivationStatus(bool PhaseAComplete);
 }
