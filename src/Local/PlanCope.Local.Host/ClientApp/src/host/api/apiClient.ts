@@ -6,6 +6,10 @@ import type {
 } from "../types";
 import type { ApiErrorPayload, LocalExam } from "../../shared/api-types";
 
+export type CourseStatDto = { course: string; attemptCount: number | string; averageScorePercent: number | string };
+export type BlockStatDto = { blockId: string; correctCount: number; partialCount: number; incorrectCount: number; blankCount: number; ungradableCount: number };
+export type ExamStatDto = { examVersionId: string; examCode: string; versionNumber: number; attemptCount: number | string; averageScorePercent: number | string; blocks: BlockStatDto[] };
+
 export class ApiClient {
   constructor(private readonly baseUrl: string) {}
 
@@ -36,6 +40,25 @@ export class ApiClient {
 
   getSessionProgress(accessCode: string, signal?: AbortSignal): Promise<SessionProgress> {
     return this.get<SessionProgress>(`/api/sessions/${encodeURIComponent(accessCode)}/progress`, signal);
+  }
+
+  getCourseStats(cue: string, schoolYear: string | undefined, signal?: AbortSignal): Promise<CourseStatDto[]> {
+    const query = new URLSearchParams({ cue });
+    if (schoolYear) query.set("schoolYear", schoolYear);
+    return this.get<CourseStatDto[]>(`/api/stats/course?${query.toString()}`, signal);
+  }
+
+  getExamStats(cue: string, schoolYear: string | undefined, course: string | undefined, signal?: AbortSignal): Promise<ExamStatDto[]> {
+    const query = new URLSearchParams({ cue });
+    if (schoolYear) query.set("schoolYear", schoolYear);
+    if (course) query.set("course", course);
+    return this.get<ExamStatDto[]>(`/api/stats/exam?${query.toString()}`, signal);
+  }
+
+  getStatsExportCsvUrl(cue: string, schoolYear: string | undefined): string {
+    const query = new URLSearchParams({ cue });
+    if (schoolYear) query.set("schoolYear", schoolYear);
+    return `${this.baseUrl}/api/stats/export.csv?${query.toString()}`;
   }
 
   private async get<T>(path: string, signal?: AbortSignal): Promise<T> {
