@@ -30,7 +30,7 @@ export function HostApp() {
   }
 
   return (
-    <AppShell status={delivery.status}>
+    <AppShell status={delivery.status} apiBaseUrl={hostContext.apiBaseUrl}>
       <SessionsWorkspace delivery={delivery} />
     </AppShell>
   );
