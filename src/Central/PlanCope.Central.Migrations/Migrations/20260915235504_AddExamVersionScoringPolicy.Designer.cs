@@ -3,6 +3,7 @@ using System;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using PlanCope.Central.Api.Data;
@@ -12,9 +13,11 @@ using PlanCope.Central.Api.Data;
 namespace PlanCope.Central.Migrations.Migrations
 {
     [DbContext(typeof(PlanCopeDbContext))]
-    partial class PlanCopeDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260915235504_AddExamVersionScoringPolicy")]
+    partial class AddExamVersionScoringPolicy
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -22,66 +25,6 @@ namespace PlanCope.Central.Migrations.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
-
-            modelBuilder.Entity("PlanCope.Shared.Domain.Central.ActivationKey", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<int>("ActivationCount")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTimeOffset?>("ExpiresAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset>("IssuedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("IssuedBy")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("KeyHash")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("KeyPrefix")
-                        .IsRequired()
-                        .HasMaxLength(8)
-                        .HasColumnType("character varying(8)");
-
-                    b.Property<int>("MaxActivations")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Note")
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<DateTimeOffset?>("RevokedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("RevokedReason")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("ScopeCue")
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("KeyHash")
-                        .IsUnique();
-
-                    b.HasIndex("KeyPrefix");
-
-                    b.HasIndex("ScopeCue");
-
-                    b.ToTable("activation_keys", "sync");
-                });
 
             modelBuilder.Entity("PlanCope.Shared.Domain.Central.AnswerKey", b =>
                 {
@@ -722,47 +665,6 @@ namespace PlanCope.Central.Migrations.Migrations
                     b.ToTable("localities", "core");
                 });
 
-            modelBuilder.Entity("PlanCope.Shared.Domain.Central.NodeCredential", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<DateTimeOffset>("ExpiresAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset>("IssuedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("NodeId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("RefreshTokenHash")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<DateTimeOffset?>("RevokedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("RotatedFrom")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("NodeId");
-
-                    b.HasIndex("RefreshTokenHash")
-                        .IsUnique();
-
-                    b.HasIndex("RotatedFrom");
-
-                    b.ToTable("node_credentials", "sync");
-                });
-
             modelBuilder.Entity("PlanCope.Shared.Domain.Central.Province", b =>
                 {
                     b.Property<string>("Id")
@@ -981,35 +883,10 @@ namespace PlanCope.Central.Migrations.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
-                    b.Property<string>("ActivationKeyId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("AppVersion")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("Cue")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
                     b.Property<string>("DeviceName")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<DateTimeOffset>("EnrolledAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<JsonDocument>("FingerprintComponents")
-                        .IsRequired()
-                        .HasColumnType("jsonb");
-
-                    b.Property<string>("FingerprintHash")
-                        .IsRequired()
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
@@ -1020,9 +897,6 @@ namespace PlanCope.Central.Migrations.Migrations
                         .IsRequired()
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
-
-                    b.Property<DateTimeOffset?>("RevokedAt")
-                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("SchoolId")
                         .HasMaxLength(64)
@@ -1037,8 +911,6 @@ namespace PlanCope.Central.Migrations.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("Cue");
 
                     b.HasIndex("NodeCode")
                         .IsUnique();
@@ -1395,14 +1267,6 @@ namespace PlanCope.Central.Migrations.Migrations
                     b.Navigation("Section");
 
                     b.Navigation("Snapshot");
-                });
-
-            modelBuilder.Entity("PlanCope.Shared.Domain.Central.NodeCredential", b =>
-                {
-                    b.HasOne("PlanCope.Shared.Domain.Central.NodeCredential", null)
-                        .WithMany()
-                        .HasForeignKey("RotatedFrom")
-                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("PlanCope.Shared.Domain.Central.UserSchoolAssignment", b =>
