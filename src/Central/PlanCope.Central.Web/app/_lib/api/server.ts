@@ -115,3 +115,17 @@ export interface RegisteredNodeSummary {
 export function listRegisteredNodes(): Promise<RegisteredNodeSummary[]> {
   return serverGet<RegisteredNodeSummary[]>("/api/admin/activation/nodes");
 }
+
+export interface SchoolStatsRow {
+  cue: string;
+  attemptCount: number | string;
+  averageScorePercent: number | string;
+}
+
+export function listSchoolStats(schoolYear?: string, course?: string): Promise<SchoolStatsRow[]> {
+  const params = new URLSearchParams();
+  if (schoolYear) params.set("schoolYear", schoolYear);
+  if (course) params.set("course", course);
+  const query = params.toString();
+  return serverGet<SchoolStatsRow[]>(`/api/stats/schools${query ? `?${query}` : ""}`);
+}
