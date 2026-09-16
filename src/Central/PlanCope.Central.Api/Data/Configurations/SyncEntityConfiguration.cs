@@ -176,3 +176,18 @@ public sealed class ReleaseRingConfiguration : IEntityTypeConfiguration<ReleaseR
         builder.Property(static x => x.CreatedBy).IsRequired();
     }
 }
+
+public sealed class ReleaseHealthReportConfiguration : IEntityTypeConfiguration<ReleaseHealthReport>
+{
+    public void Configure(EntityTypeBuilder<ReleaseHealthReport> builder)
+    {
+        builder.ToTable("release_health_reports", "sync");
+        builder.HasKey(static x => x.Id);
+        builder.Property(static x => x.Id).IsRequired();
+        builder.Property(static x => x.NodeId).HasMaxLength(128).IsRequired();
+        builder.Property(static x => x.Version).HasMaxLength(128).IsRequired();
+        builder.Property(static x => x.Healthy).IsRequired();
+        builder.Property(static x => x.Detail).HasMaxLength(2000);
+        builder.Property(static x => x.ReportedAt).IsRequired();
+    }
+}

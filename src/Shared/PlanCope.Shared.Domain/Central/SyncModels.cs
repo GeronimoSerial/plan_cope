@@ -75,3 +75,11 @@ public sealed record ReleaseRing(
     int? RolloutPercentage,
     DateTimeOffset CreatedAt,
     Guid CreatedBy);
+
+public sealed record ReleaseHealthReport(
+    Guid Id,
+    string NodeId,
+    string Version,
+    bool Healthy,
+    string? Detail,
+    DateTimeOffset ReportedAt);

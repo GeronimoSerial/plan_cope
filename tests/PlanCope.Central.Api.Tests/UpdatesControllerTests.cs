@@ -4,14 +4,25 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.Extensions.DependencyInjection;
 using PlanCope.Central.Api.Controllers;
+using PlanCope.Central.Api.Data;
 using PlanCope.Central.Api.Services;
+using PlanCope.Shared.Domain.Central;
+using PlanCope.TestSupport;
 using Xunit;
 
 namespace PlanCope.Central.Api.Tests;
 
 public sealed class UpdatesControllerTests
 {
+    private static readonly IServiceProvider InMemoryServices = new ServiceCollection()
+        .AddEntityFrameworkInMemoryDatabase()
+        .AddSingleton<IModelCustomizer, JsonDocumentFriendlyModelCustomizer>()
+        .BuildServiceProvider();
+
     // Harness: the repo's controller-test convention is direct construction (see
     // DownloadControllerTests / AuthControllerTests) — no WebApplicationFactory/TestServer exists
     // in this project. The [Authorize] attribute is the proxy for the middleware-level 401 (same
@@ -134,15 +145,100 @@ public sealed class UpdatesControllerTests
         Assert.Equal(string.Empty, gate.RequestedCurrentVersion);
     }
 
+    [Fact]
+    public async Task ReportHealth_WithWrongTokenType_Returns403AndPersistsNothing()
+    {
+        using var dbContext = CreateDbContext();
+        var controller = CreateController(new StubReleaseGateService(), dbContext, NodePrincipal(tokenType: "access", nodeId: "node-1"));
+
+        var result = await controller.ReportHealth(new ReportHealthRequest("1.4.0", Healthy: true, Detail: null), CancellationToken.None);
+
+        Assert.IsType<ForbidResult>(result);
+        Assert.Empty(dbContext.Set<ReleaseHealthReport>());
+    }
+
+    [Fact]
+    public async Task ReportHealth_WithMissingTokenType_Returns403AndPersistsNothing()
+    {
+        using var dbContext = CreateDbContext();
+        var controller = CreateController(new StubReleaseGateService(), dbContext, NodePrincipal(tokenType: null, nodeId: "node-1"));
+
+        var result = await controller.ReportHealth(new ReportHealthRequest("1.4.0", Healthy: true, Detail: null), CancellationToken.None);
+
+        Assert.IsType<ForbidResult>(result);
+        Assert.Empty(dbContext.Set<ReleaseHealthReport>());
+    }
+
+    [Fact]
+    public async Task ReportHealth_WithMissingNodeId_Returns403AndPersistsNothing()
+    {
+        using var dbContext = CreateDbContext();
+        var controller = CreateController(new StubReleaseGateService(), dbContext, NodePrincipal(tokenType: "node_access", nodeId: null));
+
+        var result = await controller.ReportHealth(new ReportHealthRequest("1.4.0", Healthy: true, Detail: null), CancellationToken.None);
+
+        Assert.IsType<ForbidResult>(result);
+        Assert.Empty(dbContext.Set<ReleaseHealthReport>());
+    }
+
+    [Fact]
+    public async Task ReportHealth_WithHealthyNode_Returns204AndPersistsReport()
+    {
+        using var dbContext = CreateDbContext();
+        var controller = CreateController(new StubReleaseGateService(), dbContext, NodePrincipal(tokenType: "node_access", nodeId: "node-1"));
+        var before = DateTimeOffset.UtcNow;
+
+        var result = await controller.ReportHealth(new ReportHealthRequest("1.4.0", Healthy: true, Detail: null), CancellationToken.None);
+
+        Assert.IsType<NoContentResult>(result);
+        var report = Assert.Single(dbContext.Set<ReleaseHealthReport>());
+        Assert.NotEqual(Guid.Empty, report.Id);
+        Assert.Equal("node-1", report.NodeId);
+        Assert.Equal("1.4.0", report.Version);
+        Assert.True(report.Healthy);
+        Assert.Null(report.Detail);
+        Assert.InRange(report.ReportedAt, before, DateTimeOffset.UtcNow);
+    }
+
+    [Fact]
+    public async Task ReportHealth_WithUnhealthyNode_Returns204AndPersistsDetail()
+    {
+        using var dbContext = CreateDbContext();
+        var controller = CreateController(new StubReleaseGateService(), dbContext, NodePrincipal(tokenType: "node_access", nodeId: "node-2"));
+
+        var result = await controller.ReportHealth(new ReportHealthRequest("2.0.0", Healthy: false, Detail: "startup crash in MainForm"), CancellationToken.None);
+
+        Assert.IsType<NoContentResult>(result);
+        var report = Assert.Single(dbContext.Set<ReleaseHealthReport>());
+        Assert.Equal("node-2", report.NodeId);
+        Assert.Equal("2.0.0", report.Version);
+        Assert.False(report.Healthy);
+        Assert.Equal("startup crash in MainForm", report.Detail);
+    }
+
     private static UpdatesController CreateController(IReleaseGateService gate, ClaimsPrincipal user)
     {
-        return new UpdatesController(gate)
+        return CreateController(gate, CreateDbContext(), user);
+    }
+
+    private static UpdatesController CreateController(IReleaseGateService gate, PlanCopeDbContext dbContext, ClaimsPrincipal user)
+    {
+        return new UpdatesController(gate, dbContext)
         {
             ControllerContext = new ControllerContext
             {
                 HttpContext = new DefaultHttpContext { User = user }
             }
         };
+    }
+
+    private static PlanCopeDbContext CreateDbContext()
+    {
+        var options = new DbContextOptionsBuilder<PlanCopeDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+            .UseInternalServiceProvider(InMemoryServices)
+            .Options;
+        return new PlanCopeDbContext(options);
     }
 
     private static ClaimsPrincipal NodePrincipal(string? tokenType, string? nodeId)

@@ -1,7 +1,9 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using PlanCope.Central.Api.Data;
 using PlanCope.Central.Api.Services;
+using PlanCope.Shared.Domain.Central;
 
 namespace PlanCope.Central.Api.Controllers;
 
@@ -16,11 +18,8 @@ namespace PlanCope.Central.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/updates")]
-public sealed class UpdatesController(IReleaseGateService releaseGate) : ControllerBase
+public sealed class UpdatesController(IReleaseGateService releaseGate, PlanCopeDbContext dbContext) : ControllerBase
 {
-    private const string TokenTypeClaim = "token_type";
-    private const string NodeAccessTokenType = "node_access";
-    private const string NodeIdClaim = "node_id";
     private const string PackageId = "PlanCope.Local.Host";
 
     [HttpGet("releases.{channel}.json")]
@@ -32,14 +31,10 @@ public sealed class UpdatesController(IReleaseGateService releaseGate) : Control
     {
         // Velopack's client never sends a node id (confirmed in B7-PROGRESS), so the caller is
         // resolved from the validated JWT's node_id claim — never from a query parameter.
-        var tokenType = User.FindFirst(TokenTypeClaim)?.Value;
-        var nodeId = User.FindFirst(NodeIdClaim)?.Value;
-
         // D6 gate: a valid user/operator bearer token (token_type != node_access) must not be able
         // to list or fetch update packages. 403, not 401: the token is valid, just not privileged
         // for this endpoint.
-        if (!string.Equals(tokenType, NodeAccessTokenType, StringComparison.Ordinal) ||
-            string.IsNullOrWhiteSpace(nodeId))
+        if (!NodeAccessAuth.TryGetNodeId(User, out var nodeId))
         {
             return Forbid();
         }
@@ -70,6 +65,37 @@ public sealed class UpdatesController(IReleaseGateService releaseGate) : Control
         return JsonBody(JsonSerializer.Serialize(feed));
     }
 
+    /// <summary>
+    /// Records whether a node started successfully after installing an update, so a bad release is
+    /// visible centrally before it reaches the whole fleet. Fire-and-forget telemetry: the caller
+    /// acts on nothing the response returns.
+    /// </summary>
+    [HttpPost("health")]
+    public async Task<IActionResult> ReportHealth(
+        [FromBody] ReportHealthRequest request,
+        CancellationToken cancellationToken)
+    {
+        // Same node-access gate as Releases: a valid user/operator bearer token must not be able to
+        // report node health. 403, not 401: the token is valid, just not privileged for this
+        // endpoint.
+        if (!NodeAccessAuth.TryGetNodeId(User, out var nodeId))
+        {
+            return Forbid();
+        }
+
+        dbContext.Set<ReleaseHealthReport>().Add(new ReleaseHealthReport(
+            Guid.NewGuid(),
+            nodeId,
+            request.Version,
+            request.Healthy,
+            request.Detail,
+            DateTimeOffset.UtcNow));
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return NoContent();
+    }
+
     private static ContentResult JsonBody(string json) => new()
     {
         Content = json,
@@ -96,6 +122,12 @@ public sealed class UpdatesController(IReleaseGateService releaseGate) : Control
 /// object directly would emit the wrong nested-object shape.
 /// </summary>
 public sealed record ReleaseFeedDto(ReleaseAssetDto[] Assets);
+
+/// <summary>
+/// Body of <c>POST /api/updates/health</c>: the version a node just tried to start on and whether
+/// it came up healthy. <c>Detail</c> carries an optional human-readable reason when unhealthy.
+/// </summary>
+public sealed record ReportHealthRequest(string Version, bool Healthy, string? Detail);
 
 public sealed record ReleaseAssetDto(
     string PackageId,
