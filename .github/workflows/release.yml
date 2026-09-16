@@ -353,6 +353,38 @@ jobs:
           }
           & ./scripts/sign-installer.ps1 -Path $setup.FullName
           Write-Host "Signed installer: $($setup.FullName)"
+      # The build artifact below expires and Central cannot read it. Publishing to the
+      # private release repository is what actually makes the installer reachable from
+      # the Descargas page, and until now nothing in CI called the script that does it —
+      # so every release produced an installer that only ever existed inside a workflow run.
+      - name: Publish the installer to the private release repository
+        if: ${{ !inputs.allow_unsigned }}
+        shell: pwsh
+        env:
+          # A token with write access to the PRIVATE installer repo. GITHUB_TOKEN cannot
+          # write to another repository, so this cannot fall back to it.
+          GH_TOKEN: ${{ secrets.INSTALLER_REPO_TOKEN }}
+          PLANCOPE_PRIVATE_INSTALLER_REPO: ${{ vars.PLANCOPE_PRIVATE_INSTALLER_REPO }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN) -or [string]::IsNullOrWhiteSpace($env:PLANCOPE_PRIVATE_INSTALLER_REPO)) {
+            # Failing here is deliberate. A release that reports success while publishing
+            # no installer is the exact failure this step exists to end.
+            Write-Error "Set the INSTALLER_REPO_TOKEN secret and the PLANCOPE_PRIVATE_INSTALLER_REPO variable. Without them the installer is built and then lost."
+            exit 1
+          }
+          $setup = Get-ChildItem -Path $env:VELOPACK_OUTPUT_DIR -Filter '*Setup*.exe' | Select-Object -First 1
+          if (-not $setup) { Write-Error "No Setup installer found in $env:VELOPACK_OUTPUT_DIR."; exit 1 }
+          & ./scripts/publish-private-installer.ps1 `
+            -InstallerPath $setup.FullName `
+            -Version '${{ needs.validate.outputs.version }}' `
+            -Channel '${{ inputs.channel }}'
+
+      - name: Say plainly that an unsigned build was not published
+        if: ${{ inputs.allow_unsigned }}
+        shell: pwsh
+        run: |
+          Write-Host "::warning title=Installer not published::allow_unsigned=true, so this build was NOT published to the private release repository. Schools would have to click past a SmartScreen warning to install it."
+
       - name: Upload Velopack packages and installer
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
         with:
