@@ -12,7 +12,7 @@ export async function callCentral<T>(path: string, init: RequestInit = {}): Prom
     if (typeof window !== "undefined") {
       window.location.href = "/login?expired=1";
     }
-    throw new Error("Tu sesion expiro. Volve a ingresar.");
+    throw new Error("Tu sesión expiró. Volvé a ingresar.");
   }
 
   const text = await res.text();
