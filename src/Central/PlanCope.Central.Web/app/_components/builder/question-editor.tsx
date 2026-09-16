@@ -14,7 +14,9 @@ interface QuestionEditorProps {
 export function QuestionEditor({ question, errors, onChange }: QuestionEditorProps) {
   const uid = useId();
 
-  function patchCommon(patch: Partial<Pick<Question, "prompt" | "help" | "required" | "score">>) {
+  const isContentBlock = question.type === "text_block" || question.type === "image_block";
+
+  function patchCommon(patch: Partial<{ prompt: string; help: string | undefined; required: boolean; score: number }>) {
     onChange({ ...question, ...patch } as Question);
   }
 
@@ -27,10 +29,10 @@ export function QuestionEditor({ question, errors, onChange }: QuestionEditorPro
     onChange({
       ...fresh,
       id: question.id,
-      prompt: question.prompt,
+      prompt: question.prompt ?? "",
       help: question.help,
-      required: question.required,
-      score: question.score
+      ...("required" in question ? { required: question.required } : {}),
+      ...("score" in question ? { score: question.score } : {})
     } as Question);
   }
 
@@ -53,15 +55,30 @@ export function QuestionEditor({ question, errors, onChange }: QuestionEditorPro
 
       <div className="field">
         <label htmlFor={`${uid}-prompt`}>
-          Enunciado<span className="field-required" aria-hidden="true">*</span>
+          {question.type === "text_block"
+            ? "Texto del bloque"
+            : question.type === "image_block"
+              ? "Pie de imagen (opcional)"
+              : "Enunciado"}
+          {question.type !== "image_block" && (
+            <span className="field-required" aria-hidden="true">
+              *
+            </span>
+          )}
         </label>
         <textarea
           id={`${uid}-prompt`}
-          value={question.prompt}
+          value={question.prompt ?? ""}
           onChange={event => patchCommon({ prompt: event.target.value })}
           aria-invalid={errors.prompt ? true : undefined}
           aria-describedby={errors.prompt ? `${uid}-prompt-error` : undefined}
-          placeholder="Escribí la pregunta tal como la verá el estudiante."
+          placeholder={
+            question.type === "text_block"
+              ? "Escribí el contenido que verá el estudiante."
+              : question.type === "image_block"
+                ? "Pie de imagen opcional."
+                : "Escribí la pregunta tal como la verá el estudiante."
+          }
         />
         {errors.prompt && (
           <span className="field__error" id={`${uid}-prompt-error`} role="alert">
@@ -80,28 +97,32 @@ export function QuestionEditor({ question, errors, onChange }: QuestionEditorPro
             placeholder="Aclaración opcional."
           />
         </div>
-        <div className="field">
-          <label htmlFor={`${uid}-score`}>Puntaje</label>
-          <input
-            id={`${uid}-score`}
-            type="number"
-            min={0}
-            step={1}
-            value={question.score}
-            onChange={event => patchCommon({ score: Number(event.target.value) })}
-          />
-        </div>
+        {question.type !== "text_block" && question.type !== "image_block" && (
+          <div className="field">
+            <label htmlFor={`${uid}-score`}>Puntaje</label>
+            <input
+              id={`${uid}-score`}
+              type="number"
+              min={0}
+              step={1}
+              value={question.score}
+              onChange={event => patchCommon({ score: Number(event.target.value) })}
+            />
+          </div>
+        )}
       </div>
 
-      <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontWeight: 600 }}>
-        <input
-          type="checkbox"
-          checked={question.required}
-          onChange={event => patchCommon({ required: event.target.checked })}
-          style={{ width: "auto" }}
-        />
-        Respuesta obligatoria
-      </label>
+      {question.type !== "text_block" && question.type !== "image_block" && (
+        <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontWeight: 600 }}>
+          <input
+            type="checkbox"
+            checked={question.required}
+            onChange={event => patchCommon({ required: event.target.checked })}
+            style={{ width: "auto" }}
+          />
+          Respuesta obligatoria
+        </label>
+      )}
 
       {(question.type === "single_choice" || question.type === "multiple_choice") && (
         <ChoiceEditor question={question} errors={errors} onChange={onChange} />
@@ -150,6 +171,33 @@ export function QuestionEditor({ question, errors, onChange }: QuestionEditorPro
               }
             />
           </div>
+        </div>
+      )}
+      {question.type === "text_block" && (
+        <span className="field__hint">
+          Este bloque es contenido de lectura: no se puntúa ni se responde. El texto de arriba es el cuerpo del bloque.
+        </span>
+      )}
+
+      {question.type === "image_block" && (
+        <div className="field">
+          <label htmlFor={`${uid}-asset`}>ID del recurso</label>
+          <input
+            id={`${uid}-asset`}
+            value={question.assetId}
+            onChange={event => onChange({ ...question, assetId: event.target.value })}
+            aria-invalid={errors.assetId ? true : undefined}
+            aria-describedby={errors.assetId ? `${uid}-asset-error` : `${uid}-asset-hint`}
+          />
+          <span className="field__hint" id={`${uid}-asset-hint`}>
+            Subí la imagen por otro medio y pegá acá el ID del recurso (`assetId`) que te devolvió el servidor. La
+            carga directa de imágenes todavía no está disponible en el builder.
+          </span>
+          {errors.assetId && (
+            <span className="field__error" id={`${uid}-asset-error`} role="alert">
+              {errors.assetId}
+            </span>
+          )}
         </div>
       )}
     </div>

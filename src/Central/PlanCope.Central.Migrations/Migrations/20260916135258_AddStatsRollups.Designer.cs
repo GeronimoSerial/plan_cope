@@ -3,6 +3,7 @@ using System;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using PlanCope.Central.Api.Data;
@@ -12,9 +13,11 @@ using PlanCope.Central.Api.Data;
 namespace PlanCope.Central.Migrations.Migrations
 {
     [DbContext(typeof(PlanCopeDbContext))]
-    partial class PlanCopeDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260916135258_AddStatsRollups")]
+    partial class AddStatsRollups
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -821,42 +824,6 @@ namespace PlanCope.Central.Migrations.Migrations
                     b.ToTable("roster_students", "roster");
                 });
 
-            modelBuilder.Entity("PlanCope.Shared.Domain.Central.GradingPolicyAssignment", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<DateTimeOffset>("AssignedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("AssignedBy")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("ExamVersionId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("Note")
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<string>("ScoringPolicy")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ExamVersionId")
-                        .IsUnique();
-
-                    b.ToTable("grading_policies", "exam");
-                });
-
             modelBuilder.Entity("PlanCope.Shared.Domain.Central.Locality", b =>
                 {
                     b.Property<string>("Id")
@@ -1214,82 +1181,6 @@ namespace PlanCope.Central.Migrations.Migrations
                         .IsUnique();
 
                     b.ToTable("registered_nodes", "sync");
-                });
-
-            modelBuilder.Entity("PlanCope.Shared.Domain.Central.ReleaseHealthReport", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Detail")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
-
-                    b.Property<bool>("Healthy")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("NodeId")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<DateTimeOffset>("ReportedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Version")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("release_health_reports", "sync");
-                });
-
-            modelBuilder.Entity("PlanCope.Shared.Domain.Central.ReleaseRing", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Channel")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("CreatedBy")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("DownloadUrl")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<string>("RolloutMode")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<int?>("RolloutPercentage")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Sha256")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("Version")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("release_rings", "sync");
                 });
 
             modelBuilder.Entity("PlanCope.Shared.Domain.Central.Role", b =>

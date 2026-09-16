@@ -39,7 +39,8 @@ public sealed record RegisteredNodeSummaryDto(
     string? DeviceName,
     DateTimeOffset EnrolledAt,
     DateTimeOffset? LastSeenAt,
-    DateTimeOffset? RevokedAt);
+    DateTimeOffset? RevokedAt,
+    string? SchoolName);
 
 /// <summary>Body of the revoke-node endpoint. Stops only that machine; the key that enrolled it
 /// is unaffected and can still be used elsewhere.</summary>

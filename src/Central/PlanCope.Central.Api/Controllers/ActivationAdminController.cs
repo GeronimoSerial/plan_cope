@@ -157,6 +157,13 @@ public sealed class ActivationAdminController(
             .OrderByDescending(node => node.EnrolledAt)
             .ToListAsync(cancellationToken);
 
+        var schoolNamesByCue = await dbContext.Schools
+            .AsNoTracking()
+            .ToDictionaryAsync(
+                static s => CueCode.TryNormalize(s.Cue.ToString(), out var n) ? n : s.Cue.ToString(),
+                static s => s.Name,
+                cancellationToken);
+
         var summary = new List<RegisteredNodeSummaryDto>(nodes.Count);
         foreach (var node in nodes)
         {
@@ -169,7 +176,8 @@ public sealed class ActivationAdminController(
                     node.DeviceName,
                     node.EnrolledAt,
                     node.LastSeenAt,
-                    node.RevokedAt));
+                    node.RevokedAt,
+                    schoolNamesByCue.TryGetValue(CueCode.TryNormalize(node.Cue, out var normalizedCue) ? normalizedCue : node.Cue, out var schoolName) ? schoolName : null));
             }
         }
 

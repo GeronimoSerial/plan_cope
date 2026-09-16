@@ -6,7 +6,7 @@ import {
   type ReplaceExamDocumentRequest,
   type ExamSummary
 } from "../contracts";
-import type { ExamDocument, Question, ExamOption } from "./exam";
+import type { ExamDocument, Question, ExamOption, ScoringPolicy } from "./exam";
 
 // ============================================================
 // Anti-corruption layer: traduce entre el schema canonico (fuente
@@ -43,17 +43,18 @@ export function documentToReplaceRequest(document: ExamDocument): ReplaceExamDoc
       level: document.level ?? null,
       area: document.area ?? null
     },
-    blocks
+    blocks,
+    scoringPolicy: document.scoringPolicy ?? null
   };
 }
 
 function questionToBlock(question: Question, orderIndex: number): DocumentBlock {
   const base = {
     orderIndex,
-    title: question.prompt.slice(0, 120),
+    title: (question.prompt ?? "").slice(0, 120),
     description: question.help ?? null,
-    validation: { required: question.required },
-    scoreValue: question.score
+    validation: { required: "required" in question ? question.required : false },
+    scoreValue: "score" in question ? question.score : 0
   };
 
   switch (question.type) {
@@ -88,6 +89,22 @@ function questionToBlock(question: Question, orderIndex: number): DocumentBlock 
         },
         // Solo enviamos answer key si hay respuesta modelo.
         correctAnswer: question.sampleAnswer ? question.sampleAnswer : undefined
+      };
+    case "text_block":
+      return {
+        ...base,
+        validation: { required: false },
+        scoreValue: 0,
+        blockType: "Text",
+        config: { content: question.prompt, help: question.help ?? null }
+      };
+    case "image_block":
+      return {
+        ...base,
+        validation: { required: false },
+        scoreValue: 0,
+        blockType: "Image",
+        config: { assetId: question.assetId, caption: question.prompt ?? null, help: question.help ?? null }
       };
   }
 }
@@ -143,6 +160,25 @@ export function versionToDocument(version: ExamVersion, exam: Pick<ExamSummary, 
         };
       }
 
+      if (type === "Text") {
+        return {
+          id: block.id,
+          type: "text_block",
+          prompt: String(config.content ?? block.title ?? ""),
+          help
+        };
+      }
+
+      if (type === "Image") {
+        return {
+          id: block.id,
+          type: "image_block",
+          prompt: typeof config.caption === "string" ? config.caption : undefined,
+          assetId: String(config.assetId ?? ""),
+          help
+        };
+      }
+
       // ShortAnswer y cualquier otro tipo no soportado caen a texto libre.
       const sampleAnswer = typeof answer?.correctAnswer === "string" ? answer.correctAnswer : undefined;
       const maxLength = typeof config.maxLength === "number" ? config.maxLength : undefined;
@@ -166,6 +202,7 @@ export function versionToDocument(version: ExamVersion, exam: Pick<ExamSummary, 
     subject: typeof metadata.subject === "string" ? metadata.subject : exam.subject ?? undefined,
     level: typeof metadata.level === "string" ? metadata.level : exam.level ?? undefined,
     area: typeof metadata.area === "string" ? metadata.area : exam.area ?? undefined,
+    scoringPolicy: (version.scoringPolicy as ScoringPolicy | null) ?? null,
     questions
   };
 }
@@ -192,5 +229,9 @@ export function blankQuestion(type: Question["type"]): Question {
       return { ...base, type, correctAnswer: true };
     case "free_text":
       return { ...base, type };
+    case "text_block":
+      return { ...base, type, prompt: "" };
+    case "image_block":
+      return { ...base, type, assetId: "" };
   }
 }

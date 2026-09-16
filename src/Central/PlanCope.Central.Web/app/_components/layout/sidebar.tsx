@@ -5,7 +5,12 @@ import { usePathname } from "next/navigation";
 
 const links = [
   { href: "/dashboard", label: "Inicio" },
-  { href: "/exams", label: "Exámenes" }
+  { href: "/exams", label: "Exámenes" },
+  { href: "/claves", label: "Claves de activación" },
+  { href: "/nodos", label: "Nodos" },
+  { href: "/estadisticas", label: "Estadísticas" },
+  { href: "/politicas-legado", label: "Políticas de puntaje heredadas" },
+  { href: "/descargas", label: "Descargas" }
 ];
 
 export function Sidebar() {

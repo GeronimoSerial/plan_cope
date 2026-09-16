@@ -6,14 +6,46 @@ import { z } from "zod";
 // a los contratos del Central API y al JSON exportable.
 // ============================================================
 
-export const questionTypes = ["single_choice", "multiple_choice", "true_false", "free_text"] as const;
+export const questionTypes = [
+  "single_choice",
+  "multiple_choice",
+  "true_false",
+  "free_text",
+  "text_block",
+  "image_block"
+] as const;
 export type QuestionType = (typeof questionTypes)[number];
 
 export const questionTypeLabels: Record<QuestionType, string> = {
   single_choice: "Opción única",
   multiple_choice: "Opción múltiple",
   true_false: "Verdadero / Falso",
-  free_text: "Texto libre"
+  free_text: "Texto libre",
+  text_block: "Bloque de texto",
+  image_block: "Bloque de imagen"
+};
+
+export const scoringPolicies = ["AllOrNothing", "ProportionalPenalised", "ProportionalPlain"] as const;
+export type ScoringPolicy = (typeof scoringPolicies)[number];
+
+export const scoringPolicyLabels: Record<ScoringPolicy, string> = {
+  AllOrNothing: "Todo o nada",
+  ProportionalPenalised: "Proporcional con penalización",
+  ProportionalPlain: "Proporcional simple"
+};
+
+export const scoringPolicyExplanations: Record<ScoringPolicy, string> = {
+  AllOrNothing:
+    "Solo se otorga el puntaje si la selección coincide exactamente con la clave de respuesta. Cualquier otra combinación vale cero.",
+  ProportionalPenalised:
+    "Puntaje = (opciones correctas seleccionadas − opciones incorrectas seleccionadas) / total de opciones correctas, sin bajar de cero. Seleccionar opciones de más resta puntaje.",
+  ProportionalPlain:
+    "Puntaje = opciones correctas seleccionadas / total de opciones correctas. Seleccionar TODAS las opciones da el puntaje completo, sin importar cuántas sean incorrectas."
+};
+
+export const scoringPolicyWarnings: Partial<Record<ScoringPolicy, string>> = {
+  ProportionalPlain:
+    "Atención: con esta regla, un estudiante que marque todas las opciones obtiene el puntaje máximo. Elegila solo si entendés esta consecuencia."
 };
 
 const optionSchema = z.object({
@@ -58,7 +90,30 @@ const freeTextQuestion = baseQuestion.extend({
   maxLength: z.number().int().positive().optional()
 });
 
-export const questionSchema = z.discriminatedUnion("type", [choiceQuestion, trueFalseQuestion, freeTextQuestion]);
+// Bloques de contenido: no se puntúan ni se responden, por eso no extienden
+// baseQuestion (no llevan required/score).
+const textBlockQuestion = z.object({
+  id: z.string().min(1),
+  type: z.literal("text_block"),
+  prompt: z.string().trim().min(1, "El texto no puede estar vacío."),
+  help: z.string().trim().optional()
+});
+
+const imageBlockQuestion = z.object({
+  id: z.string().min(1),
+  type: z.literal("image_block"),
+  prompt: z.string().trim().optional(),
+  assetId: z.string().trim().min(1, "El ID del recurso es requerido."),
+  help: z.string().trim().optional()
+});
+
+export const questionSchema = z.discriminatedUnion("type", [
+  choiceQuestion,
+  trueFalseQuestion,
+  freeTextQuestion,
+  textBlockQuestion,
+  imageBlockQuestion
+]);
 
 export const examDocumentSchema = z.object({
   schemaVersion: z.literal(1),
@@ -68,6 +123,7 @@ export const examDocumentSchema = z.object({
   subject: z.string().trim().optional(),
   level: z.string().trim().optional(),
   area: z.string().trim().optional(),
+  scoringPolicy: z.enum(scoringPolicies).nullable().optional(),
   questions: z.array(questionSchema).min(1, "Agregá al menos una pregunta.")
 });
 

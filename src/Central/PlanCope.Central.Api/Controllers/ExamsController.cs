@@ -319,6 +319,15 @@ public sealed class ExamsController(
             return ValidationProblem(ModelState);
         }
 
+        var hasMultipleChoiceBlock = blocks.Any(block => block.BlockType == PlanCope.Shared.Domain.BlockType.MultipleChoice);
+        if (hasMultipleChoiceBlock && PlanCope.Shared.Grading.ScoringPolicyParser.Parse(version.ScoringPolicy) is null)
+        {
+            ModelState.AddModelError(
+                "scoringPolicy",
+                "A scoring policy must be chosen before publishing an exam with multiple-choice questions.");
+            return ValidationProblem(ModelState);
+        }
+
         foreach (var block in blocks)
         {
             var validation = await blockValidator.ValidateAsync(block, cancellationToken);

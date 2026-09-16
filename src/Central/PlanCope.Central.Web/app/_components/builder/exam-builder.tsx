@@ -3,7 +3,17 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { arrayMove } from "@dnd-kit/sortable";
-import { examDocumentSchema, type ExamDocument, type Question, type QuestionType } from "../../_lib/schema/exam";
+import {
+  examDocumentSchema,
+  scoringPolicies,
+  scoringPolicyExplanations,
+  scoringPolicyLabels,
+  scoringPolicyWarnings,
+  type ExamDocument,
+  type Question,
+  type QuestionType,
+  type ScoringPolicy
+} from "../../_lib/schema/exam";
 import { blankQuestion, documentToReplaceRequest } from "../../_lib/schema/mappers";
 import { callCentral } from "../../_lib/api/client";
 import { getErrorMessage } from "../../_lib/json";
@@ -28,6 +38,11 @@ const TABS: TabItem[] = [
   { id: "publicar", label: "Publicar" }
 ];
 const TABS_ID = "exam-builder-tabs";
+
+const SCORING_POLICY_OPTIONS: Array<{ value: ScoringPolicy | null; label: string }> = [
+  { value: null, label: "Sin elegir" },
+  ...scoringPolicies.map(policy => ({ value: policy, label: scoringPolicyLabels[policy] }))
+];
 
 type Banners = { tone: "info" | "success" | "error"; text: string } | null;
 
@@ -217,6 +232,41 @@ export function ExamBuilder({ versionId, status, initialDocument }: ExamBuilderP
                 disabled={isPublished}
               />
             </div>
+            <div className="field">
+              <label id="meta-scoring-policy-label">Política de puntaje</label>
+              <div className="stack" role="radiogroup" aria-labelledby="meta-scoring-policy-label">
+                {SCORING_POLICY_OPTIONS.map(option => (
+                  <div key={option.value ?? "none"} className="stack">
+                    <label
+                      htmlFor={`meta-scoring-policy-${option.value ?? "none"}`}
+                      style={{ display: "flex", alignItems: "flex-start", gap: "var(--space-2)", fontWeight: 400 }}
+                    >
+                      <input
+                        id={`meta-scoring-policy-${option.value ?? "none"}`}
+                        type="radio"
+                        name="meta-scoring-policy"
+                        checked={(document.scoringPolicy ?? null) === option.value}
+                        onChange={() => patchDocument({ scoringPolicy: option.value })}
+                        disabled={isPublished}
+                        style={{ width: "auto", marginTop: 3 }}
+                      />
+                      <span>{option.label}</span>
+                    </label>
+                    {option.value && (
+                      <span
+                        className="field__hint"
+                        style={{ display: "block", marginLeft: "calc(var(--space-2) + 16px)" }}
+                      >
+                        {scoringPolicyExplanations[option.value]}
+                      </span>
+                    )}
+                    {option.value && scoringPolicyWarnings[option.value] && (
+                      <Banner tone="error">{scoringPolicyWarnings[option.value]}</Banner>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       </TabPanel>
@@ -256,6 +306,9 @@ export function ExamBuilder({ versionId, status, initialDocument }: ExamBuilderP
             versionId={versionId}
             defaultSubject={document.subject ?? null}
             hasUnsavedChanges={dirty}
+            hasMultipleChoiceWithoutPolicy={
+              document.questions.some(question => question.type === "multiple_choice") && !document.scoringPolicy
+            }
             onPublished={() => {
               setBanner({ tone: "success", text: "Versión publicada correctamente." });
               router.refresh();
