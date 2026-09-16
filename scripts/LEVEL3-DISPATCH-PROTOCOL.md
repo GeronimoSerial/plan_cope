@@ -100,3 +100,20 @@ in order to write the brief at all — putting the answers in, with exact table 
 shapes, costs nothing and stops the implementer re-deriving what is already known. B3 saved a
 full round-trip this way by settling an id-space question itself and handing over a fact
 instead of a reading list.
+
+## Calibration: "not writing" is not "looping"
+
+The reaper's zero-bytes reading was originally labelled SPINNING and described as "the
+reasoning-loop signature". **Measurement does not support that confidence.** Across this
+session those readings resolved roughly half and half: some dispatches died having written
+nothing, and others — including one that had been flat for 245 s — wrote their whole output
+in a late burst once the model finished reasoning.
+
+So the reading is renamed `NOT-WRITING` and states its own ambiguity. **The action is
+unchanged and was always right: do not kill, arm a `Monitor` on the pid, let the dispatch's
+own `timeout` decide.** What changes is the interpretation a leader is given, because telling
+one "your slice is looping" when it is thinking produces exactly the destructive correction —
+re-dispatch, discard output — that the guard exists to avoid.
+
+A classifier that overstates its confidence is worse than one that admits a coin flip, because
+the confident version gets acted on.
