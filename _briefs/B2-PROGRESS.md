@@ -38,10 +38,16 @@ independently before acting: `git fetch origin && git ls-tree -r origin/main --n
 `010_NodeIdentity.sql`, rebuilt and reran the NID tests green post-rename, committed as
 `fix(local): renumber node_identity migration to 010`, force-pushed (`--force-with-lease`) since
 this branch had only been pushed minutes earlier with no other work based on it.
-**Known follow-up risk, named rather than hidden**: if B3's PR #24 merges `010_ExamVersionScoringPolicy.sql`
-before this branch does, `010_NodeIdentity.sql` will collide a second time and need another
-rename to `012`. Checking migration numbers against a freshly fetched `main` immediately before
-every future wave that touches `Data/Migrations/`, not just once here.
+**Second collision, caught the same way before it could land**: the coordinator flagged that
+B3's open PR #24 already holds `010_ExamVersionScoringPolicy.sql` and `011_Grading.sql` — locked
+numbers regardless of merge order, since PR #24 predates this rename. Verified independently via
+`gh pr view 24 --json files,state` before acting: PR #24 is `OPEN` and its file list does contain
+exactly those two migrations. Renamed again, `git mv 010_NodeIdentity.sql 012_NodeIdentity.sql`,
+rebuilt and reran the NID tests green post-rename, committed as
+`fix(local): renumber node_identity migration to 012`. `012` is clear of both B8 (merged, `009`)
+and B3 (open, `010`-`011`) regardless of which merges first. Checking migration numbers against a
+freshly fetched `main` AND `gh pr list` for open PRs touching `Data/Migrations/` before every
+future wave that adds one, not just once here.
 
 Also checked per the coordinator's request: `NodeIdentity`'s shape against B1's merged
 `ActivationContracts.cs` (re-read on the rebased tree — unchanged from the pre-rebase read).
