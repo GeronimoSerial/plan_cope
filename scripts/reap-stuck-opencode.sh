@@ -24,7 +24,22 @@ YOUNG=${YOUNG:-150}                         # below this age, a dispatch is too 
 IDLE_TICKS=${IDLE_TICKS:-100}               # CPU delta below this over SAMPLE = waiting, not looping
 CEILING=$((DISPATCH_TIMEOUT + GRACE))
 
-pids=$(pgrep -x opencode || true)
+# SCOPE: only ever consider dispatches whose cwd belongs to a worktree of THIS repo.
+# `pgrep -x opencode` is machine-wide, and this script KILLS an ESCAPED process. On a
+# machine running more than one project an unscoped kill reaches into somebody else's
+# work — observed live, a dispatch in a sibling repo appeared in this script's output.
+# A reaper that can kill outside its own blast radius is a worse hazard than the hang it
+# was written to clear.
+#
+# Identity, not path names: every worktree of a repo shares one git common dir, so ask
+# git rather than matching directory strings, which break under temporary worktrees.
+OURS=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || OURS=""
+
+pids=$(for p in $(pgrep -x opencode || true); do
+  cwd=$(readlink "/proc/$p/cwd" 2>/dev/null) || continue
+  theirs=$(git -C "$cwd" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || continue
+  [[ -n "$OURS" && "$theirs" == "$OURS" ]] && echo "$p"
+done)
 if [[ -z "$pids" ]]; then
   echo "no live level-3 dispatch"
   exit 0
