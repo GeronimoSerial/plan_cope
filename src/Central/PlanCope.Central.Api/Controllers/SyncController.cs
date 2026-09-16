@@ -309,12 +309,14 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
             }
         }
 
+        var resolvedPolicy = await ResolveScoringPolicyAsync(examVersion.Id, examVersion.ScoringPolicy, cancellationToken);
+
         try
         {
             var result = new GradingEngine().Grade(new GradingExamVersion
             {
                 ExamVersionId = examVersion.Id,
-                DeclaredScoringPolicy = ScoringPolicyParser.Parse(examVersion.ScoringPolicy),
+                DeclaredScoringPolicy = ScoringPolicyParser.Parse(resolvedPolicy),
                 Blocks = gradableBlocks
             }, submitted);
 
@@ -424,7 +426,20 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
             answerKeys.Select(ToDto).ToList(),
             assets.Select(ToPublishedDto).ToList(),
             targets.Select(static target => new PublicationTargetDto(target.TargetType, target.TargetId)).ToList(),
-            version.ScoringPolicy);
+            await ResolveScoringPolicyAsync(version.Id, version.ScoringPolicy, cancellationToken));
+    }
+
+    private async Task<string?> ResolveScoringPolicyAsync(string examVersionId, string? documentPolicy, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(documentPolicy))
+        {
+            return documentPolicy;
+        }
+
+        var assignment = await dbContext.GradingPolicyAssignments
+            .AsNoTracking()
+            .SingleOrDefaultAsync(x => x.ExamVersionId == examVersionId, cancellationToken);
+        return assignment?.ScoringPolicy;
     }
 
     private static long ParseCursor(string? cursor)
