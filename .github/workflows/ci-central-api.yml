@@ -36,3 +36,64 @@ jobs:
             tools/PlanCope.RosterCrypto.Tests/PlanCope.RosterCrypto.Tests.csproj; do
             dotnet test "$proj" --configuration Release --no-build --logger "console;verbosity=normal"
           done
+
+  central-migrations:
+    # Applies every Central migration to a REAL Postgres and rehearses the rollback.
+    #
+    # What this proves: the migrations are valid Postgres, they apply in order from an
+    # empty database, and each one's Down() actually reverses it.
+    #
+    # What it does NOT prove, and nothing in CI can: that production DATA survives them.
+    # `core.schools.Cue` going unique is the live example — this job cannot discover
+    # duplicate CUEs, because an empty database has none. That verification still needs a
+    # restored production snapshot and an owner with access to one.
+    name: central-migrations
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: plancope
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: plan_cope_central
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U plancope -d plan_cope_central"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Npgsql canonical keys, kept on one line: a YAML folded scalar would inject a
+      # space into the connection string, which is a needless risk in CI plumbing.
+      ConnectionStrings__CentralDatabase: "Host=localhost;Database=plan_cope_central;Username=plancope;Password=ci-only-password"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Setup .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          global-json-file: global.json
+      - name: Install EF tools
+        run: dotnet tool restore
+      - name: Apply all migrations
+        run: |
+          dotnet ef database update \
+            --project src/Central/PlanCope.Central.Migrations/PlanCope.Central.Migrations.csproj \
+            --startup-project src/Central/PlanCope.Central.Api/PlanCope.Central.Api.csproj
+      - name: Rehearse rollback of the most recent migration
+        run: |
+          set -e
+          # Roll back to the second-newest migration, then forward again. A Down() that
+          # does not reverse its Up() fails here rather than during a production incident.
+          previous=$(dotnet ef migrations list \
+            --project src/Central/PlanCope.Central.Migrations/PlanCope.Central.Migrations.csproj \
+            --startup-project src/Central/PlanCope.Central.Api/PlanCope.Central.Api.csproj \
+            --no-build --prefix-output | grep '^data:' | sed 's/^data: //' | tail -2 | head -1)
+          echo "Rolling back to: $previous"
+          dotnet ef database update "$previous" \
+            --project src/Central/PlanCope.Central.Migrations/PlanCope.Central.Migrations.csproj \
+            --startup-project src/Central/PlanCope.Central.Api/PlanCope.Central.Api.csproj
+          dotnet ef database update \
+            --project src/Central/PlanCope.Central.Migrations/PlanCope.Central.Migrations.csproj \
+            --startup-project src/Central/PlanCope.Central.Api/PlanCope.Central.Api.csproj
