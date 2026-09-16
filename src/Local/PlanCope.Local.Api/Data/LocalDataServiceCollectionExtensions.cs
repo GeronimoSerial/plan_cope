@@ -39,6 +39,7 @@ public static class LocalDataServiceCollectionExtensions
         services.AddScoped<ISessionRepository, SessionRepository>();
         services.AddScoped<IAttemptRepository, AttemptRepository>();
         services.AddScoped<IStatsRollupRepository, StatsRollupRepository>();
+        services.AddScoped<IStatsQueryRepository, StatsQueryRepository>();
         services.AddScoped<IOutboxRepository, OutboxRepository>();
         services.AddScoped<ISyncStateRepository, SyncStateRepository>();
 
