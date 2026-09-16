@@ -77,3 +77,26 @@ Two limits worth stating plainly. `write_bytes` counts *all* process I/O, includ
 own session database, so rising bytes proves the process is alive and doing work, never that it
 wrote to the worktree — `git status` is the only proof of that. And a dispatch can start and die
 between two review cycles, so a clean reading never proves nothing was reaped.
+
+## Sizing a brief
+
+**A brief costs what its FILE COUNT costs, not what its word count costs.**
+
+Measured on B4: a 14,944-byte, 213-line brief naming **23 distinct files** produced 47 tool
+calls across 28 steps — 29 reads, 16 bash, 2 glob — and **zero writes** before the clock
+killed it. Every step finished with `reason: "tool-calls"`, so the model was working the
+entire time. It simply never finished understanding, because it was asked to hold 23 files
+in its head before it was allowed to produce a line.
+
+Target per dispatch: **1–3 files it may write, plus at most 2–3 it must read.** More than
+that is not a narrow slice, it is a plan wearing a brief's clothes.
+
+The tell is in the log: `grep -c '"tool":"read"'` far exceeding the number of files the slice
+is supposed to produce. A healthy dispatch reads a little and writes; a doomed one reads
+until the buzzer.
+
+**Resolve the questions before you write the brief.** The leader has already read those files
+in order to write the brief at all — putting the answers in, with exact table and column
+shapes, costs nothing and stops the implementer re-deriving what is already known. B3 saved a
+full round-trip this way by settling an id-space question itself and handing over a fact
+instead of a reading list.
