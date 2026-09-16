@@ -83,11 +83,10 @@ honest position while the mechanism was unknown was "cause unknown", not "flaky"
 These are owner tasks. They are not incomplete work; they need access or hardware that does
 not exist here.
 
-1. **The production-snapshot data check (B0 task 1).** Migrations are proven reversible
-   against a real Postgres 17 in CI — the `central-migrations` job applies every migration
-   from empty and rehearses the rollback. But **an empty database has no duplicate CUEs to
-   find.** Whether production data survives `core.schools.Cue` becoming unique needs a
-   restored snapshot.
+1. ~~**The production-snapshot data check (B0 task 1).**~~ **CLOSED — checked against real
+   production data on 2026-09-16. The unique index is safe.** Details in
+   [CUE uniqueness, checked against production](#cue-uniqueness-checked-against-production)
+   below.
 
 2. **B8's four performance criteria.** Cold start, 100-question render, idle CPU and the real
    Argon2id timing each need a **2-core / 4 GB / HDD Windows machine**. The figures currently
@@ -131,6 +130,77 @@ not exist here.
 - B7 ships a Velopack `releases.{channel}.json` feed in Velopack's own `VelopackAssetFeed`
   wire shape, **not** the generic authenticated JSON feed the plan originally described. The
   plan text carries a correction note rather than a silent rewrite.
+
+
+---
+
+## CUE uniqueness, checked against production
+
+**Status: CLOSED.** B0 task 1 asked whether real data survives `core.schools."Cue"` becoming
+unique. It does. This was not reasoned about — it was run.
+
+### What was used as the production snapshot
+
+plan_cope Central is **not deployed yet** (`il.sistemas.mec.gob.ar` answers `503`), so there is
+no plan_cope production database to snapshot. That makes the honest question a different one:
+**does the upstream registry that plan_cope ingests contain CUE collisions?** It is the source
+data, not plan_cope's own table, that can carry a duplicate in.
+
+The check therefore ran against the live provincial database (`asistencias`, PostgreSQL 17),
+read-only, using its `secciones.cue_anexo` column — **2 059 distinct establishments**.
+
+### The scare, and why it was wrong
+
+Production stores establishments as `CUE-anexo`, e.g. `1800000-00` and `1800000-01`. Grouped on
+the **7-digit CUE alone** the data looks alarming:
+
+| Measure | Count |
+|---|---|
+| Distinct `cue_anexo` | 2 059 |
+| Distinct 7-digit CUE | 1 563 |
+| CUEs carrying more than one anexo | 176 |
+| Establishments that would collide | **496** |
+
+**That collision is not reachable, because plan_cope does not key on the 7-digit CUE.**
+`CueCode` (`src/Shared/PlanCope.Shared.Domain/ValueObjects/CueCode.cs`) defines a CUE as
+**exactly 9 digits** — it strips the separator and keeps CUE *and* anexo, so `1800000-00` and
+`1800000-01` normalize to `180000000` and `180000001`, which are distinct. Applying that exact
+rule to all 2 059 production values:
+
+| Measure | Count |
+|---|---|
+| Normalized to exactly 9 digits | 2 059 |
+| Rejected by `CueCode` (wrong length) | **0** |
+| Distinct normalized values | 2 059 |
+| **Collisions** | **0** |
+
+Worth recording rather than deleting: the 7-digit reading was checked *first* and looked like a
+496-row defect. What disproved it was the code, not an assumption — and the reverse mistake
+(keying on the 7-digit CUE) is a real one someone could still make. `School` carries `Cue` and
+`Annex` as separate columns, so the shape invites it.
+
+### The migration, rehearsed on that data
+
+Against a real `postgres:17-alpine`, from an empty database:
+
+1. Migrated to `20260910004608_AddUserSchools`, the state immediately before the unique index.
+2. Loaded all **2 059** real production CUEs into `core.schools`.
+3. Applied `20260915220905_MakeSchoolsCueUnique` — **succeeded**. 2 059 rows in, 2 059 rows out,
+   `indisunique = true`. Nothing was dropped or merged.
+4. Reverted it — **succeeded**, index back to non-unique, all 2 059 rows intact.
+5. **Made the guard fail on purpose.** Injected one duplicate `Cue` and re-applied. It refused,
+   naming the offender: `core.schools has 1 duplicate Cue value(s) that must be resolved before
+   the unique index can be created: 180000000`. A guard that never fires proves nothing; this
+   one is proven in both directions.
+6. Removed the duplicate and migrated to head — all **12** migrations applied over real data.
+
+### What this does not prove
+
+The upstream registry is live and can change. This is a measurement of the data **as of
+2026-09-16**, not a permanent guarantee — which is exactly why the migration keeps its
+pre-flight guard instead of trusting this result. If a future load does carry a duplicate, the
+migration aborts with the offending CUE named rather than silently discarding a school.
+
 
 ## How this was run
 
