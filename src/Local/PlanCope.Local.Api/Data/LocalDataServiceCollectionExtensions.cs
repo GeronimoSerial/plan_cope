@@ -54,6 +54,8 @@ public static class LocalDataServiceCollectionExtensions
         services.AddScoped<IStatsQueryRepository, StatsQueryRepository>();
         services.AddScoped<IOutboxRepository, OutboxRepository>();
         services.AddScoped<ISyncStateRepository, SyncStateRepository>();
+        services.AddScoped<RevocationEnforcer>();
+        services.AddHostedService<RevocationEnforcementHostedService>();
 
 
         return services;

@@ -1,14 +1,124 @@
 # B2 — Node enrolment and hardware identity: progress log
 
-## Status: PARTIAL — backend only, no operator-facing UI. Do not read any task below as "done" without reading its status line.
+## Resumption after runtime restart (2026-09-16)
 
-Of the plan's 8 tasks under "### B2 ·" in `PROJECT-CLOSURE-PLAN.md`, **the backend halves of
-tasks 1, 2, 4 and 5 are built and tested. Nothing an operator can actually click or type exists
-yet** — no Phase A screen, no Phase B enrolment screen, no `ActivationKeyStore` wiring, no
-revocation enforcement, no re-activation screen. Wind-down was called (owner instruction) before
-any frontend slice landed. A reviewer should read this document task-by-task before looking at
-the diff — several tasks look further along in code than they are in the actual product, because
-the backend was built first and the UI that makes it reachable never was.
+A prior leader session was killed by an Orca runtime restart before any frontend slice
+landed; this document (written by that session, see below the line) survived and is what
+this resumption was recovered from. Recovery sequence: re-read `_briefs/B2-LEADER.md`, this
+file, `scripts/LEVEL3-DISPATCH-PROTOCOL.md`. `docs/DELEGATION-RULES.md`, which the resumption
+prompt named, **does not exist in this repo** — proceeded on `B2-LEADER.md` and the dispatch
+protocol alone, which were sufficient. Fast-forwarded the branch 22 commits onto
+`origin/feat/b2-node-enrolment` (B3/B4's merged data layer, per the coordinator's PR #27
+rebase) before doing anything else. Migration `012_NodeIdentity.sql` still slots correctly
+after the merge — no third collision.
+
+**Wave 1 (this session): Phase A frontend, `ActivationKeyStore` wired live, task 3 retired.**
+Commits `ea9b232`, `9355b04`, `16b779f`. Dispatched as 3 disjoint slices (`MainForm.cs`;
+`docs/roster-release.md` + delete `Build-SchoolRelease.ps1`; `ActivationScreen.tsx` +
+`HostApp.tsx`), then a 4th narrow slice for the test file once the first attempt at bundling
+component+test together proved too wide. Two dispatch failures worth recording for the next
+wave: (1) the first `ActivationScreen.tsx` slice burned its whole 420s budget on a confused
+`npm install` inside `ClientApp/`, which is an npm-workspace member with no `node_modules` of
+its own by design — deps hoist to the repo root; (2) the retry burned its budget reading a
+giant minified vendor JS bundle instead of source. Both fixed by narrowing the brief (drop the
+test file into its own slice) and adding an explicit "do not read node_modules/dist" rule —
+third attempt landed clean. **Diagnosis, not re-dispatching blind, is what fixed it — matches
+lesson 1 in `B2-LEADER.md`.**
+
+- `MainForm.cs`: `isActivated` now comes from a real `GET /api/activation/status` call
+  (`_phaseAComplete`, refreshed at API startup and after each activation attempt), not
+  `ActivationKeyStore.HasStoredKey`. The dead `host:activate` bridge message and `Activate()`
+  method are removed. Two new bridge messages: `host:getStoredPassphrase` (host responds with
+  `ActivationKeyStore.Load()`'s decrypted contents, or null) and `host:activationComplete`
+  (host re-verifies against the API — never trusts the renderer's say-so — then calls
+  `ActivationKeyStore.Store()` and re-broadcasts `host:context`). **Task 6 done**: `Load()` is
+  now reachable at runtime for the first time. Design call made here, not in the plan text:
+  the passphrase is stored so it can pre-fill the field on a later Phase A re-run (DB reset,
+  troubleshooting) — re-activation (task 8, unstarted) is about the Phase B *activation key*,
+  not this passphrase, so this does not double as task 8's mechanism. Flagging this as a
+  judgment call for the coordinator to confirm, not a plan-mandated design.
+- `ActivationScreen.tsx`: real Phase A flow — fetches `/api/activation/bundle-cues`, renders a
+  CUE selector, posts `/api/activation/unlock`, shows the API's own Spanish error message on
+  400. **An operator can now complete Phase A through the actual application** — this closes
+  the single biggest gap the previous session flagged. **NOT verified**: interactive
+  fetch/bridge behaviour has no automated test. This codebase's component tests are
+  `renderToStaticMarkup` snapshots only — no React Testing Library, no fetch mocking, no
+  simulated clicks are installed anywhere in this project. Added one more static-render
+  assertion (the pre-effect loading state) in the same convention; did not add a testing
+  library to test the rest, since that is a new-dependency call reserved for the coordinator
+  per `B2-LEADER.md`'s escalation rule, not something to add unilaterally mid-slice.
+- `Build-SchoolRelease.ps1` retired (task 3 fully done, not just backend). Confirmed via
+  `rg RosterBundlePath src/Local/PlanCope.Local.Host/PlanCope.Local.Host.csproj` (no match)
+  and reading `.github/workflows/release.yml`'s `host` job that the script was never wired
+  into CI — that job already does its own universal `dotnet publish`, unrelated to this
+  script, so retiring it was pure deletion with no pipeline change. `docs/roster-release.md`
+  rewritten to describe the actual current flow (one encrypted bundle, one build, CUE chosen
+  at Phase A unlock); every claim in the rewrite was checked against the real code
+  (`RosterBundleOptions.SectionName`, `RosterCrypto`'s `pack` CLI flags,
+  `RosterReleaseTool`'s CLI shape, `DocumentHmacService`) before being written, not assumed
+  from the old doc.
+- One process note: the `MainForm.cs` commit (`ea9b232`) picked up
+  `Build-SchoolRelease.ps1`'s deletion because the dispatched agent for that slice had already
+  `git rm`'d it (staged) before I ran `git add` for the unrelated file — the two are
+  independent, disjoint changes that happened to land in one commit. Not undone (the deletion
+  was already independently reviewed and correct); the docs update for the same task landed
+  in its own commit (`9355b04`) with accurate attribution. Worth watching for on future waves:
+  check `git status` before `git add <specific-file>`, not just before `git commit`.
+
+Both waves built green (`dotnet build PlanCope.slnx -warnaserror`, 0/0) and the ClientApp
+workspace passed independently (`npm run build` + `npm test`, 18/18) before each commit.
+
+**Wave 3 (this session): `RevocationEnforcer`, its hosted service, lock enforcement,
+re-activation UI — tasks 7 and 8, the entire rest of the plan's scope.** Commits `296bf6e`
+(enforcer + tests), `f5ea498` (hosted service), `e3153a4` (status field + 423 middleware),
+`e15303b` (re-activation screen), `e4e0c40` (leader DI wiring). Dispatched as 4 disjoint
+slices in one wave; 3 landed clean on the first attempt, the 4th (`RevocationEnforcer.cs` +
+its test file, the largest and most novel slice) wrote a complete, correct
+`RevocationEnforcer.cs` but timed out before writing its test file — diagnosed via `git status`
+(file was there, syntactically complete) rather than assumed dead, then the test file was
+re-dispatched alone as a 5th narrow slice, handed the already-finished class to read instead of
+having to design against a moving target. This is the same "narrow and re-dispatch, don't
+re-run the whole brief" pattern that fixed Wave 1's `ActivationScreen.tsx` slice.
+Design work that went into the briefs before dispatching, worth recording because none of it
+is written down anywhere else:
+- Confirmed via `ActivationContracts.cs` that Central's refresh endpoint deliberately issues
+  one more usable `central_access_token` on the very call that discovers a node is revoked —
+  this is what makes "drain after revocation is detected" actually possible without inventing
+  a special-case credential path; `RevocationEnforcer`'s drain step is just
+  `LocalOutboxPushService.PushAsync` called in a loop, reusing what already exists.
+  `SyncController.cs` on Central was also checked and confirmed to have no revocation check on
+  the push endpoint itself, consistent with this reading.
+- `ISessionRepository.GetActiveAsync()` and `IOutboxRepository.CountPendingAsync()` were
+  identified as the exact existing primitives for "wait for session end" and "is the outbox
+  drained" — no new session-state or outbox-count tracking was added.
+- `ISyncStateRepository` has no delete method and was not given one; "destroy the credential"
+  is implemented as overwriting the value with an empty-string JSON sentinel via the existing
+  `UpsertAsync`, which is sufficient for the app's own purposes (SQLite's own WAL/journal
+  forensic recoverability is a separate, unaddressed concern, not something either delete or
+  overwrite would fix, and out of this task's scope).
+- `RevocationEnforcementHostedService` (a 30-second polling `BackgroundService`) is flagged
+  explicitly as new infrastructure this leader chose, not something the plan text mandates by
+  name — task 7 requires *something* to autonomously drive enforcement forward without an
+  operator, and `LocalOutboxPushService`'s neighboring "no hosted service" decision was
+  deliberately not followed here because it was scoped to a different concern (bandwidth/cost
+  control for routine sync vs. a security enforcement path). Flagged for the coordinator to
+  confirm this reading rather than silently presented as plan-mandated.
+- Re-activation (task 8) turned out to need almost no new code: it is the same
+  `POST /api/enrolment/redeem` flow as first-time enrolment, reused via a copy-only `variant`
+  prop on the already-existing `EnrolmentScreen`, once it was confirmed (by re-reading
+  `EnrolmentEndpoints.cs`) that a successful redeem unconditionally sets
+  `credential_state = "active"` regardless of what it was before.
+
+## Status: ALL 8 TASKS HAVE CODE, as of Wave 3 (2026-09-16). Do not read this as "shippable" without reading the caveats below — nothing in this batch has run on real Windows/WebView2 hardware or against a live Central instance.
+
+All 8 plan tasks under "### B2 ·" in `PROJECT-CLOSURE-PLAN.md` are done at the code level:
+tasks 1–6 and 8 include their operator-facing UI where the plan calls for one; task 7
+(`RevocationEnforcer`) is backend-only by nature (it has no UI, it enforces). Every wave built
+green (`dotnet build PlanCope.slnx -warnaserror`, 0/0), the full `PlanCope.Local.Api.Tests`
+suite passes (68 passed, 1 pre-existing skip), and the ClientApp workspace passes (25/25). None
+of that is a substitute for the two verifications this environment cannot do: a real Windows
+run of the WinForms/WebView2 host, and a real Central instance for the outbound HTTP paths.
+A reviewer should still read this document task-by-task before looking at the diff.
 
 This batch was run as a level-2 leader dispatching to `opencode`/DeepSeek-V4-Flash per
 `scripts/LEVEL3-DISPATCH-PROTOCOL.md`. Every production line below was written by a dispatched
@@ -33,41 +143,32 @@ below), which is glue, not logic.
    environment.
 
 2. **Phase A rewrite (passphrase → Argon2id → real DEK unwrap → CUE selection → `schools` row)**
-   — **PARTIAL, backend only**. `src/Local/PlanCope.Local.Api/Endpoints/ActivationEndpoints.cs`
-   (`GET /api/activation/status`, `GET /api/activation/bundle-cues`, `POST /api/activation/unlock`)
-   calls the REAL crypto path — `tools/PlanCope.RosterCrypto/EnvelopeDecryption.DecryptCueAsync`,
-   unchanged, still doing genuine Argon2id key derivation and a real AES-GCM DEK unwrap, exactly
-   as the plan's acceptance criterion names it. `EmbeddedRosterSeeder.SeedOneAsync` (new) imports
-   the decrypted roster on success; `node_identity` and `schools` rows get created/updated
-   correctly. **What does NOT exist**: the React `ActivationScreen.tsx` was never rewritten — it
-   still posts a raw passphrase through the old WebView2 bridge message to
-   `MainForm.Activate()`/`ActivationKeyStore.Store()`, a flow that has nothing to do with the new
-   endpoints above. **An operator cannot complete Phase A through the actual application today.**
-   The acceptance criterion "Phase A completes with the network cable unplugged, and a full exam
-   session runs to submission afterwards" is **NOT met** — the crypto and persistence are real and
-   tested, but there is no UI path to reach them.
+   — **DONE, including the UI, as of Wave 1 (2026-09-16)**. Backend unchanged from the prior
+   session: `ActivationEndpoints.cs` calls the real crypto path
+   (`EnvelopeDecryption.DecryptCueAsync`, genuine Argon2id + AES-GCM). `ActivationScreen.tsx`
+   was rewritten this wave to call `/api/activation/bundle-cues` and `/api/activation/unlock`
+   directly, and `MainForm.cs` now sources `isActivated` from a real
+   `GET /api/activation/status` call. **An operator can now complete Phase A through the
+   actual application.** **Still NOT verified**: this was never exercised end-to-end on real
+   Windows hardware with WebView2 actually running — verification here is `dotnet build`
+   (green) + the ClientApp's own build/test (green, 18/18) + independent diff review, not a
+   live run. The acceptance criterion "Phase A completes with the network cable unplugged, and
+   a full exam session runs to submission afterwards" still needs a real device to confirm.
 
-3. **Remove the single-CUE build restriction / retire `Build-SchoolRelease.ps1`** — **PARTIAL**.
-   `RosterBundleOptions.Cue` (the build-time constant) is removed;
-   `EmbeddedRosterSeeder`/`EmbeddedRosterSource` now take the CUE as a runtime parameter
-   (`SeedOneAsync(cue, passphrase, ...)`), which is the substantive part of "remove the
-   single-CUE restriction." **`scripts/Build-SchoolRelease.ps1` itself was never touched** — it
-   still exists, still references a `-p:RosterBundlePath` MSBuild property that
-   `PlanCope.Local.Host.csproj` has never consumed (verified: grepped the `.csproj`, no match —
-   this script predates the encrypted-bundle mechanism and was already dead before this batch
-   started), and still downloads one CUE's plaintext `roster.json` directly rather than going
-   through `tools/PlanCope.RosterCrypto`'s `pack` command. **Not started, not retired, still on
-   disk exactly as it was.**
+3. **Remove the single-CUE build restriction / retire `Build-SchoolRelease.ps1`** — **DONE**,
+   as of Wave 1 (2026-09-16). Backend half unchanged from the prior session
+   (`RosterBundleOptions.Cue` removed, CUE is now a runtime parameter).
+   `scripts/Build-SchoolRelease.ps1` is deleted; `docs/roster-release.md` rewritten to describe
+   the actual current flow. Confirmed before deleting: `.github/workflows/release.yml`'s `host`
+   job does its own universal `dotnet publish` and never referenced this script, so retiring it
+   required no CI change.
 
-4. **Phase B enrolment screen + `POST /api/activation/redeem`** — **PARTIAL, backend only**.
-   `src/Local/PlanCope.Local.Api/Endpoints/EnrolmentEndpoints.cs` (`POST /api/enrolment/redeem`)
-   builds a real `ActivationRedeemRequest` (B1's published contract, unmodified — no parallel
-   contract invented) from the fingerprint + the operator-supplied activation key, posts it to
-   Central, and on success writes `sync_state`'s `node_id`/token keys and flips
-   `node_identity.credential_state` to `"active"`. **What does NOT exist**: no
-   `EnrolmentScreen.tsx`, no client-side activation-key checksum validation, no wiring into
-   `HostApp.tsx`. **An operator cannot enrol a node through the actual application today** — the
-   endpoint is real and reachable by an HTTP client, but nothing in the shipped product calls it.
+4. **Phase B enrolment screen + `POST /api/activation/redeem`** — **DONE**, as of Wave 2
+   (2026-09-16). Backend unchanged from the prior session
+   (`src/Local/PlanCope.Local.Api/Endpoints/EnrolmentEndpoints.cs`). `EnrolmentScreen.tsx` adds
+   the activation-key entry with client-side checksum validation and wiring into `AppShell.tsx`
+   as a non-blocking overlay. **An operator can now enrol a node through the actual
+   application.** Same "never run on real WebView2/Windows" caveat as task 2.
 
 5. **Credential refresh (401 detected once, not per-service)** — **DONE for what was specified**.
    `NodeCredentialRefresher` + `CentralCredentialHandler`
@@ -90,57 +191,110 @@ below), which is glue, not logic.
    Local.Api endpoints that fakes an outbound Central call, and building one was judged out of
    scope for the time remaining.
 
-6. **`ActivationKeyStore.Load()` made load-bearing** — **NOT STARTED**. Still dead code, exactly
-   as it was before this batch (`src/Local/PlanCope.Local.Host/Services/ActivationKeyStore.cs:38-49`).
-   This was scoped to the frontend/Host slice that never ran (see "What was dispatched but never
-   landed" below).
+6. **`ActivationKeyStore.Load()` made load-bearing** — **DONE**, as of Wave 1 (2026-09-16).
+   `MainForm.cs`'s `host:getStoredPassphrase` handler calls `Load()` and returns the decrypted
+   passphrase to `ActivationScreen.tsx`, which pre-fills the passphrase field if present.
+   `Store()` is called from the new `host:activationComplete` handler after a real, verified
+   Phase A success. Design call made without a plan citation (the plan only says "make it
+   load-bearing"): this ties `Load()` to re-running Phase A conveniently, not to task 8's
+   re-activation (which recovers from a revoked *activation key*, a different credential) —
+   flagged for the coordinator to confirm this reading is the intended one.
 
-7. **`RevocationEnforcer`** (wait for session end → drain outbox → wipe → lock, resumable via
-   `node_identity.revocation_stage`) — **NOT STARTED**. No design work beyond the schema column
-   (`node_identity.revocation_stage`, added in the merged `012_NodeIdentity.sql` migration) exists.
-   Nothing in this batch executes any part of the fixed sequence in plan §2.8.
+7. **`RevocationEnforcer`** — **DONE**, as of Wave 3 (2026-09-16).
+   `src/Local/PlanCope.Local.Api/Services/RevocationEnforcer.cs`: `TryAdvanceAsync` reads
+   `node_identity`, returns `NotApplicable`/`AlreadyLocked` immediately when not relevant,
+   `WaitingForSessionEnd` if `ISessionRepository.GetActiveAsync()` is non-empty (existing
+   mechanism, not a new one), then drains via `LocalOutboxPushService.PushAsync` in a loop
+   (existing mechanism — no second push path invented) until `IOutboxRepository.CountPendingAsync()
+   == 0`, persisting `revocation_stage = "drained"` only then; only after that does it delete
+   `local_roster_students`/`_sections`/`_snapshots` and overwrite the `sync_state` credential
+   keys (`central_access_token`, `central_refresh_token`, both `*_expires_at`, `node_id`) with
+   an empty-string sentinel, persisting `"wiped"`; then `"locked"`. Each write is immediate and
+   the checks are stage-gated, so a crash between any two steps resumes from the last persisted
+   stage — verified by test, not just asserted (see below). Reuses B1's design: Central
+   deliberately issues one more usable `central_access_token` on the refresh call that
+   discovers `NodeRevoked = true` (`ActivationRefreshResponse`, read and confirmed in
+   `ActivationContracts.cs`), specifically so the drain step has something to push with.
+   `RevocationEnforcementHostedService` (`BackgroundService`, 30s fixed poll, own DI scope per
+   tick) drives this autonomously — this is a genuine new hosted-service/polling-loop
+   *architecture decision* by this leader, deliberately different from
+   `LocalOutboxPushService`'s "no hosted service" stance: that decision was about bandwidth/cost
+   control for routine sync, not applicable to a security-enforcement path that must not depend
+   on an operator being present. Flagging this plainly for the coordinator, since it is new
+   infrastructure (a background timer) that the plan text does not explicitly call for, even
+   though task 7 clearly requires *something* to drive enforcement forward autonomously.
+   **Tested** (`RevocationEnforcerTests.cs`, 7 tests, real SQLite + real repositories, fake
+   `HttpMessageHandler` for the Central side): not-applicable, already-locked,
+   never-during-a-session, and the two load-bearing ones —
+   `DrainIncomplete_keeps_roster_and_credentials_intact` (asserts nothing destructive runs
+   while outbox rows are pending, with a handler that throws if a push is even attempted after
+   that point) and `Resumes_from_wiped_stage_without_re_draining_or_re_wiping` (seeds
+   `revocation_stage = "wiped"` directly, backs the push path with a handler that throws if
+   called at all, asserts it goes straight to `locked`). **NOT verified**: against a live
+   Central instance, same caveat as task 5; and the middleware+enforcer interaction has never
+   run end-to-end in a live process, only unit-level.
+   A separate small slice extends `GET /api/activation/status` with `isLocked` and adds
+   pipeline middleware in `LocalApiApplication.cs` returning 423 for every request except
+   `/api/health`, `/api/activation`, `/api/enrolment` while locked — this is what makes
+   "lock" actually mean something beyond a database column.
 
-8. **Re-activation screen for a locked node** — **NOT STARTED**.
+8. **Re-activation screen for a locked node** — **DONE**, as of Wave 3 (2026-09-16). Reuses
+   `EnrolmentScreen` with a new `variant="reactivate"` prop (copy-only difference) instead of a
+   parallel redemption flow — recovering a locked node redeems a fresh activation key through
+   the exact same `POST /api/enrolment/redeem` path as first-time enrolment, which is also what
+   sets `credential_state` back to `"active"` and issues a fresh `node_id` on success (unchanged
+   backend behaviour, confirmed by reading `EnrolmentEndpoints.cs` again before making this
+   call, not assumed). `HostApp.tsx` polls `/api/activation/status` every 15s and takes the
+   locked branch before Phase A/`SchoolGate` — a locked node's roster cache is already wiped by
+   `RevocationEnforcer`, so there is nothing left for `SchoolGate` to gate on anyway.
 
 ## Cross-cutting gates from the batch mandate (`_briefs/B2-LEADER.md`) — checked honestly
 
-- **Offline-first (Phase A fully offline)**: the crypto and persistence this criterion cares about
-  are real and tested (task 2's `DecryptCueAsync` call is unchanged, genuine Argon2id + AES-GCM).
-  The criterion as a whole is **NOT met**, because there is no UI path for an operator to reach
-  it. Do not report this gate as closed based on the endpoint tests alone.
-- **Two-phase separation**: respected structurally — Phase A (`ActivationEndpoints`) and Phase B
-  (`EnrolmentEndpoints`) are separate endpoint groups, separate concerns, and Phase B's redeem call
-  requires a `node_identity` row that only Phase A's unlock endpoint creates. Neither phase is
-  reachable by an operator yet, so "separation" is unverified as a *product* property, only as a
-  *code* property.
+- **Offline-first (Phase A fully offline)**: crypto, persistence AND now the UI path are real.
+  **Met as far as this environment can verify** — never exercised on real Windows hardware
+  with WebView2 actually running (see below).
+- **Two-phase separation**: respected structurally and now reachable — Phase A and Phase B are
+  both operator-usable (Waves 1–2), and a locked node's re-activation goes back through Phase
+  B's redeem, never re-running Phase A's crypto.
 - **DRY fingerprint composite**: met. One place (`HardwareFingerprintService`), consumed by both
   phases via the same method.
 - **DRY credential refresh**: met. One handler, one refresher, three consumers, duplicated
   per-service code deleted.
-- **Revocation never destroys data before the outbox drains**: **not applicable yet** — the
-  enforcer that would destroy anything does not exist (task 7 not started).
-- **`ActivationKeyStore.Load()` load-bearing**: **not met**, see task 6.
-- **Retire `Build-SchoolRelease.ps1`**: **not met**, see task 3.
+- **Revocation never destroys data before the outbox drains**: **met**, see task 7 (Wave 3) —
+  `DrainIncomplete_keeps_roster_and_credentials_intact` is the test that would catch a
+  regression here.
+- **Detection stays B5's job, B2 only executes**: `RevocationEnforcer` never checks Central
+  itself for revocation — it only reacts to `credential_state == "revoked"`, a flag B2's own
+  `NodeCredentialRefresher` already set in a prior wave (the one detection path this batch is
+  allowed to own, per the leader mandate). No second detection path was added.
+- **`ActivationKeyStore.Load()` load-bearing**: **met**, see task 6 (Wave 1).
+- **Retire `Build-SchoolRelease.ps1`**: **met**, see task 3 (Wave 1).
+- **New infrastructure flagged for the coordinator**: `RevocationEnforcementHostedService` is a
+  new background polling loop — the first one in this Local API. Worth a second look precisely
+  because it's new, not because anything about it looks wrong.
 
-## What was dispatched but never landed
+## What was dispatched but never landed (as of the wind-down before this resumption)
 
 Two frontend/UI-adjacent slices were designed and written up as full dispatch briefs but never
-successfully executed — every attempt to run them timed out at the mandatory 420s wall-clock
-budget while still exploring the codebase, before writing a single file:
+successfully executed in the PRIOR session — every attempt to run them timed out at the
+mandatory 420s wall-clock budget while still exploring the codebase, before writing a single
+file:
 - **Unit A (Phase A)**: `ActivationScreen.tsx` rewrite (passphrase + CUE picker), `MainForm.cs`
   rewiring away from the old bridge-message flow, `ActivationKeyStore.Load()` wiring (task 6),
-  and retiring `Build-SchoolRelease.ps1` (task 3).
+  and retiring `Build-SchoolRelease.ps1` (task 3). **This unit landed in Wave 1 of this
+  resumption** (see the "Resumption after runtime restart" section at the top of this file) —
+  narrowed into 4 disjoint slices instead of one wide one, which is what got it across the
+  line this time.
 - **Unit B (Phase B)**: `EnrolmentScreen.tsx` (activation-key entry + client-side checksum
-  validation), wiring into `HostApp.tsx`.
-
-Both were re-decomposed into narrower backend-only slices (dropping all React/`MainForm.cs`
-scope) which DID land successfully — that is everything marked DONE/PARTIAL above. The frontend
-scope itself was never re-attempted after wind-down was called; it is simply not built. A future
-batch resuming B2 should treat these two slices as the very next work, not as already attempted
-and failed — the backend they depend on (`/api/activation/*`, `/api/enrolment/*`) is real, tested,
-and wired into the running app (`LocalApiApplication.cs`'s `MapActivationEndpoints()`/
-`MapEnrolmentEndpoints()`), so the frontend work is now unblocked and should be considerably
-narrower than the original brief.
+  validation), wiring into `HostApp.tsx`. **Landed in Wave 2** (commits `02e86ed`, `4d46e60`).
+  `EnrolmentScreen` reimplements Central's `ActivationKeyService` Crockford base32 +
+  CRC-16/CCITT checksum client-side (verified independently against the C# algorithm with a
+  throwaway Node script before accepting the diff — did not trust the dispatched test
+  fixture's claimed-valid key). Wired into `AppShell.tsx` as a dismissible header-triggered
+  overlay, not a gate — `children` (the exam-delivery workspace) always keeps rendering
+  underneath, per the plan's "a node that never completes Phase B still delivers exams
+  indefinitely" acceptance criterion. **Task 4 done**, same "not verified on real
+  WebView2/Windows" caveat as task 2.
 
 ## What was NOT verified, and what the substitutions do not prove
 
@@ -161,6 +315,13 @@ plainly rather than letting a green local run imply more than it does.
   actual behaviour, error bodies, or latency. `EnrolmentEndpointsTests.cs` has an explicit skip
   rather than a fabricated pass, for the same reason plus the added one that no
   `WebApplicationFactory`-based fixture exists yet for a Local.Api endpoint that calls out.
+- **`RevocationEnforcer` was never exercised against a live Central or a real multi-hour
+  revocation window.** Its tests prove the local stage machine is correct against a fake HTTP
+  layer that always behaves as scripted; they prove nothing about how long the one-time
+  post-revocation `central_access_token` actually stays valid on real Central, or what happens
+  if the outbox takes longer to drain than that token's lifetime — a real risk the plan accepts
+  explicitly (§2.8: "offline capability and remote revocation are in direct tension") but this
+  batch has no way to time-box or observe here.
 - **No real encrypted roster bundle exists.** `EnvelopeDecryption.ListCuesAsync` and the
   `/unlock`/`/bundle-cues` endpoints are tested only against small synthetic bundles built in-test
   via `EnvelopeEncryption.EncryptDirectoryAsync` with 1-2 entries. Behaviour against a real
@@ -210,14 +371,44 @@ incomplete both times, and only the coordinator's cross-branch visibility caught
 9. `test(local): cover NodeCredentialRefresher and CentralCredentialHandler` — closing the untested gap from commit 8.
 10. `feat(local): wire fingerprint, node identity and enrolment into DI` — leader-written glue: DI registration and endpoint routing only, no new logic.
 11. `docs(b2): record the batch mandate`
-12. This document.
+12. `docs(b2): wind-down status - backend-only, task-by-task, unverified gaps named` — end of the prior session.
+
+### This resumption (2026-09-16), after the runtime restart
+
+13. `feat(local-host): wire Phase A status and ActivationKeyStore into the bridge` — task 6,
+    `MainForm.cs` half of task 2's UI. (Picked up `Build-SchoolRelease.ps1`'s deletion
+    incidentally — see the note in Wave 1 above.)
+14. `docs(roster): describe the universal-build flow, drop Build-SchoolRelease.ps1` — task 3.
+15. `docs(b2): log wave 1 of the resumption - Phase A UI, task 3, task 6 done`
+16. `feat(local-host): rewrite ActivationScreen for the real Phase A backend` — task 2's UI.
+17. `feat(local-host): add EnrolmentScreen with client-side activation-key checksum` — task 4.
+18. `feat(local-host): wire EnrolmentScreen into AppShell as a non-blocking overlay` — task 4.
+19. `docs(b2): log wave 2 - Phase B UI (task 4) done`
+20. `feat(local): add RevocationEnforcer for the fixed §2.8 sequence` — task 7.
+21. `feat(local): add RevocationEnforcementHostedService` — task 7's autonomous driver.
+22. `feat(local): expose isLocked and block the API while a node is locked` — task 7's enforcement surface.
+23. `feat(local-host): add re-activation screen for a locked node` — task 8.
+24. `feat(local): wire RevocationEnforcer and its hosted service into DI` — leader-written glue only.
+25. This update to this document.
 
 ## What a future batch resuming B2 should do first
 
-In order of what unblocks the most: (1) `ActivationScreen.tsx` + `MainForm.cs` rewiring for Phase
-A — the backend is ready and tested, this is now a narrower task than the original brief since
-`/api/activation/status`, `/bundle-cues`, `/unlock` already exist; (2) `ActivationKeyStore.Load()`
-wiring (task 6), naturally paired with the same MainForm.cs work; (3) `EnrolmentScreen.tsx` +
-`HostApp.tsx` wiring for Phase B, same reasoning; (4) `scripts/Build-SchoolRelease.ps1` retirement
-(task 3, small, mostly deletion); (5) `RevocationEnforcer` (task 7) and the re-activation screen
-(task 8), which have no code started at all and should be scoped as their own wave.
+All 8 plan tasks have code. What's left is verification this environment cannot do, not new
+features:
+1. **Run the actual host on real Windows hardware with WebView2** — this has never happened.
+   Every UI flow (Phase A unlock, Phase B redeem, the locked/re-activation screen) needs a real
+   click-through pass. Watch specifically for the WebView2 bridge messages introduced this
+   session (`host:getStoredPassphrase`, `host:activationComplete`) actually round-tripping —
+   they compile but have never fired.
+2. **Point a real Central instance at a test node** and let a real revocation happen: issue a
+   key, redeem it, revoke it from Central, and watch `RevocationEnforcer` actually drain, wipe
+   and lock over real HTTP, with real token lifetimes — the exact thing
+   `RevocationEnforcerTests.cs` cannot prove (see "What was NOT verified" above, the timing-window
+   risk this batch explicitly could not exercise).
+3. **Verify fingerprint stability** across reboot, a Velopack update and a RAM change on a real
+   machine — still entirely unproven (task 1's caveat, unchanged since the prior session).
+4. **Build a `WebApplicationFactory`-style fixture** for `Local.Api` so
+   `EnrolmentEndpointsTests.Redeem_endpoint_placeholder` can stop being a `[Fact(Skip)]`.
+5. Everything above is verification, not design — do not re-litigate any of the decisions this
+   document names as leader judgment calls (task 6's `Load()` semantics, the hosted-service
+   choice for task 7) without first re-reading why they were made this way.
