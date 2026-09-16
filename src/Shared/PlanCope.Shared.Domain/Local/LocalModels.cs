@@ -60,3 +60,5 @@ public sealed record LocalSyncAttempt(string Id, string Direction, string Status
 public sealed record LocalAuditLog(string Id, string? ActorId, string Action, string EntityType, string EntityId, string? PayloadJson, string CreatedAt);
 
 public sealed record AppSetting(string Id, string Key, string ValueJson, string UpdatedAt);
+
+public sealed record NodeIdentity(string Id, string? NodeId, string Cue, string FingerprintHash, string FingerprintComponentsJson, string? EnrolledAt, string? LastSyncAt, string CredentialState, string? RevocationDetectedAt, string? RevocationStage);
