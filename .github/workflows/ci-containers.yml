@@ -25,6 +25,9 @@ jobs:
           swap-storage: false
       - name: Validate compose config
         run: docker compose -f deploy/compose.ci.yml config
+      # Verification only. Publishing to GHCR is publish-images.yml — this step
+      # deliberately does not push, and for a long time nothing else did either,
+      # which is how production ended up frozen on a hand-pushed image.
       - name: Build images (no push)
         run: docker compose -f deploy/compose.ci.yml build
       - name: Run smoke test (migrate + api health check)
