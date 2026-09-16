@@ -74,6 +74,8 @@ jobs:
               - 'Directory.Packages.props'
               - 'NuGet.config'
               - 'dotnet-tools.json'
+      - name: Every test project is wired into a workflow
+        run: ./scripts/check-test-projects-in-ci.sh
 
   central-api:
     name: central-api
