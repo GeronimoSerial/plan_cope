@@ -24,6 +24,8 @@ public sealed class PlanCopeDbContext(DbContextOptions<PlanCopeDbContext> option
     public DbSet<PublicationPackage> PublicationPackages => Set<PublicationPackage>();
     public DbSet<PublicationTarget> PublicationTargets => Set<PublicationTarget>();
     public DbSet<RegisteredNode> RegisteredNodes => Set<RegisteredNode>();
+    public DbSet<ActivationKey> ActivationKeys => Set<ActivationKey>();
+    public DbSet<NodeCredential> NodeCredentials => Set<NodeCredential>();
     public DbSet<CentralDeliverySession> DeliverySessions => Set<CentralDeliverySession>();
     public DbSet<ReceivedStudentAttempt> ReceivedStudentAttempts => Set<ReceivedStudentAttempt>();
     public DbSet<ReceivedSubmissionAnswer> ReceivedSubmissionAnswers => Set<ReceivedSubmissionAnswer>();

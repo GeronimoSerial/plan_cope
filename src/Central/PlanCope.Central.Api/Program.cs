@@ -7,6 +7,7 @@ using Microsoft.OpenApi.Models;
 using PlanCope.Central.Api.Auth;
 using PlanCope.Central.Api.Data;
 using PlanCope.Central.Api.Integrations.Ge;
+using PlanCope.Central.Api.Middleware;
 using PlanCope.Central.Api.Services;
 using PlanCope.Shared.Infrastructure.DependencyInjection;
 using System.Text;
@@ -64,6 +65,9 @@ builder.Services.Configure<GeApiOptions>(builder.Configuration.GetSection(GeApiO
 builder.Services.AddSingleton<GeTokenCache>();
 builder.Services.AddScoped<IGeRosterStore, EfGeRosterStore>();
 builder.Services.AddScoped<IGeRosterService, GeRosterService>();
+builder.Services.AddScoped<ActivationKeyService>();
+builder.Services.AddScoped<NodeCredentialService>();
+builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient<IGeTokenProvider, GeTokenProvider>((serviceProvider, client) =>
 {
     var options = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<GeApiOptions>>().Value;
@@ -161,6 +165,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseForwardedHeaders();
 app.UseHttpsRedirection();
+app.UseMiddleware<ActivationRateLimitMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
