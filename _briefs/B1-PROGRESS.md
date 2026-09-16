@@ -3,6 +3,12 @@
 Level-2 leader log. Every wave dispatched via `opencode run` per
 `scripts/LEVEL3-DISPATCH-PROTOCOL.md`; nothing here was written directly by the leader.
 
+**PR: https://github.com/GeronimoSerial/plan_cope/pull/21 — open, awaiting CI.** All local
+verification (build + full-solution `dotnet test`, 154 tests) is green; per the coordinator's
+standing rule this is not treated as a pass. CI's `ci-containers.yml` smoke test is the first real
+run of this batch's migration against Postgres 17. Not reporting the batch complete until CI
+returns — if it disagrees with anything recorded green below, that disagreement is the finding.
+
 ## Decisions owed to the coordinator
 
 ### 1. Inherited B0 finding — `LoginResponse` missing access token deserialises to `null`
