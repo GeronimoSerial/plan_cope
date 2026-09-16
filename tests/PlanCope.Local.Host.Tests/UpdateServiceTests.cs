@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Net.Http;
+using System.Reflection;
 using System.Security.Cryptography;
 using PlanCope.Local.Host.Services;
 using Xunit;
@@ -160,6 +162,58 @@ public sealed class UpdateServiceTests
 
         var expected = Convert.ToHexString(SHA256.HashData(new byte[4]));
         Assert.False(VelopackUpdateBackend.Sha256Matches(Path.Combine(Path.GetTempPath(), "missing-package.nupkg"), expected));
+    }
+
+    [Fact]
+    public void BearerAuthFileDownloader_AttachesBearerTokenFromProvider()
+    {
+        var downloader = new BearerAuthFileDownloader(() => "node-access-token-123");
+
+        using var client = CreateHttpClientForTest(downloader);
+
+        Assert.NotNull(client.DefaultRequestHeaders.Authorization);
+        Assert.Equal("Bearer", client.DefaultRequestHeaders.Authorization!.Scheme);
+        Assert.Equal("node-access-token-123", client.DefaultRequestHeaders.Authorization.Parameter);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void BearerAuthFileDownloader_ProviderReturnsNoToken_LeavesAuthorizationUnset(string? token)
+    {
+        var downloader = new BearerAuthFileDownloader(() => token);
+
+        using var client = CreateHttpClientForTest(downloader);
+
+        Assert.Null(client.DefaultRequestHeaders.Authorization);
+    }
+
+    [Fact]
+    public void BearerAuthFileDownloader_ReadsTokenFreshPerRequest_NotCachedAtConstruction()
+    {
+        var token = "first-token";
+        var downloader = new BearerAuthFileDownloader(() => token);
+
+        using var first = CreateHttpClientForTest(downloader);
+        token = "rotated-token";
+        using var second = CreateHttpClientForTest(downloader);
+
+        Assert.Equal("first-token", first.DefaultRequestHeaders.Authorization!.Parameter);
+        Assert.Equal("rotated-token", second.DefaultRequestHeaders.Authorization!.Parameter);
+    }
+
+    /// <summary>
+    /// Invokes the protected CreateHttpClient override without making any network call, so the
+    /// test proves the Authorization header is attached without needing a real feed endpoint.
+    /// </summary>
+    private static HttpClient CreateHttpClientForTest(BearerAuthFileDownloader downloader)
+    {
+        var method = typeof(BearerAuthFileDownloader).GetMethod(
+            "CreateHttpClient",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        return (HttpClient)method!.Invoke(downloader, new object?[] { null, null, 1.0 })!;
     }
 
     private sealed class FakeUpdateBackend : IUpdateBackend

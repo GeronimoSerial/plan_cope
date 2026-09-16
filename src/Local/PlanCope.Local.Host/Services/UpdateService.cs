@@ -1,3 +1,4 @@
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using Velopack.Locators;
 
@@ -32,27 +33,69 @@ public interface IUpdateBackend
 }
 
 /// <summary>
-/// Production IUpdateBackend backed by Velopack.UpdateManager. Construct with the
-/// configured update feed URL; ExplicitChannel is set per-call from the requested
-/// UpdateChannel ("stable" or "beta").
+/// Velopack IFileDownloader that attaches an <c>Authorization: Bearer &lt;token&gt;</c> header
+/// to every request. Velopack's built-in SimpleWebSource has no bearer-token hook (the
+/// <c>authorization</c> parameter it passes to the downloader is always null), so node-access
+/// auth has to come from the downloader. The token is read fresh from
+/// <paramref name="accessTokenProvider"/> on every request rather than cached at construction
+/// time, because the token can rotate while the backend is long-lived.
+/// </summary>
+internal sealed class BearerAuthFileDownloader : Velopack.Sources.HttpClientFileDownloader
+{
+    private readonly Func<string?> _accessTokenProvider;
+
+    public BearerAuthFileDownloader(Func<string?> accessTokenProvider)
+    {
+        _accessTokenProvider = accessTokenProvider;
+    }
+
+    /// <inheritdoc cref="Velopack.Sources.HttpClientFileDownloader.CreateHttpClient(string?, string?, double)" />
+    protected override HttpClient CreateHttpClient(string? authorization, string? accept, double timeout)
+    {
+        // SimpleWebSource passes null here; ignore whatever it gives us and attach the
+        // node access token ourselves, when the provider has one to give.
+        var client = base.CreateHttpClient(authorization: null, accept, timeout);
+        var token = _accessTokenProvider();
+        if (!string.IsNullOrWhiteSpace(token))
+        {
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        }
+
+        return client;
+    }
+}
+
+/// <summary>
+/// Production IUpdateBackend backed by Velopack.UpdateManager. Construct with the Central
+/// update feed's base URL, the feed channel ("stable" or "beta") and a provider for the
+/// node-access bearer token. The channel passed to <see cref="CheckForUpdatesAsync"/> is set
+/// per-call via <c>UpdateOptions.ExplicitChannel</c>; the constructor's channel is used for
+/// the download/apply managers, which have no per-call channel of their own.
 /// </summary>
 public sealed class VelopackUpdateBackend : IUpdateBackend
 {
-    private readonly string _updateUrl;
+    private readonly string _feedBaseUrl;
+    private readonly string _channel;
+    private readonly Func<string?> _accessTokenProvider;
     private Velopack.UpdateInfo? _pendingUpdate;
 
-    public VelopackUpdateBackend(string updateUrl)
+    public VelopackUpdateBackend(string feedBaseUrl, string channel, Func<string?> accessTokenProvider)
     {
-        _updateUrl = updateUrl;
+        _feedBaseUrl = feedBaseUrl;
+        _channel = channel;
+        _accessTokenProvider = accessTokenProvider;
+    }
+
+    private Velopack.UpdateManager CreateManager(string explicitChannel)
+    {
+        var downloader = new BearerAuthFileDownloader(_accessTokenProvider);
+        var source = new Velopack.Sources.SimpleWebSource(_feedBaseUrl, downloader, timeout: 1.0);
+        return new Velopack.UpdateManager(source, new Velopack.UpdateOptions { ExplicitChannel = explicitChannel }, locator: null);
     }
 
     public async Task<UpdateCheckResult> CheckForUpdatesAsync(UpdateChannel channel, CancellationToken cancellationToken)
     {
-        var options = new Velopack.UpdateOptions
-        {
-            ExplicitChannel = channel == UpdateChannel.Beta ? "beta" : "stable",
-        };
-        var manager = new Velopack.UpdateManager(_updateUrl, options);
+        var manager = CreateManager(channel == UpdateChannel.Beta ? "beta" : "stable");
         var info = await manager.CheckForUpdatesAsync().ConfigureAwait(false);
         _pendingUpdate = info;
         return new UpdateCheckResult(info is not null, info?.TargetFullRelease.Version.ToString());
@@ -65,7 +108,7 @@ public sealed class VelopackUpdateBackend : IUpdateBackend
             throw new InvalidOperationException("Call CheckForUpdatesAsync first and confirm an update is available.");
         }
 
-        var manager = new Velopack.UpdateManager(_updateUrl);
+        var manager = CreateManager(_channel);
         await manager.DownloadUpdatesAsync(_pendingUpdate).ConfigureAwait(false);
 
         if (!VelopackLocator.IsCurrentSet)
@@ -101,7 +144,7 @@ public sealed class VelopackUpdateBackend : IUpdateBackend
             throw new InvalidOperationException("No downloaded update to apply.");
         }
 
-        var manager = new Velopack.UpdateManager(_updateUrl);
+        var manager = CreateManager(_channel);
         manager.ApplyUpdatesAndRestart(_pendingUpdate);
     }
 }
