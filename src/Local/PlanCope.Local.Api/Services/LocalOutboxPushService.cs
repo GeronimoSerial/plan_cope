@@ -82,10 +82,6 @@ public sealed class LocalOutboxPushService(
             client.BaseAddress = baseAddress;
             client.DefaultRequestHeaders.Remove("X-Node-Id");
             client.DefaultRequestHeaders.Add("X-Node-Id", nodeId.Trim());
-            if (!string.IsNullOrWhiteSpace(token))
-            {
-                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            }
 
             using var response = await client.PostAsJsonAsync("api/sync/push", new PushRequest(nodeId.Trim(), pushItems), JsonOptions, cancellationToken);
             if (!response.IsSuccessStatusCode)

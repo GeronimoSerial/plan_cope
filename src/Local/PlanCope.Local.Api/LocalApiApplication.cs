@@ -69,6 +69,8 @@ public static class LocalApiApplication
         app.MapStatsEndpoints();
         app.MapSyncEndpoints();
         app.MapTakePageEndpoints();
+        app.MapActivationEndpoints();
+        app.MapEnrolmentEndpoints();
 
         return app;
     }

@@ -54,6 +54,16 @@ public sealed class EnvelopeEncryptionTests : IDisposable
         Assert.Equal("180009999", exception.Cue);
     }
 
+    [Fact]
+    public async Task ListCuesAsyncReturnsEveryPackedCueWithoutRequiringPassphrase()
+    {
+        var bundle = await CreateBundleAsync();
+
+        var cues = await EnvelopeDecryption.ListCuesAsync(bundle);
+
+        Assert.Contains("180000100", cues);
+    }
+
     private async Task<string> CreateBundleAsync()
     {
         await File.WriteAllTextAsync(Path.Combine(directory, "180000100-2026.roster.json"), "{\"document\":\"synthetic-only\"}");
