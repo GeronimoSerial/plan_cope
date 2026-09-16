@@ -64,9 +64,11 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      # Npgsql canonical keys, kept on one line: a YAML folded scalar would inject a
-      # space into the connection string, which is a needless risk in CI plumbing.
-      ConnectionStrings__CentralDatabase: "Host=localhost;Database=plan_cope_central;Username=plancope;Password=ci-only-password"
+      # PLANCOPE_CENTRAL_DB, not ConnectionStrings__CentralDatabase. The design-time factory
+      # (PlanCopeDbContextFactory) reads this variable; ConnectionStrings__CentralDatabase is
+      # what the RUNNING app reads. Using the runtime one here silently falls through to the
+      # factory's hardcoded localhost:5432 default and fails with "Failed to connect".
+      PLANCOPE_CENTRAL_DB: "Host=localhost;Database=plan_cope_central;Username=plancope;Password=ci-only-password"
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
