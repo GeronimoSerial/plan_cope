@@ -14,9 +14,9 @@ no-design-decision defect directly rather than spend a dispatch round-trip on it
 | 1 | DNI-miss reframed as a neutral question, no-name-leak re-verified by test | DONE |
 | 2 | Audit of user-facing failure strings | DONE (scoped — see below) |
 | 3 | Offline vs broken distinction surfaced in the operator UI | DONE |
-| 4 | Full-system E2E | IN PROGRESS — see below, this is the hard one |
+| 4 | Full-system E2E | DONE — both scenarios green, two real production defects found and fixed along the way |
 | 5 | Coverage for ActivationKeyStore, five validators, student exam-taking UI | DONE (substantial, not exhaustive — see below) |
-| 6 | Documentation reconciliation | NOT STARTED |
+| 6 | Documentation reconciliation | DONE (commit `41afc99`) |
 | 7 | Harden `LoginResponse` | DONE |
 
 ## Task 1 — DNI-miss no-leak (commit `23fc11c`)
@@ -81,7 +81,7 @@ revisit if any of those endpoints ever gain a direct un-validated caller.
   unilaterally mid-batch. What's covered closes the plan's named audit finding; what's left is a
   smaller, lower-risk remainder for whoever picks this up next.
 
-## Task 4 — full-system E2E: IN PROGRESS, not yet green
+## Task 4 — full-system E2E: DONE, both scenarios green (commits `120e00e`, `5c256b3`, `8dc0201`)
 
 Commit `e007dea` (WIP, honestly labelled) has the scenario structure in place:
 activate offline (real encrypted roster bundle, real Phase A `/unlock`) → initial catalog pull
@@ -126,10 +126,18 @@ because it is not visible from any single batch's diff:**
    returns exactly one row. This is precisely the failure class B4-PROGRESS already named once
    ("a green build proves nothing about a runtime type-materialization mismatch; only a test that
    runs the actual query does") — recurring here because the *specific* empty-result shape had
-   never been exercised, not because the earlier fix was wrong. Fix in progress: explicit
-   `CAST(... AS INTEGER)` / `CAST(... AS REAL)` on every aggregate column, plus a regression test
-   proving the endpoints return `200 []`, not a 500, over an empty rollup table. This is the kind
-   of finding the plan's own words anticipated for this task ("expect it to be hard; the
+   never been exercised, not because the earlier fix was wrong. **The obvious fix does not
+   work**: wrapping every `SUM(x)` in `CAST(x AS INTEGER)` was tried first and does nothing —
+   proven wrong with a standalone Microsoft.Data.Sqlite 8.0.6 repro run directly in this
+   environment (not assumed): `GetFieldType()` reports `byte[]` for a zero-row aggregate
+   expression regardless of any CAST around it, because `sqlite3_column_decltype()` only reflects
+   direct column references, never computed expressions. The real fix checks for at least one
+   matching row first, with a query that has no aggregate columns (`SELECT DISTINCT course ...`),
+   and only runs the full aggregate query once that is known to return something — a query Dapper
+   can always materialize correctly, zero rows or not, because it's a plain string column. A
+   regression test (`StatsEmptyResultTests.cs`) proves both `/course` and `/exam` now return
+   `200 []`, not a 500, over an empty rollup table. This is the kind of finding the plan's own
+   words anticipated for this task ("expect it to be hard; the
    difficulty is the point") — it would not have surfaced from any single batch's own test suite,
    because no batch's own scope included "a school with zero nominal attempts so far," which is
    in fact the most common real-world state for a brand-new school on day one.
@@ -154,19 +162,73 @@ because it is not visible from any single batch's diff:**
    Recording both here because a future reader diffing this commit might otherwise assume the
    original test was untouched by this work; it was, functionally, but its supporting
    infrastructure was shared and had to be made safe for two tenants.
+6. **A second real production defect, more serious than the first**: `UpdatesController`
+   (B7) has depended on `IReleaseGateService` since it was written, and nothing registers
+   `ReleaseGateService` in Central's DI container — `Program.cs` never had the line. Every real
+   call to `GET /api/updates/releases.{channel}.json` has thrown a 500 in the actual running app
+   since B7 shipped, not just in a test. B7's own `UpdatesControllerTests.cs` never caught this
+   because it constructs the controller directly with a hand-supplied fake `IReleaseGateService`,
+   never resolving it from the real container the way a live request does. This scenario is the
+   first thing in the whole project to call this endpoint through a real DI-resolved controller —
+   which is exactly why it caught what eight batches of unit tests, each internally consistent,
+   could not. Fixed with a one-line registration, `_briefs/B9-PROGRESS.md`-worthy on its own: the
+   gated-update feature was entirely non-functional in production before this fix, regardless of
+   how well-tested its individual pieces were.
 
-**Remaining before this task is done**: land the `CAST` fix + regression test in
-`StatsQueryRepository.cs`, switch the new scenario's session to nominal (using the same roster
-bundle already built for the offline-activation leg, so the same seeded student who unlocks
-Phase A is the one who takes the exam — narrative coherence, not just a workaround), get both
-E2E tests green, and write the final PROVEN / PROVEN AS CODE PATH / NOT PROVEN table using
-B7-PROGRESS's own three-way distinction rather than collapsing "we ran it," "we read it," and
-"we argued it" into one word.
+Both defects (5 and the stats-crash one, item 3 above) share the same shape: correct, well-tested
+components that had never been wired together and exercised as one running system. That is
+precisely what no other batch's own scope could have caught, and precisely why the plan calls
+this task the one place the whole system is exercised as one piece.
 
-## Task 6 — documentation reconciliation: NOT STARTED
+## Final evidence table — PROVEN / PROVEN AS CODE PATH / NOT PROVEN
 
-Last, per the plan's own ordering. Known corrections to make (not an exhaustive list yet):
-§1.3's decision-1 resolution (one universal `.exe`, per 1.3 as amended), §2.2's two-phase
-activation model, Local migration renumbering collisions (B3's `010`→`011`, B4's `011`→`013`,
-B2's `009`/`010`→`012`, all recorded in `docs/REMAINING-WORK.md`), and B7's RELEASES-format
-Velopack feed where the plan's original text describes a generic JSON endpoint.
+Using B7-PROGRESS.md's own three-way distinction, because collapsing "we ran it," "we read it,"
+and "we argued it" into one word is exactly the failure this table exists to avoid.
+
+| Claim | Status | Why |
+|---|---|---|
+| DNI-miss reveals no student name, across unknown/wrong-section/wrong-school documents | PROVEN | Regression test seeds real names and asserts the response body contains none of them, not a pattern match |
+| DNI-miss renders as neutral copy, never the error banner | PROVEN | Rendered-markup test asserts absence of `error-banner`/`role="alert"` for this state and presence for every other error |
+| `LoginResponse` with no access token fails deserialization | PROVEN | Test deserializes the exact payload through the real source-generated JSON context and asserts the throw |
+| Offline vs. sync-error are visually and textually distinct in the operator UI | PROVEN | Rendered-markup tests assert the offline case never contains "error" and the error case is textually distinct from the offline case |
+| Local statistics compute correctly for a real nominal graded attempt, entirely offline | PROVEN | The full-system E2E throws if any Central call happens during this window (a real `HttpMessageHandler` that throws when flagged offline, not an argument), and asserts the actual computed `attemptCount` |
+| Grading determinism (Local and Central agree on the same attempt) | PROVEN | The E2E compares Local's `attempt_results` row against Central's independently recomputed `CentralAttemptResult` for the same attempt, not two copies of the same code path |
+| The gated-update feed serves a real registered node the correct Velopack wire shape | PROVEN | The E2E calls the real endpoint through the real DI container with a real node-access JWT and asserts the exact response shape |
+| ActivationKeyStore guard clauses (null/empty key, load-before-activation) | PROVEN | Direct unit tests, no DPAPI involved |
+| All five FluentValidation validators | PROVEN | Full positive/negative coverage per rule, including the two multi-field/type-specific ones |
+| Student exam-taking domain logic (`examAnswers.ts`, `examBlocks.ts`) and two confirmation panels | PROVEN | Rendered-output / pure-function tests |
+| A revoked node drains its outbox before wiping, never mid-session | PROVEN AS CODE PATH | B2's own tests prove the local stage machine against a scripted fake HTTP layer; never exercised against a live Central or a real multi-hour revocation window (B2-PROGRESS's own caveat, unchanged by this batch) |
+| Rollback re-applies a known-good package via Velopack | PROVEN AS CODE PATH | B7's 7 unit tests prove the state machine; `ApplyUpdatesAndRestart` itself is unreachable without a real Velopack-installed app |
+| Session-gate re-check immediately before restart | PROVEN AS CODE PATH | The call path is structurally forced through the re-check; never exercised end to end with a running host |
+| A client actually downloads, verifies, applies or restarts an update | NOT PROVEN, BY CONSTRUCTION | Needs a real Windows machine and a `vpk pack`-produced installer; neither exists here. No assertion in this batch's E2E claims otherwise — a "did not throw" assertion around Velopack's client would pass identically on a machine with no update mechanism installed at all, which is exactly this one |
+| `%LocalAppData%\PlanCope\` survives a real Velopack binary swap and restart | NOT PROVEN, BY CONSTRUCTION | This batch's E2E proves data survives the activate/session/grade/stats/sync/update-check sequence at the data level (re-queried after every step); it does not and cannot prove survival across an actual installed-app update, which needs the same missing Windows machine |
+| DPAPI round-trip for `ActivationKeyStore.Store`/`Load` | NOT PROVEN, BY CONSTRUCTION | `ProtectedData.Protect` throws `PlatformNotSupportedException` on Linux; only guard clauses are testable here |
+| `QuestionNav.tsx`, `QuestionTitle.tsx`, `SubmitConfirmDialog.tsx`, `ExamBlock.tsx`, `studentApi.ts`'s remaining branches | NOT PROVEN, NOT ATTEMPTED | Named as the smaller remainder of task 5's audit finding, not silently dropped — this project has no click-simulation test harness, and adding one is a new-dependency decision for the coordinator, not this batch |
+| Idle CPU, cold start, real-hardware Argon2id timing | NOT PROVEN, BY CONSTRUCTION | Unchanged from B8; needs the 2-core/4GB/HDD reference machine named in `docs/reference-profile.md` |
+
+## Task 6 — documentation reconciliation: DONE (commit `41afc99`)
+
+- `docs/activation-passphrase.md` and `README.md` described only Phase A (passphrase/DPAPI) —
+  both now describe Phase B (activation key, node enrolment, drain-then-lock revocation) as it
+  actually shipped in B1/B2, without deleting or contradicting anything already correct about
+  Phase A.
+- `PROJECT-CLOSURE-PLAN.md`'s B7 task 3 still described a generic authenticated JSON feed. Added
+  a correction note directly under the original bullet (matching §1.3's existing correction
+  style — the original plan text stays visible, the correction is dated and attributed) recording
+  the real Velopack wire protocol: the fixed `releases.{channel}.json` route, node identity from
+  the JWT's `node_id` claim rather than a query parameter, and the PascalCase `VelopackAssetFeed`
+  shape — all verified against pinned Velopack 0.0.1251 in B7-PROGRESS.md.
+- `docs/REMAINING-WORK.md`'s migration-renumbering note covered only B3/B4; added B2's own
+  `009_NodeIdentity.sql` → `010` → `012` renumbering, both collisions caught before merge.
+- §1.3 (decision-1 resolution) and §2.2 (two-phase activation) themselves were left untouched —
+  both already state the resolved decision correctly; what needed reconciling was everywhere
+  else in the docs that still described only half of what §2.2 actually specifies.
+
+## Closing note
+
+All seven tasks are done, all tests are green (424 .NET tests, 85 frontend tests, full solution
+build clean with `-warnaserror`), and every commit is pushed to `feat/b9-closing`. This batch
+found and fixed two real, previously-invisible production defects — the stats empty-result
+crash and the gated-update feed's missing DI registration — neither of which any prior batch's
+own test suite could have caught, because both required the whole system running together, which
+is exactly what task 4 exists to force. Ready to open the PR.
