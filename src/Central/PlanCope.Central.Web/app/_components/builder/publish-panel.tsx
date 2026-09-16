@@ -16,10 +16,17 @@ interface PublishPanelProps {
   versionId: string;
   defaultSubject: string | null;
   hasUnsavedChanges: boolean;
+  hasMultipleChoiceWithoutPolicy: boolean;
   onPublished: () => void;
 }
 
-export function PublishPanel({ versionId, defaultSubject, hasUnsavedChanges, onPublished }: PublishPanelProps) {
+export function PublishPanel({
+  versionId,
+  defaultSubject,
+  hasUnsavedChanges,
+  hasMultipleChoiceWithoutPolicy,
+  onPublished
+}: PublishPanelProps) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,6 +79,9 @@ export function PublishPanel({ versionId, defaultSubject, hasUnsavedChanges, onP
         <h2>Publicar versión</h2>
       </div>
       <form className="card__body stack" onSubmit={handleSubmit(onSubmit)} noValidate>
+        {hasMultipleChoiceWithoutPolicy && (
+          <Banner tone="error">Elegí una política de puntaje en la pestaña Datos antes de publicar.</Banner>
+        )}
         {hasUnsavedChanges && <Banner tone="info">Guardá los cambios antes de publicar.</Banner>}
         {error && <Banner tone="error">{error}</Banner>}
 
@@ -85,7 +95,7 @@ export function PublishPanel({ versionId, defaultSubject, hasUnsavedChanges, onP
         </details>
 
         <div className="row">
-          <Button type="submit" disabled={hasUnsavedChanges}>
+          <Button type="submit" disabled={hasUnsavedChanges || hasMultipleChoiceWithoutPolicy}>
             Publicar versión
           </Button>
         </div>

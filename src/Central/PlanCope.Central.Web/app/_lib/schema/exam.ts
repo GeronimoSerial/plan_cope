@@ -16,6 +16,29 @@ export const questionTypeLabels: Record<QuestionType, string> = {
   free_text: "Texto libre"
 };
 
+export const scoringPolicies = ["AllOrNothing", "ProportionalPenalised", "ProportionalPlain"] as const;
+export type ScoringPolicy = (typeof scoringPolicies)[number];
+
+export const scoringPolicyLabels: Record<ScoringPolicy, string> = {
+  AllOrNothing: "Todo o nada",
+  ProportionalPenalised: "Proporcional con penalización",
+  ProportionalPlain: "Proporcional simple"
+};
+
+export const scoringPolicyExplanations: Record<ScoringPolicy, string> = {
+  AllOrNothing:
+    "Solo se otorga el puntaje si la selección coincide exactamente con la clave de respuesta. Cualquier otra combinación vale cero.",
+  ProportionalPenalised:
+    "Puntaje = (opciones correctas seleccionadas − opciones incorrectas seleccionadas) / total de opciones correctas, sin bajar de cero. Seleccionar opciones de más resta puntaje.",
+  ProportionalPlain:
+    "Puntaje = opciones correctas seleccionadas / total de opciones correctas. Seleccionar TODAS las opciones da el puntaje completo, sin importar cuántas sean incorrectas."
+};
+
+export const scoringPolicyWarnings: Partial<Record<ScoringPolicy, string>> = {
+  ProportionalPlain:
+    "Atención: con esta regla, un estudiante que marque todas las opciones obtiene el puntaje máximo. Elegila solo si entendés esta consecuencia."
+};
+
 const optionSchema = z.object({
   id: z.string().min(1),
   label: z.string().trim().min(1, "La opción no puede estar vacía."),
@@ -68,6 +91,7 @@ export const examDocumentSchema = z.object({
   subject: z.string().trim().optional(),
   level: z.string().trim().optional(),
   area: z.string().trim().optional(),
+  scoringPolicy: z.enum(scoringPolicies).nullable().optional(),
   questions: z.array(questionSchema).min(1, "Agregá al menos una pregunta.")
 });
 

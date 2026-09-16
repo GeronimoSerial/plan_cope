@@ -6,7 +6,7 @@ import {
   type ReplaceExamDocumentRequest,
   type ExamSummary
 } from "../contracts";
-import type { ExamDocument, Question, ExamOption } from "./exam";
+import type { ExamDocument, Question, ExamOption, ScoringPolicy } from "./exam";
 
 // ============================================================
 // Anti-corruption layer: traduce entre el schema canonico (fuente
@@ -43,7 +43,8 @@ export function documentToReplaceRequest(document: ExamDocument): ReplaceExamDoc
       level: document.level ?? null,
       area: document.area ?? null
     },
-    blocks
+    blocks,
+    scoringPolicy: document.scoringPolicy ?? null
   };
 }
 
@@ -166,6 +167,7 @@ export function versionToDocument(version: ExamVersion, exam: Pick<ExamSummary, 
     subject: typeof metadata.subject === "string" ? metadata.subject : exam.subject ?? undefined,
     level: typeof metadata.level === "string" ? metadata.level : exam.level ?? undefined,
     area: typeof metadata.area === "string" ? metadata.area : exam.area ?? undefined,
+    scoringPolicy: (version.scoringPolicy as ScoringPolicy | null) ?? null,
     questions
   };
 }

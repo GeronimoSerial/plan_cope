@@ -20,6 +20,7 @@ describe("documentToReplaceRequest", () => {
     schemaVersion: 1,
     code: "MAT-1",
     title: "T",
+    scoringPolicy: "AllOrNothing",
     questions: [
       {
         id: "q1",
@@ -58,6 +59,10 @@ describe("documentToReplaceRequest", () => {
     expect(request.blocks[2].blockType).toBe("ShortAnswer");
     expect(request.blocks[2].correctAnswer).toBeUndefined();
   });
+
+  it("incluye la política de puntaje en el request", () => {
+    expect(request.scoringPolicy).toBe("AllOrNothing");
+  });
 });
 
 describe("versionToDocument", () => {
@@ -68,6 +73,7 @@ describe("versionToDocument", () => {
     schemaVersion: 1,
     status: "Draft",
     metadata: { title: "Título guardado", subject: "Matemática" },
+    scoringPolicy: "ProportionalPlain",
     blocks: [
       {
         id: "b1",
@@ -99,5 +105,9 @@ describe("versionToDocument", () => {
       expect(question.options.find(option => option.id === "a")?.isCorrect).toBe(true);
       expect(question.options.find(option => option.id === "b")?.isCorrect).toBe(false);
     }
+  });
+
+  it("reconstruye la política de puntaje guardada", () => {
+    expect(doc.scoringPolicy).toBe("ProportionalPlain");
   });
 });
