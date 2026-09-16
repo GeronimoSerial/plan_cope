@@ -10,6 +10,12 @@
 # structural, not careless: each branch sees only the migrations that existed when it
 # branched. It happened three times in one afternoon (B8/B3, then B2). A branch cannot
 # detect this; only a check against the merged tree can.
+#
+# KNOWN LIMIT, stated so nobody mistakes a green run for safety: this checks ONE tree. Two
+# open pull requests can each be internally consistent and still collide the moment the
+# second one merges — which is exactly what happened between B2 and B3 and is invisible
+# here. Catching that needs a view across open PRs, which only the coordinator has. Treat
+# this guard as catching the within-branch case, not the cross-PR one.
 
 set -uo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || exit 1
