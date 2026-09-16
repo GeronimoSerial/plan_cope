@@ -52,11 +52,12 @@ public sealed class ContractToleranceTests
     }
 
     [Fact]
-    public void LoginResponse_missing_access_token_becomes_null()
+    public void LoginResponse_missing_access_token_throws()
     {
-        // Observed: deserialization does NOT throw. No JsonRequiredAttribute/required
-        // keyword exists on this DTO, so a missing field silently becomes null rather
-        // than throwing — this test pins that as the current contract, not as an accident.
+        // Deliberate, intentional behavior change from the prior pin: this test
+        // previously asserted that a missing accessToken deserialized to null.
+        // AccessToken is now [JsonRequired], so a missing accessToken is a hard
+        // deserialization failure — a caller must never forward a null token.
         const string json = """
             {
               "refreshToken": "refresh-tok-123456",
@@ -71,10 +72,10 @@ public sealed class ContractToleranceTests
             }
             """;
 
-        var deserialized = Deserialize(json, PlanCopeJsonSerializerContext.Default.LoginResponse);
+        var exception = Assert.Throws<JsonException>(
+            () => Deserialize(json, PlanCopeJsonSerializerContext.Default.LoginResponse));
 
-        Assert.Null(deserialized.AccessToken);
-        Assert.Equal("refresh-tok-123456", deserialized.RefreshToken);
+        Assert.Contains("accessToken", exception.Message);
     }
 
     [Fact]

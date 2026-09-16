@@ -107,7 +107,11 @@ not exist here.
   already exists at the repo root plus a batch plan that `PROJECT-CLOSURE-PLAN.md` supersedes.
   It looks obsolete — **closing it is the owner's call, not the coordinator's.**
 - Plan drift recorded in `PROJECT-CLOSURE-PLAN.md` rather than left to contradict the code:
-  B3's `010_Grading.sql` shipped as `011`, and B4's `011_Stats.sql` as `013`, because the Local
+  B2's Local migration `009_NodeIdentity.sql` was renamed twice — first to `010_NodeIdentity.sql`
+  (after B8's `009_PerformanceIndexes.sql` merged first), then to `012_NodeIdentity.sql` (after
+  B3's `010_ExamVersionScoringPolicy.sql`/`011_Grading.sql` merged as an open PR) — both
+  collisions caught and resolved before merge, not after (`_briefs/B2-PROGRESS.md`). B3's
+  `010_Grading.sql` shipped as `011`, and B4's `011_Stats.sql` as `013`, because the Local
   migration sequence collided four times between parallel branches.
 
 ## How this was run

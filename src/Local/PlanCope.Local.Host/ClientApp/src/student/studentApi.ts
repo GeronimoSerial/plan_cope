@@ -1,15 +1,26 @@
 import type { ApiErrorPayload } from "../shared/api-types";
 import type { ResolveStudentResponse, StartAttemptResponse, SubmitAttemptResponse } from "./types";
 
+export class StudentNotFoundError extends Error {
+  constructor(message: string, readonly hint: string) {
+    super(message);
+    this.name = "StudentNotFoundError";
+  }
+}
+
 export class StudentApi {
   constructor(private readonly baseUrl = window.location.origin) {}
 
   resolveStudent(sessionIdOrAccessCode: string, document: string): Promise<ResolveStudentResponse> {
-    return this.request<ResolveStudentResponse>(`/api/sessions/${encodeURIComponent(sessionIdOrAccessCode)}/student-resolution`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ document })
-    });
+    return this.request<ResolveStudentResponse>(
+      `/api/sessions/${encodeURIComponent(sessionIdOrAccessCode)}/student-resolution`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ document })
+      },
+      { studentNotFound: true }
+    );
   }
 
   startAttempt(sessionIdOrAccessCode: string, resolutionToken?: string): Promise<StartAttemptResponse> {
@@ -38,10 +49,17 @@ export class StudentApi {
     });
   }
 
-  private async request<T>(path: string, init: RequestInit): Promise<T> {
+  private async request<T>(path: string, init: RequestInit, options?: { studentNotFound?: boolean }): Promise<T> {
     const response = await fetch(`${this.baseUrl}${path}`, init);
 
     if (!response.ok) {
+      if (options?.studentNotFound && response.status === 404) {
+        const studentNotFound = await readStudentNotFound(response.clone());
+        if (studentNotFound) {
+          throw studentNotFound;
+        }
+      }
+
       throw new Error(await readApiError(response));
     }
 
@@ -51,6 +69,19 @@ export class StudentApi {
 
     return response.json() as Promise<T>;
   }
+}
+
+async function readStudentNotFound(response: Response): Promise<StudentNotFoundError | null> {
+  try {
+    const payload = (await response.json()) as { kind?: string; message?: string; hint?: string };
+    if (payload.kind === "not_found") {
+      return new StudentNotFoundError(payload.message ?? "", payload.hint ?? "");
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
 }
 
 async function readApiError(response: Response): Promise<string> {

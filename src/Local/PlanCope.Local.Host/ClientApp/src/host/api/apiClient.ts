@@ -6,6 +6,15 @@ import type {
 } from "../types";
 import type { ApiErrorPayload, LocalExam } from "../../shared/api-types";
 
+export type SyncStatusDto = {
+  healthy: boolean;
+  offline: boolean;
+  lastError: string | null;
+  lastPullAt: string | null;
+  lastPushAt: string | null;
+  nextAttempt: string | null;
+};
+
 export type CourseStatDto = { course: string; attemptCount: number | string; averageScorePercent: number | string };
 export type BlockStatDto = { blockId: string; correctCount: number; partialCount: number; incorrectCount: number; blankCount: number; ungradableCount: number };
 export type ExamStatDto = { examVersionId: string; examCode: string; versionNumber: number; attemptCount: number | string; averageScorePercent: number | string; blocks: BlockStatDto[] };
@@ -19,6 +28,10 @@ export class ApiClient {
 
   pullExams(signal?: AbortSignal): Promise<unknown> {
     return this.post<unknown>("/api/sync/pull-exams", {}, signal);
+  }
+
+  getSyncStatus(signal?: AbortSignal): Promise<SyncStatusDto> {
+    return this.get<SyncStatusDto>("/api/sync/status", signal);
   }
 
   getLatestRoster(cue: string, signal?: AbortSignal): Promise<RosterResponse> {

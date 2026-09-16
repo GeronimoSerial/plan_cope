@@ -2,7 +2,9 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { EnrolmentScreen } from "../enrolment/EnrolmentScreen";
 import { UpdateStatus } from "./UpdateStatus";
+import { SyncStatusIndicator } from "./SyncStatusIndicator";
 import { useUpdateStatus } from "../hooks/useUpdateStatus";
+import { useSyncStatus } from "../hooks/useSyncStatus";
 
 type AppShellProps = {
   status: string;
@@ -14,6 +16,7 @@ type AppShellProps = {
 export function AppShell({ status, apiBaseUrl, appVersion, children }: AppShellProps) {
   const [isEnrolmentOpen, setIsEnrolmentOpen] = useState(false);
   const update = useUpdateStatus();
+  const sync = useSyncStatus(apiBaseUrl ?? "");
 
   return (
     <main className="app-shell">
@@ -51,6 +54,7 @@ export function AppShell({ status, apiBaseUrl, appVersion, children }: AppShellP
           onCheckForUpdates={update.checkForUpdates}
           onConfirmRestart={update.confirmRestart}
         />
+        <SyncStatusIndicator status={sync} />
       </footer>
     </main>
   );

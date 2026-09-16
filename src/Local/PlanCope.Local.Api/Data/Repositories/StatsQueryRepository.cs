@@ -42,6 +42,15 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
     {
         using var connection = _connectionFactory.CreateOpenConnection();
 
+        var courseIds = (await connection.QueryAsync<string>(new CommandDefinition(
+            "SELECT DISTINCT course FROM stats_rollups WHERE " + BuildRollupsFilters(schoolYear, course: null),
+            BuildRollupsParams(cue, schoolYear, null), cancellationToken: cancellationToken))).ToList();
+
+        if (courseIds.Count == 0)
+        {
+            return new List<CourseStatsDto>();
+        }
+
         var sql = @"
             SELECT course               AS Course,
                    SUM(attempt_count)   AS AttemptCount,
@@ -72,6 +81,15 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
     public async Task<IReadOnlyList<ExamStatsDto>> GetExamStatsAsync(string cue, string rosterScope, string? schoolYear, string? course, CancellationToken cancellationToken = default)
     {
         using var connection = _connectionFactory.CreateOpenConnection();
+
+        var examVersionIds = (await connection.QueryAsync<string>(new CommandDefinition(
+            "SELECT DISTINCT sr.exam_version_id FROM stats_rollups sr JOIN local_exam_versions lev ON lev.id = sr.exam_version_id WHERE " + BuildRollupsFilters(schoolYear, course),
+            BuildRollupsParams(cue, schoolYear, course), cancellationToken: cancellationToken))).ToList();
+
+        if (examVersionIds.Count == 0)
+        {
+            return new List<ExamStatsDto>();
+        }
 
         var sql = @"
             SELECT sr.exam_version_id    AS ExamVersionId,
@@ -106,27 +124,21 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
                 GROUP BY rb.block_id
                 ORDER BY rb.block_id";
 
-            var blocks = (await connection.QueryAsync<BlockStatRow>(
-                new CommandDefinition(
-                    blocksSql,
-                    new
-                    {
-                        Cue = cue,
-                        SchoolYear = schoolYear,
-                        Course = course,
-                        ExamVersionId = row.ExamVersionId,
-                    },
-                    cancellationToken: cancellationToken))).ToList();
+            var blockIds = (await connection.QueryAsync<string>(new CommandDefinition(
+                "SELECT DISTINCT rb.block_id FROM stats_rollup_blocks rb JOIN stats_rollups sr ON sr.id = rb.rollup_id WHERE " + BuildRollupsFilters(schoolYear, course) + " AND sr.exam_version_id = @ExamVersionId",
+                new { Cue = cue, SchoolYear = schoolYear, Course = course, ExamVersionId = row.ExamVersionId },
+                cancellationToken: cancellationToken))).ToList();
 
-            var blockDtos = blocks
-                .Select(block => new BlockStatDto(
-                    block.BlockId,
-                    (int)block.CorrectCount,
-                    (int)block.PartialCount,
-                    (int)block.IncorrectCount,
-                    (int)block.BlankCount,
-                    (int)block.UngradableCount))
-                .ToList();
+            var blockDtos = blockIds.Count == 0
+                ? new List<BlockStatDto>()
+                : (await connection.QueryAsync<BlockStatRow>(new CommandDefinition(
+                      blocksSql,
+                      new { Cue = cue, SchoolYear = schoolYear, Course = course, ExamVersionId = row.ExamVersionId },
+                      cancellationToken: cancellationToken)))
+                  .Select(block => new BlockStatDto(
+                      block.BlockId, (int)block.CorrectCount, (int)block.PartialCount,
+                      (int)block.IncorrectCount, (int)block.BlankCount, (int)block.UngradableCount))
+                  .ToList();
 
             var attemptCount = (int)row.AttemptCount;
             var averageScorePercent = row.ScoreMaxSum > 0 ? row.ScoreSum / row.ScoreMaxSum * 100 : 0;

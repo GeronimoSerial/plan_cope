@@ -26,7 +26,7 @@ public static class SessionEndpoints
             CancellationToken cancellationToken) =>
         {
             var session = await repository.GetByIdOrAccessCodeAsync(idOrAccessCode, cancellationToken);
-            return session is null ? Results.NotFound(new { error = "Session not found." }) : Results.Ok(session);
+            return session is null ? Results.NotFound(new { error = "No encontramos esa sesión. Verificá el código con tu docente." }) : Results.Ok(session);
         });
 
         group.MapPost("/", async (
@@ -88,7 +88,7 @@ public static class SessionEndpoints
             CancellationToken cancellationToken) =>
         {
             var progress = await repository.GetProgressAsync(idOrAccessCode, cancellationToken);
-            return progress is null ? Results.NotFound(new { error = "Session not found." }) : Results.Ok(progress);
+            return progress is null ? Results.NotFound(new { error = "No encontramos esa sesión. Verificá el código con tu docente." }) : Results.Ok(progress);
         });
 
         group.MapPut("/{id}/status", async (
@@ -106,12 +106,12 @@ public static class SessionEndpoints
 
             if (session.Status is "closed")
             {
-                return Results.BadRequest(new { error = "Closed sessions cannot transition." });
+                return Results.BadRequest(new { error = "Esta sesión ya está cerrada y no admite más cambios de estado." });
             }
 
             if (!IsAllowedTransition(session.Status, request.Status))
             {
-                return Results.BadRequest(new { error = $"Invalid session transition from {session.Status} to {request.Status}." });
+                return Results.BadRequest(new { error = $"No se puede pasar la sesión de \"{session.Status}\" a \"{request.Status}\"." });
             }
 
             var endAt = request.Status is "closed" ? DateTimeOffset.UtcNow.ToString("O") : null;

@@ -1,6 +1,14 @@
 # Activation passphrase (PlanCope Local Host)
 
-## What it is
+Activation happens in **two separate phases with separate failure modes**. **Phase A** is
+offline — this document's existing subject: passphrase → Argon2id → DPAPI-protected local
+secret → roster unlock. **Phase B** is online — an activation key → node enrolment →
+revocable node credential, described in [Phase B — the activation key (online
+enrolment)](#phase-b--the-activation-key-online-enrolment) below. A school can complete
+Phase A and run exam sessions with the network cable unplugged, forever if needed; Phase B
+can happen days later and never blocks exam delivery.
+
+## Phase A — the passphrase (offline unlock)
 
 The activation passphrase is the single bootstrap secret that ties a PlanCope
 Local Host machine to the encrypted padrón. It implements **decision 4**
@@ -75,3 +83,34 @@ already has.
 With 1,440 CUEs / school machines, rotating on every release would force
 re-activating the whole fleet of machines; the operational cost is not justified
 against the risk. Hence: rotate **on suspected compromise only**.
+
+## Phase B — the activation key (online enrolment)
+
+Where Phase A unlocks the local roster offline, Phase B establishes the node's identity to
+Central. The operator types an **activation key** issued by Central: a Crockford base32
+string of the form `PCOPE-XXXXX-XXXXX-XXXXX-CC`, carrying a CRC-16/CCITT checksum the Local
+host recomputes offline — a typo is caught locally, before any round trip to the server. The
+node posts the key together with its **hardware fingerprint**, a composite hash of
+machine-specific signals that degrades gracefully to null components on a signal that cannot
+be read (verified to work even where some underlying OS signal is unavailable). Central
+verifies the key (Argon2id-hashed, never stored in plaintext), checks it is not expired,
+revoked or exhausted against its `max_activations`, registers the node, and returns a **node
+credential**: a short-lived access token plus a refresh token.
+
+The activation key is deliberately **universal**, not scoped to one CUE — an owner decision
+recorded in `PROJECT-CLOSURE-PLAN.md`, "Owner decisions" table, #4. Traceability comes from
+`max_activations`, anomaly detection on the audit trail, and two-level revocation instead of
+per-school key scoping.
+
+Revocation is two-level and is a **drain-then-lock** sequence, never an instant wipe. When a
+node's credential is detected as revoked — on the first failed/refreshed call after
+reconnecting, via the same 401-detect-refresh-retry path every sync call already uses — the
+node keeps working normally until any active exam session ends, then pushes every pending
+outbox item to Central, and only once the outbox is fully drained does it wipe its local
+roster and credentials and lock itself pending re-activation. A revoked node never loses data
+mid-session and never discards ungraded or unsynced work. A locked node recovers by
+redeeming a fresh activation key through the same enrolment flow used for first-time setup.
+
+Implementation lives in `src/Central/PlanCope.Central.Api/Services/ActivationKeyService.cs`
+and `NodeCredentialService.cs` (Central) and `src/Local/PlanCope.Local.Api/Services/
+RevocationEnforcer.cs`, `NodeCredentialRefresher.cs`, `CentralCredentialHandler.cs` (Local).

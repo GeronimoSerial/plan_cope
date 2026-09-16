@@ -68,6 +68,7 @@ builder.Services.AddScoped<IGeRosterService, GeRosterService>();
 builder.Services.AddScoped<ActivationKeyService>();
 builder.Services.AddScoped<CentralStatsRollupService>();
 builder.Services.AddScoped<NodeCredentialService>();
+builder.Services.AddScoped<IReleaseGateService, ReleaseGateService>();
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient<IGeTokenProvider, GeTokenProvider>((serviceProvider, client) =>
 {

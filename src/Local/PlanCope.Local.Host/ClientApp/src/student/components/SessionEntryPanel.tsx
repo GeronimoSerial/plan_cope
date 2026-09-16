@@ -5,6 +5,7 @@ type SessionEntryPanelProps = {
   document: string;
   isBusy: boolean;
   error: string;
+  notFoundPrompt: { message: string; hint: string } | null;
   onSessionCodeChange: (value: string) => void;
   onDocumentChange: (value: string) => void;
   onResolveStudent: () => void;
@@ -15,6 +16,7 @@ export function SessionEntryPanel({
   document,
   isBusy,
   error,
+  notFoundPrompt,
   onSessionCodeChange,
   onDocumentChange,
   onResolveStudent
@@ -50,6 +52,12 @@ export function SessionEntryPanel({
           {isBusy ? "Buscando…" : "Buscar mis datos"}
         </ActionButton>
         {error && <p className="error-banner" role="alert">{error}</p>}
+        {notFoundPrompt && (
+          <div className="student-card-copy">
+            <p>{notFoundPrompt.message}</p>
+            <p>{notFoundPrompt.hint}</p>
+          </div>
+        )}
       </div>
     </section>
   );

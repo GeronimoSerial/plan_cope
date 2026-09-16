@@ -945,6 +945,18 @@ can run fully in parallel with the grading track.
 3. Per-node Velopack feed: `GET /api/updates/feed` authenticated by node credential,
    returning only versions that node may install. **Respect D6** — the roster-bearing
    installer is never a public Release asset; the feed serves from the private channel.
+
+   > **Correction, recorded during B9 (2026-09-16):** this does not hold against the real
+   > Velopack client. Velopack's `SimpleWebSource` requests a fixed route,
+   > `GET releases.{channel}.json?arch=...&os=...&rid=...&id=...&localVersion=...` — not an
+   > arbitrary `/api/updates/feed` path — and the response must deserialize via Velopack's own
+   > `VelopackAssetFeed` shape (a PascalCase `Assets` array, `Version` as a plain semver string,
+   > `Type` as the release-type enum's underlying int), not a generic authenticated JSON body of
+   > the plan's own design. Node identity is resolved from the JWT's `node_id` claim, never a
+   > query parameter — Velopack's client has no hook to send one. What does not change: D6 is
+   > still respected — the route requires `token_type == node_access` in addition to
+   > `[Authorize]`, and nothing installer-shaped is ever served from a public Release asset.
+   > Full detail: `_briefs/B7-PROGRESS.md`.
 4. **Wire `UpdateService` into the running app.** It and `VelopackUpdateBackend` are built
    and tested with zero production callers; `VelopackUpdateBackend._updateUrl` has no
    supplier. Render `UpdateStatus.tsx`, which is currently orphaned.

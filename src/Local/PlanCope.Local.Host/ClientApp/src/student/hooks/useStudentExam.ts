@@ -6,7 +6,7 @@ import {
   findMissingRequiredAnswers,
   getInitialSessionCode
 } from "../domain/examAnswers";
-import { StudentApi } from "../studentApi";
+import { StudentApi, StudentNotFoundError } from "../studentApi";
 import type { ResolvedStudent } from "../types";
 
 export function useStudentExam() {
@@ -22,6 +22,7 @@ export function useStudentExam() {
   const [submittedAt, setSubmittedAt] = useState<string | null>(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [notFoundPrompt, setNotFoundPrompt] = useState<{ message: string; hint: string } | null>(null);
   const [isBusy, setIsBusy] = useState(false);
 
   const runBusy = useCallback(async (action: () => Promise<void>) => {
@@ -56,6 +57,8 @@ export function useStudentExam() {
   }, []);
 
   const resolveStudent = useCallback(async () => {
+    setNotFoundPrompt(null);
+
     if (!sessionCode.trim()) {
       setError("Completá el código de sesión.");
       return;
@@ -67,14 +70,24 @@ export function useStudentExam() {
     }
 
     await runBusy(async () => {
-      const response = await api.resolveStudent(sessionCode.trim(), document);
-      setResolution({ token: response.resolutionToken, student: response.student });
+      try {
+        const response = await api.resolveStudent(sessionCode.trim(), document);
+        setResolution({ token: response.resolutionToken, student: response.student });
+      } catch (exception) {
+        if (exception instanceof StudentNotFoundError) {
+          setNotFoundPrompt({ message: exception.message, hint: exception.hint });
+          return;
+        }
+
+        throw exception;
+      }
     });
   }, [api, document, runBusy, sessionCode]);
 
   const correctIdentity = useCallback(() => {
     setResolution(null);
     setError("");
+    setNotFoundPrompt(null);
   }, []);
 
   const startAttempt = useCallback(async () => {
@@ -128,6 +141,7 @@ export function useStudentExam() {
     error,
     isBusy,
     missingRequired,
+    notFoundPrompt,
     resolution,
     sessionCode,
     status,
