@@ -78,6 +78,8 @@ jobs:
         run: ./scripts/check-test-projects-in-ci.sh
       - name: Every Dockerfile COPYs the projects it restores
         run: ./scripts/check-dockerfile-project-list.sh
+      - name: Local migration numbers are unique
+        run: ./scripts/check-migration-numbers.sh
 
   central-api:
     name: central-api
