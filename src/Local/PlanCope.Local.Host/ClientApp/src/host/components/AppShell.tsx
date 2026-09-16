@@ -1,15 +1,19 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { EnrolmentScreen } from "../enrolment/EnrolmentScreen";
+import { UpdateStatus } from "./UpdateStatus";
+import { useUpdateStatus } from "../hooks/useUpdateStatus";
 
 type AppShellProps = {
   status: string;
   apiBaseUrl?: string;
+  appVersion?: string;
   children: ReactNode;
 };
 
-export function AppShell({ status, apiBaseUrl, children }: AppShellProps) {
+export function AppShell({ status, apiBaseUrl, appVersion, children }: AppShellProps) {
   const [isEnrolmentOpen, setIsEnrolmentOpen] = useState(false);
+  const update = useUpdateStatus();
 
   return (
     <main className="app-shell">
@@ -41,6 +45,12 @@ export function AppShell({ status, apiBaseUrl, children }: AppShellProps) {
 
       <footer className="footer">
         <span className="footer-status" role="status" aria-live="polite">{status}</span>
+        <UpdateStatus
+          appVersion={appVersion}
+          status={update.status}
+          onCheckForUpdates={update.checkForUpdates}
+          onConfirmRestart={update.confirmRestart}
+        />
       </footer>
     </main>
   );

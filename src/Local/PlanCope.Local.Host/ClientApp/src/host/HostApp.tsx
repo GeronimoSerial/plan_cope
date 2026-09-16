@@ -64,7 +64,7 @@ export function HostApp() {
   }
 
   return (
-    <AppShell status={delivery.status} apiBaseUrl={hostContext.apiBaseUrl}>
+    <AppShell status={delivery.status} apiBaseUrl={hostContext.apiBaseUrl} appVersion={hostContext.appVersion}>
       <div className="mode-tabs">
         <button
           type="button"
