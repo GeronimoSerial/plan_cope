@@ -316,7 +316,8 @@ public sealed class SyncController(PlanCopeDbContext dbContext) : ControllerBase
             blocks.Select(ToDto).ToList(),
             answerKeys.Select(ToDto).ToList(),
             assets.Select(ToPublishedDto).ToList(),
-            targets.Select(static target => new PublicationTargetDto(target.TargetType, target.TargetId)).ToList());
+            targets.Select(static target => new PublicationTargetDto(target.TargetType, target.TargetId)).ToList(),
+            version.ScoringPolicy);
     }
 
     private static long ParseCursor(string? cursor)
