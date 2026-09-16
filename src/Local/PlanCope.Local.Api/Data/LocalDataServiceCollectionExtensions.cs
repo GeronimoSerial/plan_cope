@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Dapper;
 using PlanCope.Local.Api.Data.Repositories;
+using PlanCope.Local.Api.Endpoints;
 using PlanCope.Local.Api.Services;
 
 namespace PlanCope.Local.Api.Data;
@@ -31,9 +32,21 @@ public static class LocalDataServiceCollectionExtensions
         services.AddScoped<IDocumentHmacService, DocumentHmacService>();
         services.AddSingleton<IStudentResolutionTokenService, StudentResolutionTokenService>();
         services.Configure<NominalizationOptions>(configuration.GetSection(NominalizationOptions.SectionName));
-        services.AddHttpClient(nameof(LocalExamPullService));
-        services.AddHttpClient(nameof(LocalRosterPullService));
-        services.AddHttpClient(nameof(LocalOutboxPushService));
+        // WindowsHardwareSignalReader is [SupportedOSPlatform("windows")]; this project stays a plain
+        // net8.0 TFM so it keeps building/testing on any OS, but the type is only ever resolved at
+        // runtime inside PlanCope.Local.Host, which is Windows-only.
+#pragma warning disable CA1416
+        services.AddScoped<IRawHardwareSignalReader, WindowsHardwareSignalReader>();
+#pragma warning restore CA1416
+        services.AddScoped<HardwareFingerprintService>();
+        services.AddScoped<INodeIdentityRepository, NodeIdentityRepository>();
+        services.AddScoped<NodeCredentialRefresher>();
+        services.AddTransient<CentralCredentialHandler>();
+        services.AddHttpClient(nameof(LocalExamPullService)).AddHttpMessageHandler<CentralCredentialHandler>();
+        services.AddHttpClient(nameof(LocalRosterPullService)).AddHttpMessageHandler<CentralCredentialHandler>();
+        services.AddHttpClient(nameof(LocalOutboxPushService)).AddHttpMessageHandler<CentralCredentialHandler>();
+        services.AddHttpClient(nameof(NodeCredentialRefresher));
+        services.AddHttpClient(nameof(EnrolmentEndpoints)).AddHttpMessageHandler<CentralCredentialHandler>();
         services.AddScoped<ILocalUserRepository, LocalUserRepository>();
         services.AddScoped<ILocalExamRepository, LocalExamRepository>();
         services.AddScoped<ISessionRepository, SessionRepository>();

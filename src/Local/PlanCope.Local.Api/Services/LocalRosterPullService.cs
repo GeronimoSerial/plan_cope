@@ -58,10 +58,6 @@ public sealed class LocalRosterPullService(
             client.BaseAddress = baseAddress;
             client.DefaultRequestHeaders.Remove("X-Node-Id");
             client.DefaultRequestHeaders.Add("X-Node-Id", nodeId);
-            if (!string.IsNullOrWhiteSpace(token))
-            {
-                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            }
 
             var route = $"api/sync/roster/{Uri.EscapeDataString(cue)}/{Uri.EscapeDataString(schoolYear)}";
             using var response = await client.GetAsync(route, cancellationToken);
