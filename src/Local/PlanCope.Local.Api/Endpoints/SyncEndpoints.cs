@@ -22,16 +22,22 @@ public static class SyncEndpoints
             var lastPull = await syncStateRepository.GetAsync("last_pull_at", cancellationToken);
             var lastPush = await syncStateRepository.GetAsync("last_push_at", cancellationToken);
             var centralUrl = await syncStateRepository.GetAsync("central_url", cancellationToken);
+            var syncLastError = await syncStateRepository.GetAsync("sync_last_error", cancellationToken);
+            var syncNextAttemptAt = await syncStateRepository.GetAsync("sync_next_attempt_at", cancellationToken);
             var pendingItems = await outboxRepository.CountPendingAsync(cancellationToken);
+
+            var lastError = ReadJsonString(syncLastError?.ValueJson);
 
             return Results.Ok(new
             {
                 nodeId = ReadJsonString(nodeState?.ValueJson),
-                healthy = true,
+                healthy = string.IsNullOrEmpty(lastError),
                 lastPullAt = ReadJsonString(lastPull?.ValueJson),
                 lastPushAt = ReadJsonString(lastPush?.ValueJson),
                 pendingItems,
                 centralUrl = ReadJsonString(centralUrl?.ValueJson),
+                lastError,
+                nextAttempt = ReadJsonString(syncNextAttemptAt?.ValueJson),
                 database = databaseOptions.ConnectionString
             });
         });
