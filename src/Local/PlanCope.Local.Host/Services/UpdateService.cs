@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using Velopack.Locators;
+
 namespace PlanCope.Local.Host.Services;
 
 public enum UpdateChannel
@@ -16,7 +19,14 @@ public interface IUpdateBackend
 {
     Task<UpdateCheckResult> CheckForUpdatesAsync(UpdateChannel channel, CancellationToken cancellationToken);
 
-    Task DownloadUpdatesAsync(CancellationToken cancellationToken);
+    /// <summary>
+    /// Downloads the pending update and verifies the on-disk payload's SHA-256 against
+    /// <paramref name="expectedSha256"/> (case-insensitive hex compare). Returns true only
+    /// when the download completed and the checksum matches. Returns false on a
+    /// checksum mismatch or when the downloaded file cannot be verified — it never throws
+    /// for an integrity failure, so the caller can report the result cleanly.
+    /// </summary>
+    Task<bool> DownloadUpdatesAsync(string expectedSha256, CancellationToken cancellationToken);
 
     void ApplyUpdatesAndRestart();
 }
@@ -48,7 +58,7 @@ public sealed class VelopackUpdateBackend : IUpdateBackend
         return new UpdateCheckResult(info is not null, info?.TargetFullRelease.Version.ToString());
     }
 
-    public async Task DownloadUpdatesAsync(CancellationToken cancellationToken)
+    public async Task<bool> DownloadUpdatesAsync(string expectedSha256, CancellationToken cancellationToken)
     {
         if (_pendingUpdate is null)
         {
@@ -57,6 +67,31 @@ public sealed class VelopackUpdateBackend : IUpdateBackend
 
         var manager = new Velopack.UpdateManager(_updateUrl);
         await manager.DownloadUpdatesAsync(_pendingUpdate).ConfigureAwait(false);
+
+        if (!VelopackLocator.IsCurrentSet)
+        {
+            return false;
+        }
+
+        var packagePath = Path.Combine(VelopackLocator.Current.PackagesDir ?? string.Empty, _pendingUpdate.TargetFullRelease.FileName);
+        return Sha256Matches(packagePath, expectedSha256);
+    }
+
+    /// <summary>
+    /// Computes the SHA-256 of <paramref name="filePath"/> (uppercase hex) and compares it
+    /// to <paramref name="expectedSha256"/> case-insensitively. Fails closed: returns false
+    /// when the file is missing or no expected hash was supplied.
+    /// </summary>
+    internal static bool Sha256Matches(string filePath, string expectedSha256)
+    {
+        if (string.IsNullOrWhiteSpace(expectedSha256) || !File.Exists(filePath))
+        {
+            return false;
+        }
+
+        using var stream = File.OpenRead(filePath);
+        var actual = Convert.ToHexString(SHA256.HashData(stream));
+        return string.Equals(actual, expectedSha256, StringComparison.OrdinalIgnoreCase);
     }
 
     public void ApplyUpdatesAndRestart()
@@ -90,17 +125,31 @@ public sealed class UpdateService
     public UpdateChannel Channel { get; }
 
     /// <summary>
+    /// True when the most recent download attempt completed but failed SHA-256 integrity
+    /// verification. Lets a caller distinguish "no update downloaded yet" (also
+    /// <see cref="TryApplyAndRestart"/> returning false) from "download failed integrity
+    /// check" for reporting purposes. Reset to false at the start of each download attempt.
+    /// </summary>
+    public bool LastDownloadIntegrityFailed { get; private set; }
+
+    /// <summary>
     /// Non-blocking: returns the in-flight Task immediately, does not block the
     /// calling (UI) thread while the check runs.
     /// </summary>
     public Task<UpdateCheckResult> CheckForUpdatesAsync(CancellationToken cancellationToken = default)
         => _backend.CheckForUpdatesAsync(Channel, cancellationToken);
 
-    /// <summary>Downloads the update in the background. Does not restart anything.</summary>
-    public async Task DownloadUpdateAsync(CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Downloads the update in the background and verifies the downloaded payload's SHA-256
+    /// against <paramref name="expectedSha256"/>. Does not restart anything. The update is
+    /// only marked ready-to-apply when the backend confirms the checksum matched.
+    /// </summary>
+    public async Task DownloadUpdateAsync(string expectedSha256, CancellationToken cancellationToken = default)
     {
-        await _backend.DownloadUpdatesAsync(cancellationToken).ConfigureAwait(false);
-        _downloadReady = true;
+        LastDownloadIntegrityFailed = false;
+        var verified = await _backend.DownloadUpdatesAsync(expectedSha256, cancellationToken).ConfigureAwait(false);
+        _downloadReady = verified;
+        LastDownloadIntegrityFailed = !verified;
     }
 
     /// <summary>
