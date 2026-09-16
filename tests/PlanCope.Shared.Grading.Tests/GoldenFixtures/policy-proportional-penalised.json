@@ -1,0 +1,61 @@
+{
+  "ExamVersion": {
+    "ExamVersionId": "fixture-policy-penalised",
+    "DeclaredScoringPolicy": 1,
+    "Blocks": [
+      {
+        "BlockId": "b1",
+        "Type": 2,
+        "ScoreMax": 9,
+        "AnswerKey": { "CorrectOptionIds": ["a", "b", "c"] }
+      },
+      {
+        "BlockId": "b2",
+        "Type": 2,
+        "ScoreMax": 9,
+        "AnswerKey": { "CorrectOptionIds": ["a", "b", "c"] }
+      },
+      {
+        "BlockId": "b3",
+        "Type": 2,
+        "ScoreMax": 9,
+        "AnswerKey": { "CorrectOptionIds": ["a", "b", "c"] }
+      }
+    ]
+  },
+  "Answers": {
+    "b1": { "SelectedOptionIds": ["a", "b", "z"] },
+    "b2": { "SelectedOptionIds": ["a", "z", "w"] },
+    "b3": { "SelectedOptionIds": ["a", "b", "c"] }
+  },
+  "Expected": {
+    "ExamVersionId": "fixture-policy-penalised",
+    "GradingSchemaVersion": 1,
+    "ScoringPolicy": 1,
+    "Score": 12,
+    "ScoreMax": 27,
+    "Blocks": [
+      {
+        "BlockId": "b1",
+        "BlockType": 2,
+        "Outcome": 1,
+        "Score": 3,
+        "ScoreMax": 9
+      },
+      {
+        "BlockId": "b2",
+        "BlockType": 2,
+        "Outcome": 2,
+        "Score": 0,
+        "ScoreMax": 9
+      },
+      {
+        "BlockId": "b3",
+        "BlockType": 2,
+        "Outcome": 0,
+        "Score": 9,
+        "ScoreMax": 9
+      }
+    ]
+  }
+}
