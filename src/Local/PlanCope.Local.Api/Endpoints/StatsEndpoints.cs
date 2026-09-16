@@ -115,6 +115,14 @@ public static class StatsEndpoints
             return Results.Text(csv.ToString(), "text/csv; charset=utf-8");
         });
 
+        endpoints.MapPost("/api/stats/rebuild", async Task<IResult> (
+            IStatsRollupRepository statsRollupRepository,
+            CancellationToken cancellationToken) =>
+        {
+            await statsRollupRepository.RebuildAllAsync(cancellationToken);
+            return Results.Ok(new { message = "Estadisticas reconstruidas." });
+        });
+
         return endpoints;
     }
 
