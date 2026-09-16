@@ -1,131 +1,113 @@
 # B7 · Gated updates, integrity and rollback — progress
 
 Leader: B7 Sonnet batch lead. Implementers: `opencode-go/deepseek-v4-flash` via
-`scripts/LEVEL3-DISPATCH-PROTOCOL.md`. This file is updated after every wave, not only at
-the end — see `docs/DELEGATION-RULES.md` rule 12.
+`scripts/LEVEL3-DISPATCH-PROTOCOL.md`. **CODE-COMPLETE, NOT FULLY VERIFIED — read the
+PROVEN/NOT PROVEN table before treating this as done.**
 
-## Plan-vs-reality correction (recorded per coordinator instruction, 2026-09-16)
+## Plan-vs-reality correction
 
 `PROJECT-CLOSURE-PLAN.md` §5 B7 task 3 describes `GET /api/updates/feed` as a generic
-authenticated JSON endpoint. **That does not hold against the real Velopack client.**
-
-Verified directly against `Velopack` 0.0.1251 (the version this repo pins), by constructing
+authenticated JSON endpoint. **That does not hold against the real Velopack client.** Verified
+directly against `Velopack` 0.0.1251 (the version this repo pins), by constructing
 `Velopack.Sources.SimpleWebSource` with a capturing `IFileDownloader` and calling
-`GetReleaseFeed` — this is pure C#, no Windows dependency, so it runs on this Linux
-environment and is not a guess:
+`GetReleaseFeed` — pure C#, no Windows dependency, so it ran in this environment, not a guess:
 
-- **Request shape**: `SimpleWebSource` requests
-  `GET {baseUri}/releases.{channel}.json?arch={arch}&os={os}&rid={rid}&id={packageId}&localVersion={currentVersion}`
-  via `IFileDownloader.DownloadString`, not an arbitrary path. The route must be literally
-  `releases.{channel}.json`, not `/feed`.
-- **Response shape**: the body must deserialize via `Velopack.VelopackAssetFeed.FromJson`.
-  Verified round-trip: `{"Assets":[{"PackageId":"...","Version":"1.4.0","Type":1,"FileName":"...","SHA1":"...","SHA256":"...","Size":12345,"NotesMarkdown":"...","NotesHTML":null}]}`
-  — `Version` is a plain semver **string** (not the nested object plain `JsonSerializer`
-  produces without a custom converter — `Velopack.Util.SemanticVersionConverter` exists but is
-  `internal`, so the feed writer needs its own `JsonConverter<SemanticVersion>` that reads/writes
-  a plain string), `Type` is the enum's underlying **int** (`Full = 1`), `SHA256` is the field
-  this whole gate exists to populate honestly (never empty, unlike
-  `GitHubReleaseInstallerStorage.cs:125`).
-- **Auth**: `UpdateOptions` has no bearer-token hook, and `SimpleWebSource` does not expose one
-  either — the `authorization` parameter it passes to `IFileDownloader` is empty by default.
-  Node-credential auth is only possible by supplying a **custom `IFileDownloader`** (subclass
-  `HttpClientFileDownloader`, override `CreateHttpClient`/`CreateHttpClientHandler` to attach
-  `Authorization: Bearer <node access token>` to every request) passed into
-  `new SimpleWebSource(baseUri, customDownloader, timeout)`, then that `IUpdateSource` into
-  `UpdateManager`'s `(IUpdateSource, UpdateOptions, IVelopackLocator)` constructor — not the
-  `(string urlOrPath, ...)` one `VelopackUpdateBackend` currently uses.
-- **Node identity is not in the request**: Velopack supplies `id` (package id) and
-  `localVersion`, never a node id. The feed controller must resolve the calling node from the
-  validated JWT's `node_id` claim (`TokenService.CreateNodeAccessToken`,
-  `src/Central/PlanCope.Central.Api/Auth/TokenService.cs:21-22`), the same claim `cue` is
-  carried in — **not** an explicit query parameter the way `SyncController.Pull` trusts
-  `nodeId` (`SyncController.cs:31`). That existing pattern doesn't survive contact with a
-  client that can't be told to send one. This is a deliberate, protocol-forced deviation, not a
-  redesign of `SyncController`'s auth — `SyncController` is untouched.
+- **Request**: `SimpleWebSource` requests
+  `GET {baseUri}/releases.{channel}.json?arch={arch}&os={os}&rid={rid}&id={packageId}&localVersion={currentVersion}`,
+  not an arbitrary path. The route must be literally `releases.{channel}.json`.
+- **Response**: the body must deserialize via `Velopack.VelopackAssetFeed.FromJson`. Verified
+  round-trip: `{"Assets":[{"PackageId":"...","Version":"1.4.0","Type":1,"FileName":"...","SHA1":"...","SHA256":"...","Size":12345,"NotesMarkdown":"...","NotesHTML":null}]}`
+  — `Version` is a plain semver **string**, `Type` is the enum's underlying **int** (`Full = 1`).
+- **Auth**: `UpdateOptions` and `SimpleWebSource` have no bearer-token hook. Auth requires a
+  custom `IFileDownloader` (`BearerAuthFileDownloader`, subclasses `HttpClientFileDownloader`,
+  overrides `CreateHttpClient`) attaching `Authorization: Bearer <token>` on every request.
+- **Node identity is not in the request**: Velopack sends `id`/`localVersion`, never a node id.
+  The feed controller resolves the caller from the JWT's `node_id` claim
+  (`TokenService.CreateNodeAccessToken`), not a query parameter the way
+  `SyncController.Pull` trusts `nodeId` — that existing pattern does not survive contact with a
+  client that can't be told to send one. `SyncController` itself is untouched.
 
-**What does not change**: D6. The feed still serves only from an authenticated Central route,
-never a public GitHub Release asset. The `[Authorize]` requirement must additionally check
-`token_type == node_access` (`TokenService.cs:14`) so a user/operator bearer token cannot list
-or fetch update packages — narrower than `SyncController`'s bare `[Authorize]`, and worth it
-given D6's stated failure mode (227,598 minors' data via a public/leaked installer).
+**What does not change**: D6. The feed serves only from an authenticated Central route
+(`[Authorize]` + `token_type == node_access`, via the extracted `NodeAccessAuth` helper), never
+a public GitHub Release asset.
 
-Confirmed via the same probe: `stagingId` (Velopack's own percentage-rollout hook) is **not**
-sent in the request at all — so it cannot substitute for `ReleaseGateService`'s own
-deterministic-percentage gating. B7 task 1's gate service remains the only place rollout
-percentage is decided; Velopack's client-side staging mechanism is unused.
+`stagingId` (Velopack's own client-side percentage-rollout hook) is **not** sent in the request
+at all — confirmed by the same probe. `ReleaseGateService`'s own deterministic-percentage gate
+is the only place rollout percentage is decided; Velopack's staging mechanism is unused.
 
-## Waves completed
+## What shipped (12 commits, `feat/b7-gated-updates`)
 
-### Wave 1 (parallel, disjoint) — commits `e7a4cca`, `adcb033`, `2957011`
+| Task | What | Commit(s) |
+|---|---|---|
+| 1 — release rings + gating | `sync.release_rings` schema; `ReleaseGateService` resolves eligibility (unregistered/up-to-date node → nothing; `AllEnrolled`; `PercentageOfEnrolled` via deterministic SHA-256(nodeId:ringId) mod 100 bucket, no `Random`; `ExplicitList` deferred, ineligible) | `e7a4cca`, `1eb235d` |
+| 2 — SHA-256 recorded at release time | `release_rings.Sha256` never empty by construction (NOT NULL column); the feed always serves it from that column, never from `GitHubReleaseInstallerStorage`'s empty-string gap | `e7a4cca` |
+| 3 — per-node feed | `GET /api/updates/releases.{channel}.json`, real Velopack wire protocol, node-access-token gated (D6) | `599120c` |
+| 4 — wire `UpdateService` in | Backend: `BearerAuthFileDownloader` + `SimpleWebSource` (`ec8443f`). Host: constructed in `Program.cs`/`MainForm.cs`, IPC (`host:checkForUpdates`/`host:confirmRestart`/`host:updateStatus`) (`5b41a03`, `6403fca`). Frontend: `UpdateStatus.tsx` wired via new `useUpdateStatus` hook, rendered from `AppShell`'s footer, Spanish copy (`7999dde`) | `ec8443f`, `5b41a03`, `7999dde`, `6403fca` |
+| 5 — verify SHA-256 before apply | `VelopackUpdateBackend.Sha256Matches`, fails closed, never throws on mismatch; `TryApplyAndRestart` already refused whenever not ready | `adcb033` |
+| 6 — never mid-session, confirm before restart | `EvaluateSessionGateAsync` polls `/api/sessions/active` after download; **re-checks again inside `HandleConfirmRestartAsync` immediately before calling `TryApplyAndRestart`** — a session can start between the UI showing "ready" and the operator clicking confirm, so the gate is re-verified at the point of no return, not just when the button appeared. A failed session check fails closed (assumes active) | `5b41a03` |
+| 7 — automatic rollback | `UpdateHealthTracker`: one grace startup per pending version, rollback target chained forward through every successful update; `VelopackUpdateBackend.TryRollBack` re-applies the last known-good local package with `AllowVersionDowngrade`; `Program.cs` evaluates this before `Application.Run`, every failure mode falls through to a normal launch | `1e17ba1`, `6403fca` |
+| 8 — health reporting | `POST /api/updates/health` (node-access gated, `NodeAccessAuth` extracted for reuse); `MainForm.ReportHealthAsync` fires on every successful WebView load, fire-and-forget | `ec6ac55`, `6403fca` |
+| 9 — D11 survival (partial) | `DataDirectorySurvivalTests.cs`: resolver layout stability, checksum-manifest determinism, and a compiled+source-level proof that update-path code never references the data directory. **Does not and cannot prove** the real OS-level cycle — see below | `2957011` |
 
-1. **`sync.release_rings` schema (Central)** — `ReleaseRing` record, EF configuration, generated
-   migration `20260916115432_AddReleaseRings`. Columns: Version, Channel, Sha256, DownloadUrl,
-   RolloutMode, RolloutPercentage, CreatedAt, CreatedBy. Reviewed diff, built, migration
-   generated (not hand-written). **Not verified**: applying against a real PostgreSQL instance —
-   no database reachable in this environment; the generated `Up`/`Down` were read and match the
-   entity configuration exactly.
-2. **SHA-256 verification before apply (Local)** — `UpdateService`/`VelopackUpdateBackend`
-   (task 5). `IUpdateBackend.DownloadUpdatesAsync` now takes `expectedSha256`, fails closed
-   (never throws) on mismatch, `TryApplyAndRestart` already refused whenever `_downloadReady`
-   is false so no second guard was needed. 5 new tests, all passing. **Not verified**: whether
-   `VelopackLocator.Current.PackagesDir` + `_pendingUpdate.TargetFullRelease.FileName` actually
-   resolves to the downloaded file's real on-disk path during a genuine Velopack download cycle
-   — only reachable on a real Windows install (`VelopackLocator.IsCurrentSet` is false outside
-   an installed app, which this environment cannot produce).
-3. **D11 data-survival test (Local)** — `DataDirectorySurvivalTests.cs` (task 9, partial).
-   Proves `DataDirectoryResolver`'s layout is stable and that `UpdateService`/
-   `VelopackUpdateBackend` source never references the resolver, `PLANCOPE_DATA_DIR`, or
-   `LocalApplicationData` (compiled + source-level assertion). **Explicitly does not and cannot
-   prove** the real OS-level install/update cycle leaves `%LocalAppData%\PlanCope\`
-   byte-identical — that stays `docs/velopack-test-matrix.md` Scenario 3, run by hand on real
-   Windows hardware. Closing that gap needs a Windows machine, a real `vpk`-packaged installer,
-   and a tester following the doc.
+## PROVEN / NOT PROVEN
 
-### Wave 2 (partial)
+| Item | Status | Reason |
+|---|---|---|
+| Migration/schema correctness | PROVEN | EF migrations generated (not hand-written), entity configs reviewed, `dotnet build` green |
+| `sync.release_rings` migration applies to a real database | NOT PROVEN | No PostgreSQL instance reachable in this environment |
+| Release-gate eligibility logic (all rollout modes, determinism) | PROVEN | 5 unit tests, deterministic-bucket logic verified across repeated calls |
+| Feed wire-protocol correctness (route, JSON shape, auth claim) | PROVEN | Verified by constructing Velopack's own `SimpleWebSource`/`VelopackAssetFeed.FromJson` against the pinned package version and round-tripping the exact response shape |
+| D6 (feed never public, node-access-token gated) | PROVEN | Tests assert 403 on missing/wrong claim; route only exists behind `[Authorize]` |
+| SHA-256 verification logic (match/mismatch/missing-file) | PROVEN | Unit tests on `Sha256Matches` in isolation |
+| SHA-256 verification against a real Velopack download | NOT PROVEN | `VelopackLocator.IsCurrentSet` is only true inside an installed app; unreachable outside Windows |
+| Session-gate re-check race (confirm → session starts → refused) | PROVEN AS CODE PATH | `TryApplyAndRestart` is reachable only through `HandleConfirmRestartAsync`, which re-queries `/api/sessions/active` immediately before calling it — read the code path, not exercised end-to-end (needs a running Local.Api + WinForms host) |
+| Rollback state machine (one grace startup, chained target, corrupt-marker tolerance) | PROVEN | 7 unit tests, pure file I/O, zero Velopack/WinForms dependency |
+| Rollback actually re-applying a local package via Velopack | NOT PROVEN | `TryRollBack`'s `ApplyUpdatesAndRestart` call is unreachable without a real Velopack-installed app |
+| Health report delivery to Central | PROVEN (Central side) | `POST /api/updates/health` tested: auth gate, persistence, both healthy/unhealthy paths |
+| Health report actually sent by a running Local Host | NOT PROVEN | `MainForm.ReportHealthAsync` fires from `OnNavigationCompleted`, unreachable without a real WebView2 host |
+| `dotnet build PlanCope.slnx -warnaserror` | PROVEN | Green throughout, including `PlanCope.Local.Host` (`net8.0-windows` compiles on Linux, does not run) |
+| Full solution test suite | PROVEN | 27/27 `Local.Host.Tests`, 85/85 `Central.Api.Tests`, 34/34 ClientApp vitest, all green as of the last commit |
+| Velopack packaging (`vpk pack`) | NOT PROVEN, BY CONSTRUCTION | Requires a real Windows build agent |
+| Real update-and-restart cycle end to end | NOT PROVEN, BY CONSTRUCTION | Requires a real Windows install produced by `vpk pack` |
+| `%LocalAppData%\PlanCope\` survives a real update (D11, full scenario) | NOT PROVEN, BY CONSTRUCTION | `docs/velopack-test-matrix.md` Scenario 3 itself says this "must be run by hand" on real hardware; `DataDirectorySurvivalTests.cs` proves the narrower, code-level guarantee only |
+| SmartScreen/unsigned-binary warning path | NOT PROVEN, BY CONSTRUCTION | Owner-accepted risk per the plan, Windows-only, not B7's own work |
 
-4. **Release-gate resolution service (Central)** — commit `1eb235d`. `IReleaseGateService` /
-   `ReleaseGateService` (task 1). Resolves eligibility from the newest `release_rings` row per
-   channel: unregistered node → nothing; node already on the newest version → nothing;
-   `AllEnrolled` → everyone; `PercentageOfEnrolled` → deterministic SHA-256(nodeId:ringId) mod
-   100 bucket (same node always gets the same in/out answer for the same ring — no `Random`);
-   `ExplicitList` → deferred, returns ineligible, one-line comment noting the membership table
-   doesn't exist yet rather than guessing a schema. 5 tests passing.
+**What would close every "NOT PROVEN, BY CONSTRUCTION" row**: a real win-x64 machine, a
+Velopack-produced installer from `vpk pack` off this branch, and a walk through
+`docs/velopack-test-matrix.md` scenarios 1–3 plus a forced-start-failure rollback test and a
+corrupted-payload test (neither of which the doc currently covers — they'd need authoring
+alongside that hardware run, since they're net-new test cases this batch didn't have a template
+for).
 
-## Not yet dispatched
+## Known gap, not closed in this PR
 
-- **Task 3 — per-node feed controller (Central)**: now fully specified per the protocol
-  correction above (exact route, exact JSON shape verified by round-trip, exact auth claim).
-  About to dispatch.
-- **Task 4 — wire `UpdateService` into the running app (Local)**: needs a custom
-  `IFileDownloader` for node-credential auth (see correction above), plus IPC wiring into
-  `MainForm.cs`/`Program.cs` and `UpdateStatus.tsx`/`HostApp.tsx`. `HostContext` already declares
-  unused `appVersion`/`updateChannel` fields (`types.ts:8-9`) — this task fills them, does not
-  invent new ones.
-- **Task 6 — never update mid-session**: `GET /api/sessions/active` already exists
-  (`SessionEndpoints.cs:17`, backed by `ISessionRepository.GetActiveAsync`) — no new Local.Api
-  surface needed, just a caller from `Local.Host` before offering/applying an update.
-- **Task 7 — automatic rollback on failed start**: not started. Needs research into what
-  "failed start" detection Velopack itself offers (`UpdateManager.UpdatePendingRestart` /
-  crash-loop detection) versus what PlanCope must build itself. Unverified territory: cannot
-  exercise a real crash-and-rollback cycle without Windows.
-- **Task 8 — report post-update health to Central**: not started. Two-sided (Local sender +
-  Central receiver), disjoint files, safe to dispatch as its own slice once task 4's host
-  wiring exists to know when "just updated" is true.
+**Nothing writes to `release_rings`.** `ReleaseGateService` and `UpdatesController.Releases`
+both read it; there is no endpoint to create a row. A release can be built and its SHA-256
+computed, but nothing registers it with Central yet. A dispatch for an admin-authenticated
+`POST /api/admin/updates/rings` endpoint (role="Admin", validates a non-empty SHA-256 before
+accepting a registration — the same D6-adjacent guarantee the feed depends on) was in flight
+when this PR was cut and was stopped, not merged, per the instruction not to accumulate further
+scope. This is real, necessary follow-up work — B7's gating and feed are otherwise inert without
+it — but it is administrative/CI-integration work, not part of the update-client surface B9's
+E2E scenario needs to exercise.
 
-## What cannot be verified in this environment, by construction
+## For B9's end-to-end scenario
 
-The win-x64 WinForms + WebView2 host does not run on Linux. Specifically unverifiable here,
-named per the leader mandate:
-
-- Velopack packaging (`vpk pack`) and the real install/update/apply/restart cycle.
-- `VelopackLocator.Current` ever being populated (`IsCurrentSet` is only true inside an
-  installed app) — so the SHA-256 verification path in `VelopackUpdateBackend` is unit-tested
-  against its pure logic (`Sha256Matches`) but never exercised through a real download.
-- `%LocalAppData%\PlanCope\` surviving a real update — `DataDirectorySurvivalTests.cs` proves
-  the narrower, testable claim (see wave 1 item 3); the full scenario needs
-  `docs/velopack-test-matrix.md` Scenario 3 run by hand.
-- SmartScreen / unsigned-binary warning behavior (owner-accepted risk per the plan, unrelated
-  to B7's own work but part of the install path B7's rollback logic sits behind).
-
-Closing all of the above needs a real Windows machine with the actual installer built by
-`vpk pack`, per the plan's own instruction.
+- The update-client surface (check → download → verify → session-gate → confirm → apply,
+  rollback, health report) is fully wired and unit-tested, but **nothing in this repo currently
+  calls the admin registration endpoint that doesn't exist yet** (see gap above) — B9 cannot
+  exercise a real "node receives and applies an update" path without that endpoint existing and
+  a `release_rings` row being inserted (by hand, by a test fixture, or once the admin endpoint
+  above lands).
+- `PLANCOPE_UPDATE_FEED_URL` and `PLANCOPE_UPDATE_CHANNEL` are the two environment variables that
+  gate whether `MainForm` constructs an `UpdateService` at all. Unset, the host behaves exactly
+  as it did before this batch (update UI shows `notConfigured`, nothing else changes) — this is
+  deliberate graceful degradation, not a bug, but B9 needs both set to exercise any of this.
+- The health-marker file lives at `{DataDirectoryResolver.ConfigDirectory}/update-health.json` —
+  outside `data`/`assets` (D11's protected paths), so seeding or inspecting it for a rollback
+  test does not touch anything D11 protects.
+- Rollback can only ever target a version this tracker itself previously applied — the
+  originally-installed package (from `vpk pack`, not from an update) has no recorded
+  `FileName`/`Sha256`/`DownloadUrl` and cannot be a rollback target. A rollback test needs at
+  least two applied updates in sequence (so the marker has a real chain to fall back through),
+  not just one.
