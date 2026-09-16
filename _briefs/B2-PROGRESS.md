@@ -70,12 +70,12 @@ workspace passed independently (`npm run build` + `npm test`, 18/18) before each
 
 ## Status: PARTIAL — no RevocationEnforcer, no re-activation screen, no Phase B UI yet. Do not read any task below as "done" without reading its status line.
 
-Of the plan's 8 tasks under "### B2 ·" in `PROJECT-CLOSURE-PLAN.md`, as of this resumption's
-Wave 1: **tasks 1, 3 and 6 are fully done; task 2 (Phase A) is done including its UI; task 5 is
-backend-done as before. Task 4 (Phase B UI) is next (Wave 2). Tasks 7 (`RevocationEnforcer`)
-and 8 (re-activation screen) have no code at all.** A reviewer should still read this document
-task-by-task before looking at the diff — several tasks look further along in code than they
-are in the actual product.
+Of the plan's 8 tasks under "### B2 ·" in `PROJECT-CLOSURE-PLAN.md`, as of Wave 2 of this
+resumption: **tasks 1, 2, 3, 4 and 6 are fully done, including UI; task 5 is backend-done as
+before. Tasks 7 (`RevocationEnforcer`) and 8 (re-activation screen) have no code at all — this
+is the entire remaining scope.** A reviewer should still read this document task-by-task
+before looking at the diff — several tasks look further along in code than they are in the
+actual product, and nothing in this batch has run on real Windows/WebView2 hardware.
 
 This batch was run as a level-2 leader dispatching to `opencode`/DeepSeek-V4-Flash per
 `scripts/LEVEL3-DISPATCH-PROTOCOL.md`. Every production line below was written by a dispatched
@@ -120,15 +120,12 @@ below), which is glue, not logic.
    job does its own universal `dotnet publish` and never referenced this script, so retiring it
    required no CI change.
 
-4. **Phase B enrolment screen + `POST /api/activation/redeem`** — **PARTIAL, backend only**.
-   `src/Local/PlanCope.Local.Api/Endpoints/EnrolmentEndpoints.cs` (`POST /api/enrolment/redeem`)
-   builds a real `ActivationRedeemRequest` (B1's published contract, unmodified — no parallel
-   contract invented) from the fingerprint + the operator-supplied activation key, posts it to
-   Central, and on success writes `sync_state`'s `node_id`/token keys and flips
-   `node_identity.credential_state` to `"active"`. **What does NOT exist**: no
-   `EnrolmentScreen.tsx`, no client-side activation-key checksum validation, no wiring into
-   `HostApp.tsx`. **An operator cannot enrol a node through the actual application today** — the
-   endpoint is real and reachable by an HTTP client, but nothing in the shipped product calls it.
+4. **Phase B enrolment screen + `POST /api/activation/redeem`** — **DONE**, as of Wave 2
+   (2026-09-16). Backend unchanged from the prior session
+   (`src/Local/PlanCope.Local.Api/Endpoints/EnrolmentEndpoints.cs`). `EnrolmentScreen.tsx` adds
+   the activation-key entry with client-side checksum validation and wiring into `AppShell.tsx`
+   as a non-blocking overlay. **An operator can now enrol a node through the actual
+   application.** Same "never run on real WebView2/Windows" caveat as task 2.
 
 5. **Credential refresh (401 detected once, not per-service)** — **DONE for what was specified**.
    `NodeCredentialRefresher` + `CentralCredentialHandler`
@@ -198,7 +195,15 @@ file:
   narrowed into 4 disjoint slices instead of one wide one, which is what got it across the
   line this time.
 - **Unit B (Phase B)**: `EnrolmentScreen.tsx` (activation-key entry + client-side checksum
-  validation), wiring into `HostApp.tsx`. **Still not attempted** — this is Wave 2's target.
+  validation), wiring into `HostApp.tsx`. **Landed in Wave 2** (commits `02e86ed`, `4d46e60`).
+  `EnrolmentScreen` reimplements Central's `ActivationKeyService` Crockford base32 +
+  CRC-16/CCITT checksum client-side (verified independently against the C# algorithm with a
+  throwaway Node script before accepting the diff — did not trust the dispatched test
+  fixture's claimed-valid key). Wired into `AppShell.tsx` as a dismissible header-triggered
+  overlay, not a gate — `children` (the exam-delivery workspace) always keeps rendering
+  underneath, per the plan's "a node that never completes Phase B still delivers exams
+  indefinitely" acceptance criterion. **Task 4 done**, same "not verified on real
+  WebView2/Windows" caveat as task 2.
 
 ## What was NOT verified, and what the substitutions do not prove
 
