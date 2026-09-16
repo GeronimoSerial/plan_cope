@@ -8,6 +8,55 @@ This document was rewritten after an Orca runtime restart killed the leader that
 from that merge and closed tasks 2 (finish), 4, 5 and 6, plus exposed task 3's rebuild command
 and added the missing ≥1,000-attempt endpoint-level test.
 
+## Decision: rollup write stays OUTSIDE the submit transaction, made recoverable by a
+## startup self-heal — recorded per the coordinator's explicit request on PR #29 review
+
+**The question.** `AttemptEndpoints.cs`'s `/submit` handler calls
+`IStatsRollupRepository.UpsertForAttemptAsync` after `SubmitWithOutboxAsync` returns `true`, i.e.
+after that transaction has already committed. A crash between the two — realistic on a school
+machine, 5400 rpm disk, mid-exam-day power loss — leaves an attempt marked `submitted`/`graded`
+with no matching contribution in `stats_rollups`. Two ways to close that: (a) move the rollup
+write inside the submit transaction, making divergence impossible; (b) keep it outside, accept
+divergence can happen, make it recoverable and detectable.
+
+**Chose (b).** Reasons:
+- The rollup is explicitly a *derived* index in this design — the prior session's own reasoning
+  (see "Re-grades are handled by rebuild, never by re-running the incremental upsert" further
+  down this document) already treats it as reconstructible-by-design, not as a co-equal source of
+  truth participating in the submission's atomicity boundary. Option (a) would quietly promote it
+  to a hard dependency of the submit path, which nothing else in this plan asks for.
+- Option (a) lengthens the write-lock hold on `/submit` — the single busiest write path on a
+  single-writer SQLite file, on the machine that is, per the plan's own words about B5's sync
+  service, "also delivering an exam" at the same time. Every extra millisecond under that lock is
+  paid by the next student trying to submit. Option (b) keeps that hot path exactly as short as
+  before this batch.
+- The full-rebuild command (task 3) already exists, is reconciliation-tested to match the
+  incremental path exactly, and was built for precisely this kind of recovery. Choosing (a) would
+  make that capability redundant for its main purpose; choosing (b) uses it for what it is for.
+
+**What (b) still needed, and what closes it.** Recoverability without detectability is not
+enough — a school could show a supervisor an under-counted statistic with no signal anything is
+wrong. Closed by `StatsRollupRepository.SelfHealIfInconsistentAsync()`, called once at
+`LocalApiApplication` startup (`LocalApiApplication.cs`, in the same synchronous
+migration/seeding block that already runs before the app accepts traffic): it compares a count of
+graded, rollup-eligible attempts against `SUM(attempt_count)` in `stats_rollups` — using the exact
+same eligibility filter as `RebuildAllAsync`'s tuple discovery (an earlier version of this check
+used a looser filter and produced a **permanent false-positive on every boot** for any school that
+had ever run a single non-nominal exam session; caught and fixed before merge, see the dispatch
+notes below) — and calls `RebuildAllAsync()` only when they disagree. This closes the exact
+failure window named above: a power cut forces a restart, and by the time the app is serving
+requests again after that restart, the drift has already been found and repaired. No operator
+action, no banner needed for the common case; a divergence is logged via
+`ILogger<StatsRollupRepository>.LogWarning` when it does trigger a rebuild, so it is visible to
+whoever reads Local API logs even though it self-heals silently from the operator's point of
+view.
+
+**Verified, not asserted:** `StatsRollupSelfHealTests.cs` proves both directions — a consistent
+rollup is left untouched (`updated_at` unchanged, no spurious rebuild), and a rollup deliberately
+never written (simulating the exact crash scenario: a graded `attempt_results` row with zero
+matching `stats_rollups` rows) is fully recovered by one `SelfHealIfInconsistentAsync()` call, with
+exact attempt/score counts.
+
 ## Per-task status (plan's own task numbering under "B4 · Local statistics and offline rollups")
 
 | # | Task | Status | Detail |
@@ -81,19 +130,28 @@ about a runtime type-materialization mismatch; only a test that runs the actual 
    breakdown offline in spreadsheet form (not just on-screen), add a second export route.
 3. **No auth on `/api/stats/*` or the new `/api/stats/rebuild`.** Matches every other Local
    endpoint in this codebase today (none of them have auth) — flagging in case that changes.
-4. **The plan's risk mitigation** ("a periodic self-check that compares a sampled tuple and
-   reports mismatch") still does not exist. `POST /api/stats/rebuild` gives an operator a manual
-   lever; nothing calls it automatically.
+4. ~~The plan's risk mitigation (periodic self-check + mismatch report) does not exist.~~ **CLOSED**
+   this session: `SelfHealIfInconsistentAsync()` runs once at startup and self-heals via
+   `RebuildAllAsync()` on drift — see the decision record above. It is a boot-time check, not a
+   *periodic* one while the process stays running for days — if a school leaves the Local API
+   running for an extended stretch without restarting, drift within that window is still only
+   caught by an operator manually hitting `POST /api/stats/rebuild`. A true periodic in-process
+   timer was judged unnecessary for now (adds a background timer to a single-purpose offline app
+   for a window that closes on the next restart anyway) but is the next increment if this proves
+   insufficient in practice.
 5. Investigate the flaky `ExamScoringPolicyPullTests` test noted above — out of this batch's
    scope, but worth a ticket.
 
 ## Test plan (this batch, cumulative with the prior session's)
 
 - [x] `dotnet build PlanCope.slnx -warnaserror` — 0 warnings, 0 errors (backend + host UI)
-- [x] `dotnet test tests/PlanCope.Local.Api.Tests` — 41/41 pass
+- [x] `dotnet test tests/PlanCope.Local.Api.Tests` — 64/65 pass (1 pre-existing skip from B2's
+      `EnrolmentEndpointsTests.Redeem_endpoint_placeholder`, unrelated to this batch)
 - [x] `dotnet test tests/PlanCope.Shared.Tests --filter FullyQualifiedName~CohortSuppression` — 14/14 pass
 - [x] Endpoint-level aggregation test at 1,200 attempts, through the real HTTP endpoints,
       asserting exact totals per course/exam and exact block-level correct/incorrect counts
+- [x] Self-heal test: a consistent rollup is left untouched by `SelfHealIfInconsistentAsync`; a
+      rollup deliberately never written (simulated crash) is fully recovered by one call to it
 - [ ] 1,000+ attempt performance measurement (needs the reference-profile machine)
 - [ ] 200ms low-end-hardware criterion (needs the reference-profile machine)
 - [ ] Offline test with networking physically disabled (argued by construction, not measured)
@@ -115,3 +173,19 @@ endpoints file) — the rebuild endpoint landed clean; the aggregation test disp
 materialization bug described above. That bug was fixed in one more 1-file dispatch. Every
 dispatch stayed within the 1-3-file budget the prior session's numbers established; none needed
 a second attempt for being too broad.
+
+Wave 4 (after coordinator review of PR #29): the startup self-heal (interface + repository +
+`LocalApiApplication.cs` wiring, 3 files) landed clean on the first dispatch, but this leader's
+own review of the diff — not a build failure — caught that the brief itself specified a
+`gradedCountSql` missing the same eligibility filter `RebuildAllAsync` uses (school_year IS NOT
+NULL, roster_section_id IS NOT NULL, blocks_json IS NOT NULL). Left as written, any school that
+ever runs a single non-nominal exam session would see a permanent false-positive drift warning
+and an unnecessary full rebuild on every single boot forever. Caught before running any test,
+fixed with a second 1-file dispatch. Adding the required `ILogger<StatsRollupRepository>`
+constructor parameter then broke 8 existing call sites across two test files (`StatsRollup
+IncrementalTests.cs`, `StatsRollupReconciliationTests.cs`) that built the repository directly —
+fixed with a third dispatch (`NullLogger<T>.Instance`, no new package). A fourth dispatch added
+`StatsRollupSelfHealTests.cs`, proving the self-heal both leaves a consistent rollup alone and
+recovers a deliberately-missing one with exact counts. Four dispatches for one decision — the
+review-catches-a-bug-in-my-own-brief step is exactly why a leader reads every diff instead of
+trusting a green build.
