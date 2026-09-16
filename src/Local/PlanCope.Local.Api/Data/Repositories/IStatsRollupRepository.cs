@@ -10,4 +10,6 @@ public interface IStatsRollupRepository
     Task RebuildTupleAsync(string cue, string schoolYear, string course, string examVersionId, CancellationToken cancellationToken = default);
 
     Task RebuildAllAsync(CancellationToken cancellationToken = default);
+
+    Task SelfHealIfInconsistentAsync(CancellationToken cancellationToken = default);
 }

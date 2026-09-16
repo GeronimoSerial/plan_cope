@@ -1,4 +1,5 @@
 using PlanCope.Local.Api.Data;
+using PlanCope.Local.Api.Data.Repositories;
 using PlanCope.Local.Api.Endpoints;
 using PlanCope.Shared.Infrastructure.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
@@ -37,6 +38,10 @@ public static class LocalApiApplication
             scope.ServiceProvider.GetRequiredService<LocalDatabaseInitializer>().Initialize();
             scope.ServiceProvider.GetRequiredService<EmbeddedRosterSeeder>()
                 .SeedAsync()
+                .GetAwaiter()
+                .GetResult();
+            scope.ServiceProvider.GetRequiredService<IStatsRollupRepository>()
+                .SelfHealIfInconsistentAsync()
                 .GetAwaiter()
                 .GetResult();
             if (builder.Configuration.GetValue("Local:SeedDemoExam", true))
