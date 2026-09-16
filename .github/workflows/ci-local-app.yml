@@ -46,3 +46,5 @@ jobs:
         run: npm run test --workspace plancope-local-host-ui
       - name: Build ClientApp
         run: npm run build --workspace plancope-local-host-ui
+      - name: Check ClientApp bundle budget
+        run: npm run check:bundle --workspace plancope-local-host-ui

@@ -1,11 +1,17 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { LocalExamBlock } from "../../shared/api-types";
 import { ActionButton } from "../../shared/ui";
 import type { AnswerMap } from "../domain/examAnswers";
 import { questionNumberFor } from "../domain/examAnswers";
 import { hasAnswer, isAnswerBlock, parseValidation } from "../examBlocks";
 import { ExamBlock } from "./ExamBlock";
-import { QuestionNav } from "./QuestionNav";
+import {
+  computeWindowBounds,
+  DEFAULT_VIEWPORT_HEIGHT,
+  QUESTION_GAP,
+  QuestionNav,
+  RESERVED_QUESTION_HEIGHT
+} from "./QuestionNav";
 import { SubmitConfirmDialog } from "./SubmitConfirmDialog";
 
 type ExamTakingPanelProps = {
@@ -21,6 +27,34 @@ type ExamTakingPanelProps = {
   onSubmit: () => void;
 };
 
+function usePageScrollWindow() {
+  const [scrollY, setScrollY] = useState(() =>
+    typeof window === "undefined" ? 0 : (window.scrollY || 0)
+  );
+  const [viewportHeight, setViewportHeight] = useState(() =>
+    typeof window === "undefined" ? DEFAULT_VIEWPORT_HEIGHT : (window.innerHeight || DEFAULT_VIEWPORT_HEIGHT)
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const onScroll = () => setScrollY(window.scrollY || 0);
+    const onResize = () => setViewportHeight(window.innerHeight || DEFAULT_VIEWPORT_HEIGHT);
+    onScroll();
+    onResize();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onResize);
+    };
+  }, []);
+
+  return { scrollY, viewportHeight };
+}
+
 export function ExamTakingPanel({
   blocks,
   answers,
@@ -34,6 +68,19 @@ export function ExamTakingPanel({
   onSubmit
 }: ExamTakingPanelProps) {
   const [isSubmitOpen, setIsSubmitOpen] = useState(false);
+
+  const { scrollY, viewportHeight } = usePageScrollWindow();
+
+  const { start, end } = useMemo(
+    () =>
+      computeWindowBounds({
+        scrollTop: scrollY,
+        viewportHeight,
+        itemCount: blocks.length,
+        itemStep: RESERVED_QUESTION_HEIGHT + QUESTION_GAP
+      }),
+    [scrollY, viewportHeight, blocks.length]
+  );
 
   const { total, answered, requiredMissing } = useMemo(() => {
     const answerBlocks = blocks.filter(isAnswerBlock);
@@ -90,16 +137,34 @@ export function ExamTakingPanel({
       <div className="student-exam-body">
         <QuestionNav blocks={blocks} answers={answers} />
         <div className="student-questions">
-          {blocks.map((block, index) => (
-            <ExamBlock
-              key={block.id}
-              block={block}
-              number={questionNumberFor(blocks, index)}
-              value={answers[block.id] ?? ""}
-              isMissing={missingRequired.has(block.id)}
-              onChange={value => onAnswerChange(block.id, value)}
-            />
-          ))}
+          {blocks.map((block, index) => {
+            const isRendered = index >= start && index <= end;
+            return (
+              <div
+                key={block.id}
+                id={block.id}
+                data-block-id={block.id}
+                data-state={isRendered ? "rendered" : "placeholder"}
+                className="student-question-slot"
+                style={{ minHeight: RESERVED_QUESTION_HEIGHT, scrollMarginTop: 16 }}
+              >
+                {isRendered ? (
+                  <ExamBlock
+                    block={block}
+                    number={questionNumberFor(blocks, index)}
+                    value={answers[block.id] ?? ""}
+                    isMissing={missingRequired.has(block.id)}
+                    onChange={value => onAnswerChange(block.id, value)}
+                  />
+                ) : (
+                  <div
+                    className="student-question-placeholder"
+                    style={{ height: RESERVED_QUESTION_HEIGHT }}
+                  />
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
