@@ -56,6 +56,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Resolve the registry namespace
+        id: ns
+        run: echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
       - name: Apply migrations
         if: ${{ !inputs.skip_migrations }}
         env:
@@ -72,7 +76,7 @@ jobs:
           fi
           docker run --rm \
             -e ConnectionStrings__CentralDatabase="$CONN" \
-            "ghcr.io/${{ github.repository_owner }}/plan-cope-central-migrate:${{ inputs.image_tag }}"
+            "ghcr.io/${{ steps.ns.outputs.owner }}/plan-cope-central-migrate:${{ inputs.image_tag }}"
 
       - name: Redeploy API
         env:
