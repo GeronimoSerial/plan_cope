@@ -25,17 +25,17 @@ public static class AttemptEndpoints
             var session = await sessionRepository.GetByIdOrAccessCodeAsync(sessionIdOrAccessCode, cancellationToken);
             if (session is null)
             {
-                return Results.NotFound(new { error = "Session not found." });
+                return Results.NotFound(new { error = "No encontramos esa sesión. Verificá el código con tu docente." });
             }
 
             if (session.Status is not "active")
             {
-                return Results.BadRequest(new { error = "Attempts can only start in active sessions." });
+                return Results.BadRequest(new { error = "Esta sesión no está activa. Consultá con tu docente para poder ingresar." });
             }
 
             if (!IsNominal(session))
             {
-                return Results.BadRequest(new { error = "This session does not use nominalization." });
+                return Results.BadRequest(new { error = "Esta sesión no requiere confirmar identidad." });
             }
 
             if (string.IsNullOrWhiteSpace(request.Document))
@@ -108,12 +108,12 @@ public static class AttemptEndpoints
 
             if (session is null)
             {
-                return Results.NotFound(new { error = "Session not found." });
+                return Results.NotFound(new { error = "No encontramos esa sesión. Verificá el código con tu docente." });
             }
 
             if (session.Status is not "active")
             {
-                return Results.BadRequest(new { error = "Attempts can only start in active sessions." });
+                return Results.BadRequest(new { error = "Esta sesión no está activa. Consultá con tu docente para poder ingresar." });
             }
 
             if (IsNominal(session))
@@ -168,12 +168,12 @@ public static class AttemptEndpoints
 
             if (attempt is null)
             {
-                return Results.NotFound(new { error = "Attempt not found." });
+                return Results.NotFound(new { error = "No encontramos ese intento. Volvé a ingresar con tu código de sesión." });
             }
 
             if (attempt.Status is not "in_progress")
             {
-                return Results.BadRequest(new { error = "Only in-progress attempts can be edited." });
+                return Results.BadRequest(new { error = "Este intento ya no admite cambios." });
             }
 
             var now = DateTimeOffset.UtcNow.ToString("O");
@@ -197,12 +197,12 @@ public static class AttemptEndpoints
 
             if (attempt is null)
             {
-                return Results.NotFound(new { error = "Attempt not found." });
+                return Results.NotFound(new { error = "No encontramos ese intento. Volvé a ingresar con tu código de sesión." });
             }
 
             if (attempt.Status is not "in_progress")
             {
-                return Results.BadRequest(new { error = "Attempt has already been submitted or is not editable." });
+                return Results.BadRequest(new { error = "Este intento ya fue enviado. Si creés que es un error, avisá al docente." });
             }
 
             var submittedAt = DateTimeOffset.UtcNow.ToString("O");
