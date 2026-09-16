@@ -22,7 +22,7 @@ export function nullableText(value: string): string | null {
 // (ProblemDetails / ValidationProblemDetails de ASP.NET Core o texto plano).
 export function extractApiError(text: string, status: number): string {
   if (!text) {
-    return `El servicio respondio con estado ${status}.`;
+    return `El servicio respondió con estado ${status}.`;
   }
 
   try {

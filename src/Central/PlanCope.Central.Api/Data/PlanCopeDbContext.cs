@@ -21,6 +21,9 @@ public sealed class PlanCopeDbContext(DbContextOptions<PlanCopeDbContext> option
     public DbSet<AnswerKey> AnswerKeys => Set<AnswerKey>();
     public DbSet<ExamAsset> ExamAssets => Set<ExamAsset>();
     public DbSet<AssetUsage> AssetUsages => Set<AssetUsage>();
+    public DbSet<ExamRollup> ExamRollups => Set<ExamRollup>();
+    public DbSet<ExamRollupBlock> ExamRollupBlocks => Set<ExamRollupBlock>();
+    public DbSet<GradingPolicyAssignment> GradingPolicyAssignments => Set<GradingPolicyAssignment>();
     public DbSet<PublicationPackage> PublicationPackages => Set<PublicationPackage>();
     public DbSet<PublicationTarget> PublicationTargets => Set<PublicationTarget>();
     public DbSet<RegisteredNode> RegisteredNodes => Set<RegisteredNode>();

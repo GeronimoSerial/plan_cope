@@ -66,6 +66,7 @@ builder.Services.AddSingleton<GeTokenCache>();
 builder.Services.AddScoped<IGeRosterStore, EfGeRosterStore>();
 builder.Services.AddScoped<IGeRosterService, GeRosterService>();
 builder.Services.AddScoped<ActivationKeyService>();
+builder.Services.AddScoped<CentralStatsRollupService>();
 builder.Services.AddScoped<NodeCredentialService>();
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient<IGeTokenProvider, GeTokenProvider>((serviceProvider, client) =>

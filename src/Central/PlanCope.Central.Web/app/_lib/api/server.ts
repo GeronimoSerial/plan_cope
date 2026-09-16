@@ -84,3 +84,59 @@ export async function getLatestInstaller(channel = "stable"): Promise<InstallerR
 
   return text ? (JSON.parse(text) as InstallerReference) : (undefined as unknown as InstallerReference);
 }
+
+export interface ActivationKeySummary {
+  id: string;
+  keyPrefix: string;
+  issuedAt: string;
+  expiresAt?: string | null;
+  maxActivations: number;
+  activationCount: number;
+  revokedAt?: string | null;
+  revokedReason?: string | null;
+  note?: string | null;
+}
+
+export function listActivationKeys(): Promise<ActivationKeySummary[]> {
+  return serverGet<ActivationKeySummary[]>("/api/admin/activation/keys");
+}
+
+export interface RegisteredNodeSummary {
+  id: string;
+  nodeCode: string;
+  cue: string;
+  deviceName?: string | null;
+  enrolledAt: string;
+  lastSeenAt?: string | null;
+  revokedAt?: string | null;
+  schoolName?: string | null;
+}
+
+export function listRegisteredNodes(): Promise<RegisteredNodeSummary[]> {
+  return serverGet<RegisteredNodeSummary[]>("/api/admin/activation/nodes");
+}
+
+export interface SchoolStatsRow {
+  cue: string;
+  attemptCount: number | string;
+  averageScorePercent: number | string;
+}
+
+export function listSchoolStats(schoolYear?: string, course?: string): Promise<SchoolStatsRow[]> {
+  const params = new URLSearchParams();
+  if (schoolYear) params.set("schoolYear", schoolYear);
+  if (course) params.set("course", course);
+  const query = params.toString();
+  return serverGet<SchoolStatsRow[]>(`/api/stats/schools${query ? `?${query}` : ""}`);
+}
+
+export interface UnassignedExamVersion {
+  examVersionId: string;
+  examCode: string;
+  versionNumber: number;
+  publishedAt?: string | null;
+}
+
+export function listUnassignedGradingPolicies(): Promise<UnassignedExamVersion[]> {
+  return serverGet<UnassignedExamVersion[]>("/api/admin/grading-policies/unassigned");
+}

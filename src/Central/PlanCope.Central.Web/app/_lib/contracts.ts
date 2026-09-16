@@ -59,6 +59,7 @@ export interface ExamVersion {
   blocks: ExamBlock[];
   answerKeys: AnswerKey[];
   assets: ExamAsset[];
+  scoringPolicy: string | null;
 }
 
 export interface ExamBlock {
@@ -103,6 +104,7 @@ export interface ExamAsset {
 export interface ReplaceExamDocumentRequest {
   metadata?: Record<string, unknown> | null;
   blocks: DocumentBlock[];
+  scoringPolicy: string | null;
 }
 
 export interface DocumentBlock {
