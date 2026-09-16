@@ -30,7 +30,7 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
         var row = await connection.QuerySingleAsync<RollupTotalsRow>(
             new CommandDefinition(sql, BuildRollupsParams(cue, schoolYear, course), cancellationToken: cancellationToken));
 
-        var attemptCount = row.AttemptCount;
+        var attemptCount = (int)row.AttemptCount;
         var averageScorePercent = row.ScoreMaxSum > 0 ? row.ScoreSum / row.ScoreMaxSum * 100 : 0;
 
         return new SchoolStatsDto(
@@ -62,8 +62,8 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
 
             result.Add(new CourseStatsDto(
                 row.Course,
-                SuppressibleValue<int>.For(rosterScope, row.AttemptCount, row.AttemptCount),
-                SuppressibleValue<double>.For(rosterScope, row.AttemptCount, averageScorePercent)));
+                SuppressibleValue<int>.For(rosterScope, (int)row.AttemptCount, (int)row.AttemptCount),
+                SuppressibleValue<double>.For(rosterScope, (int)row.AttemptCount, averageScorePercent)));
         }
 
         return result;
@@ -121,20 +121,20 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
             var blockDtos = blocks
                 .Select(block => new BlockStatDto(
                     block.BlockId,
-                    block.CorrectCount,
-                    block.PartialCount,
-                    block.IncorrectCount,
-                    block.BlankCount,
-                    block.UngradableCount))
+                    (int)block.CorrectCount,
+                    (int)block.PartialCount,
+                    (int)block.IncorrectCount,
+                    (int)block.BlankCount,
+                    (int)block.UngradableCount))
                 .ToList();
 
-            var attemptCount = row.AttemptCount;
+            var attemptCount = (int)row.AttemptCount;
             var averageScorePercent = row.ScoreMaxSum > 0 ? row.ScoreSum / row.ScoreMaxSum * 100 : 0;
 
             result.Add(new ExamStatsDto(
                 row.ExamVersionId,
                 row.ExamCode,
-                row.VersionNumber,
+                (int)row.VersionNumber,
                 SuppressibleValue<int>.For(rosterScope, attemptCount, attemptCount),
                 SuppressibleValue<double>.For(rosterScope, attemptCount, averageScorePercent),
                 blockDtos));
@@ -162,11 +162,11 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
     private static object BuildRollupsParams(string cue, string? schoolYear, string? course) =>
         new { Cue = cue, SchoolYear = schoolYear, Course = course };
 
-    private sealed record RollupTotalsRow(int AttemptCount, double ScoreSum, double ScoreMaxSum);
+    private sealed record RollupTotalsRow(long AttemptCount, double ScoreSum, double ScoreMaxSum);
 
-    private sealed record CourseStatsRow(string Course, int AttemptCount, double ScoreSum, double ScoreMaxSum);
+    private sealed record CourseStatsRow(string Course, long AttemptCount, double ScoreSum, double ScoreMaxSum);
 
-    private sealed record ExamStatsRow(string ExamVersionId, string ExamCode, int VersionNumber, int AttemptCount, double ScoreSum, double ScoreMaxSum);
+    private sealed record ExamStatsRow(string ExamVersionId, string ExamCode, long VersionNumber, long AttemptCount, double ScoreSum, double ScoreMaxSum);
 
-    private sealed record BlockStatRow(string BlockId, int CorrectCount, int PartialCount, int IncorrectCount, int BlankCount, int UngradableCount);
+    private sealed record BlockStatRow(string BlockId, long CorrectCount, long PartialCount, long IncorrectCount, long BlankCount, long UngradableCount);
 }
