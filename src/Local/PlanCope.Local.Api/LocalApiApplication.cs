@@ -1,4 +1,5 @@
 using PlanCope.Local.Api.Data;
+using PlanCope.Local.Api.Data.Repositories;
 using PlanCope.Local.Api.Endpoints;
 using PlanCope.Shared.Infrastructure.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
@@ -46,6 +47,29 @@ public static class LocalApiApplication
         }
 
         app.UseCors(HostUiCorsPolicy);
+
+        app.Use(async (context, next) =>
+        {
+            var path = context.Request.Path;
+            var isAllowlisted = path.StartsWithSegments("/api/health")
+                || path.StartsWithSegments("/api/activation")
+                || path.StartsWithSegments("/api/enrolment");
+
+            if (!isAllowlisted)
+            {
+                var nodeIdentityRepository = context.RequestServices.GetRequiredService<INodeIdentityRepository>();
+                var identity = await nodeIdentityRepository.GetAsync(context.RequestAborted);
+                if (identity?.RevocationStage == "locked")
+                {
+                    context.Response.StatusCode = StatusCodes.Status423Locked;
+                    await context.Response.WriteAsJsonAsync(new { error = "Este equipo está bloqueado. Reactivalo con una clave nueva." });
+                    return;
+                }
+            }
+
+            await next(context);
+        });
+
         var clientDistPath = LocalClientAppFiles.FindDistPath();
         if (clientDistPath is not null)
         {
