@@ -108,7 +108,7 @@ public sealed class PublishPullRunPushTests
         var section = new GeRosterSectionPackageDto("e2e-section", 900001, "1", "A", "Primario", "Mañana",
             [new("e2e-student", "e2e-section", 910001, "99000001", "Ada", "Ejemplo")]);
         var withoutChecksum = new GeRosterPackageDto("e2e-snapshot", "180055400", "2026",
-            DateTimeOffset.Parse("2026-01-15T12:00:00Z"), new string('0', 64), 1, 1, "available", [section], "Escuela E2E");
+            DateTimeOffset.Parse("2026-01-15T12:00:00Z"), new string('0', 64), 1, 1, "Ready", [section], "Escuela E2E");
         var package = withoutChecksum with { Checksum = GeRosterPackageChecksum.Calculate(withoutChecksum) };
         await File.WriteAllTextAsync(Path.Combine(input, "180055400-2026.roster.json"),
             JsonSerializer.Serialize(package, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
@@ -147,8 +147,40 @@ public sealed class PublishPullRunPushTests
         var unlockResponse = await localClient.PostAsJsonAsync("/api/activation/unlock", new { passphrase, cue = "180055400" });
         Assert.True(unlockResponse.StatusCode == HttpStatusCode.OK, await unlockResponse.Content.ReadAsStringAsync());
 
-        // 7. OFFLINE: run a session and submit an attempt
-        var attemptId = await RunSessionAndSubmitAsync(localClient, version.Id, block.Id);
+        // 7. OFFLINE: run a NOMINAL session against the real roster activated in step 6 and submit
+        //    an attempt. Rollups are only written for nominal sessions, so step 8's stats assertion
+        //    requires SchoolYear/RosterSnapshotId/RosterSectionId to all be set.
+        var nominalSessionResponse = await localClient.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
+            version.Id, "180055400", "6A", null, "Operador", 30, null, "2026", "e2e-snapshot", "e2e-section"));
+        Assert.True(nominalSessionResponse.StatusCode == HttpStatusCode.Created, await nominalSessionResponse.Content.ReadAsStringAsync());
+        var nominalSession = await nominalSessionResponse.Content.ReadFromJsonAsync<LocalDeliverySession>();
+        Assert.NotNull(nominalSession);
+
+        var resolutionResponse = await localClient.PostAsJsonAsync(
+            $"/api/sessions/{nominalSession!.AccessCode}/student-resolution", new ResolveStudentRequest("99000001"));
+        Assert.True(resolutionResponse.StatusCode == HttpStatusCode.OK, await resolutionResponse.Content.ReadAsStringAsync());
+        var resolution = await resolutionResponse.Content.ReadFromJsonAsync<ResolveStudentResponse>();
+        Assert.NotNull(resolution);
+
+        var startResponse = await localClient.PostAsJsonAsync(
+            $"/api/sessions/{nominalSession.AccessCode}/attempts", new StartAttemptRequest(ResolutionToken: resolution!.ResolutionToken));
+        Assert.True(startResponse.StatusCode == HttpStatusCode.Created, await startResponse.Content.ReadAsStringAsync());
+        var started = await startResponse.Content.ReadFromJsonAsync<StartAttemptResponse>();
+        Assert.NotNull(started);
+        Assert.NotEmpty(started!.Blocks);
+
+        var answerResponse = await localClient.PutAsJsonAsync($"/api/attempts/{started.Attempt.Id}/answers", new
+        {
+            answers = new[] { new { blockId = block.Id, answer = "42" } }
+        });
+        Assert.Equal(HttpStatusCode.NoContent, answerResponse.StatusCode);
+
+        var submitResponse = await localClient.PostAsync($"/api/attempts/{started.Attempt.Id}/submit", null);
+        Assert.True(submitResponse.StatusCode == HttpStatusCode.OK, await submitResponse.Content.ReadAsStringAsync());
+        var confirmation = await submitResponse.Content.ReadFromJsonAsync<SubmitAttemptResponse>();
+        Assert.NotNull(confirmation);
+
+        var attemptId = started.Attempt.Id;
 
         // 8. OFFLINE: read statistics for the same school code ("180055400") used by RunSessionAndSubmitAsync
         var statsResponse = await localClient.GetAsync("/api/stats/course?cue=180055400");
@@ -239,7 +271,7 @@ public sealed class PublishPullRunPushTests
         using var updateCheckClient = centralFactory.CreateClient();
         updateCheckClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", nodeAccessToken);
         var feedResponse = await updateCheckClient.GetAsync("/api/updates/releases.stable.json?id=PlanCope.Local.Host&localVersion=1.0.0");
-        Assert.Equal(HttpStatusCode.OK, feedResponse.StatusCode);
+        Assert.True(feedResponse.StatusCode == HttpStatusCode.OK, await feedResponse.Content.ReadAsStringAsync());
         using (var feedDoc = JsonDocument.Parse(await feedResponse.Content.ReadAsStringAsync()))
         {
             var asset = feedDoc.RootElement.GetProperty("Assets")[0];
