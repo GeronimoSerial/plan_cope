@@ -44,6 +44,17 @@ public sealed record ReceivedStudentAttempt(
 
 public sealed record ReceivedSubmissionAnswer(string Id, string StudentAttemptId, string BlockId, JsonDocument Answer, DateTimeOffset CreatedAt);
 
+public sealed record CentralAttemptResult(
+    string Id,
+    string ReceivedStudentAttemptId,
+    int GradingSchemaVersion,
+    string? ScoringPolicy,
+    string Status,
+    decimal? Score,
+    decimal? ScoreMax,
+    JsonDocument? BlocksJson,
+    DateTimeOffset GradedAt);
+
 public sealed record SyncInbox(string Id, string? SourceNodeId, string EventType, string AggregateType, string AggregateId, string IdempotencyKey, JsonDocument Payload, string Status, DateTimeOffset CreatedAt, DateTimeOffset? ProcessedAt);
 
 public sealed record SyncCursor(string Id, string NodeId, string CursorKey, string CursorValue, DateTimeOffset UpdatedAt);

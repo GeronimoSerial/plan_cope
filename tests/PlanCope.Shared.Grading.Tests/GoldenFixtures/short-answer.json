@@ -1,0 +1,60 @@
+{
+  "ExamVersion": {
+    "ExamVersionId": "fixture-sa",
+    "DeclaredScoringPolicy": 0,
+    "Blocks": [
+      {
+        "BlockId": "b1",
+        "Type": 4,
+        "ScoreMax": 4,
+        "AnswerKey": { "AcceptedAnswers": ["Buenos Aires", "CABA"] }
+      },
+      {
+        "BlockId": "b2",
+        "Type": 4,
+        "ScoreMax": 6,
+        "AnswerKey": { "AcceptedAnswers": ["Paris"] }
+      },
+      {
+        "BlockId": "b3",
+        "Type": 4,
+        "ScoreMax": 2,
+        "AnswerKey": { "AcceptedAnswers": ["x"] }
+      }
+    ]
+  },
+  "Answers": {
+    "b1": { "Text": "  buenos aires " },
+    "b2": { "Text": "paris" }
+  },
+  "Expected": {
+    "ExamVersionId": "fixture-sa",
+    "GradingSchemaVersion": 1,
+    "ScoringPolicy": 0,
+    "Score": 10,
+    "ScoreMax": 12,
+    "Blocks": [
+      {
+        "BlockId": "b1",
+        "BlockType": 4,
+        "Outcome": 0,
+        "Score": 4,
+        "ScoreMax": 4
+      },
+      {
+        "BlockId": "b2",
+        "BlockType": 4,
+        "Outcome": 0,
+        "Score": 6,
+        "ScoreMax": 6
+      },
+      {
+        "BlockId": "b3",
+        "BlockType": 4,
+        "Outcome": 3,
+        "Score": 0,
+        "ScoreMax": 2
+      }
+    ]
+  }
+}

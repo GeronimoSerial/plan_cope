@@ -1,0 +1,60 @@
+{
+  "ExamVersion": {
+    "ExamVersionId": "fixture-tf",
+    "DeclaredScoringPolicy": 1,
+    "Blocks": [
+      {
+        "BlockId": "b1",
+        "Type": 3,
+        "ScoreMax": 2,
+        "AnswerKey": { "CorrectBoolean": true }
+      },
+      {
+        "BlockId": "b2",
+        "Type": 3,
+        "ScoreMax": 3,
+        "AnswerKey": { "CorrectBoolean": false }
+      },
+      {
+        "BlockId": "b3",
+        "Type": 3,
+        "ScoreMax": 1,
+        "AnswerKey": { "CorrectBoolean": true }
+      }
+    ]
+  },
+  "Answers": {
+    "b1": { "SelectedBoolean": true },
+    "b2": { "SelectedBoolean": true }
+  },
+  "Expected": {
+    "ExamVersionId": "fixture-tf",
+    "GradingSchemaVersion": 1,
+    "ScoringPolicy": 1,
+    "Score": 2,
+    "ScoreMax": 6,
+    "Blocks": [
+      {
+        "BlockId": "b1",
+        "BlockType": 3,
+        "Outcome": 0,
+        "Score": 2,
+        "ScoreMax": 2
+      },
+      {
+        "BlockId": "b2",
+        "BlockType": 3,
+        "Outcome": 2,
+        "Score": 0,
+        "ScoreMax": 3
+      },
+      {
+        "BlockId": "b3",
+        "BlockType": 3,
+        "Outcome": 3,
+        "Score": 0,
+        "ScoreMax": 1
+      }
+    ]
+  }
+}

@@ -194,6 +194,49 @@ namespace PlanCope.Central.Migrations.Migrations
                     b.ToTable("logs", "audit");
                 });
 
+            modelBuilder.Entity("PlanCope.Shared.Domain.Central.CentralAttemptResult", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<JsonDocument>("BlocksJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTimeOffset>("GradedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("GradingSchemaVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ReceivedStudentAttemptId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<decimal?>("Score")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal?>("ScoreMax")
+                        .HasColumnType("numeric");
+
+                    b.Property<string>("ScoringPolicy")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReceivedStudentAttemptId", "GradingSchemaVersion")
+                        .IsUnique();
+
+                    b.ToTable("attempt_results", "sync");
+                });
+
             modelBuilder.Entity("PlanCope.Shared.Domain.Central.CentralDeliverySession", b =>
                 {
                     b.Property<string>("Id")
@@ -532,6 +575,10 @@ namespace PlanCope.Central.Migrations.Migrations
 
                     b.Property<int>("SchemaVersion")
                         .HasColumnType("integer");
+
+                    b.Property<string>("ScoringPolicy")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<string>("Status")
                         .IsRequired()

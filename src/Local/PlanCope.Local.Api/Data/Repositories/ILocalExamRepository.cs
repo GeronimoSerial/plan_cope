@@ -10,6 +10,8 @@ public interface ILocalExamRepository
 
     Task<IReadOnlyList<LocalExamBlock>> GetBlocksAsync(string localExamVersionId, CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<LocalAnswerKey>> GetAnswerKeysAsync(string localExamVersionId, CancellationToken cancellationToken = default);
+
     Task<LocalAsset?> GetAssetByIdAsync(string id, CancellationToken cancellationToken = default);
 
     Task UpsertImportedExamAsync(
