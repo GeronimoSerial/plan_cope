@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <Compile Include="..\..\src\Local\PlanCope.Local.Host\Services\UpdateService.cs" Link="HostServices\UpdateService.cs" />
+    <Compile Include="..\..\src\Local\PlanCope.Local.Host\Services\UpdateHealthTracker.cs" Link="HostServices\UpdateHealthTracker.cs" />
     <Compile Include="..\..\src\Local\PlanCope.Local.Host\Services\WebView2RuntimeCheck.cs" Link="HostServices\WebView2RuntimeCheck.cs" />
     <Compile Include="..\..\src\Local\PlanCope.Local.Host\Services\DataDirectoryResolver.cs" Link="HostServices\DataDirectoryResolver.cs" />
   </ItemGroup>
