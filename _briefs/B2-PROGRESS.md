@@ -1,14 +1,81 @@
 # B2 — Node enrolment and hardware identity: progress log
 
-## Status: PARTIAL — backend only, no operator-facing UI. Do not read any task below as "done" without reading its status line.
+## Resumption after runtime restart (2026-09-16)
 
-Of the plan's 8 tasks under "### B2 ·" in `PROJECT-CLOSURE-PLAN.md`, **the backend halves of
-tasks 1, 2, 4 and 5 are built and tested. Nothing an operator can actually click or type exists
-yet** — no Phase A screen, no Phase B enrolment screen, no `ActivationKeyStore` wiring, no
-revocation enforcement, no re-activation screen. Wind-down was called (owner instruction) before
-any frontend slice landed. A reviewer should read this document task-by-task before looking at
-the diff — several tasks look further along in code than they are in the actual product, because
-the backend was built first and the UI that makes it reachable never was.
+A prior leader session was killed by an Orca runtime restart before any frontend slice
+landed; this document (written by that session, see below the line) survived and is what
+this resumption was recovered from. Recovery sequence: re-read `_briefs/B2-LEADER.md`, this
+file, `scripts/LEVEL3-DISPATCH-PROTOCOL.md`. `docs/DELEGATION-RULES.md`, which the resumption
+prompt named, **does not exist in this repo** — proceeded on `B2-LEADER.md` and the dispatch
+protocol alone, which were sufficient. Fast-forwarded the branch 22 commits onto
+`origin/feat/b2-node-enrolment` (B3/B4's merged data layer, per the coordinator's PR #27
+rebase) before doing anything else. Migration `012_NodeIdentity.sql` still slots correctly
+after the merge — no third collision.
+
+**Wave 1 (this session): Phase A frontend, `ActivationKeyStore` wired live, task 3 retired.**
+Commits `ea9b232`, `9355b04`, `16b779f`. Dispatched as 3 disjoint slices (`MainForm.cs`;
+`docs/roster-release.md` + delete `Build-SchoolRelease.ps1`; `ActivationScreen.tsx` +
+`HostApp.tsx`), then a 4th narrow slice for the test file once the first attempt at bundling
+component+test together proved too wide. Two dispatch failures worth recording for the next
+wave: (1) the first `ActivationScreen.tsx` slice burned its whole 420s budget on a confused
+`npm install` inside `ClientApp/`, which is an npm-workspace member with no `node_modules` of
+its own by design — deps hoist to the repo root; (2) the retry burned its budget reading a
+giant minified vendor JS bundle instead of source. Both fixed by narrowing the brief (drop the
+test file into its own slice) and adding an explicit "do not read node_modules/dist" rule —
+third attempt landed clean. **Diagnosis, not re-dispatching blind, is what fixed it — matches
+lesson 1 in `B2-LEADER.md`.**
+
+- `MainForm.cs`: `isActivated` now comes from a real `GET /api/activation/status` call
+  (`_phaseAComplete`, refreshed at API startup and after each activation attempt), not
+  `ActivationKeyStore.HasStoredKey`. The dead `host:activate` bridge message and `Activate()`
+  method are removed. Two new bridge messages: `host:getStoredPassphrase` (host responds with
+  `ActivationKeyStore.Load()`'s decrypted contents, or null) and `host:activationComplete`
+  (host re-verifies against the API — never trusts the renderer's say-so — then calls
+  `ActivationKeyStore.Store()` and re-broadcasts `host:context`). **Task 6 done**: `Load()` is
+  now reachable at runtime for the first time. Design call made here, not in the plan text:
+  the passphrase is stored so it can pre-fill the field on a later Phase A re-run (DB reset,
+  troubleshooting) — re-activation (task 8, unstarted) is about the Phase B *activation key*,
+  not this passphrase, so this does not double as task 8's mechanism. Flagging this as a
+  judgment call for the coordinator to confirm, not a plan-mandated design.
+- `ActivationScreen.tsx`: real Phase A flow — fetches `/api/activation/bundle-cues`, renders a
+  CUE selector, posts `/api/activation/unlock`, shows the API's own Spanish error message on
+  400. **An operator can now complete Phase A through the actual application** — this closes
+  the single biggest gap the previous session flagged. **NOT verified**: interactive
+  fetch/bridge behaviour has no automated test. This codebase's component tests are
+  `renderToStaticMarkup` snapshots only — no React Testing Library, no fetch mocking, no
+  simulated clicks are installed anywhere in this project. Added one more static-render
+  assertion (the pre-effect loading state) in the same convention; did not add a testing
+  library to test the rest, since that is a new-dependency call reserved for the coordinator
+  per `B2-LEADER.md`'s escalation rule, not something to add unilaterally mid-slice.
+- `Build-SchoolRelease.ps1` retired (task 3 fully done, not just backend). Confirmed via
+  `rg RosterBundlePath src/Local/PlanCope.Local.Host/PlanCope.Local.Host.csproj` (no match)
+  and reading `.github/workflows/release.yml`'s `host` job that the script was never wired
+  into CI — that job already does its own universal `dotnet publish`, unrelated to this
+  script, so retiring it was pure deletion with no pipeline change. `docs/roster-release.md`
+  rewritten to describe the actual current flow (one encrypted bundle, one build, CUE chosen
+  at Phase A unlock); every claim in the rewrite was checked against the real code
+  (`RosterBundleOptions.SectionName`, `RosterCrypto`'s `pack` CLI flags,
+  `RosterReleaseTool`'s CLI shape, `DocumentHmacService`) before being written, not assumed
+  from the old doc.
+- One process note: the `MainForm.cs` commit (`ea9b232`) picked up
+  `Build-SchoolRelease.ps1`'s deletion because the dispatched agent for that slice had already
+  `git rm`'d it (staged) before I ran `git add` for the unrelated file — the two are
+  independent, disjoint changes that happened to land in one commit. Not undone (the deletion
+  was already independently reviewed and correct); the docs update for the same task landed
+  in its own commit (`9355b04`) with accurate attribution. Worth watching for on future waves:
+  check `git status` before `git add <specific-file>`, not just before `git commit`.
+
+Both waves built green (`dotnet build PlanCope.slnx -warnaserror`, 0/0) and the ClientApp
+workspace passed independently (`npm run build` + `npm test`, 18/18) before each commit.
+
+## Status: PARTIAL — no RevocationEnforcer, no re-activation screen, no Phase B UI yet. Do not read any task below as "done" without reading its status line.
+
+Of the plan's 8 tasks under "### B2 ·" in `PROJECT-CLOSURE-PLAN.md`, as of this resumption's
+Wave 1: **tasks 1, 3 and 6 are fully done; task 2 (Phase A) is done including its UI; task 5 is
+backend-done as before. Task 4 (Phase B UI) is next (Wave 2). Tasks 7 (`RevocationEnforcer`)
+and 8 (re-activation screen) have no code at all.** A reviewer should still read this document
+task-by-task before looking at the diff — several tasks look further along in code than they
+are in the actual product.
 
 This batch was run as a level-2 leader dispatching to `opencode`/DeepSeek-V4-Flash per
 `scripts/LEVEL3-DISPATCH-PROTOCOL.md`. Every production line below was written by a dispatched
@@ -33,31 +100,25 @@ below), which is glue, not logic.
    environment.
 
 2. **Phase A rewrite (passphrase → Argon2id → real DEK unwrap → CUE selection → `schools` row)**
-   — **PARTIAL, backend only**. `src/Local/PlanCope.Local.Api/Endpoints/ActivationEndpoints.cs`
-   (`GET /api/activation/status`, `GET /api/activation/bundle-cues`, `POST /api/activation/unlock`)
-   calls the REAL crypto path — `tools/PlanCope.RosterCrypto/EnvelopeDecryption.DecryptCueAsync`,
-   unchanged, still doing genuine Argon2id key derivation and a real AES-GCM DEK unwrap, exactly
-   as the plan's acceptance criterion names it. `EmbeddedRosterSeeder.SeedOneAsync` (new) imports
-   the decrypted roster on success; `node_identity` and `schools` rows get created/updated
-   correctly. **What does NOT exist**: the React `ActivationScreen.tsx` was never rewritten — it
-   still posts a raw passphrase through the old WebView2 bridge message to
-   `MainForm.Activate()`/`ActivationKeyStore.Store()`, a flow that has nothing to do with the new
-   endpoints above. **An operator cannot complete Phase A through the actual application today.**
-   The acceptance criterion "Phase A completes with the network cable unplugged, and a full exam
-   session runs to submission afterwards" is **NOT met** — the crypto and persistence are real and
-   tested, but there is no UI path to reach them.
+   — **DONE, including the UI, as of Wave 1 (2026-09-16)**. Backend unchanged from the prior
+   session: `ActivationEndpoints.cs` calls the real crypto path
+   (`EnvelopeDecryption.DecryptCueAsync`, genuine Argon2id + AES-GCM). `ActivationScreen.tsx`
+   was rewritten this wave to call `/api/activation/bundle-cues` and `/api/activation/unlock`
+   directly, and `MainForm.cs` now sources `isActivated` from a real
+   `GET /api/activation/status` call. **An operator can now complete Phase A through the
+   actual application.** **Still NOT verified**: this was never exercised end-to-end on real
+   Windows hardware with WebView2 actually running — verification here is `dotnet build`
+   (green) + the ClientApp's own build/test (green, 18/18) + independent diff review, not a
+   live run. The acceptance criterion "Phase A completes with the network cable unplugged, and
+   a full exam session runs to submission afterwards" still needs a real device to confirm.
 
-3. **Remove the single-CUE build restriction / retire `Build-SchoolRelease.ps1`** — **PARTIAL**.
-   `RosterBundleOptions.Cue` (the build-time constant) is removed;
-   `EmbeddedRosterSeeder`/`EmbeddedRosterSource` now take the CUE as a runtime parameter
-   (`SeedOneAsync(cue, passphrase, ...)`), which is the substantive part of "remove the
-   single-CUE restriction." **`scripts/Build-SchoolRelease.ps1` itself was never touched** — it
-   still exists, still references a `-p:RosterBundlePath` MSBuild property that
-   `PlanCope.Local.Host.csproj` has never consumed (verified: grepped the `.csproj`, no match —
-   this script predates the encrypted-bundle mechanism and was already dead before this batch
-   started), and still downloads one CUE's plaintext `roster.json` directly rather than going
-   through `tools/PlanCope.RosterCrypto`'s `pack` command. **Not started, not retired, still on
-   disk exactly as it was.**
+3. **Remove the single-CUE build restriction / retire `Build-SchoolRelease.ps1`** — **DONE**,
+   as of Wave 1 (2026-09-16). Backend half unchanged from the prior session
+   (`RosterBundleOptions.Cue` removed, CUE is now a runtime parameter).
+   `scripts/Build-SchoolRelease.ps1` is deleted; `docs/roster-release.md` rewritten to describe
+   the actual current flow. Confirmed before deleting: `.github/workflows/release.yml`'s `host`
+   job does its own universal `dotnet publish` and never referenced this script, so retiring it
+   required no CI change.
 
 4. **Phase B enrolment screen + `POST /api/activation/redeem`** — **PARTIAL, backend only**.
    `src/Local/PlanCope.Local.Api/Endpoints/EnrolmentEndpoints.cs` (`POST /api/enrolment/redeem`)
@@ -90,10 +151,14 @@ below), which is glue, not logic.
    Local.Api endpoints that fakes an outbound Central call, and building one was judged out of
    scope for the time remaining.
 
-6. **`ActivationKeyStore.Load()` made load-bearing** — **NOT STARTED**. Still dead code, exactly
-   as it was before this batch (`src/Local/PlanCope.Local.Host/Services/ActivationKeyStore.cs:38-49`).
-   This was scoped to the frontend/Host slice that never ran (see "What was dispatched but never
-   landed" below).
+6. **`ActivationKeyStore.Load()` made load-bearing** — **DONE**, as of Wave 1 (2026-09-16).
+   `MainForm.cs`'s `host:getStoredPassphrase` handler calls `Load()` and returns the decrypted
+   passphrase to `ActivationScreen.tsx`, which pre-fills the passphrase field if present.
+   `Store()` is called from the new `host:activationComplete` handler after a real, verified
+   Phase A success. Design call made without a plan citation (the plan only says "make it
+   load-bearing"): this ties `Load()` to re-running Phase A conveniently, not to task 8's
+   re-activation (which recovers from a revoked *activation key*, a different credential) —
+   flagged for the coordinator to confirm this reading is the intended one.
 
 7. **`RevocationEnforcer`** (wait for session end → drain outbox → wipe → lock, resumable via
    `node_identity.revocation_stage`) — **NOT STARTED**. No design work beyond the schema column
@@ -104,43 +169,36 @@ below), which is glue, not logic.
 
 ## Cross-cutting gates from the batch mandate (`_briefs/B2-LEADER.md`) — checked honestly
 
-- **Offline-first (Phase A fully offline)**: the crypto and persistence this criterion cares about
-  are real and tested (task 2's `DecryptCueAsync` call is unchanged, genuine Argon2id + AES-GCM).
-  The criterion as a whole is **NOT met**, because there is no UI path for an operator to reach
-  it. Do not report this gate as closed based on the endpoint tests alone.
+- **Offline-first (Phase A fully offline)**: crypto, persistence AND now the UI path are real.
+  **Met as far as this environment can verify** — never exercised on real Windows hardware
+  with WebView2 actually running (see below).
 - **Two-phase separation**: respected structurally — Phase A (`ActivationEndpoints`) and Phase B
   (`EnrolmentEndpoints`) are separate endpoint groups, separate concerns, and Phase B's redeem call
-  requires a `node_identity` row that only Phase A's unlock endpoint creates. Neither phase is
-  reachable by an operator yet, so "separation" is unverified as a *product* property, only as a
-  *code* property.
+  requires a `node_identity` row that only Phase A's unlock endpoint creates. Phase A is now
+  reachable by an operator (Wave 1); Phase B is still not (see task 4, unchanged).
 - **DRY fingerprint composite**: met. One place (`HardwareFingerprintService`), consumed by both
   phases via the same method.
 - **DRY credential refresh**: met. One handler, one refresher, three consumers, duplicated
   per-service code deleted.
 - **Revocation never destroys data before the outbox drains**: **not applicable yet** — the
   enforcer that would destroy anything does not exist (task 7 not started).
-- **`ActivationKeyStore.Load()` load-bearing**: **not met**, see task 6.
-- **Retire `Build-SchoolRelease.ps1`**: **not met**, see task 3.
+- **`ActivationKeyStore.Load()` load-bearing**: **met**, see task 6 (Wave 1).
+- **Retire `Build-SchoolRelease.ps1`**: **met**, see task 3 (Wave 1).
 
-## What was dispatched but never landed
+## What was dispatched but never landed (as of the wind-down before this resumption)
 
 Two frontend/UI-adjacent slices were designed and written up as full dispatch briefs but never
-successfully executed — every attempt to run them timed out at the mandatory 420s wall-clock
-budget while still exploring the codebase, before writing a single file:
+successfully executed in the PRIOR session — every attempt to run them timed out at the
+mandatory 420s wall-clock budget while still exploring the codebase, before writing a single
+file:
 - **Unit A (Phase A)**: `ActivationScreen.tsx` rewrite (passphrase + CUE picker), `MainForm.cs`
   rewiring away from the old bridge-message flow, `ActivationKeyStore.Load()` wiring (task 6),
-  and retiring `Build-SchoolRelease.ps1` (task 3).
+  and retiring `Build-SchoolRelease.ps1` (task 3). **This unit landed in Wave 1 of this
+  resumption** (see the "Resumption after runtime restart" section at the top of this file) —
+  narrowed into 4 disjoint slices instead of one wide one, which is what got it across the
+  line this time.
 - **Unit B (Phase B)**: `EnrolmentScreen.tsx` (activation-key entry + client-side checksum
-  validation), wiring into `HostApp.tsx`.
-
-Both were re-decomposed into narrower backend-only slices (dropping all React/`MainForm.cs`
-scope) which DID land successfully — that is everything marked DONE/PARTIAL above. The frontend
-scope itself was never re-attempted after wind-down was called; it is simply not built. A future
-batch resuming B2 should treat these two slices as the very next work, not as already attempted
-and failed — the backend they depend on (`/api/activation/*`, `/api/enrolment/*`) is real, tested,
-and wired into the running app (`LocalApiApplication.cs`'s `MapActivationEndpoints()`/
-`MapEnrolmentEndpoints()`), so the frontend work is now unblocked and should be considerably
-narrower than the original brief.
+  validation), wiring into `HostApp.tsx`. **Still not attempted** — this is Wave 2's target.
 
 ## What was NOT verified, and what the substitutions do not prove
 
