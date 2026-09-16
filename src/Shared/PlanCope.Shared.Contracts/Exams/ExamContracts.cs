@@ -5,7 +5,7 @@ namespace PlanCope.Shared.Contracts.Exams;
 
 public sealed record ExamSummaryDto(string Id, string Code, string Title, string? Level, string? Area, string? Subject, string Status, int VersionCount);
 
-public sealed record ExamVersionDto(string Id, string ExamId, int VersionNumber, int SchemaVersion, string Status, JsonElement? Metadata, IReadOnlyList<BlockDto> Blocks, IReadOnlyList<AnswerKeyDto> AnswerKeys, IReadOnlyList<AssetDto> Assets);
+public sealed record ExamVersionDto(string Id, string ExamId, int VersionNumber, int SchemaVersion, string Status, JsonElement? Metadata, IReadOnlyList<BlockDto> Blocks, IReadOnlyList<AnswerKeyDto> AnswerKeys, IReadOnlyList<AssetDto> Assets, string? ScoringPolicy);
 
 public sealed record BlockDto(string Id, string VersionId, int OrderIndex, BlockType BlockType, string? Title, string? Description, JsonElement Config, JsonElement? Validation);
 
@@ -26,7 +26,8 @@ public sealed record PublishedExamPackageDto(
     IReadOnlyList<BlockDto> Blocks,
     IReadOnlyList<AnswerKeyDto> AnswerKeys,
     IReadOnlyList<PublishedAssetDto> Assets,
-    IReadOnlyList<PublicationTargetDto> Targets);
+    IReadOnlyList<PublicationTargetDto> Targets,
+    string? ScoringPolicy);
 
 public sealed record PublishedAssetDto(string Id, string VersionId, string FileName, string MimeType, long SizeBytes, string Checksum, string ContentBase64);
 
@@ -34,7 +35,7 @@ public sealed record PublicationTargetDto(string TargetType, string? TargetId);
 
 public sealed record CreateExamRequest(string Code, string Title, string? Description, string? Level, string? Area, string? Subject);
 
-public sealed record CreateExamVersionRequest(int SchemaVersion, JsonElement? Metadata);
+public sealed record CreateExamVersionRequest(int SchemaVersion, JsonElement? Metadata, string? ScoringPolicy);
 
 public sealed record UpsertBlockRequest(int OrderIndex, BlockType BlockType, string? Title, string? Description, JsonElement Config, JsonElement? Validation);
 
@@ -45,7 +46,7 @@ public sealed record PublishExamVersionRequest(string? Subject, string Grade, st
 public sealed record PublishExamVersionResponse(string PackageId, string ExamVersionId, int PackageVersion, string Checksum, IReadOnlyList<PublicationTargetDto> Targets);
 
 // Contrato canonico: reemplaza el documento completo de una version (bloques + answer keys) en una sola operacion.
-public sealed record ReplaceExamDocumentRequest(JsonElement? Metadata, IReadOnlyList<DocumentBlockDto> Blocks);
+public sealed record ReplaceExamDocumentRequest(JsonElement? Metadata, IReadOnlyList<DocumentBlockDto> Blocks, string? ScoringPolicy);
 
 public sealed record DocumentBlockDto(
     int OrderIndex,
