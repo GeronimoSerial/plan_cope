@@ -129,7 +129,8 @@ public sealed class LocalExamPullService(
             package.Checksum,
             metadataJson,
             package.SchemaVersion,
-            now);
+            now,
+            package.ScoringPolicy);
 
         await examRepository.UpsertImportedExamAsync(exam, blocks, assets, answerKeys, cancellationToken);
     }

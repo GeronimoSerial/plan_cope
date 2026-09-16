@@ -1,0 +1,47 @@
+{
+  "ExamVersion": {
+    "ExamVersionId": "fixture-policy-allornothing",
+    "DeclaredScoringPolicy": 0,
+    "Blocks": [
+      {
+        "BlockId": "b1",
+        "Type": 2,
+        "ScoreMax": 10,
+        "AnswerKey": { "CorrectOptionIds": ["a", "b"] }
+      },
+      {
+        "BlockId": "b2",
+        "Type": 2,
+        "ScoreMax": 10,
+        "AnswerKey": { "CorrectOptionIds": ["a", "b"] }
+      }
+    ]
+  },
+  "Answers": {
+    "b1": { "SelectedOptionIds": ["a", "b"] },
+    "b2": { "SelectedOptionIds": ["a"] }
+  },
+  "Expected": {
+    "ExamVersionId": "fixture-policy-allornothing",
+    "GradingSchemaVersion": 1,
+    "ScoringPolicy": 0,
+    "Score": 10,
+    "ScoreMax": 20,
+    "Blocks": [
+      {
+        "BlockId": "b1",
+        "BlockType": 2,
+        "Outcome": 0,
+        "Score": 10,
+        "ScoreMax": 10
+      },
+      {
+        "BlockId": "b2",
+        "BlockType": 2,
+        "Outcome": 2,
+        "Score": 0,
+        "ScoreMax": 10
+      }
+    ]
+  }
+}

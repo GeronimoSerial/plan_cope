@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Shared\PlanCope.Shared.Infrastructure\PlanCope.Shared.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Shared\PlanCope.Shared.Grading\PlanCope.Shared.Grading.csproj" />
     <ProjectReference Include="..\..\..\tools\PlanCope.RosterCrypto\PlanCope.RosterCrypto.csproj" />
   </ItemGroup>
 

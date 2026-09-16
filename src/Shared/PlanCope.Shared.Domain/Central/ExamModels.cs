@@ -4,7 +4,7 @@ namespace PlanCope.Shared.Domain.Central;
 
 public sealed record Exam(string Id, string Code, string Title, string? Description, string? Level, string? Area, string? Subject, string Status, DateTimeOffset? DeletedAt, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
 
-public sealed record ExamVersion(string Id, string ExamId, int VersionNumber, int SchemaVersion, string Status, JsonDocument? Metadata, string? CreatedBy, string? ReviewedBy, string? ApprovedBy, string? PublishedBy, DateTimeOffset? PublishedAt, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
+public sealed record ExamVersion(string Id, string ExamId, int VersionNumber, int SchemaVersion, string Status, JsonDocument? Metadata, string? CreatedBy, string? ReviewedBy, string? ApprovedBy, string? PublishedBy, DateTimeOffset? PublishedAt, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, string? ScoringPolicy);
 
 public sealed record ExamBlock(string Id, string ExamVersionId, int OrderIndex, BlockType BlockType, string? Title, string? Description, JsonDocument Config, JsonDocument? Validation, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
 

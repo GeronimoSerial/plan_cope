@@ -29,6 +29,7 @@ public sealed class PlanCopeDbContext(DbContextOptions<PlanCopeDbContext> option
     public DbSet<CentralDeliverySession> DeliverySessions => Set<CentralDeliverySession>();
     public DbSet<ReceivedStudentAttempt> ReceivedStudentAttempts => Set<ReceivedStudentAttempt>();
     public DbSet<ReceivedSubmissionAnswer> ReceivedSubmissionAnswers => Set<ReceivedSubmissionAnswer>();
+    public DbSet<CentralAttemptResult> CentralAttemptResults => Set<CentralAttemptResult>();
     public DbSet<SyncInbox> SyncInbox => Set<SyncInbox>();
     public DbSet<SyncCursor> SyncCursors => Set<SyncCursor>();
     public DbSet<SyncAttempt> SyncAttempts => Set<SyncAttempt>();

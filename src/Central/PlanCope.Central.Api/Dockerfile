@@ -7,6 +7,7 @@ COPY src/Central/PlanCope.Central.Migrations/PlanCope.Central.Migrations.csproj 
 COPY src/Shared/PlanCope.Shared.Contracts/PlanCope.Shared.Contracts.csproj src/Shared/PlanCope.Shared.Contracts/
 COPY src/Shared/PlanCope.Shared.Domain/PlanCope.Shared.Domain.csproj src/Shared/PlanCope.Shared.Domain/
 COPY src/Shared/PlanCope.Shared.Infrastructure/PlanCope.Shared.Infrastructure.csproj src/Shared/PlanCope.Shared.Infrastructure/
+COPY src/Shared/PlanCope.Shared.Grading/PlanCope.Shared.Grading.csproj src/Shared/PlanCope.Shared.Grading/
 RUN dotnet restore src/Central/PlanCope.Central.Api/PlanCope.Central.Api.csproj \
     && dotnet restore src/Central/PlanCope.Central.Migrations/PlanCope.Central.Migrations.csproj \
     && dotnet tool restore

@@ -2,7 +2,7 @@ namespace PlanCope.Shared.Domain.Local;
 
 public sealed record LocalUser(string Id, string Username, string PasswordHash, string Role, bool Active, string? LastLoginAt, string CreatedAt);
 
-public sealed record LocalExamVersion(string Id, string RemoteExamVersionId, string ExamCode, int VersionNumber, string Checksum, string? MetadataJson, int SchemaVersion, string SyncedAt);
+public sealed record LocalExamVersion(string Id, string RemoteExamVersionId, string ExamCode, int VersionNumber, string Checksum, string? MetadataJson, int SchemaVersion, string SyncedAt, string? ScoringPolicy);
 
 public sealed record LocalExamBlock(string Id, string LocalExamVersionId, string RemoteBlockId, int OrderIndex, BlockType BlockType, string ConfigJson, string? ValidationJson);
 

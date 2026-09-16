@@ -128,7 +128,8 @@ public sealed class ExamsContractTests
                     4096,
                     "sha256-bbb",
                     "exams/ev-101/audio.wav"),
-            });
+            },
+            "ProportionalPenalised");
 
         var json = Serialize(sample, PlanCopeJsonSerializerContext.Default.ExamVersionDto);
 
@@ -143,6 +144,7 @@ public sealed class ExamsContractTests
         AssertHasProperty(root, "blocks");
         AssertHasProperty(root, "answerKeys");
         AssertHasProperty(root, "assets");
+        AssertHasProperty(root, "scoringPolicy");
 
         AssertCanonicalRoundTrip(sample, PlanCopeJsonSerializerContext.Default.ExamVersionDto);
     }
@@ -275,7 +277,8 @@ public sealed class ExamsContractTests
             {
                 new PublicationTargetDto("School", "sch-7"),
                 new PublicationTargetDto("Global", null),
-            });
+            },
+            "ProportionalPenalised");
 
         var json = Serialize(sample, PlanCopeJsonSerializerContext.Default.PublishedExamPackageDto);
 
@@ -294,6 +297,7 @@ public sealed class ExamsContractTests
         AssertHasProperty(root, "answerKeys");
         AssertHasProperty(root, "assets");
         AssertHasProperty(root, "targets");
+        AssertHasProperty(root, "scoringPolicy");
 
         AssertCanonicalRoundTrip(sample, PlanCopeJsonSerializerContext.Default.PublishedExamPackageDto);
     }
@@ -370,7 +374,8 @@ public sealed class ExamsContractTests
     {
         var sample = new CreateExamVersionRequest(
             1,
-            JsonElementOf("""{"generatedBy":"teacher01","notes":"borrador"}"""));
+            JsonElementOf("""{"generatedBy":"teacher01","notes":"borrador"}"""),
+            "ProportionalPenalised");
 
         var json = Serialize(sample, PlanCopeJsonSerializerContext.Default.CreateExamVersionRequest);
 
@@ -378,6 +383,7 @@ public sealed class ExamsContractTests
         var root = doc.RootElement;
         AssertHasProperty(root, "schemaVersion");
         AssertHasProperty(root, "metadata");
+        AssertHasProperty(root, "scoringPolicy");
 
         AssertCanonicalRoundTrip(sample, PlanCopeJsonSerializerContext.Default.CreateExamVersionRequest);
     }
@@ -491,7 +497,8 @@ public sealed class ExamsContractTests
                     null,
                     null,
                     null),
-            });
+            },
+            "ProportionalPenalised");
 
         var json = Serialize(sample, PlanCopeJsonSerializerContext.Default.ReplaceExamDocumentRequest);
 
@@ -499,6 +506,7 @@ public sealed class ExamsContractTests
         var root = doc.RootElement;
         AssertHasProperty(root, "metadata");
         AssertHasProperty(root, "blocks");
+        AssertHasProperty(root, "scoringPolicy");
 
         AssertCanonicalRoundTrip(sample, PlanCopeJsonSerializerContext.Default.ReplaceExamDocumentRequest);
     }
