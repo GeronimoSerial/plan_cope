@@ -32,10 +32,6 @@ public sealed class LocalExamPullService(
 
         var client = httpClientFactory.CreateClient(nameof(LocalExamPullService));
         client.BaseAddress = new Uri(centralUrl.Trim().TrimEnd('/') + "/");
-        if (!string.IsNullOrWhiteSpace(token))
-        {
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        }
 
         var response = await client.GetAsync($"api/sync/pull?nodeId={Uri.EscapeDataString(nodeId)}&cursor={Uri.EscapeDataString(cursor)}&limit=50", cancellationToken);
         if (!response.IsSuccessStatusCode)
