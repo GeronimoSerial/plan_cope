@@ -1,4 +1,5 @@
 using PlanCope.Local.Api.Data;
+using PlanCope.Local.Api.Data.Repositories;
 using PlanCope.Local.Api.Endpoints;
 using PlanCope.Shared.Infrastructure.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
@@ -39,6 +40,10 @@ public static class LocalApiApplication
                 .SeedAsync()
                 .GetAwaiter()
                 .GetResult();
+            scope.ServiceProvider.GetRequiredService<IStatsRollupRepository>()
+                .SelfHealIfInconsistentAsync()
+                .GetAwaiter()
+                .GetResult();
             if (builder.Configuration.GetValue("Local:SeedDemoExam", true))
             {
                 scope.ServiceProvider.GetRequiredService<LocalDemoExamSeeder>().SeedIfEmpty();
@@ -66,6 +71,7 @@ public static class LocalApiApplication
         app.MapSessionEndpoints();
         app.MapRosterEndpoints();
         app.MapAttemptEndpoints();
+        app.MapStatsEndpoints();
         app.MapSyncEndpoints();
         app.MapTakePageEndpoints();
         app.MapActivationEndpoints();

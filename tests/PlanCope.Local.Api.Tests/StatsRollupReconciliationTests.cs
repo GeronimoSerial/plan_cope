@@ -1,5 +1,6 @@
 using Dapper;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging.Abstractions;
 using PlanCope.Local.Api.Data;
 using PlanCope.Local.Api.Data.Repositories;
 using Xunit;
@@ -26,7 +27,7 @@ public sealed class StatsRollupReconciliationTests : IDisposable
     public async Task RebuildAllAsync_MatchesIncrementalUpsertsExactly()
     {
         var random = new Random(12345);
-        var repository = new StatsRollupRepository(new LocalSqliteConnectionFactory(new LocalDatabaseOptions(connectionString)));
+        var repository = new StatsRollupRepository(new LocalSqliteConnectionFactory(new LocalDatabaseOptions(connectionString)), NullLogger<StatsRollupRepository>.Instance);
 
         var cue = "CUE-12345";
         var examVersions = new[] { "exam-a", "exam-b" };
@@ -70,7 +71,7 @@ public sealed class StatsRollupReconciliationTests : IDisposable
     [Fact]
     public async Task RebuildTupleAsync_PicksLatestGradingOnly_AfterRegrade()
     {
-        var repository = new StatsRollupRepository(new LocalSqliteConnectionFactory(new LocalDatabaseOptions(connectionString)));
+        var repository = new StatsRollupRepository(new LocalSqliteConnectionFactory(new LocalDatabaseOptions(connectionString)), NullLogger<StatsRollupRepository>.Instance);
 
         var cue = "CUE-REG";
         const string course = "MATEMATICA";
@@ -116,7 +117,7 @@ public sealed class StatsRollupReconciliationTests : IDisposable
     [Fact]
     public async Task RebuildTupleAsync_EmptyTuple_LeavesNoRollupRow()
     {
-        var repository = new StatsRollupRepository(new LocalSqliteConnectionFactory(new LocalDatabaseOptions(connectionString)));
+        var repository = new StatsRollupRepository(new LocalSqliteConnectionFactory(new LocalDatabaseOptions(connectionString)), NullLogger<StatsRollupRepository>.Instance);
 
         var cue = "CUE-EMPTY";
         const string course = "LENGUA";
