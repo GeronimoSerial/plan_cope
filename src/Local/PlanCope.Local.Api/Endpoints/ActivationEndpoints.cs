@@ -15,7 +15,12 @@ public static class ActivationEndpoints
         group.MapGet("/status", async (INodeIdentityRepository repository, CancellationToken ct) =>
         {
             var identity = await repository.GetAsync(ct);
-            return Results.Ok(new { phaseAComplete = identity is not null, cue = identity?.Cue });
+            return Results.Ok(new
+            {
+                phaseAComplete = identity is not null,
+                cue = identity?.Cue,
+                isLocked = identity?.RevocationStage == "locked"
+            });
         });
 
         group.MapGet("/bundle-cues", async (IOptions<RosterBundleOptions> options, CancellationToken ct) =>

@@ -9,9 +9,24 @@ describe("activation", () => {
   });
 
   it("renders the one-time activation form while no key is stored", () => {
-    const html = renderToStaticMarkup(<ActivationScreen bridge={{ postMessage: () => undefined }} />);
+    const html = renderToStaticMarkup(
+      <ActivationScreen
+        apiBaseUrl="http://127.0.0.1:5055"
+        bridge={{ postMessage: () => undefined }}
+      />
+    );
     expect(html).toContain("Activar Plan Cope Local");
     expect(html).toContain('type="password"');
+  });
+
+  it("renders the CUE loading state before effects run", () => {
+    const html = renderToStaticMarkup(
+      <ActivationScreen
+        apiBaseUrl="http://127.0.0.1:5055"
+        bridge={{ postMessage: () => undefined }}
+      />
+    );
+    expect(html).toContain("Obteniendo los CUE disponibles");
   });
 
   it("does not request activation after a protected key is stored", () => {
