@@ -64,3 +64,14 @@ public sealed record SyncAttempt(string Id, string? NodeId, string Direction, st
 public sealed record ActivationKey(string Id, string KeyHash, string KeyPrefix, string IssuedBy, DateTimeOffset IssuedAt, DateTimeOffset? ExpiresAt, int MaxActivations, int ActivationCount, DateTimeOffset? RevokedAt, string? RevokedReason, string? ScopeCue, string? Note);
 
 public sealed record NodeCredential(string Id, string NodeId, string RefreshTokenHash, DateTimeOffset IssuedAt, DateTimeOffset ExpiresAt, string? RotatedFrom, DateTimeOffset? RevokedAt);
+
+public sealed record ReleaseRing(
+    Guid Id,
+    string Version,
+    string Channel,
+    string Sha256,
+    string DownloadUrl,
+    string RolloutMode,
+    int? RolloutPercentage,
+    DateTimeOffset CreatedAt,
+    Guid CreatedBy);

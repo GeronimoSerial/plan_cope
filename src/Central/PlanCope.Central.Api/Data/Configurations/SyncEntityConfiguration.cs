@@ -159,3 +159,20 @@ public sealed class SyncAttemptConfiguration : IEntityTypeConfiguration<SyncAtte
         builder.HasIndex(static x => x.StartedAt);
     }
 }
+
+public sealed class ReleaseRingConfiguration : IEntityTypeConfiguration<ReleaseRing>
+{
+    public void Configure(EntityTypeBuilder<ReleaseRing> builder)
+    {
+        builder.ToTable("release_rings", "sync");
+        builder.HasKey(static x => x.Id);
+        builder.Property(static x => x.Id).IsRequired();
+        builder.Property(static x => x.Version).HasMaxLength(64).IsRequired();
+        builder.Property(static x => x.Channel).HasMaxLength(16).IsRequired();
+        builder.Property(static x => x.Sha256).HasMaxLength(64).IsRequired();
+        builder.Property(static x => x.DownloadUrl).HasMaxLength(512).IsRequired();
+        builder.Property(static x => x.RolloutMode).HasMaxLength(32).IsRequired();
+        builder.Property(static x => x.CreatedAt).IsRequired();
+        builder.Property(static x => x.CreatedBy).IsRequired();
+    }
+}
