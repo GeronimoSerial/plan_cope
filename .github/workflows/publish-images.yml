@@ -78,10 +78,11 @@ jobs:
           file: ${{ matrix.dockerfile }}
           target: ${{ matrix.target }}
           push: true
-          # `latest` is what Coolify pulls; the sha tag is what makes a rollback
-          # possible — without it "redeploy the previous build" has no address.
+          # Only the immutable sha tag. `latest` is what Coolify pulls and it belongs to
+          # release.yml's promote step, which moves it only after a versioned, signed
+          # release has been validated. If this job also wrote `latest`, an ordinary merge
+          # could silently overwrite a carefully cut release with an unversioned build.
           tags: |
-            ghcr.io/${{ steps.ns.outputs.owner }}/${{ matrix.image }}:latest
             ghcr.io/${{ steps.ns.outputs.owner }}/${{ matrix.image }}:sha-${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,scope=${{ matrix.image }},mode=max
@@ -90,5 +91,4 @@ jobs:
         run: |
           echo "### Published \`${{ matrix.image }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- \`:latest\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- \`:sha-${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
