@@ -10,7 +10,7 @@ public enum UpdateChannel
     Beta,
 }
 
-public sealed record UpdateCheckResult(bool UpdateAvailable, string? TargetVersion, string? Sha256);
+public sealed record UpdateCheckResult(bool UpdateAvailable, string? TargetVersion, string? Sha256, string? FileName);
 
 /// <summary>
 /// Thin seam over Velopack's UpdateManager so UpdateService is testable without a
@@ -30,6 +30,15 @@ public interface IUpdateBackend
     Task<bool> DownloadUpdatesAsync(string expectedSha256, CancellationToken cancellationToken);
 
     void ApplyUpdatesAndRestart();
+
+    /// <summary>
+    /// Re-applies a specific, previously-known-good package as a downgrade so a machine that
+    /// failed to start after an update can revert automatically, then exits the process to
+    /// restart into it. Returns false when a rollback is not possible (not running as an
+    /// installed app, or the retained local package is missing or fails SHA-256) — the caller
+    /// must treat a false return as "roll back later or not at all", never as a crash.
+    /// </summary>
+    bool TryRollBack(string version, string fileName, string sha256);
 }
 
 /// <summary>
@@ -98,7 +107,7 @@ public sealed class VelopackUpdateBackend : IUpdateBackend
         var manager = CreateManager(channel == UpdateChannel.Beta ? "beta" : "stable");
         var info = await manager.CheckForUpdatesAsync().ConfigureAwait(false);
         _pendingUpdate = info;
-        return new UpdateCheckResult(info is not null, info?.TargetFullRelease.Version.ToString(), info?.TargetFullRelease.SHA256);
+        return new UpdateCheckResult(info is not null, info?.TargetFullRelease.Version.ToString(), info?.TargetFullRelease.SHA256, info?.TargetFullRelease.FileName);
     }
 
     public async Task<bool> DownloadUpdatesAsync(string expectedSha256, CancellationToken cancellationToken)
@@ -146,6 +155,54 @@ public sealed class VelopackUpdateBackend : IUpdateBackend
 
         var manager = CreateManager(_channel);
         manager.ApplyUpdatesAndRestart(_pendingUpdate);
+    }
+
+    /// <summary>
+    /// Re-applies a specific, previously-known-good package as a downgrade. Mirrors
+    /// <see cref="DownloadUpdatesAsync"/>'s local-package lookup: the package must exist in
+    /// <c>VelopackLocator.Current.PackagesDir</c> and its SHA-256 must match
+    /// <paramref name="sha256"/>. Re-downloading a missing or mismatched package is out of scope
+    /// (an accepted limitation) — this method returns false and lets the caller proceed. On
+    /// success it launches the Velopack updater and exits the process; nothing after it in the
+    /// caller runs, matching <c>ApplyUpdatesAndRestart</c>'s documented behavior.
+    /// </summary>
+    public bool TryRollBack(string version, string fileName, string sha256)
+    {
+        if (!VelopackLocator.IsCurrentSet)
+        {
+            return false;
+        }
+
+        var packagePath = Path.Combine(VelopackLocator.Current.PackagesDir ?? string.Empty, fileName);
+        if (!File.Exists(packagePath) || !Sha256Matches(packagePath, sha256))
+        {
+            return false;
+        }
+
+        var asset = new Velopack.VelopackAsset
+        {
+            PackageId = VelopackLocator.Current.AppId ?? string.Empty,
+            Version = NuGet.Versioning.SemanticVersion.Parse(version),
+            Type = Velopack.VelopackAssetType.Full,
+            FileName = fileName,
+            SHA256 = sha256,
+            Size = new FileInfo(packagePath).Length,
+        };
+
+        CreateRollbackManager().ApplyUpdatesAndRestart(asset);
+        return true;
+    }
+
+    /// <summary>
+    /// Manager for the rollback path. <c>AllowVersionDowngrade</c> lets the feed treat an older
+    /// release as installable; it is not consulted by <c>ApplyUpdatesAndRestart</c> itself (which
+    /// applies the explicit asset) but keeps the rollback manager consistent with a downgrade.
+    /// </summary>
+    private Velopack.UpdateManager CreateRollbackManager()
+    {
+        var downloader = new BearerAuthFileDownloader(_accessTokenProvider);
+        var source = new Velopack.Sources.SimpleWebSource(_feedBaseUrl, downloader, timeout: 1.0);
+        return new Velopack.UpdateManager(source, new Velopack.UpdateOptions { ExplicitChannel = _channel, AllowVersionDowngrade = true }, locator: null);
     }
 }
 
@@ -210,4 +267,12 @@ public sealed class UpdateService
         _backend.ApplyUpdatesAndRestart();
         return true;
     }
+
+    /// <summary>
+    /// Re-applies a specific, previously-known-good package as a downgrade (the automatic-rollback
+    /// path after a bad update). Wraps the backend exactly like the other three methods; the
+    /// backend call exits the process on success.
+    /// </summary>
+    public bool TryRollBack(string version, string fileName, string sha256)
+        => _backend.TryRollBack(version, fileName, sha256);
 }

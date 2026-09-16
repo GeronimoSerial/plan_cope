@@ -36,8 +36,10 @@ public partial class MainForm : Form
     private int _localPort = PreferredLocalPort;
     private bool _phaseAComplete;
     private readonly HttpClient _localHttp = new();
+    private readonly HttpClient _centralHttp = new();
     private readonly DataDirectoryResolver _directories;
     private readonly ActivationKeyStore _activationKeyStore;
+    private readonly UpdateHealthTracker _healthTracker;
 
     private UpdateService? _updateService;
     private string? _updateChannel;
@@ -47,10 +49,11 @@ public partial class MainForm : Form
     private string? _updateMessage;
     private readonly System.Windows.Forms.Timer _sessionGateTimer = new() { Interval = 30000, Enabled = false };
 
-    public MainForm(DataDirectoryResolver directories, ActivationKeyStore activationKeyStore)
+    public MainForm(DataDirectoryResolver directories, ActivationKeyStore activationKeyStore, UpdateHealthTracker healthTracker)
     {
         _directories = directories;
         _activationKeyStore = activationKeyStore;
+        _healthTracker = healthTracker;
         InitializeComponent();
         Controls.Add(_loadingLabel);
         _sessionGateTimer.Tick += (_, _) => _ = EvaluateSessionGateAsync();
@@ -156,6 +159,13 @@ public partial class MainForm : Form
         }
 
         PostHostContext();
+
+        var version = GetInstalledAppVersion();
+        if (version is not null)
+        {
+            _healthTracker.MarkHealthy(version);
+            _ = ReportHealthAsync(version, healthy: true, detail: null);
+        }
     }
 
     private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
@@ -235,7 +245,7 @@ public partial class MainForm : Form
         _webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, JsonOptions));
     }
 
-    private static string? GetInstalledAppVersion()
+    internal static string? GetInstalledAppVersion()
         => Velopack.Locators.VelopackLocator.IsCurrentSet
             ? Velopack.Locators.VelopackLocator.Current.CurrentlyInstalledVersion?.ToString()
             : null;
@@ -283,6 +293,17 @@ public partial class MainForm : Form
                 _updateMessage = "La actualizacion no paso la verificacion SHA-256.";
                 PushUpdateStatus();
                 return;
+            }
+
+            if (!string.IsNullOrEmpty(result.TargetVersion) &&
+                !string.IsNullOrEmpty(result.Sha256) &&
+                !string.IsNullOrEmpty(result.FileName))
+            {
+                _healthTracker.MarkPendingRestart(
+                    result.TargetVersion,
+                    result.FileName,
+                    result.Sha256,
+                    Environment.GetEnvironmentVariable("PLANCOPE_UPDATE_FEED_URL") ?? string.Empty);
             }
 
             await EvaluateSessionGateAsync();
@@ -399,6 +420,47 @@ public partial class MainForm : Form
         catch
         {
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Reports launch health to Central as fire-and-forget telemetry so a bad release is visible
+    /// before it reaches the whole fleet. Never throws into the caller and never blocks anything:
+    /// a failed report is silently dropped. Returns immediately when no feed is configured —
+    /// there is nothing to report to. The feed URL is the same <c>PLANCOPE_UPDATE_FEED_URL</c>
+    /// <see cref="InitializeUpdateService"/> reads; Central exposes the endpoint at
+    /// <c>{feedUrl}/health</c>.
+    /// </summary>
+    private async Task ReportHealthAsync(string version, bool healthy, string? detail)
+    {
+        var feedUrl = Environment.GetEnvironmentVariable("PLANCOPE_UPDATE_FEED_URL");
+        if (string.IsNullOrWhiteSpace(feedUrl))
+        {
+            return;
+        }
+
+        try
+        {
+            var token = ReadCentralAccessToken();
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{feedUrl.TrimEnd('/')}/health")
+            {
+                Content = new StringContent(
+                    JsonSerializer.Serialize(new { version, healthy, detail }, JsonOptions),
+                    System.Text.Encoding.UTF8,
+                    "application/json")
+            };
+
+            if (!string.IsNullOrWhiteSpace(token))
+            {
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            }
+
+            using var response = await _centralHttp.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+        }
+        catch
+        {
+            // Fire-and-forget: never surface a failed health report.
         }
     }
 

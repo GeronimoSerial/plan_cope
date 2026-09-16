@@ -230,6 +230,8 @@ public sealed class UpdateServiceTests
 
         public string? TargetSha256 { get; set; } = AnySha256;
 
+        public string? TargetFileName { get; set; } = "plan-cope-update.nupkg";
+
         public TimeSpan CheckDelay { get; set; } = TimeSpan.Zero;
 
         public byte[]? DownloadPayload { get; set; }
@@ -245,7 +247,7 @@ public sealed class UpdateServiceTests
                 await Task.Delay(CheckDelay, cancellationToken).ConfigureAwait(false);
             }
 
-            return new UpdateCheckResult(UpdateAvailable, TargetVersion, TargetSha256);
+            return new UpdateCheckResult(UpdateAvailable, TargetVersion, TargetSha256, TargetFileName);
         }
 
         public Task<bool> DownloadUpdatesAsync(string expectedSha256, CancellationToken cancellationToken)
@@ -264,6 +266,11 @@ public sealed class UpdateServiceTests
         public void ApplyUpdatesAndRestart()
         {
             ApplyCalls++;
+        }
+
+        public bool TryRollBack(string version, string fileName, string sha256)
+        {
+            return false;
         }
     }
 }
