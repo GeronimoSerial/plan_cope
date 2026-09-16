@@ -125,6 +125,49 @@ to build, so R2R/trimming could not be evaluated for it in this environment.
 - `dotnet test tools/PlanCope.RosterCrypto.Tests`: 6/6 pass, including the Argon2id benchmark.
 - `git diff` reviewed independently, file by file, before accepting any slice.
 
+## What was substituted for the real thing, and what that does NOT prove
+
+Per the owner's standing rule: a green local suite proves the code works against the
+substitutes chosen on this machine, nothing more. Named per task:
+
+1. **Dependency cleanup / orphan deletion.** Verified: `npm run test`, `npm run build`, `tsc
+   --noEmit`, all on this Linux dev machine's Node install. NOT proven: that the packaged
+   WinForms + WebView2 host actually loads the rebuilt `dist/` correctly — that only happens
+   inside a real Windows build/install, which this environment cannot produce. CI's
+   `ci-local-app.yml` build step is closer to real but still isn't a packaged install.
+2. **Vite build tuning + bundle budget.** Verified: local `npm run build`, `dist/` =
+   250,159 bytes, budget script passes at 350,000. NOT proven: that CI's pinned Node 24
+   runner produces byte-identical output — it should, given the lockfile, but that is an
+   assumption until CI actually runs the new step.
+3. **List virtualization.** Verified: vitest + jsdom, 7 new tests, `IntersectionObserver`/
+   scroll behaviour mocked. This proves the windowing *logic* (correct start/end bounds,
+   answers surviving unmount/remount, wrapper ids stable). It does **NOT** prove there is no
+   jank in a real browser — jsdom does no layout or paint. The only real proof is
+   `docs/reference-profile.md` §4.6 (DevTools 6× CPU throttle, real frame timing), which has
+   not been run.
+4. **Adaptive polling.** Verified: vitest fake timers, 4 tests. Proves the state machine
+   (backoff, reset, visibility gating) is logically correct. Does NOT prove real
+   `document.visibilitychange` behaviour across actual OS-level tab/window switching, or
+   real network latency effects on the backoff schedule.
+5. **R2R / trimming.** Verified: `dotnet publish` on **linux-x64** as a stand-in for the real
+   win-x64 + WinForms + WebView2 target, which cannot build in this environment. The
+   trimming failure (Dapper reflection) is a real, reproduced crash and very likely transfers
+   to win-x64 since it's the same IL/reflection behaviour — but the R2R *success* on
+   linux-x64 says nothing about WinForms/WebView2-specific R2R compatibility, which is the
+   part the plan actually asked about ("AOT is likely unavailable under WinForms + WebView2").
+   This still needs a real win-x64 run, ideally in CI (`windows-latest` is already used
+   elsewhere in this repo's workflows).
+6. **SQLite pragmas / index.** Verified: `dotnet test` against temp SQLite files on this
+   machine's filesystem (SSD-backed, not the reference profile's 5400rpm HDD, and not
+   memory-constrained). This proves the index is used and the pragmas don't break anything;
+   it proves nothing about `mmap_size`/`cache_size` behaviour under real HDD random-I/O or a
+   genuinely memory-pressured 4GB machine.
+7. **Argon2id benchmark.** Explicit already, restated: 203-277 ms is this 16-core dev
+   machine's number, not the 2-core/4GB/HDD reference profile's. Do not read it as a
+   field measurement.
+8. **Reference profile document.** Contains zero measurements by design — every number in it
+   is a target, not a result. Says so in its own §5.
+
 ## Not done / escalations for Opus
 
 - **B7 coordination on `UpdateStatus.tsx`.** Left untouched per the plan's explicit
