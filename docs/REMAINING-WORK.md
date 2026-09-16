@@ -45,32 +45,28 @@ B9 alone.** The critical path runs through B2, which blocks two of the four.
 
 ## Open defects
 
-### A Windows-only test failure that did NOT reproduce — treat as flaky, not as a live defect
+### RESOLVED — the "flaky Windows test" was order-dependent, and it is fixed
 
-`PlanCope.Local.Api.Tests.ExamScoringPolicyPullTests.PullAsync_PersistsScoringPolicy_FromPublishedPackage`
-failed once on `windows-latest` with:
+`ExamScoringPolicyPullTests.PullAsync_PersistsScoringPolicy_FromPublishedPackage` failed
+intermittently on `windows-latest` with a `SyncState` materialization error. Fixed in `bc26da1`.
 
-> `System.InvalidOperationException: A parameterless default constructor or one matching
-> signature (System.String id, System.String key, System.String value_json, System.String
-> updated_at) is required for PlanCope.Shared.Domain.Local.SyncState materialization`
+**It was never about Windows, and it was never flaky.** Dapper's
+`MatchNamesWithUnderscores` is process-wide static state, but it was being set inside
+`AddPlanCopeLocalData` — so it only took effect once DI had run. A repository constructed
+directly, in a test or a tool or a background service, never triggered it. The test therefore
+**passed when another test had already built the container and failed when it ran first**; the
+Windows runner simply ordered it differently. Moving the configuration to a module initializer
+makes it apply before any code can observe it.
 
-**This was first recorded here as an open defect on `main`. That was wrong, and the correction
-matters more than the original entry.** Re-checked: `main`'s four most recent runs are all
-green, including the merges that carry that test, and the failure appeared only on one pull
-request whose base was stale. Rebasing that branch onto green `main` and re-running did **not**
-reproduce it.
+Proven in both directions by running that single test in isolation: it fails on the old `main`
+and passes with the fix.
 
-What is actually known: it failed **once**, on a stale base, and has not failed since. That is
-the signature of a flaky test, not a broken one — and a test that fails one run in N is still a
-real problem, so this is recorded rather than deleted. The record and the `SELECT` agree
-(`SyncState(Id, Key, ValueJson, UpdatedAt)` against `SELECT id, key, value_json, updated_at`),
-which is consistent with a Dapper type-map cache that is populated differently depending on
-which test ran first.
-
-If it recurs: the fix is almost certainly a global
-`DefaultTypeMap.MatchNamesWithUnderscores = true` rather than anything in the record. Do not
-spend time on it until it recurs — **a handover document that sends the next person hunting a
-bug that is not there costs more than the entry saves.**
+**This entry is kept as a record of how it was got wrong twice.** It was first written here as
+a live defect on `main` — wrong, because main was green. It was then rewritten as "flaky, do
+not chase until it recurs" — also wrong, because intermittent is not the same as random, and
+the recurrence condition fired within the hour when it blocked a batch PR. **An intermittent
+failure with an unexplained mechanism is an unexplained failure, not a tolerable one**; the
+honest position while the mechanism was unknown was "cause unknown", not "flaky".
 
 ---
 
