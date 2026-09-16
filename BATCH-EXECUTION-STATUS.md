@@ -364,3 +364,33 @@ prove. When CI disagrees with a local run, **that difference is the finding**.
 | wave +119 min | No live dispatches — **all three batches are in PR review**. #19 B0, #20 B8, #21 B1. **B8 ACCEPTED: PR #20 is fully green, eight of eight checks on real CI.** Its PR description is the best artefact of this wave: it opens *"CODE-COMPLETE, NOT VERIFIED — do not read as done"*, marks each of the five criteria PROVEN or NOT PROVEN with the reason, and names the hardware needed to close the four that are not. **A reviewer cannot skim it and come away believing the batch is finished** — which is where most honest reporting fails, by burying the caveat below the accomplishment. It also answered the budget question better than I asked it: 350 000 against a measured 250 159, with the reasoning that a gate pinned near today's size *"is the first thing deleted under deadline pressure"*. **Project-level constraint recorded, bigger than B8:** the win-x64 WinForms + WebView2 Host **cannot build in this environment at all**, so everything about the shipping desktop application is unverified here **by construction, not by omission** — that silently limits every batch touching Local, not just B8. **Merge order set:** #19 first (B0 is the root and both other branches sit on it), then #20 (the plan requires B8 before B9 so E2E measures the optimised build), then #21. I am also holding my own coordination commits off the B0 branch — every push restarts its CI and I was blocking the queue I am trying to drain. B3 has 11 dirty files, wiring its test project into CI. |
 | wave +129 min | **Two cross-batch collisions found — the STEP 4 job, and neither worktree could see them.** (1) **Duplicate Local migration number 009**: B3 wrote `009_ExamVersionScoringPolicy.sql`, B8 wrote `009_PerformanceIndexes.sql`. DbUp orders by filename so it does not hard-fail — it resolves alphabetically and **silently destroys the property the numbering exists for**, that the number is a unique sequence position. (2) **`SyncModels.cs` changed by both B1 (+20/-1, activation keys) and B3 (+11, scoring policy)** — different concerns, same file, certain conflict. Assigned both to B3, since it is last in the merge order precisely because it touches Shared contracts everyone consumes: rebase, renumber to 010/011 by renaming, keep the two migrations separate so each stays independently revertible, and reconcile `SyncModels.cs` by taking **both** changes while collapsing any near-duplicate concepts rather than merging them side by side. **Also pushed a fix to my own new job before merging it:** it ran `postgres:16-alpine` while `deploy/compose.ci.yml` and `compose.dev.yml` both pin **17**. B1's PR mentioning "Postgres 17" is what surfaced it. **Verifying migrations against a different major than the project runs is verifying a different database** — merging that job would have shipped confident green about the wrong engine. **That is the third time this session I invented a mechanism instead of reading the one the repo already had** (EF startup project, `PLANCOPE_CENTRAL_DB`, now the Postgres major) — the same lesson I handed B3, and easy to skip on myself because coordinator work feels like plumbing rather than implementation. **B3's CI wiring is still not done**; once it rebases, `scripts/check-test-projects-in-ci.sh` turns that from advice into a red build. |
 | wave +139 min | Reaper: B3 has two dispatches, one healthy and one SPINNING with 312 s of its own clock left — not killed. **`central-migrations` passes on Postgres 17**, so the version fix is verified rather than assumed. PR #19 is 5/8 green; `containers`, `local-app` and `security` are the slow ones still running. **A false alarm I caught before acting on it:** B3's screen showed no activity indicator while two `opencode` processes were live in its worktree — the exact shape of the idle-deadlock this topology is known for. Instead of sending a correction, I measured the leader process: **21 CPU ticks over 6 s, about 0.35 %** — blocked on I/O, which is precisely what a leader looks like while `wait`-ing on its own background wave. It is working correctly. **A screen with no spinner is not evidence of a stalled agent**, the same way zero bytes was not evidence of a spinning dispatch; both needed a process-level measurement to tell apart. **Nothing corrected this cycle.** B3's CI wiring is outstanding for a third cycle, but its collision and wiring instructions are queued behind the running wave, and `scripts/check-test-projects-in-ci.sh` will force the issue on rebase rather than depending on it remembering. |
+
+---
+
+# Merged so far: B0 · B1 · B8
+
+| Batch | Merge | Status |
+|---|---|---|
+| B0 foundations | `898da63` | **CLOSED** except task 1's production-snapshot data check |
+| B1 activation keys | `65fd0b6` | **CLOSED** |
+| B8 performance | `e4ffb38` | **CODE-COMPLETE**, four criteria need hardware nobody here has |
+| B3 grading engine | — | implementation done; rebasing onto `e4ffb38`, renumbering, PR next |
+| B2 node enrolment | — | launched on `65fd0b6`, consumes B1's merged contracts |
+
+**Nothing new unblocks.** B4 needs B3, B7 needs B2, B6 needs B3 *and* B4, B9 needs B5 and B7.
+B2 and B3 are the whole front right now.
+
+## Owner tasks — no agent in this environment can close these
+
+1. **B0 task 1 data check.** Migrations are now proven reversible against a real Postgres 17
+   in CI, but an empty database has no duplicate CUEs to find. Whether production data
+   survives `core.schools.Cue` going unique still needs a restored snapshot.
+2. **B8's four performance criteria.** Cold start, 100-question render, idle CPU and the real
+   Argon2id number need a 2-core/4 GB/HDD Windows machine.
+3. **The win-x64 Host cannot build here at all.** WinForms + WebView2 does not compile in this
+   Linux environment, so everything about the shipping desktop application — R2R, trimming,
+   DPAPI, hardware fingerprinting — is unverified **by construction, not by omission**. This
+   constrains B2, B5, B7 and B9, not just B8.
+4. **Activation key distribution.** Keys are universal bearer secrets. How they reach 1 440
+   schools without circulating in a group chat is the question this plan cannot answer, and
+   `max_activations` is the only technical control limiting the damage if they do.
