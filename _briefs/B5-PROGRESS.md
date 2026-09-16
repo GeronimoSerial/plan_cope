@@ -155,3 +155,66 @@ conflated "no connectivity" with "a fault" — an offline school (normal, not br
 real error. Fixed by splitting the concepts (`sync_offline` vs `sync_last_error`, see task 7
 above), commit `0491f5e`, two files (`SyncBackgroundService.cs`, `SyncEndpoints.cs`), `rc=0`,
 built and tested green, pushed.
+
+## MERGED — `c4e993b`, PR #35. G7 closed. No further work in this worktree.
+
+## Handoff notes for B6, B7 and B9 — written now, before this leader's context is gone
+
+**For B9 (end-to-end / reconnect scenarios) — how the sync surface actually behaves on a real
+reconnect, in order:**
+
+1. While offline, `SyncBackgroundService` ticks every `IdleInterval` attempt, but the probe to
+   `{central_url}/health/live` fails, so it never calls pull/push. Backoff between probe
+   attempts grows full-jitter exponentially (base 5s, cap 300s) — so a node offline for a long
+   stretch is NOT probing every 30s the whole time, it backs off toward one attempt roughly
+   every 0-300s (jittered). `sync_offline` is `true` the whole time; `sync_last_error` is
+   untouched by this (see the offline/error split above) — a real prior error, if any, stays
+   visible until the next successful pull/push cycle overwrites or clears it.
+2. On the first probe that succeeds after reconnect: `attempt` resets to 0, `sync_offline`
+   flips to `false`, then in the same tick `LocalExamPullService.PullAsync` runs, then
+   `LocalOutboxPushService.PushAsync(200)` runs — pull always before push, always in the same
+   tick, never interleaved with a different tick's probe.
+3. **This is also the moment revocation is detected**, if the node was revoked while offline:
+   the pull/push HttpClients are wrapped by `CentralCredentialHandler`; a 401 there triggers
+   `NodeCredentialRefresher.TryRefreshAsync`, whose response carries `NodeRevoked`; that sets
+   `credential_state = revoked` (B2 code, untouched by B5). This happens as a side effect of
+   the same first-successful-probe tick described above — so "detects it on the first
+   successful call after reconnect" (the B5 acceptance criterion) and "the first sync cycle
+   after reconnect" are the same event, not two separate things to test.
+4. **A concurrency fact worth testing explicitly, not just arguing by construction:**
+   `RevocationEnforcementHostedService` (B2, unmodified) polls independently on its own fixed
+   30s timer and, once `credential_state == "revoked"`, calls `outboxPushService.PushAsync`
+   itself to drain — via the exact same `LocalOutboxPushService` `SyncBackgroundService` also
+   calls. Neither loop coordinates with the other, and `OutboxRepository.GetPendingBatchAsync`
+   is a plain `SELECT ... WHERE status = 'pending'` with no claim/lock step before push — it
+   does not mark a row "in flight" before handing it to an HTTP call. So during the specific
+   window where a node is revoked-but-not-yet-drained, both hosted services can independently
+   select overlapping pending batches and push the same rows to Central concurrently. This is
+   very likely harmless in practice — Central's idempotency-key `duplicate` classification
+   (`SyncPushPolicy`, exercised by `LocalOutboxPushTests.cs` and `SyncPushPolicyTests.cs`)
+   exists for exactly this kind of double-send — but it was never exercised under two genuinely
+   concurrent callers in this batch's tests, only sequentially. If B9 builds a revoked+reconnect
+   chaos scenario, this is the exact window to point it at.
+5. Roster pull (`LocalRosterPullService`) is not part of the autonomous cycle at all — it stays
+   manual-only (`/api/sync/pull-roster`, needs `cue` + `schoolYear`, neither of which this
+   service has a reliable source for). If a future batch needs autonomous roster refresh, that
+   is new scope, not something this service silently already does.
+6. Exam-session gate: while any `delivery_sessions` row is `active`/`paused`, the service makes
+   *zero* network calls and rechecks every 15s. There is no partial-cycle interruption to worry
+   about — a session starting mid-push does not abort an in-flight push (the check only runs
+   before starting a tick's work), so a B9 scenario that starts a session exactly during a push
+   is testing the outbox's own mid-call failure handling (pre-existing, B1), not this gate.
+
+**For B6 (central admin surfaces):** the per-node sync status this batch improved
+(`/api/sync/status`'s `lastError`/`nextAttempt`/`offline`) is a *Local*-side, same-machine-only
+endpoint — it has no Central-side equivalent today. If B6's node registry screen wants to show
+"last seen sync state" per school centrally, that data does not exist on Central yet; it would
+need a new push from Local (out of B5's scope, not started).
+
+**For B7 (gated updates):** `SyncBackgroundService` and the update-gating background work B7 is
+adding will be two independent `IHostedService`s in the same process. No shared state between
+them today. One thing worth B7 confirming when it wires its own session-priority check: this
+batch's exam-session gate query (`ISessionRepository.GetActiveAsync`, status `active`/`paused`)
+is the same one `RevocationEnforcer` already used before B5 — if B7 needs the identical check
+("never update during an active session"), reuse this same repository method rather than adding
+a second query for the same fact.
