@@ -22,16 +22,25 @@ public static class SyncEndpoints
             var lastPull = await syncStateRepository.GetAsync("last_pull_at", cancellationToken);
             var lastPush = await syncStateRepository.GetAsync("last_push_at", cancellationToken);
             var centralUrl = await syncStateRepository.GetAsync("central_url", cancellationToken);
+            var syncLastError = await syncStateRepository.GetAsync("sync_last_error", cancellationToken);
+            var syncNextAttemptAt = await syncStateRepository.GetAsync("sync_next_attempt_at", cancellationToken);
+            var syncOffline = await syncStateRepository.GetAsync("sync_offline", cancellationToken);
             var pendingItems = await outboxRepository.CountPendingAsync(cancellationToken);
+
+            var lastError = ReadJsonString(syncLastError?.ValueJson);
+            var offline = ReadJsonBoolean(syncOffline?.ValueJson);
 
             return Results.Ok(new
             {
                 nodeId = ReadJsonString(nodeState?.ValueJson),
-                healthy = true,
+                healthy = string.IsNullOrEmpty(lastError),
                 lastPullAt = ReadJsonString(lastPull?.ValueJson),
                 lastPushAt = ReadJsonString(lastPush?.ValueJson),
                 pendingItems,
                 centralUrl = ReadJsonString(centralUrl?.ValueJson),
+                lastError,
+                nextAttempt = ReadJsonString(syncNextAttemptAt?.ValueJson),
+                offline,
                 database = databaseOptions.ConnectionString
             });
         });
@@ -95,6 +104,17 @@ public static class SyncEndpoints
         return document.RootElement.ValueKind is JsonValueKind.String
             ? document.RootElement.GetString()
             : document.RootElement.GetRawText();
+    }
+
+    private static bool ReadJsonBoolean(string? valueJson)
+    {
+        if (string.IsNullOrWhiteSpace(valueJson))
+        {
+            return false;
+        }
+
+        using var document = JsonDocument.Parse(valueJson);
+        return document.RootElement.GetBoolean();
     }
 }
 
