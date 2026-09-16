@@ -10,13 +10,13 @@ namespace PlanCope.Local.Api.Services;
 public interface IEmbeddedRosterSource
 {
     Task<IReadOnlyList<GeRosterPackageDto>> ReadAllAsync(CancellationToken cancellationToken = default);
+    Task<GeRosterPackageDto?> ReadOneAsync(string cue, string passphrase, CancellationToken cancellationToken = default);
 }
 
 public sealed class RosterBundleOptions
 {
     public const string SectionName = "RosterBundle";
     public string Path { get; init; } = string.Empty;
-    public string Cue { get; init; } = string.Empty;
     public string Passphrase { get; init; } = string.Empty;
 }
 
@@ -29,27 +29,29 @@ public sealed class EmbeddedRosterSource(IOptions<RosterBundleOptions> options) 
 
     public async Task<IReadOnlyList<GeRosterPackageDto>> ReadAllAsync(CancellationToken cancellationToken = default)
     {
-        var configured = options.Value;
-        if (string.IsNullOrWhiteSpace(configured.Path) && string.IsNullOrWhiteSpace(configured.Cue) &&
-            string.IsNullOrWhiteSpace(configured.Passphrase))
+        if (string.IsNullOrWhiteSpace(options.Value.Path))
         {
             return [];
         }
-        if (string.IsNullOrWhiteSpace(configured.Path) || string.IsNullOrWhiteSpace(configured.Cue) ||
-            string.IsNullOrWhiteSpace(configured.Passphrase))
+        return [];
+    }
+
+    public async Task<GeRosterPackageDto?> ReadOneAsync(string cue, string passphrase, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(options.Value.Path))
         {
-            throw new InvalidOperationException("RosterBundle:Path, Cue and Passphrase must all be configured.");
+            return null;
         }
 
-        var json = await EnvelopeDecryption.DecryptCueAsync(configured.Path, configured.Cue, configured.Passphrase, cancellationToken);
+        var json = await EnvelopeDecryption.DecryptCueAsync(options.Value.Path, cue, passphrase, cancellationToken);
         try
         {
             var package = JsonSerializer.Deserialize<GeRosterPackageDto>(json, JsonOptions)
-                ?? throw new InvalidDataException($"Encrypted roster entry for CUE '{configured.Cue}' is empty.");
+                ?? throw new InvalidDataException($"Encrypted roster entry for CUE '{cue}' is empty.");
             LocalRosterPackageValidator.Validate(package);
-            if (!string.Equals(package.Cue, configured.Cue, StringComparison.Ordinal))
+            if (!string.Equals(package.Cue, cue, StringComparison.Ordinal))
                 throw new InvalidDataException("Decrypted roster CUE does not match the requested CUE.");
-            return [package];
+            return package;
         }
         finally
         {
@@ -86,6 +88,17 @@ public sealed class EmbeddedRosterSeeder(
         }
 
         return new EmbeddedRosterSeedResult(packages.Count, imported);
+    }
+
+    public async Task<EmbeddedRosterSeedResult> SeedOneAsync(string cue, string passphrase, CancellationToken cancellationToken = default)
+    {
+        var package = await source.ReadOneAsync(cue, passphrase, cancellationToken);
+        if (package is null)
+        {
+            return new EmbeddedRosterSeedResult(0, 0);
+        }
+        var result = await repository.ImportAsync(package, documentHmacService, cancellationToken);
+        return new EmbeddedRosterSeedResult(1, result.Imported ? 1 : 0);
     }
 }
 

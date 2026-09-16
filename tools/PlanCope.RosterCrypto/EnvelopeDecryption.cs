@@ -86,4 +86,39 @@ public static class EnvelopeDecryption
         }
         throw new RosterEntryNotFoundException(cue);
     }
+
+    public static async Task<IReadOnlyList<string>> ListCuesAsync(string bundlePath, CancellationToken cancellationToken = default)
+    {
+        var cues = new List<string>();
+        await using var stream = new FileStream(bundlePath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+        using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
+        Span<byte> magic = stackalloc byte[RosterBundleFormat.Magic.Length];
+        RosterBundleFormat.ReadExactly(reader, magic);
+        if (!magic.SequenceEqual(RosterBundleFormat.Magic) || reader.ReadUInt16() != RosterBundleFormat.Version)
+        {
+            throw new InvalidDataException("Unsupported roster bundle header.");
+        }
+        reader.ReadInt32(); reader.ReadInt32(); reader.ReadInt32(); // Argon2 params, unused for listing
+        reader.ReadBytes(RosterBundleFormat.SaltSize); // salt, unused for listing
+        var entryCount = reader.ReadInt32();
+        if (entryCount < 0 || entryCount > 100_000) throw new InvalidDataException("Roster bundle entry count is invalid.");
+
+        for (var index = 0; index < entryCount; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var storedCue = reader.ReadBytes(RosterBundleFormat.CueSize);
+            reader.ReadBytes(RosterBundleFormat.NonceSize);
+            reader.ReadBytes(RosterBundleFormat.TagSize);
+            reader.ReadBytes(RosterBundleFormat.NonceSize);
+            reader.ReadBytes(RosterBundleFormat.TagSize);
+            reader.ReadBytes(RosterBundleFormat.KeySize);
+            reader.ReadBytes(RosterBundleFormat.ChecksumSize);
+            var ciphertextLength = reader.ReadInt32();
+            if (ciphertextLength < 0 || ciphertextLength > stream.Length - stream.Position)
+                throw new InvalidDataException("Roster bundle entry length is invalid.");
+            cues.Add(Encoding.ASCII.GetString(storedCue));
+            stream.Seek(ciphertextLength, SeekOrigin.Current);
+        }
+        return cues;
+    }
 }
