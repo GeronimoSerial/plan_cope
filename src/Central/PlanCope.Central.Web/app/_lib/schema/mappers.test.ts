@@ -34,7 +34,9 @@ describe("documentToReplaceRequest", () => {
         ]
       },
       { id: "q2", type: "true_false", prompt: "Primo", required: true, score: 1, correctAnswer: false },
-      { id: "q3", type: "free_text", prompt: "Definí", required: false, score: 1 }
+      { id: "q3", type: "free_text", prompt: "Definí", required: false, score: 1 },
+      { id: "q4", type: "text_block", prompt: "Leé con atención.", help: "Intro" },
+      { id: "q5", type: "image_block", prompt: "Diagrama", assetId: "asset-1" }
     ]
   };
 
@@ -58,6 +60,23 @@ describe("documentToReplaceRequest", () => {
   it("mapea free_text sin answer key cuando no hay respuesta modelo", () => {
     expect(request.blocks[2].blockType).toBe("ShortAnswer");
     expect(request.blocks[2].correctAnswer).toBeUndefined();
+  });
+
+  it("mapea text_block a Text con config.content y sin puntaje", () => {
+    const block = request.blocks[3];
+    expect(block.blockType).toBe("Text");
+    expect(block.config).toMatchObject({ content: "Leé con atención.", help: "Intro" });
+    expect(block.validation).toEqual({ required: false });
+    expect(block.scoreValue).toBe(0);
+    expect(block.correctAnswer).toBeUndefined();
+  });
+
+  it("mapea image_block a Image con config.assetId y caption", () => {
+    const block = request.blocks[4];
+    expect(block.blockType).toBe("Image");
+    expect(block.config).toMatchObject({ assetId: "asset-1", caption: "Diagrama" });
+    expect(block.validation).toEqual({ required: false });
+    expect(block.scoreValue).toBe(0);
   });
 
   it("incluye la política de puntaje en el request", () => {
@@ -109,5 +128,48 @@ describe("versionToDocument", () => {
 
   it("reconstruye la política de puntaje guardada", () => {
     expect(doc.scoringPolicy).toBe("ProportionalPlain");
+  });
+
+  it("redondea bloques Text e Image a text_block/image_block (no a free_text)", () => {
+    const withContent: ExamVersion = {
+      ...version,
+      blocks: [
+        ...version.blocks,
+        {
+          id: "b2",
+          versionId: "v1",
+          orderIndex: 1,
+          blockType: "Text",
+          title: "T",
+          config: { content: "Leé con atención.", help: "Intro" },
+          validation: { required: false }
+        },
+        {
+          id: "b3",
+          versionId: "v1",
+          orderIndex: 2,
+          blockType: "Image",
+          title: "I",
+          config: { assetId: "asset-1", caption: "Diagrama" },
+          validation: { required: false }
+        }
+      ]
+    };
+
+    const mapped = versionToDocument(withContent, { code: "MAT-1", subject: null, level: null, area: null });
+
+    const text = mapped.questions[1];
+    expect(text.type).toBe("text_block");
+    if (text.type === "text_block") {
+      expect(text.prompt).toBe("Leé con atención.");
+      expect(text.help).toBe("Intro");
+    }
+
+    const image = mapped.questions[2];
+    expect(image.type).toBe("image_block");
+    if (image.type === "image_block") {
+      expect(image.assetId).toBe("asset-1");
+      expect(image.prompt).toBe("Diagrama");
+    }
   });
 });

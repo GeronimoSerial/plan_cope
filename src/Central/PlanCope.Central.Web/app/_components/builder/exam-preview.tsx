@@ -26,7 +26,7 @@ export function ExamPreview({ document }: ExamPreviewProps) {
             <li key={question.id} className="stack" style={{ gap: "var(--space-2)" }}>
               <strong>
                 {question.prompt || "(sin enunciado)"}
-                {question.required && <span className="field-required"> *</span>}
+                {"required" in question && question.required && <span className="field-required"> *</span>}
               </strong>
               {question.help && <span className="field__hint">{question.help}</span>}
 

@@ -6,14 +6,23 @@ import { z } from "zod";
 // a los contratos del Central API y al JSON exportable.
 // ============================================================
 
-export const questionTypes = ["single_choice", "multiple_choice", "true_false", "free_text"] as const;
+export const questionTypes = [
+  "single_choice",
+  "multiple_choice",
+  "true_false",
+  "free_text",
+  "text_block",
+  "image_block"
+] as const;
 export type QuestionType = (typeof questionTypes)[number];
 
 export const questionTypeLabels: Record<QuestionType, string> = {
   single_choice: "Opción única",
   multiple_choice: "Opción múltiple",
   true_false: "Verdadero / Falso",
-  free_text: "Texto libre"
+  free_text: "Texto libre",
+  text_block: "Bloque de texto",
+  image_block: "Bloque de imagen"
 };
 
 export const scoringPolicies = ["AllOrNothing", "ProportionalPenalised", "ProportionalPlain"] as const;
@@ -81,7 +90,30 @@ const freeTextQuestion = baseQuestion.extend({
   maxLength: z.number().int().positive().optional()
 });
 
-export const questionSchema = z.discriminatedUnion("type", [choiceQuestion, trueFalseQuestion, freeTextQuestion]);
+// Bloques de contenido: no se puntúan ni se responden, por eso no extienden
+// baseQuestion (no llevan required/score).
+const textBlockQuestion = z.object({
+  id: z.string().min(1),
+  type: z.literal("text_block"),
+  prompt: z.string().trim().min(1, "El texto no puede estar vacío."),
+  help: z.string().trim().optional()
+});
+
+const imageBlockQuestion = z.object({
+  id: z.string().min(1),
+  type: z.literal("image_block"),
+  prompt: z.string().trim().optional(),
+  assetId: z.string().trim().min(1, "El ID del recurso es requerido."),
+  help: z.string().trim().optional()
+});
+
+export const questionSchema = z.discriminatedUnion("type", [
+  choiceQuestion,
+  trueFalseQuestion,
+  freeTextQuestion,
+  textBlockQuestion,
+  imageBlockQuestion
+]);
 
 export const examDocumentSchema = z.object({
   schemaVersion: z.literal(1),
