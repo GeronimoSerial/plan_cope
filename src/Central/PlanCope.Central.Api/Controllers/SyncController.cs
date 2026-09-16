@@ -18,7 +18,7 @@ namespace PlanCope.Central.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/sync")]
-public sealed class SyncController(PlanCopeDbContext dbContext) : ControllerBase
+public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central.Api.Services.CentralStatsRollupService statsRollupService) : ControllerBase
 {
     private static readonly JsonSerializerOptions SyncJsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -328,6 +328,8 @@ public sealed class SyncController(PlanCopeDbContext dbContext) : ControllerBase
                 result.ScoreMax,
                 JsonDocument.Parse(JsonSerializer.Serialize(result.Blocks, BlocksJsonOptions)),
                 DateTimeOffset.UtcNow));
+
+            await statsRollupService.UpsertForAttemptAsync(receivedAttemptId, result, examVersion.Id, cancellationToken);
         }
         catch (UngradableExamException)
         {

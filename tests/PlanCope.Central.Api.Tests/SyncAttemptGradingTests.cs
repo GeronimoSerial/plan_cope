@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using PlanCope.Central.Api.Controllers;
 using PlanCope.Central.Api.Data;
+using PlanCope.Central.Api.Services;
 using PlanCope.Shared.Contracts.Sync;
 using PlanCope.Shared.Domain;
 using PlanCope.Shared.Domain.Central;
@@ -150,7 +151,7 @@ public sealed class SyncAttemptGradingTests
     private static async Task<PushResponse> PushAsync(PlanCopeDbContext dbContext, PushItem item)
     {
         var request = new PushRequest("node-1", new[] { item });
-        var controller = new SyncController(dbContext);
+        var controller = new SyncController(dbContext, new CentralStatsRollupService(dbContext));
         var result = await controller.Push(request, "node-1", new PushRequestValidator(), CancellationToken.None);
         var okResult = Assert.IsType<OkObjectResult>(result.Result);
         return Assert.IsType<PushResponse>(okResult.Value);
