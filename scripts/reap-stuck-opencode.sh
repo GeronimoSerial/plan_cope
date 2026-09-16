@@ -18,6 +18,8 @@ set -uo pipefail
 DISPATCH_TIMEOUT=${DISPATCH_TIMEOUT:-420}   # must match the leader's `timeout` value
 GRACE=${GRACE:-60}                          # SIGTERM delivery + shutdown slack
 SAMPLE=${SAMPLE:-15}                        # seconds between the two io samples
+YOUNG=${YOUNG:-150}                         # below this age, a dispatch is too young to judge
+IDLE_TICKS=${IDLE_TICKS:-100}               # CPU delta below this over SAMPLE = waiting, not looping
 CEILING=$((DISPATCH_TIMEOUT + GRACE))
 
 pids=$(pgrep -x opencode || true)
@@ -54,9 +56,18 @@ for pid in $pids; do
     pkill -9 -P "$pid" 2>/dev/null
     echo "  killed. Tell the leader this slice died unfinished: re-dispatch it NARROWER,"
     echo "  and verify with git diff what the dead run left half-written."
-  elif (( d_cpu > 0 && d_bytes == 0 )); then
+  elif (( d_bytes == 0 && age < YOUNG )); then
+    # Early in a dispatch the model is still streaming its first response; zero bytes
+    # is the normal state, not a symptom. Judging here produces false positives that
+    # send a leader chasing a slice that is working fine.
+    echo "starting pid=$pid age=${age}s cpu+=${d_cpu} bytes+=0 cwd=$cwd — too young to judge (<${YOUNG}s)"
+  elif (( d_bytes == 0 && d_cpu < IDLE_TICKS )); then
+    # ~0.1s of CPU across a 15s window is a process blocked on the model API, not one
+    # looping. A real reasoning loop pins a core.
+    echo "waiting pid=$pid age=${age}s cpu+=${d_cpu} ticks bytes+=0 cwd=$cwd — near-idle, blocked on the API, not looping"
+  elif (( d_cpu >= IDLE_TICKS && d_bytes == 0 )); then
     echo "SPINNING pid=$pid age=${age}s cpu+=${d_cpu} ticks bytes+=0 cwd=$cwd"
-    echo "  Burning CPU, writing nothing over ${SAMPLE}s — the reasoning-loop signature."
+    echo "  Burning CPU hard, writing nothing over ${SAMPLE}s — the reasoning-loop signature."
     echo "  Its own timeout still has $(( CEILING - age ))s to run. Do not kill yet;"
     echo "  re-probe next cycle. Exit 0 from this family is not evidence of work."
   else

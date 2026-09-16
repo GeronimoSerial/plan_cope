@@ -36,3 +36,67 @@ jobs:
             tools/PlanCope.RosterCrypto.Tests/PlanCope.RosterCrypto.Tests.csproj; do
             dotnet test "$proj" --configuration Release --no-build --logger "console;verbosity=normal"
           done
+
+  central-migrations:
+    # Applies every Central migration to a REAL Postgres and rehearses the rollback.
+    #
+    # What this proves: the migrations are valid Postgres, they apply in order from an
+    # empty database, and each one's Down() actually reverses it.
+    #
+    # What it does NOT prove, and nothing in CI can: that production DATA survives them.
+    # `core.schools.Cue` going unique is the live example — this job cannot discover
+    # duplicate CUEs, because an empty database has none. That verification still needs a
+    # restored production snapshot and an owner with access to one.
+    name: central-migrations
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # postgres:17-alpine — matches deploy/compose.ci.yml and compose.dev.yml. Verifying
+        # migrations against a different major version than the project runs is verifying a
+        # different database: constraint and index behaviour differs across majors.
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: plancope
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: plan_cope_central
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U plancope -d plan_cope_central"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # PLANCOPE_CENTRAL_DB, not ConnectionStrings__CentralDatabase. The design-time factory
+      # (PlanCopeDbContextFactory) reads this variable; ConnectionStrings__CentralDatabase is
+      # what the RUNNING app reads. Using the runtime one here silently falls through to the
+      # factory's hardcoded localhost:5432 default and fails with "Failed to connect".
+      PLANCOPE_CENTRAL_DB: "Host=localhost;Database=plan_cope_central;Username=plancope;Password=ci-only-password"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Setup .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          global-json-file: global.json
+      - name: Install EF tools
+        run: dotnet tool restore
+      - name: Apply all migrations
+        # PlanCope.Central.Migrations references PlanCope.Central.Api, not the other way
+        # round, so it is its own startup project. Passing --startup-project Central.Api
+        # fails with "Could not load assembly 'PlanCope.Central.Migrations'".
+        run: |
+          dotnet ef database update \
+            --project src/Central/PlanCope.Central.Migrations/PlanCope.Central.Migrations.csproj
+      - name: Rehearse rollback of the most recent migration
+        run: |
+          set -e
+          proj=src/Central/PlanCope.Central.Migrations/PlanCope.Central.Migrations.csproj
+          # Roll back to the second-newest migration, then forward again. A Down() that does
+          # not reverse its Up() fails here rather than during a production incident.
+          previous=$(dotnet ef migrations list --project "$proj" --no-build --no-connect \
+            | grep -E '^[0-9]{14}_' | tail -2 | head -1)
+          test -n "$previous"
+          echo "Rolling back to: $previous"
+          dotnet ef database update "$previous" --project "$proj" --no-build
+          dotnet ef database update --project "$proj" --no-build

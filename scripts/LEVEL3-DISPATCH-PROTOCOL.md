@@ -53,3 +53,27 @@ Review the diffs **independently**, one slice at a time, before running the suit
 the combined result. A green suite over a merged wave tells you the wave works together; it
 tells you nothing about whether any individual slice did what its brief asked. When a wave's
 combined suite fails, bisect by slice file set rather than re-dispatching the whole wave.
+
+## Judging a live dispatch — what zero bytes actually means
+
+`scripts/reap-stuck-opencode.sh` classifies each live dispatch by sampling `/proc/<pid>/stat`
+and `/proc/<pid>/io` twice. Zero bytes written is **not** by itself a symptom, and reading it as
+one produces false positives that send a leader chasing a slice that is working fine.
+
+| Verdict | Signature | Meaning |
+|---|---|---|
+| `starting` | age < 150 s, no bytes | Still streaming its first response. Normal. |
+| `waiting` | CPU delta < 100 ticks over 15 s, no bytes | Blocked on the model API. A real loop pins a core; ~0.1 s of CPU across 15 s does not. |
+| `healthy` | CPU and bytes both rising | Working. |
+| `SPINNING` | CPU rising **hard**, bytes flat, past the young window | The reasoning-loop signature. Do not kill — let its own timeout run; arm a `Monitor` on the pid. |
+| `ESCAPED` | age > timeout + grace | Its kill switch failed. Kill it and its children. |
+
+This was learned the hard way: the first version classified any zero-byte process as SPINNING and
+flagged a dispatch at 86 s that was simply waiting on the API. Fifty-five seconds later the same
+pid had written 2.3 MB. **A classifier that cries wolf is worse than no classifier**, because the
+correction it triggers — "that slice is dead, re-dispatch narrower" — throws away working output.
+
+Two limits worth stating plainly. `write_bytes` counts *all* process I/O, including opencode's
+own session database, so rising bytes proves the process is alive and doing work, never that it
+wrote to the worktree — `git status` is the only proof of that. And a dispatch can start and die
+between two review cycles, so a clean reading never proves nothing was reaped.
