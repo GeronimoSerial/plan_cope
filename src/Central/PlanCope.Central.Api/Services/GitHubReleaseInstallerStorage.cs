@@ -138,8 +138,14 @@ public sealed class GitHubReleaseInstallerStorage(
         foreach (var asset in assets.EnumerateArray())
         {
             var name = asset.TryGetProperty("name", out var nameElement) ? nameElement.GetString() : null;
-            // GitHub auto-generates source archives that are unrelated to the installer.
-            if (name is "Source code (zip)" or "Source code (tar.gz)")
+
+            // Match the installer by extension instead of taking the first asset that is not a
+            // source archive. The private release repo is not guaranteed to hold only installers:
+            // it has also carried the encrypted roster bundle (`*.enc`), and "first asset that
+            // isn't source code" would have handed that file to every authenticated operator from
+            // the Descargas page, labelled as the desktop installer. An allow-list fails closed —
+            // an unrecognised asset yields no installer rather than the wrong one.
+            if (!IsInstallerAsset(name))
             {
                 continue;
             }
@@ -153,5 +159,14 @@ public sealed class GitHubReleaseInstallerStorage(
         }
 
         return false;
+    }
+
+    private static bool IsInstallerAsset(string? name)
+    {
+        // scripts/publish-private-installer.ps1 uploads the Velopack output, whose file name ends
+        // in .exe (setup) or .msi. Nothing else in a release is an installer.
+        return !string.IsNullOrWhiteSpace(name) &&
+               (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
+                name.EndsWith(".msi", StringComparison.OrdinalIgnoreCase));
     }
 }
