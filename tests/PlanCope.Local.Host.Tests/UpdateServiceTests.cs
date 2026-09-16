@@ -228,6 +228,8 @@ public sealed class UpdateServiceTests
 
         public string? TargetVersion { get; set; } = "1.2.3";
 
+        public string? TargetSha256 { get; set; } = AnySha256;
+
         public TimeSpan CheckDelay { get; set; } = TimeSpan.Zero;
 
         public byte[]? DownloadPayload { get; set; }
@@ -243,7 +245,7 @@ public sealed class UpdateServiceTests
                 await Task.Delay(CheckDelay, cancellationToken).ConfigureAwait(false);
             }
 
-            return new UpdateCheckResult(UpdateAvailable, TargetVersion);
+            return new UpdateCheckResult(UpdateAvailable, TargetVersion, TargetSha256);
         }
 
         public Task<bool> DownloadUpdatesAsync(string expectedSha256, CancellationToken cancellationToken)

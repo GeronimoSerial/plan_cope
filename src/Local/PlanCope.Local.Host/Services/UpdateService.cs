@@ -10,7 +10,7 @@ public enum UpdateChannel
     Beta,
 }
 
-public sealed record UpdateCheckResult(bool UpdateAvailable, string? TargetVersion);
+public sealed record UpdateCheckResult(bool UpdateAvailable, string? TargetVersion, string? Sha256);
 
 /// <summary>
 /// Thin seam over Velopack's UpdateManager so UpdateService is testable without a
@@ -98,7 +98,7 @@ public sealed class VelopackUpdateBackend : IUpdateBackend
         var manager = CreateManager(channel == UpdateChannel.Beta ? "beta" : "stable");
         var info = await manager.CheckForUpdatesAsync().ConfigureAwait(false);
         _pendingUpdate = info;
-        return new UpdateCheckResult(info is not null, info?.TargetFullRelease.Version.ToString());
+        return new UpdateCheckResult(info is not null, info?.TargetFullRelease.Version.ToString(), info?.TargetFullRelease.SHA256);
     }
 
     public async Task<bool> DownloadUpdatesAsync(string expectedSha256, CancellationToken cancellationToken)
