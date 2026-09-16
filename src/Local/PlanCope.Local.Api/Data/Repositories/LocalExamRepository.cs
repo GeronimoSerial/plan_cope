@@ -61,6 +61,19 @@ public sealed class LocalExamRepository(ILocalSqliteConnectionFactory connection
         return rows.Select(static row => row.ToDomain()).ToList();
     }
 
+    public async Task<IReadOnlyList<LocalAnswerKey>> GetAnswerKeysAsync(string localExamVersionId, CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT id, local_exam_version_id, remote_block_id, correct_answer_json, score_value
+            FROM local_answer_keys
+            WHERE local_exam_version_id = @LocalExamVersionId;
+            """;
+
+        using var connection = connectionFactory.CreateOpenConnection();
+        var rows = await connection.QueryAsync<LocalAnswerKey>(new CommandDefinition(sql, new { LocalExamVersionId = localExamVersionId }, cancellationToken: cancellationToken));
+        return rows.AsList();
+    }
+
     public async Task<LocalAsset?> GetAssetByIdAsync(string id, CancellationToken cancellationToken = default)
     {
         const string sql = """

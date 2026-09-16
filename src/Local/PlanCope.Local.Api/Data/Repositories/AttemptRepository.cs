@@ -255,6 +255,7 @@ public sealed class AttemptRepository(ILocalSqliteConnectionFactory connectionFa
         string submittedAt,
         string confirmationCode,
         SyncOutbox outbox,
+        GradingOutcome gradingOutcome,
         CancellationToken cancellationToken = default)
     {
         using var connection = connectionFactory.CreateOpenConnection();
@@ -288,6 +289,30 @@ public sealed class AttemptRepository(ILocalSqliteConnectionFactory connectionFa
                  @Status, @RetryCount, @NextRetryAt, @LastError, @CreatedAt, @ProcessedAt);
             """,
             outbox,
+            transaction,
+            cancellationToken: cancellationToken));
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            """
+            INSERT INTO attempt_results
+                (id, student_attempt_id, grading_schema_version, scoring_policy, status,
+                 score, score_max, blocks_json, graded_at)
+            VALUES
+                (@Id, @StudentAttemptId, @GradingSchemaVersion, @ScoringPolicy, @Status,
+                 @Score, @ScoreMax, @BlocksJson, @GradedAt);
+            """,
+            new
+            {
+                Id = Guid.NewGuid().ToString(),
+                StudentAttemptId = id,
+                gradingOutcome.GradingSchemaVersion,
+                gradingOutcome.ScoringPolicy,
+                gradingOutcome.Status,
+                gradingOutcome.Score,
+                gradingOutcome.ScoreMax,
+                gradingOutcome.BlocksJson,
+                gradingOutcome.GradedAt
+            },
             transaction,
             cancellationToken: cancellationToken));
 

@@ -1,6 +1,41 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using PlanCope.Shared.Domain.Local;
+using PlanCope.Shared.Grading;
 
 namespace PlanCope.Local.Api.Data.Repositories;
+
+/// <summary>
+/// The grading outcome persisted atomically with an attempt submission. Status is
+/// <c>"graded"</c> when the engine produced a full result, or <c>"ungradable"</c> when no
+/// scoring policy could be resolved and the attempt must be re-graded later.
+/// </summary>
+public sealed record GradingOutcome(
+    string Status,
+    int GradingSchemaVersion,
+    string? ScoringPolicy,
+    double? Score,
+    double? ScoreMax,
+    string? BlocksJson,
+    string GradedAt)
+{
+    public static GradingOutcome Graded(AttemptResult result, string gradedAt)
+    {
+        return new GradingOutcome(
+            "graded",
+            result.GradingSchemaVersion,
+            result.ScoringPolicy?.ToString(),
+            (double)result.Score,
+            (double)result.ScoreMax,
+            JsonSerializer.Serialize(result.Blocks, new JsonSerializerOptions { Converters = { new JsonStringEnumConverter() } }),
+            gradedAt);
+    }
+
+    public static GradingOutcome Ungradable(string gradedAt)
+    {
+        return new GradingOutcome("ungradable", PlanCope.Shared.Grading.GradingSchemaVersion.Current, null, null, null, null, gradedAt);
+    }
+}
 
 public interface IAttemptRepository
 {
@@ -31,6 +66,7 @@ public interface IAttemptRepository
         string submittedAt,
         string confirmationCode,
         SyncOutbox outbox,
+        GradingOutcome gradingOutcome,
         CancellationToken cancellationToken = default);
 }
 

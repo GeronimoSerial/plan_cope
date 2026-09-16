@@ -4,6 +4,7 @@ using PlanCope.Local.Api.Services;
 using PlanCope.Shared.Contracts.Local;
 using PlanCope.Shared.Contracts.Sync;
 using PlanCope.Shared.Domain.Local;
+using PlanCope.Shared.Grading;
 
 namespace PlanCope.Local.Api.Endpoints;
 
@@ -183,6 +184,7 @@ public static class AttemptEndpoints
             string attemptId,
             ISessionRepository sessionRepository,
             IAttemptRepository attemptRepository,
+            ILocalExamRepository examRepository,
             CancellationToken cancellationToken) =>
         {
             var attempt = await attemptRepository.GetByIdAsync(attemptId, cancellationToken);
@@ -201,6 +203,17 @@ public static class AttemptEndpoints
             var confirmationCode = Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
             var answers = await attemptRepository.GetAnswersAsync(attemptId, cancellationToken);
             var session = await sessionRepository.GetByIdOrAccessCodeAsync(attempt.DeliverySessionId, cancellationToken);
+            var examVersion = session is null
+                ? null
+                : await examRepository.GetByIdAsync(session.ExamVersionId, cancellationToken);
+            var blocks = examVersion is null
+                ? Array.Empty<LocalExamBlock>()
+                : await examRepository.GetBlocksAsync(examVersion.Id, cancellationToken);
+            var answerKeys = examVersion is null
+                ? Array.Empty<LocalAnswerKey>()
+                : await examRepository.GetAnswerKeysAsync(examVersion.Id, cancellationToken);
+
+            var gradingOutcome = GradeAttempt(examVersion, blocks, answerKeys, answers);
             var payloadJson = JsonSerializer.Serialize(new
             {
                 attempt = attempt with
@@ -211,7 +224,8 @@ public static class AttemptEndpoints
                 },
                 answers,
                 rosterSnapshotId = session?.RosterSnapshotId,
-                rosterSectionId = session?.RosterSectionId
+                rosterSectionId = session?.RosterSectionId,
+                examVersionRemoteId = examVersion?.RemoteExamVersionId
             });
 
             var submitted = await attemptRepository.SubmitWithOutboxAsync(attemptId, submittedAt, confirmationCode, new SyncOutbox(
@@ -226,7 +240,7 @@ public static class AttemptEndpoints
                 null,
                 null,
                 submittedAt,
-                null), cancellationToken);
+                null), gradingOutcome, cancellationToken);
             if (!submitted)
             {
                 return Results.Conflict(new { error = "El intento ya fue enviado por otra operación." });
@@ -236,6 +250,74 @@ public static class AttemptEndpoints
         });
 
         return endpoints;
+    }
+
+    private static GradingOutcome GradeAttempt(
+        LocalExamVersion? examVersion,
+        IReadOnlyList<LocalExamBlock> blocks,
+        IReadOnlyList<LocalAnswerKey> answerKeys,
+        IReadOnlyList<SubmissionAnswer> submittedAnswers)
+    {
+        var gradedAt = DateTimeOffset.UtcNow.ToString("O");
+        if (examVersion is null)
+        {
+            return GradingOutcome.Ungradable(gradedAt);
+        }
+
+        var blocksById = blocks.ToDictionary(block => block.Id);
+        var answerKeyByRemoteBlock = answerKeys.ToDictionary(key => key.RemoteBlockId);
+
+        var gradableBlocks = new List<GradableBlock>(blocks.Count);
+        foreach (var block in blocks)
+        {
+            var answerKey = answerKeyByRemoteBlock.TryGetValue(block.RemoteBlockId, out var key) ? key : null;
+            gradableBlocks.Add(GradingJsonMapper.MapBlock(
+                block.Id,
+                block.BlockType,
+                answerKey is null ? null : (decimal?)answerKey.ScoreValue,
+                ParseJsonElement(answerKey?.CorrectAnswerJson)));
+        }
+
+        var answers = new Dictionary<string, SubmittedAnswer>();
+        foreach (var submitted in submittedAnswers)
+        {
+            if (!blocksById.TryGetValue(submitted.BlockId, out var block))
+            {
+                continue;
+            }
+
+            var mapped = GradingJsonMapper.MapSubmittedAnswer(block.BlockType, ParseJsonElement(submitted.AnswerJson));
+            if (mapped is not null)
+            {
+                answers[submitted.BlockId] = mapped;
+            }
+        }
+
+        try
+        {
+            var result = new GradingEngine().Grade(new ExamVersion
+            {
+                ExamVersionId = examVersion.Id,
+                DeclaredScoringPolicy = ScoringPolicyParser.Parse(examVersion.ScoringPolicy),
+                Blocks = gradableBlocks
+            }, answers);
+            return GradingOutcome.Graded(result, gradedAt);
+        }
+        catch (UngradableExamException)
+        {
+            return GradingOutcome.Ungradable(gradedAt);
+        }
+    }
+
+    private static JsonElement? ParseJsonElement(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.Clone();
     }
 
     private static bool IsNominal(LocalDeliverySession session) =>
