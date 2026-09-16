@@ -60,7 +60,12 @@ public static class AttemptEndpoints
 
             if (student is null)
             {
-                return Results.NotFound(new { error = "No encontramos ese DNI en la sección seleccionada." });
+                return Results.NotFound(new
+                {
+                    kind = "not_found",
+                    message = "¿Revisaste bien el DNI? No lo encontramos en la lista de esta sección.",
+                    hint = "Si el problema sigue, avisá al docente o al operador del sistema."
+                });
             }
 
             var now = DateTimeOffset.UtcNow;

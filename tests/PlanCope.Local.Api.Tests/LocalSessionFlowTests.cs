@@ -291,6 +291,64 @@ public sealed class LocalSessionFlowTests
     }
 
     [Fact]
+    public async Task Student_resolution_miss_leaks_no_student_name()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
+        factory.SeedRoster("180055400", "2026", "snapshot-b", "section-b", "Ready");
+        factory.SeedRoster("180055401", "2026", "snapshot-c", "section-c", "Ready");
+
+        factory.SeedRosterStudent("snapshot-a", "section-a", "roster-student-a1", 501, "12.345.678", "Ana", "Pérez");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "roster-student-a2", 502, "23.456.789", "Luis", "Gómez");
+        factory.SeedRosterStudent("snapshot-b", "section-b", "roster-student-b1", 503, "34.567.890", "Marta", "Rodríguez");
+        factory.SeedRosterStudent("snapshot-c", "section-c", "roster-student-c1", 504, "45.678.901", "Carla", "Núñez");
+
+        var sessionResponse = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
+            LocalApiFactory.ExamVersionId, "180055400", "6 A", null, "Operador", 2, null,
+            "2026", "snapshot-a", "section-a"));
+        var session = await sessionResponse.Content.ReadFromJsonAsync<LocalDeliverySession>();
+        Assert.NotNull(session);
+
+        string[] seededNames =
+        {
+            "Ana", "Pérez", "Luis", "Gómez", "Marta", "Rodríguez", "Carla", "Núñez"
+        };
+
+        string[] noMatchDocuments =
+        {
+            "98.765.432",
+            "34.567.890",
+            "45.678.901"
+        };
+
+        foreach (var document in noMatchDocuments)
+        {
+            var response = await client.PostAsJsonAsync(
+                $"/api/sessions/{session!.AccessCode}/student-resolution",
+                new ResolveStudentRequest(document));
+
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+
+            var body = await response.Content.ReadAsStringAsync();
+
+            foreach (var name in seededNames)
+            {
+                Assert.DoesNotContain(name, body);
+            }
+
+            Assert.DoesNotContain("\"error\"", body);
+
+            using var payload = JsonDocument.Parse(body);
+            Assert.Equal("not_found", payload.RootElement.GetProperty("kind").GetString());
+            Assert.False(string.IsNullOrWhiteSpace(payload.RootElement.GetProperty("message").GetString()));
+        }
+    }
+
+    [Fact]
     public async Task Nominal_resolution_concurrent_confirmation_creates_one_attempt()
     {
         using var factory = new LocalApiFactory();
