@@ -103,9 +103,13 @@ not exist here.
    schools without circulating in a group chat is the question this plan cannot answer, and
    `max_activations` is the only technical control limiting the damage if they do.
 
-5. **Shipping unsigned.** Recorded in the plan as an accepted risk rather than a solved
-   problem: it normalises clicking past a security warning on machines holding data for
-   227,598 minors.
+5. **Shipping unsigned.** **Decided 2026-09-16: downloads are enabled without a certificate**,
+   and no Authenticode certificate is expected for a long time. The release pipeline therefore
+   publishes unsigned builds rather than refusing them — but labels them: the GitHub Release is
+   titled `- UNSIGNED` and its notes state the SmartScreen consequence, so a build cannot later
+   be mistaken for a signed one. The risk itself is unchanged and still owner-owned: it
+   normalises clicking past a security warning on machines holding data for 227,598 minors.
+   Acquiring the certificate is what closes this; labelling only keeps it honest.
 
 ---
 
