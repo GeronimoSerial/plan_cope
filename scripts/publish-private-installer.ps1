@@ -69,7 +69,14 @@ param(
     [string] $Channel,
 
     [Parameter(Mandatory = $false)]
-    [string] $PrivateRepo = $env:PLANCOPE_PRIVATE_INSTALLER_REPO
+    [string] $PrivateRepo = $env:PLANCOPE_PRIVATE_INSTALLER_REPO,
+
+    # Marks the release as carrying an installer with no Authenticode signature.
+    # Publishing unsigned is an accepted project risk, not an accident — but a build
+    # that Windows will warn about must be identifiable as such from the release list
+    # alone, months later, without opening the asset.
+    [Parameter(Mandatory = $false)]
+    [switch] $Unsigned
 )
 
 $ErrorActionPreference = 'Stop'
@@ -109,9 +116,14 @@ if ($releaseExists) {
     Write-Host "Release '$Version' already exists in '$PrivateRepo'; reusing it."
 } else {
     Write-Host "Release '$Version' not found in '$PrivateRepo'; creating it."
+    $title = if ($Unsigned) { "PlanCope $Version ($Channel) - UNSIGNED" } else { "PlanCope $Version ($Channel)" }
+    $notes = "Private installer release for PlanCope $Version on the $Channel channel. The asset requires authenticated access to $PrivateRepo."
+    if ($Unsigned) {
+        $notes = "**This installer is NOT signed.** Windows SmartScreen warns on every install and users must click past it. Publishing unsigned is a deliberate, recorded project decision; this note exists so the build cannot later be mistaken for a signed one.`n`n" + $notes
+    }
     $createArgs = @('release', 'create', $Version, '--repo', $PrivateRepo,
-        '--title', "PlanCope $Version ($Channel)",
-        '--notes', "Private installer release for PlanCope $Version on the $Channel channel. The asset requires authenticated access to $PrivateRepo.")
+        '--title', $title,
+        '--notes', $notes)
     if ($Channel -eq 'beta') {
         $createArgs += '--prerelease'
     }
