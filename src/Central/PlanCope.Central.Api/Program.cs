@@ -176,9 +176,15 @@ app.MapGet("/health/ready", async (PlanCopeDbContext dbContext, CancellationToke
 {
     try
     {
-        return await dbContext.Database.CanConnectAsync(cancellationToken)
-            ? Results.Ok(new { status = "ready" })
-            : Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+        if (!await dbContext.Database.CanConnectAsync(cancellationToken))
+        {
+            return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
+
+        var pendingMigrations = await dbContext.Database.GetPendingMigrationsAsync(cancellationToken);
+        return pendingMigrations.Any()
+            ? Results.StatusCode(StatusCodes.Status503ServiceUnavailable)
+            : Results.Ok(new { status = "ready" });
     }
     catch (Exception)
     {
