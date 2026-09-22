@@ -165,6 +165,19 @@ if (app.Environment.IsDevelopment())
     }
 }
 
+// First production administrator (B1): the call site always runs, in every
+// environment; AdminBootstrapper itself decides what to do. Absent
+// PLANCOPE_BOOTSTRAP_ADMIN_* configuration is a logged no-op and startup
+// proceeds normally — that's the ordinary-restart path. Partial or weak
+// configuration throws and crashes startup instead of coming up with a
+// half-configured admin or no way to log in.
+{
+    using var bootstrapScope = app.Services.CreateScope();
+    var bootstrapDbContext = bootstrapScope.ServiceProvider.GetRequiredService<PlanCopeDbContext>();
+    var bootstrapLogger = bootstrapScope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    await AdminBootstrapper.BootstrapAsync(bootstrapDbContext, app.Configuration, bootstrapLogger);
+}
+
 app.UseForwardedHeaders();
 app.UseHttpsRedirection();
 app.UseMiddleware<ActivationRateLimitMiddleware>();
@@ -176,9 +189,21 @@ app.MapGet("/health/ready", async (PlanCopeDbContext dbContext, CancellationToke
 {
     try
     {
-        return await dbContext.Database.CanConnectAsync(cancellationToken)
-            ? Results.Ok(new { status = "ready" })
-            : Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+        if (!await dbContext.Database.CanConnectAsync(cancellationToken))
+        {
+            return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
+
+        // Connecting is not enough: against an unmigrated database CanConnectAsync
+        // succeeds while POST /api/auth/login fails with 500 because core.users does
+        // not exist. Probe a table the API cannot serve a single request without.
+        //
+        // Deliberately NOT GetPendingMigrationsAsync: that loads the migrations
+        // assembly named in AddDbContext, and PlanCope.Central.Migrations ships in the
+        // migrate image, not in the API image. Calling it here throws and readiness
+        // would answer 503 forever, even on a fully migrated database.
+        await dbContext.Users.AsNoTracking().AnyAsync(cancellationToken);
+        return Results.Ok(new { status = "ready" });
     }
     catch (Exception)
     {

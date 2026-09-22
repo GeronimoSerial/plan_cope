@@ -216,15 +216,29 @@ public sealed class ActivationAdminController(
     }
 
     /// <summary>
-    /// Decides which CUE a school-scope caller issues a key "for" (pure bookkeeping). Province
-    /// scope has no forced CUE. A school-scope caller with exactly one assigned CUE resolves to
+    /// Whether the caller may administer any activation key regardless of CUE, independent
+    /// of roster scope. Province-scope roster callers already have this by virtue of their
+    /// roster scope; Admins get it unconditionally because activation keys are universal
+    /// infrastructure, not roster data. This must never be used to grant roster-data access —
+    /// only key/administration decisions in this controller.
+    /// </summary>
+    private bool HasUnboundedKeyScope()
+    {
+        return User.IsInRole("Admin") ||
+            string.Equals(User.FindFirstValue("roster_scope"), "province", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Decides which CUE a school-scope caller issues a key "for" (pure bookkeeping). Unbounded
+    /// key scope (province roster scope or Admin) has no forced CUE. A school-scope caller with
+    /// exactly one assigned CUE resolves to
     /// that CUE; with several, the request must name one as plain text in the note
     /// ("issued-for-cue:180000100"). The resolved CUE is stored in <see cref="ActivationKey.Note"/>
     /// only — <see cref="ActivationKey.ScopeCue"/> stays null because keys are universal.
     /// </summary>
     private async Task<CueResolution> ResolveIssuedForCueAsync(string? note, CancellationToken cancellationToken)
     {
-        if (string.Equals(User.FindFirstValue("roster_scope"), "province", StringComparison.Ordinal))
+        if (HasUnboundedKeyScope())
         {
             return new CueResolution(true, null, null);
         }
@@ -250,14 +264,15 @@ public sealed class ActivationAdminController(
     }
 
     /// <summary>
-    /// Resolves the ActivationKey.IssuedBy values the caller may administer. Province scope
-    /// administers every issuer (null = unbounded). School scope administers issuers assigned to
+    /// Resolves the ActivationKey.IssuedBy values the caller may administer. Unbounded key scope
+    /// (province roster scope or Admin) administers every issuer (null = unbounded). School scope
+    /// administers issuers assigned to
     /// a CUE the caller can access — decided per CUE by the RosterScopeAuthorizationHandler and
     /// mapped to issuers through the UserSchools join, because keys themselves carry no CUE.
     /// </summary>
     private async Task<HashSet<string>?> GetAdministerableIssuerIdsAsync(CancellationToken cancellationToken)
     {
-        if (string.Equals(User.FindFirstValue("roster_scope"), "province", StringComparison.Ordinal))
+        if (HasUnboundedKeyScope())
         {
             return null;
         }
@@ -289,7 +304,7 @@ public sealed class ActivationAdminController(
 
     private async Task<bool> CanAdministerKeyAsync(ActivationKey key, CancellationToken cancellationToken)
     {
-        if (string.Equals(User.FindFirstValue("roster_scope"), "province", StringComparison.Ordinal))
+        if (HasUnboundedKeyScope())
         {
             return true;
         }
