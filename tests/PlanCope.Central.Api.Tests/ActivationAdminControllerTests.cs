@@ -122,6 +122,83 @@ public sealed class ActivationAdminControllerTests
     }
 
     [Fact]
+    public async Task AdminWithNoCueAssignment_CanIssueAKey()
+    {
+        using var scope = CreateAuthorizationScope();
+        var options = CreateOptions();
+
+        using var dbContext = CreateDbContext(options);
+        var controller = CreateController(dbContext, AdminPrincipal(), scope.ServiceProvider.GetRequiredService<IAuthorizationService>());
+
+        var result = await controller.IssueKey(
+            new IssueActivationKeyRequest(MaxActivations: 5, ExpiresAt: null, Note: null),
+            CancellationToken.None);
+
+        var created = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status201Created, created.StatusCode);
+    }
+
+    [Fact]
+    public async Task AdminWithNoCueAssignment_CanListAndRevokeAnyKey()
+    {
+        using var scope = CreateAuthorizationScope();
+        var options = CreateOptions();
+        var keyId = SeedKey(options, NewId(), CueA);
+
+        using var dbContext = CreateDbContext(options);
+        var controller = CreateController(dbContext, AdminPrincipal(), scope.ServiceProvider.GetRequiredService<IAuthorizationService>());
+
+        var list = await controller.ListKeys(CancellationToken.None);
+        var ok = Assert.IsType<OkObjectResult>(list.Result);
+        var summary = Assert.Single(Assert.IsType<List<ActivationKeySummaryDto>>(ok.Value));
+        Assert.Equal(keyId, summary.Id);
+
+        var revoke = await controller.RevokeKey(keyId, new RevokeActivationKeyRequest("Razón de baja"), CancellationToken.None);
+        Assert.IsType<NoContentResult>(revoke);
+    }
+
+    [Fact]
+    public async Task SchoolUserWithMultipleAssignedCues_IssuedForCueBookkeeping_StillWorks()
+    {
+        using var scope = CreateAuthorizationScope();
+        var options = CreateOptions();
+        var authorizationService = scope.ServiceProvider.GetRequiredService<IAuthorizationService>();
+
+        // A school-scope caller with exactly one CUE resolves it automatically without a note.
+        using (var singleDbContext = CreateDbContext(options))
+        {
+            var singleCueController = CreateController(singleDbContext, SchoolPrincipal(CueA), authorizationService);
+            var single = await singleCueController.IssueKey(
+                new IssueActivationKeyRequest(MaxActivations: 5, ExpiresAt: null, Note: null),
+                CancellationToken.None);
+            Assert.IsType<ObjectResult>(single.Result);
+        }
+
+        using (var multiDbContext = CreateDbContext(options))
+        {
+            var multiCueController = CreateController(multiDbContext, SchoolPrincipal(CueA, CueB), authorizationService);
+
+            // Two CUEs and no issued-for-cue note: the caller must name one.
+            var unnamed = await multiCueController.IssueKey(
+                new IssueActivationKeyRequest(MaxActivations: 5, ExpiresAt: null, Note: null),
+                CancellationToken.None);
+            Assert.IsType<BadRequestObjectResult>(unnamed.Result);
+
+            // Two CUEs with a correct issued-for-cue note: the key persists with that token.
+            var named = await multiCueController.IssueKey(
+                new IssueActivationKeyRequest(MaxActivations: 5, ExpiresAt: null, Note: $"issued-for-cue:{CueB}"),
+                CancellationToken.None);
+            Assert.IsType<ObjectResult>(named.Result);
+        }
+
+        using var verify = CreateDbContext(options);
+        var keys = await verify.ActivationKeys.AsNoTracking().ToListAsync();
+        Assert.Equal(2, keys.Count);
+        Assert.Contains(keys, static key => key.Note == $"issued-for-cue:{CueA}");
+        Assert.Contains(keys, static key => key.Note!.Contains($"issued-for-cue:{CueB}", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ActivationKeySummaryDto_NeverCarriesKeyMaterial()
     {
         var properties = typeof(ActivationKeySummaryDto)
@@ -268,10 +345,19 @@ public sealed class ActivationAdminControllerTests
         var claims = new List<Claim>
         {
             new(ClaimTypes.Role, "Viewer"),
+            new(ClaimTypes.NameIdentifier, NewId()),
             new("roster_scope", "school")
         };
         claims.AddRange(cues.Select(static cue => new Claim("roster_cue", cue)));
         return Principal(claims.ToArray());
+    }
+
+    private static ClaimsPrincipal AdminPrincipal()
+    {
+        return Principal(
+            new Claim(ClaimTypes.Role, "Admin"),
+            new Claim(ClaimTypes.NameIdentifier, NewId()),
+            new Claim("roster_scope", "school"));
     }
 
     private static ClaimsPrincipal Principal(params Claim[] claims)
