@@ -97,7 +97,8 @@ Se inició PostgreSQL 17 en un volumen Docker aislado (`plancope-local-data`), l
 Una vez aplicada la migración y levantada esa API:
 
 ```bash
-PLANCOPE_DEV_ADMIN_PASSWORD='Admin123!' python3 scripts/seed-central-dev.py --api-url http://127.0.0.1:8081
+PLANCOPE_DEV_ADMIN_PASSWORD="$(read -rsp 'Contraseña del admin de desarrollo: ' p; echo "$p")" \
+  python3 scripts/seed-central-dev.py --api-url http://127.0.0.1:8081
 ```
 
-La contraseña mostrada es exclusivamente la predeterminada de `appsettings.Development.json`. El script falla si no hay login; no crea una cuenta por fuera de la API. La clave emitida se guarda en `/tmp/plancope-central-demo-key` y no debe reutilizarse fuera del entorno local.
+La contraseña que corresponde ingresar es la predeterminada de `appsettings.Development.json`, y sirve exclusivamente en el entorno local; no se transcribe acá para no dejarla escrita en la documentación. El script falla si no hay login; no crea una cuenta por fuera de la API. La clave emitida se guarda en `/tmp/plancope-central-demo-key` y no debe reutilizarse fuera del entorno local.
