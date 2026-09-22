@@ -194,10 +194,16 @@ app.MapGet("/health/ready", async (PlanCopeDbContext dbContext, CancellationToke
             return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
         }
 
-        var pendingMigrations = await dbContext.Database.GetPendingMigrationsAsync(cancellationToken);
-        return pendingMigrations.Any()
-            ? Results.StatusCode(StatusCodes.Status503ServiceUnavailable)
-            : Results.Ok(new { status = "ready" });
+        // Connecting is not enough: against an unmigrated database CanConnectAsync
+        // succeeds while POST /api/auth/login fails with 500 because core.users does
+        // not exist. Probe a table the API cannot serve a single request without.
+        //
+        // Deliberately NOT GetPendingMigrationsAsync: that loads the migrations
+        // assembly named in AddDbContext, and PlanCope.Central.Migrations ships in the
+        // migrate image, not in the API image. Calling it here throws and readiness
+        // would answer 503 forever, even on a fully migrated database.
+        await dbContext.Users.AsNoTracking().AnyAsync(cancellationToken);
+        return Results.Ok(new { status = "ready" });
     }
     catch (Exception)
     {
