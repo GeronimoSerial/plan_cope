@@ -165,6 +165,19 @@ if (app.Environment.IsDevelopment())
     }
 }
 
+// First production administrator (B1): the call site always runs, in every
+// environment; AdminBootstrapper itself decides what to do. Absent
+// PLANCOPE_BOOTSTRAP_ADMIN_* configuration is a logged no-op and startup
+// proceeds normally — that's the ordinary-restart path. Partial or weak
+// configuration throws and crashes startup instead of coming up with a
+// half-configured admin or no way to log in.
+{
+    using var bootstrapScope = app.Services.CreateScope();
+    var bootstrapDbContext = bootstrapScope.ServiceProvider.GetRequiredService<PlanCopeDbContext>();
+    var bootstrapLogger = bootstrapScope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    await AdminBootstrapper.BootstrapAsync(bootstrapDbContext, app.Configuration, bootstrapLogger);
+}
+
 app.UseForwardedHeaders();
 app.UseHttpsRedirection();
 app.UseMiddleware<ActivationRateLimitMiddleware>();
