@@ -107,7 +107,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-$assetName = Split-Path -LiteralPath $InstallerPath -Leaf
+$assetName = [System.IO.Path]::GetFileName($InstallerPath)
 $sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $InstallerPath).Hash.ToLowerInvariant()
 
 & gh release view $Version --repo $PrivateRepo --json tagName *> $null
