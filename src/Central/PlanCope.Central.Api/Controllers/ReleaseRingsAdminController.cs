@@ -12,8 +12,8 @@ namespace PlanCope.Central.Api.Controllers;
 /// <summary>
 /// Administration surface over release rings. Rings are universal infrastructure — Channel is the
 /// partition key (e.g. "stable"/"beta"), not a school — so there is no CUE filtering here: every
-/// operation, including the list, requires unbounded admin scope (the Admin role or province
-/// roster scope) and gets Forbid() otherwise. Version, Channel, Sha256 and DownloadUrl are set
+/// operation, including the list, requires the Admin role and gets Forbid() otherwise. Version,
+/// Channel, Sha256 and DownloadUrl are set
 /// once at creation; only the rollout policy (RolloutMode/RolloutPercentage) is updatable, and
 /// rings are never deleted because ReleaseGateService resolves the newest row per channel.
 /// </summary>
@@ -26,7 +26,7 @@ public sealed class ReleaseRingsAdminController(PlanCopeDbContext dbContext) : C
     public async Task<ActionResult<IReadOnlyList<ReleaseRingSummaryDto>>> ListReleaseRings(
         CancellationToken cancellationToken = default)
     {
-        if (!HasUnboundedAdminScope())
+        if (!IsAdmin())
         {
             return Forbid();
         }
@@ -45,7 +45,7 @@ public sealed class ReleaseRingsAdminController(PlanCopeDbContext dbContext) : C
         [FromBody] ReleaseRingCreateRequest? request,
         CancellationToken cancellationToken = default)
     {
-        if (!HasUnboundedAdminScope())
+        if (!IsAdmin())
         {
             return Forbid();
         }
@@ -61,6 +61,21 @@ public sealed class ReleaseRingsAdminController(PlanCopeDbContext dbContext) : C
             string.IsNullOrWhiteSpace(request.DownloadUrl))
         {
             return BadRequest("Version, Channel, Sha256 and DownloadUrl are required.");
+        }
+
+        if (request.Sha256.Length != 64 || !request.Sha256.All(Uri.IsHexDigit))
+        {
+            return BadRequest("Sha256 must be exactly 64 hexadecimal characters.");
+        }
+
+        // Case-insensitive input, canonical lowercase storage: the stored row and the audit
+        // payload both get the normalized form.
+        var normalizedSha256 = request.Sha256.ToLowerInvariant();
+
+        if (!Uri.TryCreate(request.DownloadUrl, UriKind.Absolute, out var downloadUri) ||
+            downloadUri.Scheme != Uri.UriSchemeHttps)
+        {
+            return BadRequest("DownloadUrl must be an absolute https URL.");
         }
 
         var rolloutError = ValidateRollout(request.RolloutMode, request.RolloutPercentage, out var rolloutPercentage);
@@ -79,7 +94,7 @@ public sealed class ReleaseRingsAdminController(PlanCopeDbContext dbContext) : C
             Guid.NewGuid(),
             request.Version,
             request.Channel,
-            request.Sha256,
+            normalizedSha256,
             request.DownloadUrl,
             request.RolloutMode,
             rolloutPercentage,
@@ -112,7 +127,7 @@ public sealed class ReleaseRingsAdminController(PlanCopeDbContext dbContext) : C
         [FromBody] ReleaseRingUpdateRequest? request,
         CancellationToken cancellationToken = default)
     {
-        if (!HasUnboundedAdminScope())
+        if (!IsAdmin())
         {
             return Forbid();
         }
@@ -160,20 +175,21 @@ public sealed class ReleaseRingsAdminController(PlanCopeDbContext dbContext) : C
     }
 
     /// <summary>
-    /// Whether the caller may administer release rings regardless of roster scope. Release rings
-    /// are universal infrastructure (a ReleaseRing carries no CUE), so unlike the roster-data
-    /// surfaces there is no CUE-scoped fallback path — Admins and province-scope roster callers
-    /// only.
+    /// Whether the caller may administer release rings. Release rings are universal
+    /// infrastructure (a ReleaseRing carries no CUE) and set the DownloadUrl/Sha256 that every
+    /// enrolled node installs, so this is Admin-only: there is no roster-scope fallback path.
     /// </summary>
-    private bool HasUnboundedAdminScope()
+    private bool IsAdmin()
     {
-        return User.IsInRole("Admin") ||
-            string.Equals(User.FindFirstValue("roster_scope"), "province", StringComparison.Ordinal);
+        return User.IsInRole("Admin");
     }
 
     /// <summary>
     /// Validates the rollout policy shared by create and update. Returns null when the policy is
-    /// valid; otherwise a message for a 400. For "PercentageOfEnrolled" the percentage must be
+    /// valid; otherwise a message for a 400. Only "AllEnrolled" and "PercentageOfEnrolled" are
+    /// accepted: ReleaseGateService maps "ExplicitList" to ineligible (no node/ring membership
+    /// model exists yet) and always resolves the newest ring per channel, so accepting it would
+    /// silently lock every node out of updates. For "PercentageOfEnrolled" the percentage must be
     /// present and within 0..100; every other mode stores a null percentage regardless of what
     /// the caller sent, mirroring ReleaseGateService only consulting the percentage for that
     /// single mode.
@@ -181,11 +197,11 @@ public sealed class ReleaseRingsAdminController(PlanCopeDbContext dbContext) : C
     private static string? ValidateRollout(string rolloutMode, int? rolloutPercentage, out int? normalizedPercentage)
     {
         if (!string.Equals(rolloutMode, "AllEnrolled", StringComparison.Ordinal) &&
-            !string.Equals(rolloutMode, "PercentageOfEnrolled", StringComparison.Ordinal) &&
-            !string.Equals(rolloutMode, "ExplicitList", StringComparison.Ordinal))
+            !string.Equals(rolloutMode, "PercentageOfEnrolled", StringComparison.Ordinal))
         {
             normalizedPercentage = null;
-            return "RolloutMode must be one of AllEnrolled, PercentageOfEnrolled or ExplicitList.";
+            return "RolloutMode must be AllEnrolled or PercentageOfEnrolled " +
+                "(ExplicitList is not supported yet — no node/ring membership model exists).";
         }
 
         if (string.Equals(rolloutMode, "PercentageOfEnrolled", StringComparison.Ordinal))

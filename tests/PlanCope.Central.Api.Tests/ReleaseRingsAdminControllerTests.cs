@@ -25,7 +25,7 @@ public sealed class ReleaseRingsAdminControllerTests
         .BuildServiceProvider();
 
     [Fact]
-    public async Task AdminAndProvinceScope_ListReleaseRings_ReturnsEverySeededRingMappedInOrder()
+    public async Task Admin_ListReleaseRings_ReturnsEverySeededRingMappedInOrder()
     {
         var options = CreateOptions();
         var seeded = SeedRings(options);
@@ -34,11 +34,6 @@ public sealed class ReleaseRingsAdminControllerTests
         var adminList = await CreateController(adminContext, AdminPrincipal())
             .ListReleaseRings(CancellationToken.None);
         AssertSeededRingsInOrder(seeded, adminList);
-
-        using var provinceContext = CreateDbContext(options);
-        var provinceList = await CreateController(provinceContext, ProvincePrincipal())
-            .ListReleaseRings(CancellationToken.None);
-        AssertSeededRingsInOrder(seeded, provinceList);
     }
 
     [Fact]
@@ -132,8 +127,10 @@ public sealed class ReleaseRingsAdminControllerTests
         Assert.False(await verify.AuditLogs.AnyAsync());
     }
 
-    [Fact]
-    public async Task Admin_CreateReleaseRing_InvalidRolloutMode_ReturnsBadRequest()
+    [Theory]
+    [InlineData("Canary")]
+    [InlineData("ExplicitList")]
+    public async Task Admin_CreateReleaseRing_InvalidRolloutMode_ReturnsBadRequest(string rolloutMode)
     {
         var options = CreateOptions();
 
@@ -146,7 +143,7 @@ public sealed class ReleaseRingsAdminControllerTests
                 "stable",
                 Sha256Of("2.5.0"),
                 "https://downloads.example.test/stable/2.5.0",
-                "Canary",
+                rolloutMode,
                 null),
             CancellationToken.None);
 
@@ -155,6 +152,79 @@ public sealed class ReleaseRingsAdminControllerTests
         using var verify = CreateDbContext(options);
         Assert.False(await verify.ReleaseRings.AnyAsync());
         Assert.False(await verify.AuditLogs.AnyAsync());
+    }
+
+    [Theory]
+    // Too short: 10 hex characters instead of 64.
+    [InlineData("0123456789", "https://downloads.example.test/stable/2.5.0")]
+    // Right length (64) but not hex: ends in "g".
+    [InlineData(
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdeg",
+        "https://downloads.example.test/stable/2.5.0")]
+    // http:// instead of https://.
+    [InlineData(
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "http://downloads.example.test/stable/2.5.0")]
+    // Relative path instead of an absolute URL.
+    [InlineData(
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "/stable/2.5.0")]
+    public async Task Admin_CreateReleaseRing_InvalidSha256OrDownloadUrl_ReturnsBadRequest(
+        string sha256,
+        string downloadUrl)
+    {
+        var options = CreateOptions();
+
+        using var dbContext = CreateDbContext(options);
+        var controller = CreateController(dbContext, AdminPrincipal());
+
+        var created = await controller.CreateReleaseRing(
+            new ReleaseRingCreateRequest(
+                "2.5.0",
+                "stable",
+                sha256,
+                downloadUrl,
+                "AllEnrolled",
+                null),
+            CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(created.Result);
+
+        // The rejection happens before any write: a fresh context on the same database sees no rows.
+        using var verify = CreateDbContext(options);
+        Assert.False(await verify.ReleaseRings.AnyAsync());
+        Assert.False(await verify.AuditLogs.AnyAsync());
+    }
+
+    [Fact]
+    public async Task Admin_CreateReleaseRing_UppercaseSha256_NormalizedToLowercase()
+    {
+        var options = CreateOptions();
+        var expectedSha256 = Sha256Of("2.5.0");
+        var uppercaseSha256 = expectedSha256.ToUpperInvariant();
+
+        using var dbContext = CreateDbContext(options);
+        var controller = CreateController(dbContext, AdminPrincipal());
+
+        var created = await controller.CreateReleaseRing(
+            new ReleaseRingCreateRequest(
+                "2.5.0",
+                "stable",
+                uppercaseSha256,
+                "https://downloads.example.test/stable/2.5.0",
+                "AllEnrolled",
+                null),
+            CancellationToken.None);
+
+        var createdResult = Assert.IsType<ObjectResult>(created.Result);
+        Assert.Equal(StatusCodes.Status201Created, createdResult.StatusCode);
+        var dto = Assert.IsType<ReleaseRingSummaryDto>(createdResult.Value);
+        Assert.Equal(expectedSha256, dto.Sha256);
+
+        using var verify = CreateDbContext(options);
+        var stored = await verify.ReleaseRings.SingleAsync();
+        Assert.Equal(expectedSha256, stored.Sha256);
+        Assert.All(stored.Sha256, character => Assert.False(char.IsUpper(character)));
     }
 
     [Fact]
@@ -205,40 +275,13 @@ public sealed class ReleaseRingsAdminControllerTests
     [Fact]
     public async Task SchoolScopeCaller_CannotListCreateOrUpdate_ReturnsForbiddenAndWritesNothing()
     {
-        var options = CreateOptions();
-        var seeded = SeedRing(options);
+        await AssertForbiddenWithoutWrites(ViewerPrincipal());
+    }
 
-        using var dbContext = CreateDbContext(options);
-        var controller = CreateController(dbContext, ViewerPrincipal());
-
-        var list = await controller.ListReleaseRings(CancellationToken.None);
-        Assert.IsType<ForbidResult>(list.Result);
-
-        var created = await controller.CreateReleaseRing(
-            new ReleaseRingCreateRequest(
-                "9.9.9",
-                "stable",
-                Sha256Of("9.9.9"),
-                "https://downloads.example.test/stable/9.9.9",
-                "AllEnrolled",
-                null),
-            CancellationToken.None);
-        Assert.IsType<ForbidResult>(created.Result);
-
-        var update = await controller.UpdateReleaseRing(
-            seeded.Id,
-            new ReleaseRingUpdateRequest("PercentageOfEnrolled", 90),
-            CancellationToken.None);
-        Assert.IsType<ForbidResult>(update);
-
-        // The rejection happens before any write: a fresh context on the same database sees the
-        // seeded ring untouched and no ring added by the rejected POST.
-        using var verify = CreateDbContext(options);
-        Assert.Equal(1, await verify.ReleaseRings.CountAsync());
-        var stored = await verify.ReleaseRings.SingleAsync(candidate => candidate.Id == seeded.Id);
-        Assert.Equal(seeded.RolloutMode, stored.RolloutMode);
-        Assert.Equal(seeded.RolloutPercentage, stored.RolloutPercentage);
-        Assert.False(await verify.AuditLogs.AnyAsync());
+    [Fact]
+    public async Task ProvinceScopeCaller_CannotListCreateOrUpdate_ReturnsForbiddenAndWritesNothing()
+    {
+        await AssertForbiddenWithoutWrites(ProvincePrincipal());
     }
 
     [Fact]
@@ -295,6 +338,47 @@ public sealed class ReleaseRingsAdminControllerTests
             Assert.Equal(ring.CreatedAt, dto.CreatedAt);
             Assert.Equal(ring.CreatedBy, dto.CreatedBy);
         }
+    }
+
+    // A non-Admin principal — school-scope viewer or province-scope roster reader — must get
+    // Forbid() on list, create AND update: this surface is Admin-only, with no roster-scope
+    // fallback path, and the rejection must happen before any row or audit entry is written.
+    private static async Task AssertForbiddenWithoutWrites(ClaimsPrincipal principal)
+    {
+        var options = CreateOptions();
+        var seeded = SeedRing(options);
+
+        using var dbContext = CreateDbContext(options);
+        var controller = CreateController(dbContext, principal);
+
+        var list = await controller.ListReleaseRings(CancellationToken.None);
+        Assert.IsType<ForbidResult>(list.Result);
+
+        var created = await controller.CreateReleaseRing(
+            new ReleaseRingCreateRequest(
+                "9.9.9",
+                "stable",
+                Sha256Of("9.9.9"),
+                "https://downloads.example.test/stable/9.9.9",
+                "AllEnrolled",
+                null),
+            CancellationToken.None);
+        Assert.IsType<ForbidResult>(created.Result);
+
+        var update = await controller.UpdateReleaseRing(
+            seeded.Id,
+            new ReleaseRingUpdateRequest("PercentageOfEnrolled", 90),
+            CancellationToken.None);
+        Assert.IsType<ForbidResult>(update);
+
+        // The rejection happens before any write: a fresh context on the same database sees the
+        // seeded ring untouched and no ring added by the rejected POST.
+        using var verify = CreateDbContext(options);
+        Assert.Equal(1, await verify.ReleaseRings.CountAsync());
+        var stored = await verify.ReleaseRings.SingleAsync(candidate => candidate.Id == seeded.Id);
+        Assert.Equal(seeded.RolloutMode, stored.RolloutMode);
+        Assert.Equal(seeded.RolloutPercentage, stored.RolloutPercentage);
+        Assert.False(await verify.AuditLogs.AnyAsync());
     }
 
     private static IReadOnlyList<ReleaseRing> SeedRings(DbContextOptions<PlanCopeDbContext> options)
@@ -399,6 +483,8 @@ public sealed class ReleaseRingsAdminControllerTests
             new Claim("roster_scope", "school"));
     }
 
+    // A province-scope roster reader: roster_scope == "province" used to satisfy this
+    // controller's gate, which was an authority-widening bug — release rings are Admin-only.
     private static ClaimsPrincipal ProvincePrincipal()
     {
         return Principal(
