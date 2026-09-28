@@ -5,11 +5,15 @@
 -- @@DATA markers) and preview dedup inserts into core.provinces, core.departments,
 -- core.localities, and core.schools.
 --
--- DRY-RUN GUARANTEE: this batch never commits. The file opens exactly one
--- transaction (BEGIN) and ends with an explicit ROLLBACK as its last statement.
--- There is NO COMMIT statement anywhere and no conditional commit path, ever.
--- The RAISE NOTICE row counts are "would insert" counts for THIS transaction and
--- disappear with the rollback.
+-- DRY-RUN GUARANTEE: this file opens exactly one transaction (BEGIN) and its own
+-- last statement is always the literal ROLLBACK; at the end of this file. There
+-- is NO COMMIT statement anywhere in this file and no conditional commit path.
+-- The wrapper script (seed-central-master-data.sh) defaults to dry-run; only an
+-- explicit `--commit` invocation — confirmed with --yes or an interactive prompt
+-- answered with the literal text COMMIT — substitutes COMMIT; for that final
+-- ROLLBACK; in the text piped to psql, at pipe-time. This file itself is never
+-- edited and never contains a COMMIT. The RAISE NOTICE row counts are "would
+-- insert" counts for THIS transaction and disappear with the default rollback.
 --
 -- PHASE 1 COLUMN MAPPING (final):
 --   core.provinces:   Id = 32-char lowercase hex (replace(gen_random_uuid()::text, '-', '')),
