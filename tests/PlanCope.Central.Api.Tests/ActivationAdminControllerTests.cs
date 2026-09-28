@@ -158,6 +158,48 @@ public sealed class ActivationAdminControllerTests
     }
 
     [Fact]
+    public async Task AdminWithNoCueAssignment_CanListAndRevokeAnyNode()
+    {
+        using var scope = CreateAuthorizationScope();
+        var options = CreateOptions();
+        var (_, nodeId) = SeedKeyWithNode(options);
+
+        using var dbContext = CreateDbContext(options);
+        var controller = CreateController(dbContext, AdminPrincipal(), scope.ServiceProvider.GetRequiredService<IAuthorizationService>());
+
+        var list = await controller.ListNodes(CancellationToken.None);
+        var ok = Assert.IsType<OkObjectResult>(list.Result);
+        var summary = Assert.Single(Assert.IsType<List<RegisteredNodeSummaryDto>>(ok.Value));
+        Assert.Equal(nodeId, summary.Id);
+
+        var revoke = await controller.RevokeNode(nodeId, new RevokeNodeRequest("Baja de equipo"), CancellationToken.None);
+        Assert.IsType<NoContentResult>(revoke);
+    }
+
+    [Fact]
+    public async Task SchoolUser_CannotListOrRevokeNodeAtAnotherCue()
+    {
+        using var scope = CreateAuthorizationScope();
+        var options = CreateOptions();
+        var (_, nodeId) = SeedKeyWithNode(options);
+
+        using var dbContext = CreateDbContext(options);
+        var controller = CreateController(dbContext, SchoolPrincipal(CueB), scope.ServiceProvider.GetRequiredService<IAuthorizationService>());
+
+        var list = await controller.ListNodes(CancellationToken.None);
+        var ok = Assert.IsType<OkObjectResult>(list.Result);
+        Assert.Empty(Assert.IsType<List<RegisteredNodeSummaryDto>>(ok.Value));
+
+        var revoke = await controller.RevokeNode(nodeId, new RevokeNodeRequest("Intento fuera de alcance"), CancellationToken.None);
+        Assert.IsType<ForbidResult>(revoke);
+
+        using var verify = CreateDbContext(options);
+        var node = await verify.RegisteredNodes.SingleAsync();
+        Assert.Equal(nodeId, node.Id);
+        Assert.Null(node.RevokedAt);
+    }
+
+    [Fact]
     public async Task SchoolUserWithMultipleAssignedCues_IssuedForCueBookkeeping_StillWorks()
     {
         using var scope = CreateAuthorizationScope();

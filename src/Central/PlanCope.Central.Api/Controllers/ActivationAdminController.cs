@@ -165,9 +165,11 @@ public sealed class ActivationAdminController(
                 cancellationToken);
 
         var summary = new List<RegisteredNodeSummaryDto>(nodes.Count);
+        var hasUnboundedScope = HasUnboundedKeyScope();
         foreach (var node in nodes)
         {
-            if ((await authorizationService.AuthorizeAsync(User, node.Cue, new RosterScopeRequirement())).Succeeded)
+            if (hasUnboundedScope ||
+                (await authorizationService.AuthorizeAsync(User, node.Cue, new RosterScopeRequirement())).Succeeded)
             {
                 summary.Add(new RegisteredNodeSummaryDto(
                     node.Id,
@@ -197,7 +199,8 @@ public sealed class ActivationAdminController(
             return NotFound();
         }
 
-        if (!(await authorizationService.AuthorizeAsync(User, node.Cue, new RosterScopeRequirement())).Succeeded)
+        if (!HasUnboundedKeyScope() &&
+            !(await authorizationService.AuthorizeAsync(User, node.Cue, new RosterScopeRequirement())).Succeeded)
         {
             return Forbid();
         }

@@ -109,8 +109,17 @@ even though this batch always rolls back.
 
 ## Safety guarantees
 
-- **Always `ROLLBACK`** — the SQL ends with an explicit `ROLLBACK`; there is no
-  commit flag by design, and no `COMMIT` path exists in this batch.
+- **`ROLLBACK` by default, explicit `--commit` to apply** — with no flags the
+  behavior is unchanged: the SQL ends with an explicit `ROLLBACK`, there is no
+  implicit commit path, and success is reported as `DRY RUN — rolled back`.
+  Only an explicit `--commit` flag runs the identical SQL body with `COMMIT;`
+  substituted for the final `ROLLBACK;` in the text piped to `psql` (the `.sql`
+  file on disk is never modified). That mode first prints a
+  `TARGET: host=… db=plan_cope` banner (never credentials) and requires
+  confirmation: either `--yes` was also passed, or an interactive prompt
+  answered with the exact literal text `COMMIT`; without `--yes` and with stdin
+  not a terminal it refuses and exits non-zero. Success is then reported as
+  `COMMIT — applied`.
 - **Credentials from the environment only** — never hardcoded, never stored,
   never printed; the script does not reference the environment file's path.
 - **Scope is exactly the four `core` tables** above. The script never touches
