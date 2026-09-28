@@ -404,6 +404,11 @@ public sealed class UsersAdminController(
             return NoContent();
         }
 
+        if (UnboundedScopeRoles.Contains(role.Code) && !HasUnboundedAdminScope())
+        {
+            return Forbid();
+        }
+
         var assignment = await dbContext.UserRoles
             .SingleOrDefaultAsync(
                 candidate => candidate.UserId == user.Id && candidate.RoleId == role.Id,
