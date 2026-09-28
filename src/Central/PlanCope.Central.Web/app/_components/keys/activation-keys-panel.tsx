@@ -13,6 +13,7 @@ import { ConfirmDialog } from "../ui/confirm-dialog";
 import { EmptyState } from "../ui/empty-state";
 import { StatusBadge } from "../ui/status-badge";
 import { TextField, TextAreaField } from "../ui/text-field";
+import { buildReissuePayload } from "./activation-key-mapping";
 import type { ActivationKeySummary } from "../../_lib/api/server";
 
 interface IssueActivationKeyRequest {
@@ -60,6 +61,11 @@ export function ActivationKeysPanel({ initialKeys }: ActivationKeysPanelProps) {
   const [revokeDialogOpen, setRevokeDialogOpen] = useState(false);
   const [revoking, setRevoking] = useState(false);
   const [revokeError, setRevokeError] = useState<string | null>(null);
+  const [reissueTarget, setReissueTarget] = useState<ActivationKeySummary | null>(null);
+  const [reissueDialogOpen, setReissueDialogOpen] = useState(false);
+  const [reissuing, setReissuing] = useState(false);
+  const [reissueError, setReissueError] = useState<string | null>(null);
+  const [reissuePartialError, setReissuePartialError] = useState<string | null>(null);
 
   const {
     register,
@@ -149,6 +155,61 @@ export function ActivationKeysPanel({ initialKeys }: ActivationKeysPanelProps) {
       setRevokeError(getErrorMessage(error, "No se pudo revocar la clave."));
     } finally {
       setRevoking(false);
+    }
+  }
+
+  function startReissue(key: ActivationKeySummary) {
+    setReissueTarget(key);
+    setReissueDialogOpen(true);
+    setReissueError(null);
+    setReissuePartialError(null);
+  }
+
+  async function confirmReissue() {
+    if (!reissueTarget) {
+      return;
+    }
+    setReissuing(true);
+    setReissueError(null);
+    setReissuePartialError(null);
+
+    try {
+      await callCentral<undefined>(`admin/activation/keys/${encodeURIComponent(reissueTarget.id)}/revoke`, {
+        method: "POST",
+        body: JSON.stringify({ reason: "Reemitida" })
+      });
+    } catch (error) {
+      setReissueError(getErrorMessage(error, "No se pudo revocar la clave para reemitirla."));
+      setReissueDialogOpen(false);
+      setReissueTarget(null);
+      setReissuing(false);
+      return;
+    }
+
+    try {
+      const created = await callCentral<IssueActivationKeyResponse>("admin/activation/keys", {
+        method: "POST",
+        body: JSON.stringify(buildReissuePayload(reissueTarget))
+      });
+      setReissueDialogOpen(false);
+      setReissueTarget(null);
+      setIssued(created);
+      setCopied(false);
+      setCopyError(null);
+      await refreshKeys();
+      router.refresh();
+    } catch (error) {
+      setReissueDialogOpen(false);
+      setReissueTarget(null);
+      setReissuePartialError(
+        "La clave anterior ya fue revocada, pero no se pudo emitir la clave nueva: " +
+          getErrorMessage(error, "error desconocido") +
+          ". Emití una clave nueva manualmente con 'Nueva clave'."
+      );
+      await refreshKeys();
+      router.refresh();
+    } finally {
+      setReissuing(false);
     }
   }
 
@@ -243,6 +304,8 @@ export function ActivationKeysPanel({ initialKeys }: ActivationKeysPanelProps) {
 
           {issueError && <Banner tone="error">{issueError}</Banner>}
           {revokeError && <Banner tone="error">{revokeError}</Banner>}
+          {reissueError && <Banner tone="error">{reissueError}</Banner>}
+          {reissuePartialError && <Banner tone="error">{reissuePartialError}</Banner>}
 
           {keys.length === 0 ? (
             <EmptyState
@@ -295,9 +358,14 @@ export function ActivationKeysPanel({ initialKeys }: ActivationKeysPanelProps) {
                       {key.revokedAt ? (
                         <span className="field__hint">—</span>
                       ) : (
-                        <Button variant="danger" size="sm" onClick={() => startRevoke(key)}>
-                          Revocar
-                        </Button>
+                        <div className="row">
+                          <Button variant="danger" size="sm" onClick={() => startRevoke(key)}>
+                            Revocar
+                          </Button>
+                          <Button variant="secondary" size="sm" onClick={() => startReissue(key)}>
+                            Reemitir
+                          </Button>
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -317,6 +385,17 @@ export function ActivationKeysPanel({ initialKeys }: ActivationKeysPanelProps) {
         busy={revoking}
         onConfirm={() => void confirmRevoke()}
         onCancel={() => setRevokeDialogOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={reissueDialogOpen}
+        title={reissueTarget ? `Reemitir clave ${reissueTarget.keyPrefix}` : "Reemitir clave"}
+        description="La clave actual se va a revocar de inmediato y se va a emitir una nueva con las mismas activaciones máximas, vencimiento y nota. La clave nueva se va a mostrar una sola vez, igual que cualquier clave recién emitida. ¿Querés continuar?"
+        confirmLabel="Sí, reemitir"
+        cancelLabel="Cancelar"
+        busy={reissuing}
+        onConfirm={() => void confirmReissue()}
+        onCancel={() => setReissueDialogOpen(false)}
       />
     </div>
   );
