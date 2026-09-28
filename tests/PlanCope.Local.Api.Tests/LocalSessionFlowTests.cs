@@ -129,6 +129,110 @@ public sealed class LocalSessionFlowTests
     }
 
     [Fact]
+    public async Task Saving_answers_and_submitting_on_active_session_succeeds()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+
+        var session = await CreateSessionAsync(client);
+        var started = await StartAttemptAsync(client, session.AccessCode);
+
+        var answerResponse = await SaveAnswersAsync(client, started.Attempt.Id, factory.QuestionBlockId, "42");
+        Assert.Equal(HttpStatusCode.NoContent, answerResponse.StatusCode);
+
+        var submitResponse = await client.PostAsync($"/api/attempts/{started.Attempt.Id}/submit", null);
+        Assert.Equal(HttpStatusCode.OK, submitResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Saving_answers_and_submitting_on_paused_session_are_rejected()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+
+        var session = await CreateSessionAsync(client);
+        var started = await StartAttemptAsync(client, session.AccessCode);
+
+        var pauseResponse = await client.PutAsJsonAsync($"/api/sessions/{session.Id}/status", new UpdateSessionStatusRequest("paused"));
+        Assert.Equal(HttpStatusCode.NoContent, pauseResponse.StatusCode);
+
+        var answerResponse = await SaveAnswersAsync(client, started.Attempt.Id, factory.QuestionBlockId, "42");
+        Assert.Equal(HttpStatusCode.BadRequest, answerResponse.StatusCode);
+        var answerBody = await answerResponse.Content.ReadAsStringAsync();
+        Assert.Contains("pausada", answerBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("cerrada", answerBody, StringComparison.OrdinalIgnoreCase);
+
+        var submitResponse = await client.PostAsync($"/api/attempts/{started.Attempt.Id}/submit", null);
+        Assert.Equal(HttpStatusCode.BadRequest, submitResponse.StatusCode);
+        var submitBody = await submitResponse.Content.ReadAsStringAsync();
+        Assert.Contains("pausada", submitBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("cerrada", submitBody, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Saving_answers_and_submitting_on_closed_session_are_rejected()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+
+        var session = await CreateSessionAsync(client);
+        var started = await StartAttemptAsync(client, session.AccessCode);
+
+        var closeResponse = await client.PutAsJsonAsync($"/api/sessions/{session.Id}/status", new UpdateSessionStatusRequest("closed"));
+        Assert.Equal(HttpStatusCode.NoContent, closeResponse.StatusCode);
+
+        var answerResponse = await SaveAnswersAsync(client, started.Attempt.Id, factory.QuestionBlockId, "42");
+        Assert.Equal(HttpStatusCode.BadRequest, answerResponse.StatusCode);
+        var answerBody = await answerResponse.Content.ReadAsStringAsync();
+        Assert.Contains("cerrada", answerBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("pausada", answerBody, StringComparison.OrdinalIgnoreCase);
+
+        var submitResponse = await client.PostAsync($"/api/attempts/{started.Attempt.Id}/submit", null);
+        Assert.Equal(HttpStatusCode.BadRequest, submitResponse.StatusCode);
+        var submitBody = await submitResponse.Content.ReadAsStringAsync();
+        Assert.Contains("cerrada", submitBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("pausada", submitBody, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Resuming_paused_session_reenables_saving_and_submitting_on_the_same_attempt()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+
+        var session = await CreateSessionAsync(client);
+        var started = await StartAttemptAsync(client, session.AccessCode);
+
+        var pauseResponse = await client.PutAsJsonAsync($"/api/sessions/{session.Id}/status", new UpdateSessionStatusRequest("paused"));
+        Assert.Equal(HttpStatusCode.NoContent, pauseResponse.StatusCode);
+
+        var pausedSave = await SaveAnswersAsync(client, started.Attempt.Id, factory.QuestionBlockId, "42");
+        Assert.Equal(HttpStatusCode.BadRequest, pausedSave.StatusCode);
+        Assert.Contains("pausada", await pausedSave.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+
+        var pausedSubmit = await client.PostAsync($"/api/attempts/{started.Attempt.Id}/submit", null);
+        Assert.Equal(HttpStatusCode.BadRequest, pausedSubmit.StatusCode);
+        Assert.Contains("pausada", await pausedSubmit.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+
+        var resumeResponse = await client.PutAsJsonAsync($"/api/sessions/{session.Id}/status", new UpdateSessionStatusRequest("active"));
+        Assert.Equal(HttpStatusCode.NoContent, resumeResponse.StatusCode);
+
+        var resumedSave = await SaveAnswersAsync(client, started.Attempt.Id, factory.QuestionBlockId, "42");
+        Assert.Equal(HttpStatusCode.NoContent, resumedSave.StatusCode);
+
+        var resumedSubmit = await client.PostAsync($"/api/attempts/{started.Attempt.Id}/submit", null);
+        Assert.Equal(HttpStatusCode.OK, resumedSubmit.StatusCode);
+    }
+
+    [Fact]
     public async Task Invalid_session_request_returns_validation_problem()
     {
         using var factory = new LocalApiFactory();
@@ -392,6 +496,24 @@ public sealed class LocalSessionFlowTests
         Assert.False(string.IsNullOrWhiteSpace(session.AccessCode));
         return session;
     }
+
+    private static async Task<StartAttemptResponse> StartAttemptAsync(HttpClient client, string accessCode)
+    {
+        var response = await client.PostAsync($"/api/sessions/{accessCode}/attempts", null);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var started = await response.Content.ReadFromJsonAsync<StartAttemptResponse>();
+        Assert.NotNull(started);
+        return started;
+    }
+
+    private static Task<HttpResponseMessage> SaveAnswersAsync(HttpClient client, string attemptId, string blockId, string answer) =>
+        client.PutAsJsonAsync($"/api/attempts/{attemptId}/answers", new
+        {
+            answers = new[]
+            {
+                new { blockId, answer }
+            }
+        });
 
     private static async Task EnsureInitializedAsync(HttpClient client)
     {
