@@ -8,9 +8,17 @@ namespace PlanCope.Central.Api.Services;
 /// </summary>
 public sealed class NotConfiguredInstallerStorage(ILogger<NotConfiguredInstallerStorage> logger) : IInstallerStorage
 {
+    public bool IsConfigured => false;
+
     public Task<InstallerReference?> GetLatestAsync(string channel, CancellationToken cancellationToken)
     {
         logger.LogWarning("Installer repo/token is not configured — set PLANCOPE_PRIVATE_INSTALLER_REPO / INSTALLER_REPO_TOKEN.");
         return Task.FromResult<InstallerReference?>(null);
+    }
+
+    public Task<InstallerDownload?> GetLatestDownloadAsync(string channel, CancellationToken cancellationToken)
+    {
+        logger.LogWarning("Installer repo/token is not configured — set PLANCOPE_PRIVATE_INSTALLER_REPO / INSTALLER_REPO_TOKEN.");
+        return Task.FromResult<InstallerDownload?>(null);
     }
 }
