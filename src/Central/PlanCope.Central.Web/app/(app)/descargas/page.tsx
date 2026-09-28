@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getLatestInstaller, isNoInstallerPublishedError, isSessionExpired } from "../../_lib/api/server";
+import { buildInstallerDownloadHref } from "../../_lib/installer-download";
 import { PageHeader } from "../../_components/layout/page-header";
 import { Banner } from "../../_components/ui/banner";
 import { EmptyState } from "../../_components/ui/empty-state";
@@ -54,7 +55,7 @@ export default async function DescargasPage() {
           <p>
             Versión <strong>{installer.version}</strong> · Canal <strong>{installer.channel}</strong>
           </p>
-          <a href={installer.downloadUrl} download className="button">
+          <a href={buildInstallerDownloadHref(installer.channel)} download className="button">
             Descargar instalador
           </a>
           {installer.sha256 ? (
