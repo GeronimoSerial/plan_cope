@@ -449,7 +449,7 @@ export function UserRegistryPanel({ initialUsers, roles, user }: UserRegistryPan
                                       {target.roleCodes.map(code => (
                                         <span key={code} className="badge">
                                           {code}
-                                          {canOfferRoleRevoke(user, target.cues) && (
+                                          {canOfferRoleRevoke(user, target.cues, code) && (
                                             <Button
                                               variant="ghost"
                                               size="sm"

@@ -185,14 +185,25 @@ describe("canAssignRole", () => {
 });
 
 describe("canRevokeRole", () => {
-  it("no aplica la restriccion de rol: un caller school puede revocar Admin", () => {
-    expect(canAssignRole(schoolUser, ["180000100"], "Admin")).toBe(false);
-    expect(canRevokeRole(schoolUser, ["180000100"])).toBe(true);
+  it("es false para rol restringido aunque el caller pueda gestionar al usuario", () => {
+    expect(canManageUser(schoolUser, ["180000100"])).toBe(true);
+    expect(canRevokeRole(schoolUser, ["180000100"], "Admin")).toBe(false);
+    expect(canRevokeRole(schoolUser, ["180000100"], "RosterProvince")).toBe(false);
+  });
+
+  it("es true para un rol no restringido con el mismo caller", () => {
+    expect(canRevokeRole(schoolUser, ["180000100"], "Teacher")).toBe(true);
+  });
+
+  it("es true para un caller con scope ilimitado revocando Admin", () => {
+    expect(canRevokeRole(admin, [], "Admin")).toBe(true);
+    expect(canRevokeRole(provinceUser, ["180000100"], "Admin")).toBe(true);
   });
 
   it("es false cuando el caller no puede gestionar al usuario", () => {
-    expect(canRevokeRole(schoolUser, [])).toBe(false);
-    expect(canRevokeRole(schoolUser, ["999999999"])).toBe(false);
+    expect(canRevokeRole(schoolUser, [], "Teacher")).toBe(false);
+    expect(canRevokeRole(schoolUser, ["999999999"], "Teacher")).toBe(false);
+    expect(canRevokeRole(schoolUser, ["999999999"], "Admin")).toBe(false);
   });
 });
 

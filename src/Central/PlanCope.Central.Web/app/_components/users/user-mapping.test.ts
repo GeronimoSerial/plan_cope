@@ -207,15 +207,25 @@ describe("rolesAvailableToAssign", () => {
 
 describe("canOfferRoleRevoke", () => {
   it("ofrece quitar roles cuando el caller puede gestionar al objetivo", () => {
-    expect(canOfferRoleRevoke(admin, [])).toBe(true);
-    expect(canOfferRoleRevoke(provinceUser, [])).toBe(true);
-    expect(canOfferRoleRevoke(schoolUser, ["180000100"])).toBe(true);
+    expect(canOfferRoleRevoke(admin, [], "Admin")).toBe(true);
+    expect(canOfferRoleRevoke(provinceUser, [], "Admin")).toBe(true);
+    expect(canOfferRoleRevoke(schoolUser, ["180000100"], "Teacher")).toBe(true);
+  });
+
+  it("no ofrece quitar un rol restringido aunque el caller pueda gestionar al objetivo", () => {
+    expect(canManageUser(schoolUser, ["180000100"])).toBe(true);
+    expect(canOfferRoleRevoke(schoolUser, ["180000100"], "Admin")).toBe(false);
+    expect(canOfferRoleRevoke(schoolUser, ["180000100"], "RosterProvince")).toBe(false);
+  });
+
+  it("ofrece quitar un rol no restringido con el mismo caller", () => {
+    expect(canOfferRoleRevoke(schoolUser, ["180000100"], "Teacher")).toBe(true);
   });
 
   it("no ofrece quitar roles cuando el caller no puede gestionar al objetivo", () => {
-    expect(canOfferRoleRevoke(schoolUser, ["999999999"])).toBe(false);
-    expect(canOfferRoleRevoke(schoolUser, [])).toBe(false);
-    expect(canOfferRoleRevoke(schoolUserNoCues, [])).toBe(false);
+    expect(canOfferRoleRevoke(schoolUser, ["999999999"], "Teacher")).toBe(false);
+    expect(canOfferRoleRevoke(schoolUser, [], "Teacher")).toBe(false);
+    expect(canOfferRoleRevoke(schoolUserNoCues, [], "Teacher")).toBe(false);
   });
 });
 
@@ -274,5 +284,28 @@ describe("hasAnyRoleOrCueAction", () => {
     expect(target.cues.some(cue => canOfferCueRevoke(schoolUserNoCues, cue))).toBe(false);
     expect(cuesAvailableToAssign(schoolUserNoCues, target.cues)).toStrictEqual([]);
     expect(hasAnyRoleOrCueAction(schoolUserNoCues, target, roles)).toBe(false);
+  });
+
+  it("la revocacion de un rol Admin no aporta para un caller de escuela", () => {
+    const target = { cues: ["180000100"], roleCodes: ["Admin"] };
+    const onlyAdmin: Pick<RoleSummary, "code">[] = [{ code: "Admin" }];
+
+    // El gate de revocacion es por codigo de rol: Admin exige scope ilimitado, aunque el
+    // caller de escuela pueda gestionar al objetivo. Antes del cambio este camino era true.
+    expect(canManageUser(schoolUser, target.cues)).toBe(true);
+    expect(canOfferRoleRevoke(schoolUser, target.cues, "Admin")).toBe(false);
+    expect(canOfferRoleRevoke(schoolUser, target.cues, "Teacher")).toBe(true);
+
+    // Con la unica accion potencial siendo revocar Admin, el panel no se ofrece: ni la
+    // revocacion (Admin exige scope ilimitado), ni la asignacion (el objetivo ya tiene Admin
+    // y es el unico rol disponible), ni ningun camino de CUE.
+    const soloAdmin = { cues: ["999999999"], roleCodes: ["Admin"] };
+    expect(canOfferRoleRevoke(schoolUserNoCues, soloAdmin.cues, "Admin")).toBe(false);
+    expect(
+      rolesAvailableToAssign(schoolUserNoCues, soloAdmin.cues, soloAdmin.roleCodes, onlyAdmin)
+    ).toStrictEqual([]);
+    expect(soloAdmin.cues.some(cue => canOfferCueRevoke(schoolUserNoCues, cue))).toBe(false);
+    expect(cuesAvailableToAssign(schoolUserNoCues, soloAdmin.cues)).toStrictEqual([]);
+    expect(hasAnyRoleOrCueAction(schoolUserNoCues, soloAdmin, onlyAdmin)).toBe(false);
   });
 });

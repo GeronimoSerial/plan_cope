@@ -80,9 +80,10 @@ export function rolesAvailableToAssign(
 
 export function canOfferRoleRevoke(
   user: Pick<UserProfile, "role" | "rosterScope" | "rosterCues">,
-  targetCues: readonly string[]
+  targetCues: readonly string[],
+  roleCode: string
 ): boolean {
-  return canRevokeRole(user, targetCues);
+  return canRevokeRole(user, targetCues, roleCode);
 }
 
 export function canOfferCueRevoke(
@@ -125,7 +126,7 @@ export function hasAnyRoleOrCueAction(
   target: { cues: readonly string[]; roleCodes: readonly string[] },
   roles: readonly Pick<RoleSummary, "code">[]
 ): boolean {
-  if (target.roleCodes.length > 0 && canOfferRoleRevoke(user, target.cues)) {
+  if (target.roleCodes.some(code => canOfferRoleRevoke(user, target.cues, code))) {
     return true;
   }
   if (rolesAvailableToAssign(user, target.cues, target.roleCodes, roles).length > 0) {

@@ -85,9 +85,17 @@ export function canAssignRole(
 
 export function canRevokeRole(
   user: Pick<UserProfile, "role" | "rosterScope" | "rosterCues">,
-  targetUserCues: readonly string[]
+  targetUserCues: readonly string[],
+  roleCode: string
 ): boolean {
-  return canManageUser(user, targetUserCues);
+  // canManageUser AND (roleCode not in UNBOUNDED_SCOPE_ROLES OR hasUnboundedScope)
+  if (!canManageUser(user, targetUserCues)) {
+    return false;
+  }
+  if (UNBOUNDED_SCOPE_ROLES.has(roleCode) && !hasUnboundedScope(user)) {
+    return false;
+  }
+  return true;
 }
 
 export function canAssignOrRevokeCue(
