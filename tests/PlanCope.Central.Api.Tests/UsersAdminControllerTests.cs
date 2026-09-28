@@ -181,6 +181,72 @@ public sealed class UsersAdminControllerTests
     }
 
     [Fact]
+    public async Task SchoolScope_RevokeRosterProvinceFromUserSharingCue_ReturnsForbiddenAndKeepsRow()
+    {
+        using var scope = CreateAuthorizationScope();
+        var options = CreateOptions();
+        var userId = SeedUser(options, "target@school.test", CueA);
+        var roleId = SeedRole(options, "RosterProvince");
+        SeedUserRoleAssignment(options, userId, roleId);
+
+        using var dbContext = CreateDbContext(options);
+        var controller = CreateController(dbContext, SchoolPrincipal(CueA), scope.ServiceProvider.GetRequiredService<IAuthorizationService>());
+
+        var result = await controller.RevokeRole(userId, "RosterProvince", CancellationToken.None);
+
+        Assert.IsType<ForbidResult>(result);
+
+        using var verify = CreateDbContext(options);
+        Assert.True(await verify.UserRoles.AnyAsync(
+            assignment => assignment.UserId == userId && assignment.RoleId == roleId));
+        Assert.False(await verify.AuditLogs.AnyAsync(log => log.Action == "admin.user.role.revoke"));
+    }
+
+    [Fact]
+    public async Task SchoolScope_RevokeAdminFromUserSharingCue_ReturnsForbiddenAndKeepsRow()
+    {
+        using var scope = CreateAuthorizationScope();
+        var options = CreateOptions();
+        var userId = SeedUser(options, "target@school.test", CueA);
+        var roleId = SeedRole(options, "Admin");
+        SeedUserRoleAssignment(options, userId, roleId);
+
+        using var dbContext = CreateDbContext(options);
+        var controller = CreateController(dbContext, SchoolPrincipal(CueA), scope.ServiceProvider.GetRequiredService<IAuthorizationService>());
+
+        var result = await controller.RevokeRole(userId, "Admin", CancellationToken.None);
+
+        Assert.IsType<ForbidResult>(result);
+
+        using var verify = CreateDbContext(options);
+        Assert.True(await verify.UserRoles.AnyAsync(
+            assignment => assignment.UserId == userId && assignment.RoleId == roleId));
+        Assert.False(await verify.AuditLogs.AnyAsync(log => log.Action == "admin.user.role.revoke"));
+    }
+
+    [Fact]
+    public async Task AdminRoleOnly_CanRevokeUnboundedRole()
+    {
+        using var scope = CreateAuthorizationScope();
+        var options = CreateOptions();
+        var userId = SeedUser(options, "target@school.test", CueA);
+        var roleId = SeedRole(options, "RosterProvince");
+        SeedUserRoleAssignment(options, userId, roleId);
+
+        using var dbContext = CreateDbContext(options);
+        var controller = CreateController(dbContext, AdminPrincipal(), scope.ServiceProvider.GetRequiredService<IAuthorizationService>());
+
+        var result = await controller.RevokeRole(userId, "RosterProvince", CancellationToken.None);
+
+        Assert.IsType<NoContentResult>(result);
+
+        using var verify = CreateDbContext(options);
+        Assert.False(await verify.UserRoles.AnyAsync(
+            assignment => assignment.UserId == userId && assignment.RoleId == roleId));
+        Assert.True(await verify.AuditLogs.AnyAsync(log => log.Action == "admin.user.role.revoke"));
+    }
+
+    [Fact]
     public async Task AdminRoleOnly_CanCreateAndManageUserWithNoCueAssignment()
     {
         using var scope = CreateAuthorizationScope();
@@ -402,6 +468,13 @@ public sealed class UsersAdminControllerTests
         dbContext.Roles.Add(role);
         dbContext.SaveChanges();
         return role.Id;
+    }
+
+    private static void SeedUserRoleAssignment(DbContextOptions<PlanCopeDbContext> options, string userId, string roleId)
+    {
+        using var dbContext = CreateDbContext(options);
+        dbContext.UserRoles.Add(new UserRoleAssignment(userId, roleId, DateTimeOffset.UtcNow));
+        dbContext.SaveChanges();
     }
 
     private static IServiceScope CreateAuthorizationScope()
