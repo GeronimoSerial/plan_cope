@@ -116,6 +116,20 @@ export function listRegisteredNodes(): Promise<RegisteredNodeSummary[]> {
   return serverGet<RegisteredNodeSummary[]>("/api/admin/activation/nodes");
 }
 
+export interface SchoolSummary {
+  id: string;
+  cue: string;
+  code: string;
+  name: string;
+  localityId: string;
+  annex?: number | null;
+  status: string;
+}
+
+export function listSchools(): Promise<SchoolSummary[]> {
+  return serverGet<SchoolSummary[]>("/api/admin/schools");
+}
+
 export interface SchoolStatsRow {
   cue: string;
   attemptCount: number | string;
@@ -139,4 +153,28 @@ export interface UnassignedExamVersion {
 
 export function listUnassignedGradingPolicies(): Promise<UnassignedExamVersion[]> {
   return serverGet<UnassignedExamVersion[]>("/api/admin/grading-policies/unassigned");
+}
+
+export interface UserSummary {
+  id: string;
+  email: string;
+  fullName: string;
+  status: string;
+  cues: string[];
+  roleCodes: string[];
+}
+
+export function listUsers(): Promise<UserSummary[]> {
+  return serverGet<UserSummary[]>("/api/admin/users");
+}
+
+export interface RoleSummary {
+  id: string;
+  code: string;
+  name: string;
+  description?: string | null;
+}
+
+export function listRoles(): Promise<RoleSummary[]> {
+  return serverGet<RoleSummary[]>("/api/admin/roles");
 }
