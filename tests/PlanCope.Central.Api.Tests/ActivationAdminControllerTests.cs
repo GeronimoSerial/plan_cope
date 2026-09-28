@@ -320,11 +320,6 @@ public sealed class ActivationAdminControllerTests
 
     private static RegisteredNode CreateNode(string activationKeyId, string nodeCode)
     {
-        return CreateNode(activationKeyId, nodeCode, CueA);
-    }
-
-    private static RegisteredNode CreateNode(string activationKeyId, string nodeCode, string cue)
-    {
         var now = DateTimeOffset.UtcNow;
         return new RegisteredNode(
             NewId(),
@@ -337,7 +332,7 @@ public sealed class ActivationAdminControllerTests
             now,
             FingerprintHash: "fp-1",
             JsonDocument.Parse("""{"mac":"00:11:22:33:44:55"}"""),
-            Cue: cue,
+            Cue: CueA,
             activationKeyId,
             EnrolledAt: now,
             RevokedAt: null,
