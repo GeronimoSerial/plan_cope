@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
 # Seeds Central master data — provinces, departments, localities, schools — from
-# asistencias.public.secciones into plan_cope as a DRY RUN ONLY. It extracts five
+# asistencias.public.secciones into plan_cope, dry-run by default. It extracts five
 # distinct-row CSVs from asistencias, splices them into
 # scripts/seed-central-master-data.sql at the @@DATA markers, and feeds the result
-# to ONE psql session against plan_cope that always ends in ROLLBACK.
+# to ONE psql session against plan_cope that ends in ROLLBACK.
 #
-# DRY-RUN-ONLY GUARANTEE: this batch never commits. The SQL it loads ends with an
-# explicit ROLLBACK as its last statement, and this orchestrator exposes NO commit
-# flag — none may be added until a later batch is explicitly authorized to commit.
-# Success is reported as "DRY RUN — rolled back", never as an applied change.
+# DRY RUN BY DEFAULT, EXPLICIT COMMIT: with no flags this batch never commits —
+# the SQL it loads ends with an explicit ROLLBACK as its last statement and
+# success is reported as "DRY RUN — rolled back", never as an applied change.
+# The ONLY way to commit is to pass --commit explicitly, which runs the identical
+# spliced SQL body but pipes COMMIT; as its final statement instead of ROLLBACK;
+# (the .sql file on disk is never modified). --commit demands confirmation first:
+# either --yes was also passed, or an interactive prompt answered with the exact
+# literal text COMMIT, and it refuses to run at all when stdin is not a terminal
+# and --yes was not given. Before anything runs it prints the target host and
+# database (never credentials). Success in that mode is reported as
+# "COMMIT — applied".
 #
 # CREDENTIALS: environment only. The caller must have sourced their pg.env (or
 # equivalent) before invoking this script so the standard PG* connection variables
@@ -31,6 +38,45 @@
 
 set -euo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Flag parsing. --commit swaps only the trailing statement piped to psql
+# (ROLLBACK; -> COMMIT;); --yes merely skips that mode's interactive
+# confirmation. --yes without --commit is a harmless no-op: dry-run behavior
+# does not change either way. Anything else is a usage error.
+commit_mode=false
+auto_yes=false
+for arg in "$@"; do
+  case "$arg" in
+    --commit) commit_mode=true ;;
+    --yes) auto_yes=true ;;
+    *)
+      echo "seed-central-master-data: unknown argument: $arg" >&2
+      echo "usage: $0 [--commit] [--yes]" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# Print the target and confirm BEFORE any docker run, so a committing run always
+# states what it is about to write to. PGHOST may be unset — then libpq's default
+# applies inside the container — and PGUSER/PGPASSWORD are deliberately never
+# echoed.
+target_host="${PGHOST:-<unset — libpq default>}"
+if [[ "$commit_mode" == true ]]; then
+  echo "TARGET: host=${target_host} db=plan_cope"
+  echo "*** COMMIT MODE: this will APPLY and PERSIST changes to plan_cope ***"
+  if [[ "$auto_yes" != true ]]; then
+    if [[ ! -t 0 ]]; then
+      echo "seed-central-master-data: --commit requires --yes when stdin is not a terminal" >&2
+      exit 1
+    fi
+    read -r -p "Type COMMIT to apply against ${target_host}/plan_cope: " confirmation
+    if [[ "$confirmation" != "COMMIT" ]]; then
+      echo "seed-central-master-data: confirmation not given — aborting" >&2
+      exit 1
+    fi
+  fi
+fi
 
 tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT
@@ -97,6 +143,16 @@ done
 # Splice the CSVs into the SQL at the @@DATA markers, then run everything in one
 # plan_cope session. Capturing stdout+stderr lets us replay the full log and check
 # for the ROLLBACK tag afterwards; pipefail fails the pipeline if either side does.
+# In commit mode the ONLY difference is the text piped to psql: the trailing
+# ROLLBACK; line is swapped for COMMIT; in the stream. The .sql file on disk is
+# never modified — its own ROLLBACK; is the sole line matching ^ROLLBACK;$ in the
+# whole file, so the last-line substitution cannot touch anything else.
+if [[ "$commit_mode" == true ]]; then
+  final_stmt=(sed '$ s/^ROLLBACK;$/COMMIT;/')
+else
+  final_stmt=(cat)
+fi
+
 load_log="$tmpdir/load.log"
 if ! awk -v dir="$tmpdir" '
   /^@@DATA / {
@@ -108,7 +164,7 @@ if ! awk -v dir="$tmpdir" '
     next
   }
   { print }
-' scripts/seed-central-master-data.sql | docker run --rm -i "${docker_env[@]}" postgres:17 psql -d plan_cope -v ON_ERROR_STOP=1 -f - >"$load_log" 2>&1
+' scripts/seed-central-master-data.sql | "${final_stmt[@]}" | docker run --rm -i "${docker_env[@]}" postgres:17 psql -d plan_cope -v ON_ERROR_STOP=1 -f - >"$load_log" 2>&1
 then
   cat "$load_log"
   echo "seed-central-master-data: load failed — transaction was not committed" >&2
@@ -117,10 +173,16 @@ fi
 
 cat "$load_log"
 
-# psql prints the ROLLBACK command tag; echo it only if absent so the line appears
-# exactly once before the dry-run line.
-if ! grep -qx 'ROLLBACK' "$load_log"; then
-  echo 'ROLLBACK'
+# psql prints the ROLLBACK (or COMMIT) command tag; echo it only if absent so the
+# line appears exactly once before the final status line.
+if [[ "$commit_mode" == true ]]; then
+  if ! grep -qx 'COMMIT' "$load_log"; then
+    echo 'COMMIT'
+  fi
+  echo 'COMMIT — applied'
+else
+  if ! grep -qx 'ROLLBACK' "$load_log"; then
+    echo 'ROLLBACK'
+  fi
+  echo 'DRY RUN — rolled back'
 fi
-
-echo 'DRY RUN — rolled back'
