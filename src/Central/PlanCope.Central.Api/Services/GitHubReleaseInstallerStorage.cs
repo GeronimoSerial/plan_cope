@@ -11,27 +11,80 @@ namespace PlanCope.Central.Api.Services;
 /// release tag = version (e.g. "1.2.3"); channel "beta" releases are GitHub prereleases while
 /// channel "stable" releases are not.
 ///
-/// The returned <see cref="InstallerReference.DownloadUrl"/> is the GitHub API asset download
-/// URL, which is private and requires the configured token to actually fetch. A browser
-/// authenticated to Central (but not to GitHub) cannot follow it directly; a truly public
-/// download experience would require this endpoint to proxy the asset bytes with the
-/// server-side token instead of handing the raw private GitHub URL to the client. Implementing
-/// that proxy is out of scope for B7 unit 8 (documented as a known limitation).
+/// <see cref="InstallerReference.DownloadUrl"/> is a path on THIS API (api/downloads/installer/file),
+/// never the raw GitHub asset URL — a browser cannot authenticate against GitHub directly, so
+/// <see cref="GetLatestDownloadAsync"/> streams the asset bytes through this server using the
+/// configured token instead of handing the client a private URL to follow itself.
 /// </summary>
 public sealed class GitHubReleaseInstallerStorage(
     HttpClient httpClient,
     IOptions<InstallerStorageOptions> options,
     ILogger<GitHubReleaseInstallerStorage> logger) : IInstallerStorage
 {
+    public bool IsConfigured =>
+        !string.IsNullOrWhiteSpace(options.Value.Repo) && !string.IsNullOrWhiteSpace(options.Value.Token);
+
     public async Task<InstallerReference?> GetLatestAsync(string channel, CancellationToken cancellationToken)
     {
-        var installerOptions = options.Value;
-        if (string.IsNullOrWhiteSpace(installerOptions.Repo) || string.IsNullOrWhiteSpace(installerOptions.Token))
+        var found = await FindLatestAssetAsync(channel, cancellationToken).ConfigureAwait(false);
+        if (found is null)
+        {
+            return null;
+        }
+
+        return new InstallerReference(
+            found.Value.Tag,
+            channel.ToLowerInvariant(),
+            BuildDownloadPath(channel),
+            Sha256: string.Empty,
+            found.Value.PublishedAt);
+    }
+
+    public async Task<InstallerDownload?> GetLatestDownloadAsync(string channel, CancellationToken cancellationToken)
+    {
+        var found = await FindLatestAssetAsync(channel, cancellationToken).ConfigureAwait(false);
+        if (found is null)
+        {
+            return null;
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, found.Value.AssetUrl);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.Value.Token);
+        // Accept: application/octet-stream on the asset API URL is what makes GitHub redirect to
+        // the actual blob storage location instead of returning the asset's JSON metadata. That
+        // redirect goes to a different host, and the default HttpClient handler does not forward
+        // the Authorization header across a cross-host redirect — do not set AllowAutoRedirect to
+        // false and do not manually re-attach the token after a redirect; either would break this
+        // or leak the token to a third-party host.
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
+
+        var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            logger.LogWarning(
+                "GitHub asset download for {AssetUrl} responded {StatusCode} {ReasonPhrase}; no installer available.",
+                found.Value.AssetUrl,
+                (int)response.StatusCode,
+                response.ReasonPhrase);
+            response.Dispose();
+            return null;
+        }
+
+        var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        var contentType = response.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
+        var contentLength = response.Content.Headers.ContentLength;
+        return new InstallerDownload(response, stream, contentType, found.Value.AssetName, contentLength);
+    }
+
+    private async Task<FoundAsset?> FindLatestAssetAsync(string channel, CancellationToken cancellationToken)
+    {
+        if (!IsConfigured)
         {
             logger.LogWarning("Installer repo/token is not configured — set PLANCOPE_PRIVATE_INSTALLER_REPO / INSTALLER_REPO_TOKEN.");
             return null;
         }
 
+        var installerOptions = options.Value;
         using var request = new HttpRequestMessage(HttpMethod.Get, $"repos/{installerOptions.Repo}/releases");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", installerOptions.Token);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
@@ -54,7 +107,7 @@ public sealed class GitHubReleaseInstallerStorage(
             var payload = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             using var document = JsonDocument.Parse(payload);
 
-            InstallerReference? latest = null;
+            FoundAsset? latest = null;
             foreach (var element in document.RootElement.EnumerateArray())
             {
                 if (!TryReadRelease(element, channel, out var candidate))
@@ -62,7 +115,7 @@ public sealed class GitHubReleaseInstallerStorage(
                     continue;
                 }
 
-                if (latest is null || candidate.PublishedAt > latest.PublishedAt)
+                if (latest is null || candidate.PublishedAt > latest.Value.PublishedAt)
                 {
                     latest = candidate;
                 }
@@ -82,9 +135,9 @@ public sealed class GitHubReleaseInstallerStorage(
         }
     }
 
-    private static bool TryReadRelease(JsonElement release, string channel, out InstallerReference reference)
+    private static bool TryReadRelease(JsonElement release, string channel, out FoundAsset asset)
     {
-        reference = null!;
+        asset = default;
 
         if (!release.TryGetProperty("tag_name", out var tagElement) ||
             string.IsNullOrWhiteSpace(tagElement.GetString()))
@@ -113,22 +166,18 @@ public sealed class GitHubReleaseInstallerStorage(
             return false;
         }
 
-        if (!TryGetInstallerAssetUrl(release, out var assetUrl))
+        if (!TryGetInstallerAsset(release, out var assetName, out var assetUrl))
         {
             return false;
         }
 
-        reference = new InstallerReference(
-            tagElement.GetString()!,
-            channel.ToLowerInvariant(),
-            assetUrl,
-            Sha256: string.Empty,
-            publishedAt);
+        asset = new FoundAsset(tagElement.GetString()!, publishedAt, assetName, assetUrl);
         return true;
     }
 
-    private static bool TryGetInstallerAssetUrl(JsonElement release, out Uri assetUrl)
+    private static bool TryGetInstallerAsset(JsonElement release, out string assetName, out Uri assetUrl)
     {
+        assetName = string.Empty;
         assetUrl = null!;
         if (!release.TryGetProperty("assets", out var assets) || assets.ValueKind != JsonValueKind.Array)
         {
@@ -153,6 +202,7 @@ public sealed class GitHubReleaseInstallerStorage(
             if (asset.TryGetProperty("url", out var urlElement) &&
                 Uri.TryCreate(urlElement.GetString(), UriKind.Absolute, out var parsed))
             {
+                assetName = name!;
                 assetUrl = parsed;
                 return true;
             }
@@ -169,4 +219,9 @@ public sealed class GitHubReleaseInstallerStorage(
                (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
                 name.EndsWith(".msi", StringComparison.OrdinalIgnoreCase));
     }
+
+    private static Uri BuildDownloadPath(string channel) =>
+        new($"/api/downloads/installer/file?channel={Uri.EscapeDataString(channel.ToLowerInvariant())}", UriKind.Relative);
+
+    private readonly record struct FoundAsset(string Tag, DateTimeOffset PublishedAt, string AssetName, Uri AssetUrl);
 }

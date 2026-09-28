@@ -102,6 +102,7 @@ if (!string.IsNullOrWhiteSpace(installerRepo) && !string.IsNullOrWhiteSpace(inst
         var options = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<InstallerStorageOptions>>().Value;
         client.BaseAddress = new Uri("https://api.github.com/", UriKind.Absolute);
         client.Timeout = TimeSpan.FromSeconds(30);
+        GitHubHttpClientDefaults.Apply(client);
     });
 }
 else
