@@ -16,6 +16,8 @@ export interface UserProfile {
   displayName: string;
   role: string;
   schoolId?: string | null;
+  rosterScope: string;
+  rosterCues: string[];
 }
 
 export interface LoginResponse {
