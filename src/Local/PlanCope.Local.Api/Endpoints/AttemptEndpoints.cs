@@ -10,6 +10,9 @@ namespace PlanCope.Local.Api.Endpoints;
 
 public static class AttemptEndpoints
 {
+    private const string SessionClosedErrorMessage = "La sesión ya está cerrada y no acepta más respuestas. Consultá con tu docente.";
+    private const string SessionPausedErrorMessage = "La sesión está pausada. Esperá a que tu docente la reactive para continuar.";
+
     public static IEndpointRouteBuilder MapAttemptEndpoints(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapPost("/api/sessions/{sessionIdOrAccessCode}/student-resolution", async Task<IResult> (
@@ -162,6 +165,7 @@ public static class AttemptEndpoints
             string attemptId,
             SaveAnswersRequest request,
             IAttemptRepository repository,
+            ISessionRepository sessionRepository,
             CancellationToken cancellationToken) =>
         {
             var attempt = await repository.GetByIdAsync(attemptId, cancellationToken);
@@ -174,6 +178,22 @@ public static class AttemptEndpoints
             if (attempt.Status is not "in_progress")
             {
                 return Results.BadRequest(new { error = "Este intento ya no admite cambios." });
+            }
+
+            var session = await sessionRepository.GetByIdOrAccessCodeAsync(attempt.DeliverySessionId, cancellationToken);
+            if (session is null)
+            {
+                return Results.NotFound(new { error = "No encontramos esa sesión. Verificá el código con tu docente." });
+            }
+
+            if (session.Status is "closed")
+            {
+                return Results.BadRequest(new { error = SessionClosedErrorMessage });
+            }
+
+            if (session.Status is "paused")
+            {
+                return Results.BadRequest(new { error = SessionPausedErrorMessage });
             }
 
             var now = DateTimeOffset.UtcNow.ToString("O");
@@ -205,10 +225,25 @@ public static class AttemptEndpoints
                 return Results.BadRequest(new { error = "Este intento ya fue enviado. Si creés que es un error, avisá al docente." });
             }
 
+            var session = await sessionRepository.GetByIdOrAccessCodeAsync(attempt.DeliverySessionId, cancellationToken);
+            if (session is null)
+            {
+                return Results.NotFound(new { error = "No encontramos esa sesión. Verificá el código con tu docente." });
+            }
+
+            if (session.Status is "closed")
+            {
+                return Results.BadRequest(new { error = SessionClosedErrorMessage });
+            }
+
+            if (session.Status is "paused")
+            {
+                return Results.BadRequest(new { error = SessionPausedErrorMessage });
+            }
+
             var submittedAt = DateTimeOffset.UtcNow.ToString("O");
             var confirmationCode = Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
             var answers = await attemptRepository.GetAnswersAsync(attemptId, cancellationToken);
-            var session = await sessionRepository.GetByIdOrAccessCodeAsync(attempt.DeliverySessionId, cancellationToken);
             var examVersion = session is null
                 ? null
                 : await examRepository.GetByIdAsync(session.ExamVersionId, cancellationToken);
