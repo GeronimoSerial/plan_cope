@@ -116,6 +116,20 @@ export function listRegisteredNodes(): Promise<RegisteredNodeSummary[]> {
   return serverGet<RegisteredNodeSummary[]>("/api/admin/activation/nodes");
 }
 
+export interface SchoolSummary {
+  id: string;
+  cue: string;
+  code: string;
+  name: string;
+  localityId: string;
+  annex?: number | null;
+  status: string;
+}
+
+export function listSchools(): Promise<SchoolSummary[]> {
+  return serverGet<SchoolSummary[]>("/api/admin/schools");
+}
+
 export interface SchoolStatsRow {
   cue: string;
   attemptCount: number | string;
