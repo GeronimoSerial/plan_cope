@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { loginSchema, type LoginValues } from "../../_lib/schema/auth";
-import { TextField } from "../../_components/ui/text-field";
-import { Button } from "../../_components/ui/button";
-import { Banner } from "../../_components/ui/banner";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 
 interface LoginFormProps {
   redirectTo: string;
@@ -45,30 +46,46 @@ export function LoginForm({ redirectTo, expired }: LoginFormProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} noValidate>
-      {expired && !serverError && <Banner tone="info">Tu sesión expiró. Volvé a ingresar.</Banner>}
-      {serverError && <Banner tone="error">{serverError}</Banner>}
+    <form onSubmit={handleSubmit(onSubmit)} noValidate className="grid gap-4">
+      {expired && !serverError && (
+        <Alert>
+          <AlertDescription>Tu sesión expiró. Volvé a ingresar.</AlertDescription>
+        </Alert>
+      )}
+      {serverError && (
+        <Alert variant="destructive">
+          <AlertDescription>{serverError}</AlertDescription>
+        </Alert>
+      )}
 
-      <div className="login-fields">
-        <TextField
-          label="Usuario"
-          autoComplete="username"
-          required
-          error={errors.username?.message}
-          {...register("username")}
-        />
-        <TextField
-          label="Contraseña"
-          type="password"
-          autoComplete="current-password"
-          required
-          error={errors.password?.message}
-          {...register("password")}
-        />
-        <Button type="submit" block disabled={isSubmitting}>
-          {isSubmitting ? "Ingresando…" : "Ingresar"}
-        </Button>
-      </div>
+      <FieldGroup className="gap-4">
+        <Field data-invalid={errors.username ? true : undefined}>
+          <FieldLabel htmlFor="username">Usuario</FieldLabel>
+          <Input
+            id="username"
+            autoComplete="username"
+            aria-invalid={errors.username ? true : undefined}
+            {...register("username")}
+          />
+          {errors.username?.message && <FieldError>{errors.username.message}</FieldError>}
+        </Field>
+
+        <Field data-invalid={errors.password ? true : undefined}>
+          <FieldLabel htmlFor="password">Contraseña</FieldLabel>
+          <Input
+            id="password"
+            type="password"
+            autoComplete="current-password"
+            aria-invalid={errors.password ? true : undefined}
+            {...register("password")}
+          />
+          {errors.password?.message && <FieldError>{errors.password.message}</FieldError>}
+        </Field>
+      </FieldGroup>
+
+      <Button type="submit" disabled={isSubmitting} className="w-full">
+        {isSubmitting ? "Ingresando…" : "Ingresar"}
+      </Button>
     </form>
   );
 }

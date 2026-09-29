@@ -19,13 +19,7 @@ export default async function StatsPage() {
 
   return (
     <>
-      <PageHeader
-        eyebrow="Estadísticas"
-        title="Estadísticas"
-        description="Estadísticas por establecimiento, curso y examen."
-        breadcrumbs={[{ label: "Inicio", href: "/dashboard" }, { label: "Estadísticas" }]}
-      />
-
+      <PageHeader title="Estadísticas" />
       <StatsPanel initialSchools={schools} />
     </>
   );

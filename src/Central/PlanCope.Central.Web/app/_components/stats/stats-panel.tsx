@@ -1,12 +1,14 @@
 "use client";
 
-import { Fragment, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useState, type KeyboardEvent, type ReactNode } from "react";
 import { callCentral } from "../../_lib/api/client";
 import { getErrorMessage } from "../../_lib/json";
-import { Button } from "../ui/button";
-import { Banner } from "../ui/banner";
-import { EmptyState } from "../ui/empty-state";
-import { TextField } from "../ui/text-field";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { SchoolStatsRow } from "../../_lib/api/server";
 
 interface CourseStatsRow {
@@ -36,18 +38,6 @@ interface ExamStatsRow {
 interface StatsPanelProps {
   initialSchools: SchoolStatsRow[];
 }
-
-const tableStyle: CSSProperties = { width: "100%", borderCollapse: "collapse" };
-const headRowStyle: CSSProperties = {
-  textAlign: "left",
-  color: "var(--text-muted)",
-  fontSize: "12px",
-  textTransform: "uppercase",
-  letterSpacing: "0.05em"
-};
-const headCellStyle: CSSProperties = { padding: "0 0 var(--space-2)" };
-const bodyCellStyle: CSSProperties = { padding: "var(--space-3) var(--space-1)" };
-const clickableRowStyle: CSSProperties = { borderTop: "1px solid var(--line)", cursor: "pointer" };
 
 // El backend puede responder el string "cohorte insuficiente" en lugar de un número cuando
 // la cohorte está suprimida (menos de 5 intentos, vista provincial). Se renderiza tal cual.
@@ -79,6 +69,10 @@ function activateOnKey(handler: () => void) {
       handler();
     }
   };
+}
+
+function TableShell({ children }: { children: ReactNode }) {
+  return <div className="overflow-hidden rounded-lg ring-1 ring-foreground/10">{children}</div>;
 }
 
 export function StatsPanel({ initialSchools }: StatsPanelProps) {
@@ -190,193 +184,193 @@ export function StatsPanel({ initialSchools }: StatsPanelProps) {
   }
 
   return (
-    <div className="stack">
-      <div className="card">
-        <div className="card__header">
-          <h2>Establecimientos</h2>
-          <Button variant="secondary" onClick={exportCsv} disabled={schools.length === 0}>
-            Exportar CSV
-          </Button>
-        </div>
-        <div className="card__body stack">
-          <div className="cols-2">
-            <TextField
-              label="Año lectivo (opcional)"
-              placeholder="Ej. 2025"
-              value={schoolYearInput}
-              onChange={event => setSchoolYearInput(event.target.value)}
-            />
-            <TextField
-              label="Curso (opcional)"
-              placeholder="Ej. 4º A"
-              value={courseInput}
-              onChange={event => setCourseInput(event.target.value)}
-            />
-          </div>
-          <div className="row">
+    <div className="grid gap-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Establecimientos</CardTitle>
+          {schools.length > 0 && (
+            <CardAction>
+              <Button variant="outline" onClick={exportCsv}>
+                Exportar CSV
+              </Button>
+            </CardAction>
+          )}
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="grid gap-1.5">
+              <Label htmlFor="stats-school-year">Año lectivo (opcional)</Label>
+              <Input
+                id="stats-school-year"
+                value={schoolYearInput}
+                onChange={event => setSchoolYearInput(event.target.value)}
+                placeholder="Ej. 2025"
+                className="w-40"
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="stats-course">Curso (opcional)</Label>
+              <Input
+                id="stats-course"
+                value={courseInput}
+                onChange={event => setCourseInput(event.target.value)}
+                placeholder="Ej. 4º A"
+                className="w-40"
+              />
+            </div>
             <Button onClick={() => void applyFilters()} disabled={applying}>
               {applying ? "Aplicando…" : "Aplicar filtros"}
             </Button>
           </div>
 
-          {schoolsError && <Banner tone="error">{schoolsError}</Banner>}
+          {schoolsError && (
+            <Alert variant="destructive">
+              <AlertDescription>{schoolsError}</AlertDescription>
+            </Alert>
+          )}
 
           {schools.length === 0 ? (
-            <EmptyState
-              title="Sin estadísticas para mostrar"
-              description="No hay establecimientos con datos para los filtros seleccionados."
-            />
+            <p className="text-sm text-muted-foreground">
+              No hay establecimientos con datos para los filtros seleccionados.
+            </p>
           ) : (
-            <table style={tableStyle}>
-              <thead>
-                <tr style={headRowStyle}>
-                  <th style={headCellStyle}>CUE</th>
-                  <th style={headCellStyle}>Intentos</th>
-                  <th style={headCellStyle}>Promedio</th>
-                </tr>
-              </thead>
-              <tbody>
-                {schools.map(row => {
-                  const isSelected = selectedCue === row.cue;
-                  return (
-                    <Fragment key={row.cue}>
-                      <tr
+            <TableShell>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>CUE</TableHead>
+                    <TableHead>Intentos</TableHead>
+                    <TableHead>Promedio</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {schools.map(row => (
+                    <TableRow
+                      key={row.cue}
+                      role="button"
+                      tabIndex={0}
+                      aria-expanded={selectedCue === row.cue}
+                      className="cursor-pointer"
+                      onClick={() => void selectCue(row.cue)}
+                      onKeyDown={activateOnKey(() => void selectCue(row.cue))}
+                    >
+                      <TableCell className="font-mono font-medium">{row.cue}</TableCell>
+                      <TableCell>{formatCount(row.attemptCount)}</TableCell>
+                      <TableCell>{formatPercent(row.averageScorePercent)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableShell>
+          )}
+        </CardContent>
+      </Card>
+
+      {selectedCue && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Detalle del CUE {selectedCue}</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            {coursesLoading && <p className="text-sm text-muted-foreground">Cargando cursos…</p>}
+            {coursesError && (
+              <Alert variant="destructive">
+                <AlertDescription>{coursesError}</AlertDescription>
+              </Alert>
+            )}
+            {!coursesLoading && !coursesError && courses.length === 0 && (
+              <p className="text-sm text-muted-foreground">Sin datos por curso para este establecimiento.</p>
+            )}
+
+            {courses.length > 0 && (
+              <TableShell>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Curso</TableHead>
+                      <TableHead>Intentos</TableHead>
+                      <TableHead>Promedio</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {courses.map(course => (
+                      <TableRow
+                        key={course.course}
                         role="button"
                         tabIndex={0}
-                        aria-expanded={isSelected}
-                        style={clickableRowStyle}
-                        onClick={() => void selectCue(row.cue)}
-                        onKeyDown={activateOnKey(() => void selectCue(row.cue))}
+                        aria-expanded={selectedCourse === course.course}
+                        className="cursor-pointer"
+                        onClick={() => void selectCourse(course.course)}
+                        onKeyDown={activateOnKey(() => void selectCourse(course.course))}
                       >
-                        <td style={{ ...bodyCellStyle, paddingLeft: 0, fontFamily: "monospace", fontWeight: 700 }}>
-                          {row.cue}
-                        </td>
-                        <td style={bodyCellStyle}>{formatCount(row.attemptCount)}</td>
-                        <td style={bodyCellStyle}>{formatPercent(row.averageScorePercent)}</td>
-                      </tr>
-                      {isSelected && (
-                        <tr>
-                          <td colSpan={3} style={{ padding: "var(--space-3) 0" }}>
-                            <div className="stack">
-                              <h3>Detalle del CUE {selectedCue}</h3>
+                        <TableCell className="font-medium">{course.course}</TableCell>
+                        <TableCell>{formatCount(course.attemptCount)}</TableCell>
+                        <TableCell>{formatPercent(course.averageScorePercent)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableShell>
+            )}
 
-                              {coursesLoading && <p className="field__hint">Cargando cursos…</p>}
-                              {coursesError && <Banner tone="error">{coursesError}</Banner>}
-                              {!coursesLoading && !coursesError && courses.length === 0 && (
-                                <p className="field__hint">Sin datos por curso para este establecimiento.</p>
-                              )}
+            {selectedCourse && (
+              <div className="grid gap-4">
+                {examsLoading && <p className="text-sm text-muted-foreground">Cargando exámenes…</p>}
+                {examsError && (
+                  <Alert variant="destructive">
+                    <AlertDescription>{examsError}</AlertDescription>
+                  </Alert>
+                )}
+                {!examsLoading && !examsError && exams.length === 0 && (
+                  <p className="text-sm text-muted-foreground">Sin exámenes rendidos para este curso.</p>
+                )}
 
-                              {courses.length > 0 && (
-                                <table style={tableStyle}>
-                                  <thead>
-                                    <tr style={headRowStyle}>
-                                      <th style={headCellStyle}>Curso</th>
-                                      <th style={headCellStyle}>Intentos</th>
-                                      <th style={headCellStyle}>Promedio</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {courses.map(course => {
-                                      const courseSelected = selectedCourse === course.course;
-                                      return (
-                                        <Fragment key={course.course}>
-                                          <tr
-                                            role="button"
-                                            tabIndex={0}
-                                            aria-expanded={courseSelected}
-                                            style={clickableRowStyle}
-                                            onClick={() => void selectCourse(course.course)}
-                                            onKeyDown={activateOnKey(() => void selectCourse(course.course))}
-                                          >
-                                            <td style={{ ...bodyCellStyle, paddingLeft: 0, fontWeight: 600 }}>
-                                              {course.course}
-                                            </td>
-                                            <td style={bodyCellStyle}>{formatCount(course.attemptCount)}</td>
-                                            <td style={bodyCellStyle}>
-                                              {formatPercent(course.averageScorePercent)}
-                                            </td>
-                                          </tr>
-                                          {courseSelected && (
-                                            <tr>
-                                              <td colSpan={3} style={{ padding: "var(--space-3) 0" }}>
-                                                <div className="stack">
-                                                  {examsLoading && <p className="field__hint">Cargando exámenes…</p>}
-                                                  {examsError && <Banner tone="error">{examsError}</Banner>}
-                                                  {!examsLoading && !examsError && exams.length === 0 && (
-                                                    <p className="field__hint">
-                                                      Sin exámenes rendidos para este curso.
-                                                    </p>
-                                                  )}
-
-                                                  {exams.map(exam => (
-                                                    <div key={exam.examVersionId} className="stack">
-                                                      <h4>
-                                                        {exam.examCode} · versión {exam.versionNumber}
-                                                      </h4>
-                                                      <p className="field__hint">
-                                                        Intentos: {formatCount(exam.attemptCount)} · Promedio:{" "}
-                                                        {formatPercent(exam.averageScorePercent)}
-                                                      </p>
-                                                      {exam.blocks.length === 0 ? (
-                                                        <p className="field__hint">Sin datos por bloque.</p>
-                                                      ) : (
-                                                        <table style={tableStyle}>
-                                                          <thead>
-                                                            <tr style={headRowStyle}>
-                                                              <th style={headCellStyle}>Bloque</th>
-                                                              <th style={headCellStyle}>Correctas</th>
-                                                              <th style={headCellStyle}>Parciales</th>
-                                                              <th style={headCellStyle}>Incorrectas</th>
-                                                              <th style={headCellStyle}>En blanco</th>
-                                                              <th style={headCellStyle}>No calificables</th>
-                                                            </tr>
-                                                          </thead>
-                                                          <tbody>
-                                                            {exam.blocks.map(block => (
-                                                              <tr key={block.blockId} style={{ borderTop: "1px solid var(--line)" }}>
-                                                                <td
-                                                                  style={{
-                                                                    ...bodyCellStyle,
-                                                                    paddingLeft: 0,
-                                                                    fontFamily: "monospace"
-                                                                  }}
-                                                                >
-                                                                  {block.blockId}
-                                                                </td>
-                                                                <td style={bodyCellStyle}>{block.correctCount}</td>
-                                                                <td style={bodyCellStyle}>{block.partialCount}</td>
-                                                                <td style={bodyCellStyle}>{block.incorrectCount}</td>
-                                                                <td style={bodyCellStyle}>{block.blankCount}</td>
-                                                                <td style={bodyCellStyle}>{block.ungradableCount}</td>
-                                                              </tr>
-                                                            ))}
-                                                          </tbody>
-                                                        </table>
-                                                      )}
-                                                    </div>
-                                                  ))}
-                                                </div>
-                                              </td>
-                                            </tr>
-                                          )}
-                                        </Fragment>
-                                      );
-                                    })}
-                                  </tbody>
-                                </table>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
+                {exams.map(exam => (
+                  <div key={exam.examVersionId} className="grid gap-2">
+                    <h3 className="text-sm font-medium">
+                      {exam.examCode} · versión {exam.versionNumber}
+                    </h3>
+                    <p className="text-sm text-muted-foreground">
+                      Intentos: {formatCount(exam.attemptCount)} · Promedio:{" "}
+                      {formatPercent(exam.averageScorePercent)}
+                    </p>
+                    {exam.blocks.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">Sin datos por bloque.</p>
+                    ) : (
+                      <TableShell>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Bloque</TableHead>
+                              <TableHead>Correctas</TableHead>
+                              <TableHead>Parciales</TableHead>
+                              <TableHead>Incorrectas</TableHead>
+                              <TableHead>En blanco</TableHead>
+                              <TableHead>No calificables</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {exam.blocks.map(block => (
+                              <TableRow key={block.blockId}>
+                                <TableCell className="font-mono">{block.blockId}</TableCell>
+                                <TableCell>{block.correctCount}</TableCell>
+                                <TableCell>{block.partialCount}</TableCell>
+                                <TableCell>{block.incorrectCount}</TableCell>
+                                <TableCell>{block.blankCount}</TableCell>
+                                <TableCell>{block.ungradableCount}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableShell>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

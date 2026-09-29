@@ -4,12 +4,20 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { callCentral } from "../../_lib/api/client";
 import { getErrorMessage } from "../../_lib/json";
-import { Button } from "../ui/button";
-import { Banner } from "../ui/banner";
-import { ConfirmDialog } from "../ui/confirm-dialog";
-import { EmptyState } from "../ui/empty-state";
-import { StatusBadge } from "../ui/status-badge";
-import { TextField } from "../ui/text-field";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { RegisteredNodeSummary } from "../../_lib/api/server";
 
 interface NodeRegistryPanelProps {
@@ -26,7 +34,6 @@ export function NodeRegistryPanel({ initialNodes }: NodeRegistryPanelProps) {
   const [revokeTarget, setRevokeTarget] = useState<RegisteredNodeSummary | null>(null);
   const [typedConfirmation, setTypedConfirmation] = useState("");
   const [reason, setReason] = useState("");
-  const [revokeDialogOpen, setRevokeDialogOpen] = useState(false);
   const [revoking, setRevoking] = useState(false);
   const [revokeError, setRevokeError] = useState<string | null>(null);
 
@@ -49,7 +56,10 @@ export function NodeRegistryPanel({ initialNodes }: NodeRegistryPanelProps) {
     setRevokeError(null);
   }
 
-  function cancelRevoke() {
+  function closeRevoke() {
+    if (revoking) {
+      return;
+    }
     setRevokeTarget(null);
     setTypedConfirmation("");
     setReason("");
@@ -67,143 +77,128 @@ export function NodeRegistryPanel({ initialNodes }: NodeRegistryPanelProps) {
         method: "POST",
         body: JSON.stringify({ reason: reason.trim() })
       });
-      setRevokeDialogOpen(false);
-      cancelRevoke();
+      setRevoking(false);
+      closeRevoke();
       await refreshNodes();
       router.refresh();
     } catch (error) {
       setRevokeError(getErrorMessage(error, "No se pudo revocar el nodo."));
-    } finally {
       setRevoking(false);
     }
   }
 
   return (
-    <div className="stack">
-      {revokeTarget && (
-        <div className="card">
-          <div className="card__body stack">
-            <h3>Revocar nodo {revokeTarget.nodeCode}</h3>
-            <p className="field__hint">
-              Revocar un NODO es distinto de revocar una CLAVE: detiene únicamente esta máquina. La clave de
-              activación que lo enroló sigue funcionando en otros equipos.
-            </p>
-            <p>
-              Para confirmar, escribí el {revokeTarget.schoolName ? "nombre de la escuela" : "CUE"}{" "}
-              <strong>{expectedConfirmation}</strong>.
-            </p>
-            <TextField
-              label={
-                revokeTarget.schoolName
-                  ? "Escribí el nombre de la escuela para confirmar"
-                  : "Escribí el CUE para confirmar"
-              }
-              value={typedConfirmation}
-              onChange={event => setTypedConfirmation(event.target.value)}
-              autoComplete="off"
-              autoCapitalize="off"
-              spellCheck={false}
-            />
-            <TextField
-              label="Motivo (opcional)"
-              placeholder="Ej. Equipo dado de baja"
-              value={reason}
-              onChange={event => setReason(event.target.value)}
-            />
-            <div className="row">
-              <Button variant="danger" disabled={!confirmationMatches} onClick={() => setRevokeDialogOpen(true)}>
-                Revocar nodo
-              </Button>
-              <Button variant="secondary" onClick={cancelRevoke}>
-                Cancelar
-              </Button>
-            </div>
-            {revokeError && <Banner tone="error">{revokeError}</Banner>}
-          </div>
+    <>
+      {nodes.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No hay nodos registrados.</p>
+      ) : (
+        <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Nodo</TableHead>
+                <TableHead>Escuela</TableHead>
+                <TableHead>Equipo</TableHead>
+                <TableHead>Registrado</TableHead>
+                <TableHead>Última conexión</TableHead>
+                <TableHead>Estado</TableHead>
+                <TableHead className="text-right">Acciones</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {nodes.map(node => (
+                <TableRow key={node.id}>
+                  <TableCell className="font-mono font-medium">{node.nodeCode}</TableCell>
+                  <TableCell>{node.schoolName ?? `CUE ${node.cue}`}</TableCell>
+                  <TableCell>{node.deviceName ?? "—"}</TableCell>
+                  <TableCell>{formatDate(node.enrolledAt)}</TableCell>
+                  <TableCell>{node.lastSeenAt ? formatDate(node.lastSeenAt) : "Nunca"}</TableCell>
+                  <TableCell>
+                    <Badge variant={node.revokedAt ? "destructive" : "secondary"}>
+                      {node.revokedAt ? "Revocado" : "Activo"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {node.revokedAt ? (
+                      <span className="text-muted-foreground">—</span>
+                    ) : (
+                      <Button variant="destructive" size="sm" onClick={() => startRevoke(node)}>
+                        Revocar nodo
+                      </Button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
       )}
 
-      <div className="card">
-        <div className="card__header">
-          <h2>Nodos registrados</h2>
-        </div>
-        <div className="card__body stack">
-          {nodes.length === 0 ? (
-            <EmptyState
-              title="Aún no hay nodos registrados"
-              description="Los equipos aparecen acá a medida que se enrolan con una clave de activación."
-            />
-          ) : (
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr
-                  style={{
-                    textAlign: "left",
-                    color: "var(--text-muted)",
-                    fontSize: "12px",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.05em"
-                  }}
-                >
-                  <th style={{ padding: "0 0 var(--space-2)" }}>Nodo</th>
-                  <th style={{ padding: "0 0 var(--space-2)" }}>Escuela</th>
-                  <th style={{ padding: "0 0 var(--space-2)" }}>Equipo</th>
-                  <th style={{ padding: "0 0 var(--space-2)" }}>Registrado</th>
-                  <th style={{ padding: "0 0 var(--space-2)" }}>Última conexión</th>
-                  <th style={{ padding: "0 0 var(--space-2)" }}>Estado</th>
-                  <th style={{ padding: "0 0 var(--space-2)" }}>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {nodes.map(node => (
-                  <tr key={node.id} style={{ borderTop: "1px solid var(--line)" }}>
-                    <td
-                      style={{
-                        padding: "var(--space-3) var(--space-1) var(--space-3) 0",
-                        fontFamily: "monospace",
-                        fontWeight: 700
-                      }}
-                    >
-                      {node.nodeCode}
-                    </td>
-                    <td style={{ padding: "var(--space-3) var(--space-1)" }}>
-                      {node.schoolName ?? `CUE ${node.cue}`}
-                    </td>
-                    <td style={{ padding: "var(--space-3) var(--space-1)" }}>{node.deviceName ?? "—"}</td>
-                    <td style={{ padding: "var(--space-3) var(--space-1)" }}>{formatDate(node.enrolledAt)}</td>
-                    <td style={{ padding: "var(--space-3) var(--space-1)" }}>
-                      {node.lastSeenAt ? formatDate(node.lastSeenAt) : "Nunca"}
-                    </td>
-                    <td style={{ padding: "var(--space-3) var(--space-1)" }}>
-                      <StatusBadge status={node.revokedAt ? "Revocado" : "Activo"} />
-                    </td>
-                    <td style={{ padding: "var(--space-3) 0 var(--space-3) var(--space-1)" }}>
-                      {node.revokedAt ? (
-                        <span className="field__hint">—</span>
-                      ) : (
-                        <Button variant="danger" size="sm" onClick={() => startRevoke(node)}>
-                          Revocar nodo
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
+      <Dialog
+        open={revokeTarget !== null}
+        onOpenChange={open => {
+          if (!open) {
+            closeRevoke();
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Revocar nodo {revokeTarget?.nodeCode}</DialogTitle>
+            <DialogDescription>
+              Revocar un nodo detiene únicamente esta máquina. La clave que lo enroló sigue funcionando en otros
+              equipos.
+            </DialogDescription>
+          </DialogHeader>
 
-      <ConfirmDialog
-        open={revokeDialogOpen}
-        title={revokeTarget ? `Revocar nodo ${revokeTarget.nodeCode}` : "Revocar nodo"}
-        description="El nodo dejará de funcionar de inmediato. Esta acción es remota y no se puede deshacer. ¿Querés continuar?"
-        confirmLabel="Sí, revocar"
-        cancelLabel="Cancelar"
-        busy={revoking}
-        onConfirm={() => void confirmRevoke()}
-        onCancel={() => setRevokeDialogOpen(false)}
-      />
-    </div>
+          <div className="grid gap-4">
+            <p className="text-sm">
+              Para confirmar, escribí el {revokeTarget?.schoolName ? "nombre de la escuela" : "CUE"}{" "}
+              <span className="font-medium">{expectedConfirmation}</span>.
+            </p>
+            <div className="grid gap-1.5">
+              <Label htmlFor="revoke-confirm">
+                {revokeTarget?.schoolName ? "Nombre de la escuela" : "CUE"}
+              </Label>
+              <Input
+                id="revoke-confirm"
+                value={typedConfirmation}
+                onChange={event => setTypedConfirmation(event.target.value)}
+                autoComplete="off"
+                autoCapitalize="off"
+                spellCheck={false}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="revoke-reason">Motivo (opcional)</Label>
+              <Input
+                id="revoke-reason"
+                value={reason}
+                onChange={event => setReason(event.target.value)}
+                placeholder="Ej. Equipo dado de baja"
+              />
+            </div>
+            {revokeError && (
+              <Alert variant="destructive">
+                <AlertDescription>{revokeError}</AlertDescription>
+              </Alert>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={closeRevoke} disabled={revoking}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={!confirmationMatches || revoking}
+              onClick={() => void confirmRevoke()}
+            >
+              {revoking ? "Revocando…" : "Revocar nodo"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
