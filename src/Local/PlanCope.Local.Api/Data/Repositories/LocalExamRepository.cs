@@ -30,6 +30,8 @@ public sealed class LocalExamRepository(ILocalSqliteConnectionFactory connection
                         ORDER BY version_number DESC, synced_at DESC, id ASC
                     ) AS version_rank
                 FROM local_exam_versions
+            ) AS ranked
+            WHERE ranked.version_rank = 1
             """;
 
         object? parameters = null;
@@ -38,16 +40,14 @@ public sealed class LocalExamRepository(ILocalSqliteConnectionFactory connection
         {
             sql += """
 
-                WHERE json_extract(metadata_json, '$.grade') = @Grade
+                AND json_extract(ranked.metadata_json, '$.grade') = @Grade
                 """;
             parameters = new { Grade = grade };
         }
 
         sql += """
 
-            ) AS ranked
-            WHERE ranked.version_rank = 1
-            ORDER BY exam_code;
+            ORDER BY ranked.exam_code;
             """;
 
         using var connection = connectionFactory.CreateOpenConnection();
