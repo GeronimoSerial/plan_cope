@@ -37,6 +37,7 @@ public sealed class ExamsController(
     }
 
     [HttpPost]
+    [Authorize(Policy = "ExamAuthor")]
     public async Task<ActionResult<ExamSummaryDto>> Create(CreateExamRequest request, CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
@@ -108,8 +109,12 @@ public sealed class ExamsController(
     }
 
     [HttpPost("{examId}/versions")]
-    public async Task<ActionResult<ExamVersionDto>> CreateVersion(string examId, CreateExamVersionRequest request, CancellationToken cancellationToken)
+    [Authorize(Policy = "ExamAuthor")]
+    public async Task<ActionResult<ExamVersionDto>> CreateVersion(string examId, [FromBody] CreateExamVersionRequest? request, CancellationToken cancellationToken)
     {
+        // The body is optional: an empty request behaves like `{}`, copying the default source.
+        request ??= new CreateExamVersionRequest();
+
         var exam = await dbContext.Exams.SingleOrDefaultAsync(x => x.Id == examId && x.DeletedAt == null, cancellationToken);
         if (exam is null)
         {
@@ -123,8 +128,9 @@ public sealed class ExamsController(
         var latestVersionNumber = examVersions.Count == 0 ? 0 : examVersions.Max(static version => version.VersionNumber);
 
         // The new version is a deep copy of an existing version unless the caller asks for an empty
-        // one. An explicit sourceVersionId wins; otherwise the latest version is the source. A draft
-        // already existing for the exam is allowed (the web UI prevents it, the API does not).
+        // one. An explicit sourceVersionId wins; otherwise the default source is the highest-numbered
+        // published version, falling back to the highest-numbered version overall when the exam has
+        // no published version (so an unpublished draft is never copied by default).
         ExamVersion? source = null;
         if (!request.Empty)
         {
@@ -146,9 +152,24 @@ public sealed class ExamsController(
             else
             {
                 source = examVersions
-                    .OrderByDescending(static version => version.VersionNumber)
-                    .FirstOrDefault();
+                        .Where(IsPublished)
+                        .OrderByDescending(static version => version.VersionNumber)
+                        .FirstOrDefault()
+                    ?? examVersions
+                        .OrderByDescending(static version => version.VersionNumber)
+                        .FirstOrDefault();
             }
+        }
+
+        // At most one draft may exist at a time unless the caller explicitly forces a second one.
+        // The API returns the conflicting draft so the client can open it instead of creating it.
+        var existingDraft = examVersions
+            .Where(IsDraft)
+            .OrderByDescending(static version => version.VersionNumber)
+            .FirstOrDefault();
+        if (existingDraft is not null && !request.Force)
+        {
+            return Conflict(new { code = "draft_exists", draftVersionId = existingDraft.Id });
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -306,6 +327,7 @@ public sealed class ExamsController(
     }
 
     [HttpPut("{examId}")]
+    [Authorize(Policy = "ExamAuthor")]
     public async Task<ActionResult<ExamSummaryDto>> UpdateExam(string examId, UpdateExamRequest request, CancellationToken cancellationToken)
     {
         var exam = await dbContext.Exams.SingleOrDefaultAsync(x => x.Id == examId && x.DeletedAt == null, cancellationToken);
@@ -403,12 +425,14 @@ public sealed class ExamsController(
     }
 
     [HttpPut("versions/{versionId}/blocks")]
+    [Authorize(Policy = "ExamAuthor")]
     public Task<ActionResult<BlockDto>> UpsertBlock(string versionId, UpsertBlockRequest request, CancellationToken cancellationToken)
     {
         return UpsertBlock(versionId, request.OrderIndex, request, cancellationToken);
     }
 
     [HttpPut("versions/{versionId}/blocks/{orderIndex:int}")]
+    [Authorize(Policy = "ExamAuthor")]
     public async Task<ActionResult<BlockDto>> UpsertBlock(string versionId, int orderIndex, UpsertBlockRequest request, CancellationToken cancellationToken)
     {
         var version = await dbContext.ExamVersions.SingleOrDefaultAsync(x => x.Id == versionId, cancellationToken);
@@ -459,6 +483,7 @@ public sealed class ExamsController(
     }
 
     [HttpPost("versions/{versionId}/assets")]
+    [Authorize(Policy = "ExamAuthor")]
     public async Task<ActionResult<AssetDto>> CreateAsset(string versionId, CreateAssetRequest request, CancellationToken cancellationToken)
     {
         var version = await dbContext.ExamVersions.SingleOrDefaultAsync(x => x.Id == versionId, cancellationToken);
@@ -508,8 +533,15 @@ public sealed class ExamsController(
     }
 
     [HttpPost("versions/{versionId}/publish")]
+    [Authorize(Policy = "ExamAuthor")]
     public async Task<ActionResult<PublishExamVersionResponse>> PublishVersion(string versionId, PublishExamVersionRequest request, CancellationToken cancellationToken)
     {
+        // The transaction keeps the status transition and package/target inserts atomic. The
+        // unique exam-version index is the final guard when concurrent transactions both read Draft.
+        await using var transaction = dbContext.Database.IsRelational()
+            ? await dbContext.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+
         var version = await dbContext.ExamVersions.SingleOrDefaultAsync(x => x.Id == versionId, cancellationToken);
         if (version is null)
         {
@@ -519,6 +551,21 @@ public sealed class ExamsController(
         if (IsPublished(version))
         {
             return Conflict("Exam version is already published.");
+        }
+
+        // Publication is monotonic: a version older than the current published one can never become
+        // current, so rejecting it up front avoids emitting a package that would be instantly
+        // superseded.
+        var examVersions = await dbContext.ExamVersions
+            .Where(x => x.ExamId == version.ExamId)
+            .ToListAsync(cancellationToken);
+        var currentPublished = examVersions
+            .Where(IsPublished)
+            .OrderByDescending(static candidate => candidate.VersionNumber)
+            .FirstOrDefault();
+        if (currentPublished is not null && version.VersionNumber < currentPublished.VersionNumber)
+        {
+            return Conflict(new { code = "older_than_current" });
         }
 
         if (string.IsNullOrWhiteSpace(request.Grade))
@@ -621,12 +668,30 @@ public sealed class ExamsController(
         var publishedVersion = version with { Status = "Published", PublishedAt = now, UpdatedAt = now };
         dbContext.Entry(version).CurrentValues.SetValues(publishedVersion);
 
-        await dbContext.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (IsUniqueConstraintViolation(exception))
+        {
+            if (transaction is not null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+            }
+
+            return Conflict("Exam version is already published.");
+        }
+
+        if (transaction is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
 
         return Ok(new PublishExamVersionResponse(package.Id, versionId, package.PackageVersion, checksum, targets));
     }
 
     [HttpPut("versions/{versionId}/document")]
+    [Authorize(Policy = "ExamAuthor")]
     public async Task<ActionResult<ExamVersionDto>> ReplaceDocument(string versionId, ReplaceExamDocumentRequest request, CancellationToken cancellationToken)
     {
         var version = await dbContext.ExamVersions.SingleOrDefaultAsync(x => x.Id == versionId, cancellationToken);
@@ -767,9 +832,13 @@ public sealed class ExamsController(
         DateTimeOffset? supersededAt = null;
         if (!isCurrent && IsPublished(version))
         {
-            supersededAt = published
-                .FirstOrDefault(candidate => candidate.VersionNumber > version.VersionNumber)
-                ?.PublishedAt;
+            var next = published.FirstOrDefault(candidate => candidate.VersionNumber > version.VersionNumber);
+            if (next is not null)
+            {
+                // Clamp against the version's own publishedAt: a clock-skewed next publication must
+                // never claim to have superseded this one before it was even published.
+                supersededAt = LaterOf(version.PublishedAt, next.PublishedAt);
+            }
         }
 
         int? basedOnVersionNumber = null;
@@ -1013,6 +1082,27 @@ public sealed class ExamsController(
     private static bool IsPublished(ExamVersion version)
     {
         return string.Equals(version.Status, "Published", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsDraft(ExamVersion version)
+    {
+        return string.Equals(version.Status, "Draft", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Returns the later of two nullable instants, tolerating a null on either side.</summary>
+    private static DateTimeOffset? LaterOf(DateTimeOffset? left, DateTimeOffset? right)
+    {
+        if (left is null)
+        {
+            return right;
+        }
+
+        if (right is null)
+        {
+            return left;
+        }
+
+        return left.Value >= right.Value ? left : right;
     }
 
     private static JsonDocument ToJsonDocument(JsonElement value)

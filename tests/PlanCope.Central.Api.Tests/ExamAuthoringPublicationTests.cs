@@ -91,6 +91,15 @@ public sealed class ExamAuthoringPublicationTests
         Assert.Contains(published.Targets!, target =>
             target.TargetType == PublicationTargetTypes.Grade && target.TargetId == "6");
         Assert.Equal(0, published.PulledByNodeCount);
+
+        var duplicatePublish = await controller.PublishVersion(
+            versionId,
+            new PublishExamVersionRequest(null, "6", null),
+            CancellationToken.None);
+
+        var duplicateConflict = Assert.IsAssignableFrom<ObjectResult>(duplicatePublish.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, duplicateConflict.StatusCode);
+        Assert.Single(await dbContext.PublicationPackages.ToListAsync());
     }
 
     [Fact]

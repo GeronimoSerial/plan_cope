@@ -138,6 +138,7 @@ builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("RosterCueAccess", policy => policy.Requirements.Add(new RosterScopeRequirement()));
     options.AddPolicy("Admin", policy => policy.RequireRole("Admin"));
+    options.AddPolicy("ExamAuthor", policy => policy.RequireRole("Admin", "ExamAuthor"));
     options.AddPolicy("Viewer", policy => policy.RequireRole("Viewer"));
     options.AddPolicy("RosterProvince", policy => policy.RequireRole("RosterProvince"));
 });

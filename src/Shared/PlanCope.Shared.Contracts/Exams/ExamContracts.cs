@@ -98,14 +98,17 @@ public sealed record PublicationTargetDto(string TargetType, string? TargetId);
 public sealed record CreateExamRequest(string Code, string Title, string? Description, string? Level, string? Area, string? Subject);
 
 // Body is fully optional. Without sourceVersionId the new version is a deep copy of the exam's
-// latest version; with sourceVersionId it copies that version. empty=true keeps the pre-versioning
-// behaviour of creating a brand-new empty draft version.
+// highest-numbered published version, falling back to the highest-numbered version overall when the
+// exam has no published version; with sourceVersionId it copies that version. empty=true keeps the
+// pre-versioning behaviour of creating a brand-new empty draft version. force=true lets the version
+// be created even when the exam already has a draft (which is otherwise a 409 draft_exists).
 public sealed record CreateExamVersionRequest(
     int? SchemaVersion = null,
     JsonElement? Metadata = null,
     string? ScoringPolicy = null,
     string? SourceVersionId = null,
-    bool Empty = false);
+    bool Empty = false,
+    bool Force = false);
 
 public sealed record UpdateExamRequest(string? Code, string Title, string? Description, string? Level, string? Area, string? Subject);
 

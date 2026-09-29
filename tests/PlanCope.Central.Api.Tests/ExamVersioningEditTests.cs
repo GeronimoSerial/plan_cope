@@ -62,7 +62,9 @@ public sealed class ExamVersioningEditTests
         dbContext.AssetUsages.Add(new AssetUsage("au-1", image.Id, assetId, "image", now, now));
         await dbContext.SaveChangesAsync();
 
-        var result = await controller.CreateVersion(exam.Id, new CreateExamVersionRequest(), CancellationToken.None);
+        // force: true because the source version is still a draft (the default source would
+        // otherwise be rejected with 409 draft_exists under the new rule).
+        var result = await controller.CreateVersion(exam.Id, new CreateExamVersionRequest(Force: true), CancellationToken.None);
 
         var created = Assert.IsType<CreatedAtActionResult>(result.Result);
         var dto = Assert.IsType<ExamVersionDto>(created.Value);
@@ -155,13 +157,13 @@ public sealed class ExamVersioningEditTests
             new UpsertBlockRequest(0, BlockType.TrueFalse, "P1", null, Json("""{"question":"v1"}"""), null),
             CancellationToken.None);
 
-        var emptyResult = await controller.CreateVersion(exam.Id, new CreateExamVersionRequest(Empty: true), CancellationToken.None);
+        var emptyResult = await controller.CreateVersion(exam.Id, new CreateExamVersionRequest(Empty: true, Force: true), CancellationToken.None);
         var v2 = Assert.IsType<ExamVersionDto>(Assert.IsType<CreatedAtActionResult>(emptyResult.Result).Value);
         Assert.Equal(0, v2.BlockCount);
 
         var result = await controller.CreateVersion(
             exam.Id,
-            new CreateExamVersionRequest(SourceVersionId: v1),
+            new CreateExamVersionRequest(SourceVersionId: v1, Force: true),
             CancellationToken.None);
 
         var dto = Assert.IsType<ExamVersionDto>(Assert.IsType<CreatedAtActionResult>(result.Result).Value);
@@ -186,7 +188,7 @@ public sealed class ExamVersioningEditTests
             new UpsertBlockRequest(0, BlockType.TrueFalse, "P1", null, Json("""{"question":"v1"}"""), null),
             CancellationToken.None);
 
-        var result = await controller.CreateVersion(exam.Id, new CreateExamVersionRequest(Empty: true), CancellationToken.None);
+        var result = await controller.CreateVersion(exam.Id, new CreateExamVersionRequest(Empty: true, Force: true), CancellationToken.None);
 
         var dto = Assert.IsType<ExamVersionDto>(Assert.IsType<CreatedAtActionResult>(result.Result).Value);
         Assert.Equal(2, dto.VersionNumber);
@@ -339,8 +341,8 @@ public sealed class ExamVersioningEditTests
 
         Assert.Empty(create.GetCustomAttributes<AllowAnonymousAttribute>(inherit: true));
         Assert.Empty(update.GetCustomAttributes<AllowAnonymousAttribute>(inherit: true));
-        Assert.Empty(update.GetCustomAttributes<AuthorizeAttribute>(inherit: true));
-        Assert.Empty(create.GetCustomAttributes<AuthorizeAttribute>(inherit: true));
+        Assert.Equal("ExamAuthor", Assert.Single(update.GetCustomAttributes<AuthorizeAttribute>(inherit: true)).Policy);
+        Assert.Equal("ExamAuthor", Assert.Single(create.GetCustomAttributes<AuthorizeAttribute>(inherit: true)).Policy);
     }
 
     [Fact]

@@ -351,8 +351,9 @@ public sealed class PublishPullRunPushTests
 
     private static async Task<VersionCreated> CreateExamVersionOnCentralAsync(HttpClient client, string examId)
     {
+        // Exam creation already leaves its initial draft; this helper intentionally creates a follow-on draft.
         var response = await client.PostAsJsonAsync($"/api/exams/{examId}/versions", new CreateExamVersionRequest(
-            1, JsonSerializer.Deserialize<JsonElement>("{}"), "ProportionalPenalised"));
+            1, JsonSerializer.Deserialize<JsonElement>("{}"), "ProportionalPenalised", Force: true));
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var version = await response.Content.ReadFromJsonAsync<VersionCreated>();
         Assert.NotNull(version);
