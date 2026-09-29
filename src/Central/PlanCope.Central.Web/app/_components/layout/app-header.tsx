@@ -1,14 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
 import { useNavigationGuard } from "./navigation-guard";
 import {
   Breadcrumb,
   BreadcrumbItem,
-  BreadcrumbList,
-  BreadcrumbPage
+  BreadcrumbLink,
+  BreadcrumbList
 } from "@/components/ui/breadcrumb";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -48,9 +49,8 @@ function initials(name: string) {
     .join("");
 }
 
-function sectionFor(pathname: string) {
-  const segment = pathname.split("/").filter(Boolean)[0] ?? "dashboard";
-  return sectionLabels[segment] ?? "Inicio";
+function ancestorFor(pathname: string) {
+  return pathname.startsWith("/exams/") ? { label: sectionLabels.exams, href: "/exams" } : null;
 }
 
 export function AppHeader({ user }: AppHeaderProps) {
@@ -58,6 +58,7 @@ export function AppHeader({ user }: AppHeaderProps) {
   const pathname = usePathname();
   const { intercept } = useNavigationGuard();
   const [loading, setLoading] = useState(false);
+  const ancestor = ancestorFor(pathname);
 
   async function logout() {
     setLoading(true);
@@ -80,15 +81,25 @@ export function AppHeader({ user }: AppHeaderProps) {
     <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center gap-2 border-b bg-background px-4 md:px-6">
       <SidebarTrigger className="-ml-1" />
       <div aria-hidden="true" className="mx-1 h-5 w-px shrink-0 bg-border" />
-      <div className="min-w-0 flex-1 overflow-hidden">
-        <Breadcrumb>
-          <BreadcrumbList className="flex-nowrap">
-            <BreadcrumbItem>
-              <BreadcrumbPage className="block truncate">{sectionFor(pathname)}</BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
-      </div>
+      {ancestor ? (
+        <div className="min-w-0 flex-1 overflow-hidden">
+          <Breadcrumb>
+            <BreadcrumbList className="flex-nowrap">
+              <BreadcrumbItem>
+                <BreadcrumbLink
+                  render={<Link href={ancestor.href} />}
+                  onClick={event => {
+                    event.preventDefault();
+                    if (!intercept(() => router.push(ancestor.href))) router.push(ancestor.href);
+                  }}
+                >
+                  {ancestor.label}
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+        </div>
+      ) : <div className="flex-1" aria-hidden="true" />}
       <DropdownMenu>
         <DropdownMenuTrigger
           render={<Button variant="ghost" size="icon" className="rounded-full" aria-label="Menú de usuario" />}

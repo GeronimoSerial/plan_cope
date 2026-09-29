@@ -97,10 +97,10 @@ export function NodeRegistryPanel({ initialNodes }: NodeRegistryPanelProps) {
             Todavía no hay nodos. Emití una clave de activación e instalá PlanCope en la escuela.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-2">
-            <Button variant="outline" render={<Link href="/claves" />}>
+            <Button nativeButton={false} variant="outline" render={<Link href="/claves" />}>
               Ir a claves
             </Button>
-            <Button variant="outline" render={<Link href="/descargas" />}>
+            <Button nativeButton={false} variant="outline" render={<Link href="/descargas" />}>
               Ir a descargas
             </Button>
           </div>

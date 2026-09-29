@@ -11,6 +11,13 @@ class SessionExpiredError extends Error {
   }
 }
 
+class NotFoundError extends Error {
+  constructor() {
+    super("Recurso no encontrado.");
+    this.name = "NotFoundError";
+  }
+}
+
 class NoInstallerPublishedError extends Error {
   constructor() {
     super("No installer published yet.");
@@ -20,6 +27,10 @@ class NoInstallerPublishedError extends Error {
 
 export function isSessionExpired(error: unknown): boolean {
   return error instanceof SessionExpiredError;
+}
+
+export function isNotFound(error: unknown): boolean {
+  return error instanceof NotFoundError;
 }
 
 export function isNoInstallerPublishedError(error: unknown): boolean {
@@ -39,6 +50,9 @@ async function serverGet<T>(path: string): Promise<T> {
   }
 
   const text = await res.text();
+  if (res.status === 404) {
+    throw new NotFoundError();
+  }
   if (!res.ok) {
     throw new Error(extractApiError(text, res.status));
   }

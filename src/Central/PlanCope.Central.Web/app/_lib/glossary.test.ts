@@ -51,6 +51,13 @@ describe("glosario", () => {
     }
   });
 
+  it("define las versiones del instalador y el destino del curso sin confundirlos", () => {
+    expect(glossary["version-instalador"].definition).toBe("Número de versión del instalador de PlanCope.");
+    expect(glossary["curso-grado"].definition).toBe(
+      "Curso o grado al que está destinado el examen; no cambia a quién se entrega."
+    );
+  });
+
   it("todos los términos usados en app/ existen en el glosario", () => {
     const referenced = collectReferencedTerms();
     expect(referenced.size).toBeGreaterThan(0);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -18,6 +18,7 @@ interface LoginFormProps {
 
 export function LoginForm({ redirectTo, expired }: LoginFormProps) {
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const {
     register,
@@ -27,6 +28,10 @@ export function LoginForm({ redirectTo, expired }: LoginFormProps) {
     resolver: zodResolver(loginSchema),
     defaultValues: { username: "", password: "" }
   });
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   async function onSubmit(values: LoginValues) {
     setServerError(null);
@@ -47,7 +52,7 @@ export function LoginForm({ redirectTo, expired }: LoginFormProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} noValidate className="grid gap-4">
+    <form method="post" onSubmit={handleSubmit(onSubmit)} noValidate className="grid gap-4">
       {expired && !serverError && (
         <Alert>
           <AlertDescription>Tu sesión expiró. Volvé a ingresar.</AlertDescription>
@@ -84,7 +89,7 @@ export function LoginForm({ redirectTo, expired }: LoginFormProps) {
         </Field>
       </FieldGroup>
 
-      <Button type="submit" disabled={isSubmitting} className="w-full">
+      <Button type="submit" disabled={!mounted || isSubmitting} className="w-full">
         {isSubmitting ? "Ingresando…" : "Ingresar"}
       </Button>
     </form>

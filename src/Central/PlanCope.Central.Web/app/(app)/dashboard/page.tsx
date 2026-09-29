@@ -42,7 +42,7 @@ export default async function DashboardPage() {
 
   const title = `Hola, ${user.displayName}`;
   const newExamAction = (
-    <Button render={<Link href="/exams" />}>Nuevo examen</Button>
+    <Button nativeButton={false} render={<Link href="/exams" />}>Nuevo examen</Button>
   );
 
   if ("error" in examsSettled) {
@@ -53,7 +53,6 @@ export default async function DashboardPage() {
       <>
         <PageHeader
           title={title}
-          description="Resumen de los exámenes. Creá uno nuevo o retomá un borrador."
           actions={newExamAction}
         />
         <Alert variant="destructive">
@@ -72,7 +71,6 @@ export default async function DashboardPage() {
     <>
       <PageHeader
         title={title}
-        description="Resumen de los exámenes. Creá uno nuevo o retomá un borrador."
         actions={newExamAction}
       />
 

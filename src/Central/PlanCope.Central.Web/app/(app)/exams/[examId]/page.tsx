@@ -1,17 +1,8 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { isSessionExpired, listExams, listVersions } from "../../../_lib/api/server";
+import { isNotFound, isSessionExpired, listExams, listVersions } from "../../../_lib/api/server";
 import { PageHeader } from "../../../_components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator
-} from "@/components/ui/breadcrumb";
 import { ExamHeaderActions } from "../../../_components/exams/exam-header-actions";
 import { ExamVersionsTable } from "../../../_components/exams/exam-versions-table";
 import { TermLabel } from "../../../_components/help/term-hint";
@@ -39,6 +30,9 @@ export default async function ExamDetailPage({ params }: { params: Promise<{ exa
     exam = exams.find(item => item.id === examId);
     versions = loadedVersions;
   } catch (error) {
+    if (isNotFound(error)) {
+      notFound();
+    }
     if (isSessionExpired(error)) {
       await redirectAfterSessionExpired(`/exams/${examId}`);
     }
@@ -53,21 +47,9 @@ export default async function ExamDetailPage({ params }: { params: Promise<{ exa
 
   return (
     <>
-      <Breadcrumb className="mb-4">
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink render={<Link href="/exams" />}>Exámenes</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>{exam.title}</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
       <PageHeader
         title={exam.title}
-        description={`${exam.code} · Versiones del examen, del borrador a la publicación en los nodos.`}
+        description={exam.code}
         actions={<ExamHeaderActions exam={exam} versions={versions} canEditExams={canEditExams((await getSessionUser())?.role)} />}
       />
 

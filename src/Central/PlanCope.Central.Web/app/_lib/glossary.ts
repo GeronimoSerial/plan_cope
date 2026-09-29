@@ -102,6 +102,16 @@ export const glossary = {
       "Copia concreta de un examen con sus preguntas. Se numera desde 1 y arranca como borrador.",
     source: "docs/central/exam-publishing-contract.md"
   },
+  "version-instalador": {
+    label: "Versión",
+    definition: "Número de versión del instalador de PlanCope.",
+    source: "app/(app)/descargas/page.tsx; app/_lib/contracts.ts"
+  },
+  "curso-grado": {
+    label: "Curso / grado",
+    definition: "Curso o grado al que está destinado el examen; no cambia a quién se entrega.",
+    source: "src/Shared/PlanCope.Shared.Contracts/Exams/ExamContracts.cs; src/Central/PlanCope.Central.Api/Controllers/ExamsController.cs"
+  },
   bloque: {
     label: "Bloque",
     definition: "Parte de una versión: una pregunta, un texto o una imagen. Se ordenan en el builder.",

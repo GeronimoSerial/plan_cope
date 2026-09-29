@@ -22,7 +22,6 @@ export default async function RegisteredNodesPage() {
     <>
       <PageHeader
         title="Nodos registrados"
-        description="Computadoras de las escuelas con PlanCope instalado. Acá ves cuáles están activas y cuándo sincronizaron por última vez."
       />
       <NodeRegistryPanel initialNodes={nodes} />
     </>
