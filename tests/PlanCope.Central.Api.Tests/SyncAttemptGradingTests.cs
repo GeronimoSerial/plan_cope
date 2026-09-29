@@ -189,6 +189,7 @@ public sealed class SyncAttemptGradingTests
     {
         var request = new PushRequest("node-1", new[] { item });
         var controller = new SyncController(dbContext, new CentralStatsRollupService(dbContext));
+        SyncTestPrincipals.BindNode(controller, "node-1");
         var result = await controller.Push(request, "node-1", new PushRequestValidator(), CancellationToken.None);
         var okResult = Assert.IsType<OkObjectResult>(result.Result);
         return Assert.IsType<PushResponse>(okResult.Value);

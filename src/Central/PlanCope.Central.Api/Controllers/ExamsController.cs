@@ -9,6 +9,7 @@ using Npgsql;
 using PlanCope.Central.Api.Data;
 using PlanCope.Central.Api.Services;
 using PlanCope.Shared.Contracts.Exams;
+using PlanCope.Shared.Contracts.Sync;
 using PlanCope.Shared.Domain.Central;
 
 namespace PlanCope.Central.Api.Controllers;
@@ -30,20 +31,8 @@ public sealed class ExamsController(
             .OrderBy(x => x.Code)
             .ToListAsync(cancellationToken);
 
-        var versionCounts = await dbContext.ExamVersions
-            .GroupBy(x => x.ExamId)
-            .Select(x => new { ExamId = x.Key, Count = x.Count() })
-            .ToDictionaryAsync(x => x.ExamId, x => x.Count, cancellationToken);
-
-        return Ok(exams.Select(x => new ExamSummaryDto(
-            x.Id,
-            x.Code,
-            x.Title,
-            x.Level,
-            x.Area,
-            x.Subject,
-            x.Status,
-            versionCounts.GetValueOrDefault(x.Id))).ToList());
+        var summaries = await BuildExamSummariesAsync(exams, cancellationToken);
+        return Ok(summaries);
     }
 
     [HttpPost]
@@ -76,7 +65,32 @@ public sealed class ExamsController(
             return ValidationProblem(ModelState);
         }
 
+        // Every new exam starts on a path to publication: an empty draft version (versionNumber 1)
+        // whose id is returned so the author can add blocks and publish without a second call.
+        var initialVersion = new ExamVersion(
+            NewId(),
+            exam.Id,
+            1,
+            1,
+            "Draft",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            now,
+            now,
+            null);
+
+        var versionValidation = await versionValidator.ValidateAsync(initialVersion, cancellationToken);
+        if (!versionValidation.IsValid)
+        {
+            return BadRequest(new ValidationProblemDetails(versionValidation.ToDictionary()));
+        }
+
         dbContext.Exams.Add(exam);
+        dbContext.ExamVersions.Add(initialVersion);
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return CreatedAtAction(nameof(List), new { id = exam.Id }, new ExamSummaryDto(
@@ -87,7 +101,9 @@ public sealed class ExamsController(
             exam.Area,
             exam.Subject,
             exam.Status,
-            0));
+            1,
+            InitialVersionId: initialVersion.Id,
+            PublicationState: ExamPublicationStates.Draft));
     }
 
     [HttpPost("{examId}/versions")]
@@ -154,7 +170,15 @@ public sealed class ExamsController(
             .OrderByDescending(x => x.VersionNumber)
             .ToListAsync(cancellationToken);
 
-        return Ok(versions.Select(version => ToDto(version, [], [], [])).ToList());
+        var versionIds = versions.Select(static version => version.Id).ToList();
+        var blocksByVersion = (await dbContext.ExamBlocks
+                .Where(x => versionIds.Contains(x.ExamVersionId))
+                .ToListAsync(cancellationToken))
+            .GroupBy(static block => block.ExamVersionId)
+            .ToDictionary(static group => group.Key, static group => (IReadOnlyList<ExamBlock>)group.ToList());
+
+        return Ok(versions.Select(version =>
+            ToDto(version, blocksByVersion.GetValueOrDefault(version.Id) ?? [], [], [])).ToList());
     }
 
     [HttpGet("versions/{versionId}")]
@@ -170,8 +194,11 @@ public sealed class ExamsController(
             .Where(x => x.ExamVersionId == versionId)
             .OrderBy(x => x.OrderIndex)
             .ToListAsync(cancellationToken);
+        // Hoist the block ids into a list: an inline `blocks.Select(...)` inside `Contains` is the
+        // kind of projection EF Core can fail to translate against a real provider.
+        var blockIds = blocks.Select(static block => block.Id).ToList();
         var answerKeys = await dbContext.AnswerKeys
-            .Where(x => blocks.Select(block => block.Id).Contains(x.ExamBlockId))
+            .Where(x => blockIds.Contains(x.ExamBlockId))
             .OrderBy(x => x.ExamBlockId)
             .ToListAsync(cancellationToken);
         var assets = await dbContext.ExamAssets
@@ -337,8 +364,9 @@ public sealed class ExamsController(
             }
         }
 
+        var blockIds = blocks.Select(static block => block.Id).ToList();
         var answerKeys = await dbContext.AnswerKeys
-            .Where(x => blocks.Select(block => block.Id).Contains(x.ExamBlockId))
+            .Where(x => blockIds.Contains(x.ExamBlockId))
             .ToListAsync(cancellationToken);
         var assets = await dbContext.ExamAssets
             .Where(x => x.ExamVersionId == versionId)
@@ -503,6 +531,7 @@ public sealed class ExamsController(
         IReadOnlyList<AnswerKey> answerKeys,
         IReadOnlyList<ExamAsset> assets)
     {
+        var (canPublish, publishBlockedReason) = EvaluatePublishReadiness(version, blocks);
         return new ExamVersionDto(
             version.Id,
             version.ExamId,
@@ -513,7 +542,37 @@ public sealed class ExamsController(
             blocks.Select(ToDto).ToList(),
             answerKeys.Select(ToDto).ToList(),
             assets.Select(ToDto).ToList(),
-            version.ScoringPolicy);
+            version.ScoringPolicy,
+            blocks.Count,
+            canPublish,
+            publishBlockedReason);
+    }
+
+    /// <summary>
+    /// Per-version readiness independent of the publish request. The publish endpoint applies two
+    /// additional request-level gates (<c>grade</c> required, block-level validation), so
+    /// <see cref="ExamVersionDto.CanPublish"/> true means "this version is not blocked by its own
+    /// content", not a guarantee the next publish call will succeed.
+    /// </summary>
+    private static (bool CanPublish, string? Reason) EvaluatePublishReadiness(ExamVersion version, IReadOnlyList<ExamBlock> blocks)
+    {
+        if (IsPublished(version))
+        {
+            return (false, "already_published");
+        }
+
+        if (blocks.Count == 0)
+        {
+            return (false, "no_blocks");
+        }
+
+        var hasMultipleChoiceBlock = blocks.Any(static block => block.BlockType == PlanCope.Shared.Domain.BlockType.MultipleChoice);
+        if (hasMultipleChoiceBlock && PlanCope.Shared.Grading.ScoringPolicyParser.Parse(version.ScoringPolicy) is null)
+        {
+            return (false, "scoring_policy_required");
+        }
+
+        return (true, null);
     }
 
     private static BlockDto ToDto(ExamBlock block)
@@ -569,23 +628,151 @@ public sealed class ExamsController(
 
     private static IReadOnlyList<PublicationTargetDto> BuildTargets(PublishExamVersionRequest request, Exam exam)
     {
-        var targets = new List<PublicationTargetDto>
-        {
-            new("grade", request.Grade.Trim())
-        };
+        var targets = new List<PublicationTargetDto>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
 
-        var subject = request.Subject ?? exam.Subject;
-        if (!string.IsNullOrWhiteSpace(subject))
+        void Add(string targetType, string? targetId)
         {
-            targets.Add(new PublicationTargetDto("subject", subject.Trim()));
+            if (string.IsNullOrWhiteSpace(targetId))
+            {
+                return;
+            }
+
+            var trimmed = targetId.Trim();
+            if (seen.Add($"{targetType}:{trimmed}"))
+            {
+                targets.Add(new PublicationTargetDto(targetType, trimmed));
+            }
         }
 
-        if (!string.IsNullOrWhiteSpace(request.Division))
+        // grade/subject/division are descriptive metadata, not delivery filters.
+        Add(PublicationTargetTypes.Grade, request.Grade);
+        Add(PublicationTargetTypes.Subject, request.Subject ?? exam.Subject);
+        Add(PublicationTargetTypes.Division, request.Division);
+
+        // node/school targets opt a package into per-node delivery; absence of these means "all nodes".
+        foreach (var nodeId in request.NodeIds ?? [])
         {
-            targets.Add(new PublicationTargetDto("division", request.Division.Trim()));
+            Add(PublicationTargetTypes.Node, nodeId);
+        }
+
+        foreach (var schoolId in request.SchoolIds ?? [])
+        {
+            Add(PublicationTargetTypes.School, schoolId);
         }
 
         return targets;
+    }
+
+    private async Task<List<ExamSummaryDto>> BuildExamSummariesAsync(
+        IReadOnlyList<Exam> exams,
+        CancellationToken cancellationToken)
+    {
+        if (exams.Count == 0)
+        {
+            return [];
+        }
+
+        var examIds = exams.Select(static exam => exam.Id).ToList();
+        var versions = await dbContext.ExamVersions
+            .Where(x => examIds.Contains(x.ExamId))
+            .ToListAsync(cancellationToken);
+        var versionIds = versions.Select(static version => version.Id).ToList();
+
+        var blockCounts = await dbContext.ExamBlocks
+            .Where(x => versionIds.Contains(x.ExamVersionId))
+            .GroupBy(static block => block.ExamVersionId)
+            .Select(static group => new { VersionId = group.Key, Count = group.Count() })
+            .ToDictionaryAsync(static row => row.VersionId, static row => row.Count, cancellationToken);
+
+        var versionsByExam = versions
+            .GroupBy(static version => version.ExamId)
+            .ToDictionary(static group => group.Key, static group => group.ToList());
+        var publishedVersionByExam = versions
+            .Where(IsPublished)
+            .GroupBy(static version => version.ExamId)
+            .ToDictionary(
+                static group => group.Key,
+                static group => group.OrderByDescending(version => version.VersionNumber).First());
+
+        var publishedVersionIds = publishedVersionByExam.Values.Select(static version => version.Id).ToList();
+        var packagesByVersion = (await dbContext.PublicationPackages
+                .Where(x => publishedVersionIds.Contains(x.ExamVersionId))
+                .ToListAsync(cancellationToken))
+            .GroupBy(static package => package.ExamVersionId)
+            .ToDictionary(
+                static group => group.Key,
+                static group => group.OrderByDescending(package => package.PackageVersion).First());
+
+        var packageIds = packagesByVersion.Values.Select(static package => package.Id).ToList();
+        var targetsByPackage = (await dbContext.PublicationTargets
+                .Where(x => packageIds.Contains(x.PublicationPackageId))
+                .ToListAsync(cancellationToken))
+            .GroupBy(static target => target.PublicationPackageId)
+            .ToDictionary(
+                static group => group.Key,
+                static group => (IReadOnlyList<PublicationTargetDto>)group
+                    .OrderBy(static target => target.TargetType)
+                    .ThenBy(static target => target.TargetId)
+                    .Select(static target => new PublicationTargetDto(target.TargetType, target.TargetId))
+                    .ToList());
+
+        var deliveryKeys = packageIds.Select(SyncCursorKeys.PackageDelivery).ToList();
+        var deliveredByKey = (await dbContext.SyncCursors
+                .Where(x => deliveryKeys.Contains(x.CursorKey))
+                .Select(static cursor => cursor.CursorKey)
+                .ToListAsync(cancellationToken))
+            .GroupBy(static key => key)
+            .ToDictionary(static group => group.Key, static group => group.Count());
+
+        var result = new List<ExamSummaryDto>(exams.Count);
+        foreach (var exam in exams)
+        {
+            var examVersions = versionsByExam.GetValueOrDefault(exam.Id) ?? [];
+            var publicationState = ExamPublicationStates.Draft;
+            string? publishedVersionId = null;
+            int? publishedVersionNumber = null;
+            DateTimeOffset? publishedAt = null;
+            IReadOnlyList<PublicationTargetDto>? targets = null;
+            int? pulledByNodeCount = null;
+
+            if (publishedVersionByExam.TryGetValue(exam.Id, out var publishedVersion))
+            {
+                publicationState = ExamPublicationStates.Published;
+                publishedVersionId = publishedVersion.Id;
+                publishedVersionNumber = publishedVersion.VersionNumber;
+                publishedAt = publishedVersion.PublishedAt;
+                targets = [];
+
+                if (packagesByVersion.TryGetValue(publishedVersion.Id, out var package))
+                {
+                    targets = targetsByPackage.GetValueOrDefault(package.Id) ?? [];
+                    pulledByNodeCount = deliveredByKey.GetValueOrDefault(SyncCursorKeys.PackageDelivery(package.Id));
+                }
+            }
+            else if (examVersions.Any(version => blockCounts.GetValueOrDefault(version.Id) > 0))
+            {
+                publicationState = ExamPublicationStates.ReadyToPublish;
+            }
+
+            result.Add(new ExamSummaryDto(
+                exam.Id,
+                exam.Code,
+                exam.Title,
+                exam.Level,
+                exam.Area,
+                exam.Subject,
+                exam.Status,
+                examVersions.Count,
+                PublicationState: publicationState,
+                PublishedVersionId: publishedVersionId,
+                PublishedVersionNumber: publishedVersionNumber,
+                PublishedAt: publishedAt,
+                Targets: targets,
+                PulledByNodeCount: pulledByNodeCount));
+        }
+
+        return result;
     }
 
     private static bool IsPublished(ExamVersion version)
