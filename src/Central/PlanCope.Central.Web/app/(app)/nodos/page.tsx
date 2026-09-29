@@ -19,13 +19,7 @@ export default async function RegisteredNodesPage() {
 
   return (
     <>
-      <PageHeader
-        eyebrow="Nodos"
-        title="Nodos registrados"
-        description="Administrá los nodos registrados de la instalación."
-        breadcrumbs={[{ label: "Inicio", href: "/dashboard" }, { label: "Nodos" }]}
-      />
-
+      <PageHeader title="Nodos registrados" />
       <NodeRegistryPanel initialNodes={nodes} />
     </>
   );

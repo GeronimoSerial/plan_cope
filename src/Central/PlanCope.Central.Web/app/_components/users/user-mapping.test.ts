@@ -11,7 +11,9 @@ import {
   formatCues,
   formatRoleCodes,
   hasAnyRoleOrCueAction,
+  roleLabel,
   rolesAvailableToAssign,
+  userStatusLabel,
   usersEmptyStateDescription
 } from "./user-mapping";
 import { canManageUser } from "../../_lib/scope";
@@ -93,6 +95,22 @@ describe("formatRoleCodes", () => {
   it("une los códigos con coma y espacio", () => {
     expect(formatRoleCodes(["Teacher"])).toBe("Teacher");
     expect(formatRoleCodes(["Teacher", "Grader"])).toBe("Teacher, Grader");
+  });
+});
+
+describe("userStatusLabel", () => {
+  it("traduce los estados del backend al español", () => {
+    expect(userStatusLabel("Active")).toBe("Activo");
+    expect(userStatusLabel("Inactive")).toBe("Inactivo");
+  });
+
+  it("ignora mayúsculas y minúsculas", () => {
+    expect(userStatusLabel("active")).toBe("Activo");
+    expect(userStatusLabel("INACTIVE")).toBe("Inactivo");
+  });
+
+  it("deja pasar un estado desconocido tal cual", () => {
+    expect(userStatusLabel("Suspended")).toBe("Suspended");
   });
 });
 
@@ -307,5 +325,21 @@ describe("hasAnyRoleOrCueAction", () => {
     expect(soloAdmin.cues.some(cue => canOfferCueRevoke(schoolUserNoCues, cue))).toBe(false);
     expect(cuesAvailableToAssign(schoolUserNoCues, soloAdmin.cues)).toStrictEqual([]);
     expect(hasAnyRoleOrCueAction(schoolUserNoCues, soloAdmin, onlyAdmin)).toBe(false);
+  });
+});
+
+describe("roleLabel", () => {
+  it("traduce los codigos de rol conocidos al espanol", () => {
+    expect(roleLabel("Admin")).toBe("Administrador");
+    expect(roleLabel("RosterProvince")).toBe("Padrón provincial");
+    expect(roleLabel("RosterSchool")).toBe("Padrón escolar");
+    expect(roleLabel("ExamAuthor")).toBe("Autor de exámenes");
+    expect(roleLabel("Grader")).toBe("Corrector");
+    expect(roleLabel("Operator")).toBe("Operador");
+  });
+
+  it("devuelve el codigo sin cambios cuando es desconocido", () => {
+    expect(roleLabel("Teacher")).toBe("Teacher");
+    expect(roleLabel("")).toBe("");
   });
 });

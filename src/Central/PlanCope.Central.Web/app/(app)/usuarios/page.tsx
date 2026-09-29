@@ -9,7 +9,8 @@ import {
 } from "../../_lib/api/server";
 import { getSessionUser } from "../../_lib/server/session";
 import { PageHeader } from "../../_components/layout/page-header";
-import { UserRegistryPanel } from "../../_components/users/user-registry-panel";
+import { CreateUserButton } from "../../_components/users/create-user-dialog";
+import { UsersTable } from "../../_components/users/users-table";
 
 export const metadata: Metadata = { title: "Usuarios · PlanCope Central" };
 
@@ -19,8 +20,7 @@ export default async function UsersPage() {
   let users: UserSummary[];
   let roles: RoleSummary[];
   try {
-    users = await listUsers();
-    roles = await listRoles();
+    [users, roles] = await Promise.all([listUsers(), listRoles()]);
   } catch (error) {
     if (isSessionExpired(error)) {
       redirect("/login?expired=1");
@@ -30,14 +30,8 @@ export default async function UsersPage() {
 
   return (
     <>
-      <PageHeader
-        eyebrow="Usuarios"
-        title="Usuarios"
-        description="Administrá los usuarios de la instalación y su acceso."
-        breadcrumbs={[{ label: "Inicio", href: "/dashboard" }, { label: "Usuarios" }]}
-      />
-
-      <UserRegistryPanel initialUsers={users} roles={roles} user={user!} />
+      <PageHeader title="Usuarios" actions={<CreateUserButton user={user!} />} />
+      <UsersTable users={users} roles={roles} user={user!} />
     </>
   );
 }

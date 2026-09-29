@@ -1,14 +1,17 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getLatestInstaller, isNoInstallerPublishedError, isSessionExpired } from "../../_lib/api/server";
 import { buildInstallerDownloadHref } from "../../_lib/installer-download";
 import { PageHeader } from "../../_components/layout/page-header";
-import { Banner } from "../../_components/ui/banner";
-import { EmptyState } from "../../_components/ui/empty-state";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export const metadata: Metadata = { title: "Descargas · PlanCope Central" };
 
-export default async function DescargasPage() {
+async function InstallerCard() {
   let installer;
   try {
     installer = await getLatestInstaller();
@@ -17,54 +20,59 @@ export default async function DescargasPage() {
       redirect("/login?expired=1");
     }
     if (isNoInstallerPublishedError(error)) {
-      return (
-        <>
-          <PageHeader
-            eyebrow="Descargas"
-            title="Descargá el instalador de escritorio"
-            description="El instalador de PlanCope para las computadoras de las escuelas."
-          />
-          <div className="card">
-            <div className="card__body">
-              <EmptyState
-                title="Todavía no hay un instalador publicado"
-                description="Aún no se publicó un instalador para este canal. Intentá nuevamente más tarde."
-              />
-            </div>
-          </div>
-        </>
-      );
+      return <p className="text-sm text-muted-foreground">Todavía no hay un instalador publicado.</p>;
     }
     return (
-      <>
-        <PageHeader eyebrow="Descargas" title="Descargá el instalador de escritorio" />
-        <Banner tone="error">No se pudo consultar el instalador disponible. Intentá nuevamente más tarde.</Banner>
-      </>
+      <Alert variant="destructive">
+        <AlertDescription>No se pudo consultar el instalador. Intentá nuevamente más tarde.</AlertDescription>
+      </Alert>
     );
   }
 
   return (
-    <>
-      <PageHeader
-        eyebrow="Descargas"
-        title="Descargá el instalador de escritorio"
-        description="El instalador incluye el padrón cifrado de la provincia. Instalalo solo en la computadora de la escuela."
-      />
-      <div className="card">
-        <div className="card__body">
-          <p>
-            Versión <strong>{installer.version}</strong> · Canal <strong>{installer.channel}</strong>
-          </p>
-          <a href={buildInstallerDownloadHref(installer.channel)} download className="button">
+    <Card className="max-w-md">
+      <CardHeader>
+        <CardTitle>Instalador de escritorio</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <p className="text-sm">
+          Versión <span className="font-medium">{installer.version}</span> · Canal{" "}
+          <span className="font-medium">{installer.channel}</span>
+        </p>
+        <div>
+          <Button render={<a href={buildInstallerDownloadHref(installer.channel)} download />}>
             Descargar instalador
-          </a>
-          {installer.sha256 ? (
-            <p className="resource-card__meta">
-              SHA-256: {installer.sha256}
-            </p>
-          ) : null}
+          </Button>
         </div>
-      </div>
+        {installer.sha256 ? (
+          <p className="text-xs break-all text-muted-foreground">SHA-256: {installer.sha256}</p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function InstallerCardSkeleton() {
+  return (
+    <Card className="max-w-md">
+      <CardHeader>
+        <Skeleton className="h-5 w-44" />
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <Skeleton className="h-4 w-56" />
+        <Skeleton className="h-8 w-44" />
+      </CardContent>
+    </Card>
+  );
+}
+
+export default function DescargasPage() {
+  return (
+    <>
+      <PageHeader title="Descargas" />
+      <Suspense fallback={<InstallerCardSkeleton />}>
+        <InstallerCard />
+      </Suspense>
     </>
   );
 }

@@ -42,6 +42,20 @@ export function formatRoleCodes(roleCodes: string[]): string {
   return roleCodes.length === 0 ? "—" : roleCodes.join(", ");
 }
 
+export { roleLabel } from "../../_lib/roles";
+
+/** Etiqueta en español para el estado del usuario que expone el backend (Active/Inactive). */
+export function userStatusLabel(status: string): string {
+  switch (status.toLowerCase()) {
+    case "active":
+      return "Activo";
+    case "inactive":
+      return "Inactivo";
+    default:
+      return status;
+  }
+}
+
 export function canOfferUserCreate(user: Pick<UserProfile, "role" | "rosterScope">): boolean {
   return canCreateUser(user);
 }

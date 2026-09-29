@@ -1,26 +1,30 @@
 import type { ReactNode } from "react";
-import { Breadcrumbs, type Crumb } from "../ui/breadcrumbs";
+import type { Crumb } from "../ui/breadcrumbs";
 
 interface PageHeaderProps {
-  eyebrow?: string;
   title: string;
   description?: string;
-  breadcrumbs?: Crumb[];
   actions?: ReactNode;
+  /**
+   * @deprecated The app header renders the breadcrumb trail. Kept so pages still
+   * passing `eyebrow` keep compiling; the value is intentionally not rendered.
+   */
+  eyebrow?: string;
+  /**
+   * @deprecated Navigation location is shown in the app header. Accepted for
+   * backward compatibility, not rendered here.
+   */
+  breadcrumbs?: Crumb[];
 }
 
-export function PageHeader({ eyebrow, title, description, breadcrumbs, actions }: PageHeaderProps) {
+export function PageHeader({ title, description, actions }: PageHeaderProps) {
   return (
-    <div>
-      {breadcrumbs && breadcrumbs.length > 0 && <Breadcrumbs items={breadcrumbs} />}
-      <div className="page-header">
-        <div>
-          {eyebrow && <p className="eyebrow">{eyebrow}</p>}
-          <h1>{title}</h1>
-          {description && <p className="page-header__description">{description}</p>}
-        </div>
-        {actions && <div className="page-header__actions">{actions}</div>}
+    <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-w-0">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">{title}</h1>
+        {description && <p className="mt-1 max-w-prose text-sm text-muted-foreground">{description}</p>}
       </div>
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
 }
