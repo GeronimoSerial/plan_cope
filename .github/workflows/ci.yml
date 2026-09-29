@@ -81,6 +81,8 @@ jobs:
         run: ./scripts/check-dockerfile-project-list.sh
       - name: Local migration numbers are unique
         run: ./scripts/check-migration-numbers.sh
+      - name: Next release version computation is correct
+        run: bash scripts/tests/next-release-version.test.sh
 
   central-api:
     name: central-api

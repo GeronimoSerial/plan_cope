@@ -6,6 +6,10 @@ receive. All paths are relative to the Central API base URL. All endpoints requi
 `Authorization: Bearer <access token>` unless noted. JSON uses camelCase; `blockType` is serialized
 as a string (e.g. `"TrueFalse"`).
 
+Every write action in `ExamsController` requires role `Admin` or `ExamAuthor`; an authenticated
+caller with another role receives `403`. The read actions retain the normal authenticated-user
+requirement.
+
 Source of truth: `src/Central/PlanCope.Central.Api/Controllers/ExamsController.cs`,
 `src/Central/PlanCope.Central.Api/Controllers/SyncController.cs`,
 `src/Shared/PlanCope.Shared.Contracts/Exams/ExamContracts.cs`.
@@ -97,7 +101,7 @@ derived from the exam's versions, never stored (except the source link):
 | Field                   | Type          | Meaning                                                                                      |
 | ----------------------- | ------------- | -------------------------------------------------------------------------------------------- |
 | `publishedAt`           | ISO-8601 `string?` | `ExamVersion.PublishedAt`, or null while the version is a draft.                         |
-| `supersededAt`          | ISO-8601 `string?` | For a published version that has been superseded: the `publishedAt` of the next published version (lowest `versionNumber` greater than this one). Null for the current version and for drafts. |
+| `supersededAt`          | ISO-8601 `string?` | For a published version that has been superseded: the `publishedAt` of the next published version (lowest `versionNumber` greater than this one), clamped so it is never earlier than this version's own `publishedAt`. Null for the current version and for drafts. |
 | `isCurrent`             | `bool`        | True only for the latest published version of the exam.                                      |
 | `basedOnVersionNumber`  | `int?`        | `versionNumber` of the version this one was copied from; null for an empty/initial version.  |
 
@@ -157,7 +161,7 @@ list responses).
 ### 3.3 Create another version — `POST /api/exams/{examId}/versions`
 
 Creates a new draft version with `versionNumber = max(versionNumber) + 1`. Every body field is
-optional:
+optional and so is the body itself: a request with no body (or no `Content-Type`) behaves like `{}`.
 
 ```json
 {
@@ -165,17 +169,19 @@ optional:
   "metadata": { "generatedBy": "teacher01" },
   "scoringPolicy": "AllOrNothing",
   "sourceVersionId": "ev_def456",
-  "empty": false
+  "empty": false,
+  "force": false
 }
 ```
 
 | Field             | Default                                                                                     |
 | ----------------- | ------------------------------------------------------------------------------------------- |
-| `sourceVersionId` | The exam's latest version (highest `versionNumber`).                                        |
+| `sourceVersionId` | The exam's highest-`versionNumber` **published** version. When the exam has no published version, the highest-`versionNumber` version overall. An unpublished draft is never copied by default. |
 | `schemaVersion`   | The source version's `schemaVersion`, else `1`.                                             |
 | `metadata`        | Deep copy of the source version's metadata.                                                 |
 | `scoringPolicy`   | Copy of the source version's scoring policy.                                                |
 | `empty`           | `false`. Set `empty: true` to create an empty version instead of copying (legacy behaviour).|
+| `force`           | `false`. Set `force: true` to create the version even when the exam already has a draft.    |
 
 When the source is copied, the new version is a **deep copy**: new ids for the version, blocks,
 block options, answer keys and assets; image blocks' `config.assetId` is rewritten to the new asset
@@ -188,8 +194,17 @@ Response `201 Created`: `ExamVersionDto` for the new draft, carrying the copied 
 
 Errors: `404` unknown exam or unknown `sourceVersionId`; `400` validation, or a `sourceVersionId`
 that belongs to a different exam (validation key `sourceVersionId`); `409` concurrent version
-creation. Creating a version while another draft already exists is allowed by the API (the web UI
-prevents it).
+creation.
+
+An exam may have at most one draft at a time. When a version in status `Draft` already exists and
+`force` is not `true`, nothing is created and the call returns `409` with:
+
+```json
+{ "code": "draft_exists", "draftVersionId": "ev_draft789" }
+```
+
+`draftVersionId` is the highest-`versionNumber` existing draft, so the client can open it instead of
+creating a duplicate. Set `force: true` to create a second draft anyway.
 
 ### 3.4 List versions — `GET /api/exams/{examId}/versions`
 
@@ -284,7 +299,13 @@ Effects: creates `publication.packages` row with `Status = "Published"`, writes
 `publication.targets`, and sets the version status to `Published` with `publishedAt`. Published
 versions become immutable and can only be published once.
 
-Errors: `404` unknown version, `409` already published, `400` with a `ValidationProblemDetails`
+Publishing runs as one database transaction. A unique constraint permits one package per exam
+version, so simultaneous publish requests can produce one `200` response and one `409` response;
+the losing request receives the same already-published conflict as a later retry.
+
+Errors: `404` unknown version, `409` already published, `409` when the version's `versionNumber` is
+lower than the current published version's (out-of-order publish, body
+`{ "code": "older_than_current" }`, nothing changes), `400` with a `ValidationProblemDetails`
 whose error keys are `blocks` (no blocks), `scoringPolicy` (MCQ without policy), `grade` (missing),
 or per-block/config keys; `400` when an `Image` block references an asset that does not exist.
 
@@ -322,7 +343,8 @@ A published version is immutable: `PUT .../document`, `PUT .../blocks` and `POST
 `409`. To change a published exam:
 
 1. `POST /api/exams/{examId}/versions` with `{ "sourceVersionId": "<current published version id>" }`
-   (or no body at all, which defaults to the latest version) to get an editable draft deep-copy.
+   (or no body at all, which defaults to the highest published version) to get an editable draft
+   deep-copy.
 2. Edit the draft with the normal `document` / `blocks` / `assets` endpoints.
 3. `POST /api/exams/versions/{draftVersionId}/publish` to emit a new package.
 
@@ -336,7 +358,10 @@ Publication is append-only: publishing never mutates or deletes an earlier packa
 - The **current** version is the published version with the highest `versionNumber`; only it reports
   `isCurrent: true`.
 - Every earlier published version reports `isCurrent: false` and `supersededAt` = the `publishedAt`
-  of the next published version.
+  of the next published version, clamped with `max` against its own `publishedAt` so a clock-skewed
+  next publication can never claim to have superseded it before it was published.
+- Publishing a version whose `versionNumber` is lower than the current published version's returns
+  `409 { "code": "older_than_current" }` and changes nothing.
 - `ExamSummaryDto.publishedVersion*` points at the current version.
 - Previous `PublicationPackage` rows stay `Published` and are not deleted, so a node that has not
   pulled the older package yet can still receive it; the newer package is delivered afterwards

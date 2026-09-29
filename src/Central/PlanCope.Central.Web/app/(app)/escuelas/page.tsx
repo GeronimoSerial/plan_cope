@@ -26,6 +26,7 @@ import {
   parsePageParams,
   type RawSearchParams
 } from "../../_lib/pagination";
+import { redirectAfterSessionExpired } from "../../_lib/server/auth-refresh";
 
 export const metadata: Metadata = { title: "Escuelas · PlanCope Central" };
 
@@ -56,7 +57,7 @@ export default async function SchoolsPage({ searchParams }: SchoolsPageProps) {
     schools = await listSchools();
   } catch (error) {
     if (isSessionExpired(error)) {
-      redirect("/login?expired=1");
+      await redirectAfterSessionExpired("/escuelas");
     }
     throw error;
   }

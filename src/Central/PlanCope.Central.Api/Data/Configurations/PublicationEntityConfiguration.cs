@@ -16,6 +16,7 @@ public sealed class PublicationPackageConfiguration : IEntityTypeConfiguration<P
         builder.Property(static x => x.Manifest).HasColumnType("jsonb").IsRequired();
         builder.Property(static x => x.Status).HasMaxLength(32).IsRequired();
         builder.HasIndex(static x => new { x.ExamVersionId, x.PackageVersion }).IsUnique();
+        builder.HasIndex(static x => x.ExamVersionId).IsUnique();
     }
 }
 

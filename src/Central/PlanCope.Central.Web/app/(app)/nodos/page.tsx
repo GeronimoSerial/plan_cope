@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { isSessionExpired, listRegisteredNodes, type RegisteredNodeSummary } from "../../_lib/api/server";
 import { PageHeader } from "../../_components/layout/page-header";
 import { NodeRegistryPanel } from "../../_components/nodes/node-registry-panel";
+import { redirectAfterSessionExpired } from "../../_lib/server/auth-refresh";
 
 export const metadata: Metadata = { title: "Nodos registrados · PlanCope Central" };
 
@@ -12,7 +13,7 @@ export default async function RegisteredNodesPage() {
     nodes = await listRegisteredNodes();
   } catch (error) {
     if (isSessionExpired(error)) {
-      redirect("/login?expired=1");
+      await redirectAfterSessionExpired("/nodos");
     }
     throw error;
   }

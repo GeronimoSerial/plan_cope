@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { ExamSummary } from "../../_lib/contracts";
+import { redirectAfterSessionExpired } from "../../_lib/server/auth-refresh";
 
 export const metadata: Metadata = { title: "Inicio · PlanCope Central" };
 
@@ -46,7 +47,7 @@ export default async function DashboardPage() {
 
   if ("error" in examsSettled) {
     if (isSessionExpired(examsSettled.error)) {
-      redirect("/login?expired=1");
+      await redirectAfterSessionExpired("/dashboard");
     }
     return (
       <>

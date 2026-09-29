@@ -7,6 +7,7 @@ import {
 } from "../../_lib/api/server";
 import { PageHeader } from "../../_components/layout/page-header";
 import { LegacyPolicyPanel } from "../../_components/legacy-policy/legacy-policy-panel";
+import { redirectAfterSessionExpired } from "../../_lib/server/auth-refresh";
 
 export const metadata: Metadata = { title: "Reglas de puntaje pendientes · PlanCope Central" };
 
@@ -16,7 +17,7 @@ export default async function LegacyGradingPoliciesPage() {
     versions = await listUnassignedGradingPolicies();
   } catch (error) {
     if (isSessionExpired(error)) {
-      redirect("/login?expired=1");
+      await redirectAfterSessionExpired("/politicas-legado");
     }
     throw error;
   }

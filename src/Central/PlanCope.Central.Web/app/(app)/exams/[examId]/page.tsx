@@ -23,6 +23,9 @@ import {
   publicationStateTerm
 } from "../../../_lib/exams/exam-state";
 import type { ExamSummary, ExamVersion } from "../../../_lib/contracts";
+import { redirectAfterSessionExpired } from "../../../_lib/server/auth-refresh";
+import { getSessionUser } from "../../../_lib/server/session";
+import { canEditExams } from "../../../_lib/exam-permissions";
 
 export const metadata: Metadata = { title: "Examen · PlanCope Central" };
 
@@ -37,7 +40,7 @@ export default async function ExamDetailPage({ params }: { params: Promise<{ exa
     versions = loadedVersions;
   } catch (error) {
     if (isSessionExpired(error)) {
-      redirect("/login?expired=1");
+      await redirectAfterSessionExpired(`/exams/${examId}`);
     }
     throw error;
   }
@@ -65,7 +68,7 @@ export default async function ExamDetailPage({ params }: { params: Promise<{ exa
       <PageHeader
         title={exam.title}
         description={`${exam.code} · Versiones del examen, del borrador a la publicación en los nodos.`}
-        actions={<ExamHeaderActions exam={exam} versions={versions} />}
+        actions={<ExamHeaderActions exam={exam} versions={versions} canEditExams={canEditExams((await getSessionUser())?.role)} />}
       />
 
       <div className="mb-6 flex flex-wrap items-center gap-2">
@@ -83,7 +86,7 @@ export default async function ExamDetailPage({ params }: { params: Promise<{ exa
         )}
       </div>
 
-      <ExamVersionsTable examId={exam.id} versions={versions} />
+      <ExamVersionsTable examId={exam.id} versions={versions} canEditExams={canEditExams((await getSessionUser())?.role)} />
     </>
   );
 }

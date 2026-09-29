@@ -202,6 +202,8 @@ jobs:
             echo "::error::Health checks never came back green. Production may be down — check Coolify logs."
             exit 1
           fi
-          echo "### Deployed \`${IMAGE_TAG}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "API and Web both answering 200." >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Deployed \`${IMAGE_TAG}\`"
+            echo ""
+            echo "API and Web both answering 200."
+          } >> "$GITHUB_STEP_SUMMARY"

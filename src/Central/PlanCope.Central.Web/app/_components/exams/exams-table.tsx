@@ -20,9 +20,10 @@ import type { ExamSummary } from "../../_lib/contracts";
 
 interface ExamsTableProps {
   exams: ExamSummary[];
+  canEditExams: boolean;
 }
 
-export function ExamsTable({ exams }: ExamsTableProps) {
+export function ExamsTable({ exams, canEditExams }: ExamsTableProps) {
   const [query, setQuery] = useState("");
   const filtered = useMemo(() => filterExams(exams, query), [exams, query]);
 
@@ -32,7 +33,7 @@ export function ExamsTable({ exams }: ExamsTableProps) {
         <p className="text-sm text-muted-foreground">
           Todavía no hay exámenes. Creá el primero para cargar preguntas y publicarlo.
         </p>
-        <CreateExamButton />
+        <CreateExamButton canEditExams={canEditExams} />
       </div>
     );
   }
