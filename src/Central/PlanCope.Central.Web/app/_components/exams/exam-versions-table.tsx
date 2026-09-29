@@ -16,7 +16,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { TermLabel } from "../help/term-hint";
 import { formatPublishedAt, publishBlockedMessage } from "../../_lib/exams/exam-state";
 import {
-  findDraft,
   nextVersionNumber,
   versionStatusBadgeVariant,
   versionStatusLabel,
@@ -28,9 +27,10 @@ import type { ExamVersion } from "../../_lib/contracts";
 interface ExamVersionsTableProps {
   examId: string;
   versions: ExamVersion[];
+  canEditExams: boolean;
 }
 
-export function ExamVersionsTable({ examId, versions }: ExamVersionsTableProps) {
+export function ExamVersionsTable({ examId, versions, canEditExams }: ExamVersionsTableProps) {
   const [createSource, setCreateSource] = useState<ExamVersion | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -42,7 +42,6 @@ export function ExamVersionsTable({ examId, versions }: ExamVersionsTableProps) 
     );
   }
 
-  const draft = findDraft(versions);
   const nextNumber = nextVersionNumber(versions);
 
   function openCreateFrom(version: ExamVersion) {
@@ -129,9 +128,9 @@ export function ExamVersionsTable({ examId, versions }: ExamVersionsTableProps) 
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem render={<Link href={builderHref} />}>
-                          {isDraft ? "Editar" : "Ver"}
+                          {isDraft && canEditExams ? "Editar" : "Ver"}
                         </DropdownMenuItem>
-                        {isDraft &&
+                        {canEditExams && isDraft &&
                           (version.canPublish ? (
                             <DropdownMenuItem render={<Link href={`${builderHref}?publicar=1`} />}>
                               Publicar
@@ -146,10 +145,10 @@ export function ExamVersionsTable({ examId, versions }: ExamVersionsTableProps) 
                               </span>
                             </DropdownMenuItem>
                           ))}
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => openCreateFrom(version)}>
+                        {canEditExams && <DropdownMenuSeparator />}
+                        {canEditExams && <DropdownMenuItem onClick={() => openCreateFrom(version)}>
                           Crear versión a partir de esta
-                        </DropdownMenuItem>
+                        </DropdownMenuItem>}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
@@ -160,7 +159,7 @@ export function ExamVersionsTable({ examId, versions }: ExamVersionsTableProps) 
         </Table>
       </div>
 
-      {createSource && (
+      {canEditExams && createSource && (
         <CreateVersionDialog
           examId={examId}
           open={createOpen}
@@ -169,7 +168,6 @@ export function ExamVersionsTable({ examId, versions }: ExamVersionsTableProps) 
           sourceNumber={createSource.versionNumber}
           sourcePublished={versionStatusLabel(createSource) !== "Borrador"}
           nextNumber={nextNumber}
-          draft={draft ? { id: draft.id, versionNumber: draft.versionNumber } : null}
         />
       )}
     </>

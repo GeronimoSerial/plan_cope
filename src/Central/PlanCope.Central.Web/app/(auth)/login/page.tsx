@@ -1,34 +1,26 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { getSessionUser } from "../../_lib/server/session";
+import { getAccessToken } from "../../_lib/server/session";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { LoginForm } from "./login-form";
+import { safeInternalPath } from "../../_lib/safe-redirect";
 
 export const metadata: Metadata = {
   title: "Ingresar · PlanCope Central"
 };
-
-function safeRedirect(from: string | undefined): string {
-  // Solo permitimos rutas internas (evita open-redirect).
-  if (from && from.startsWith("/") && !from.startsWith("//")) {
-    return from;
-  }
-  return "/dashboard";
-}
 
 export default async function LoginPage({
   searchParams
 }: {
   searchParams: Promise<{ from?: string; expired?: string }>;
 }) {
-  const user = await getSessionUser();
-  if (user) {
+  const params = await searchParams;
+  const expired = params.expired === "1";
+  const hasAccess = Boolean(await getAccessToken());
+  if (hasAccess && !expired) {
     redirect("/dashboard");
   }
-
-  const params = await searchParams;
-  const redirectTo = safeRedirect(params.from);
-  const expired = params.expired === "1";
+  const redirectTo = safeInternalPath(params.from, "https://central.invalid");
 
   return (
     <main className="grid min-h-svh place-items-center bg-muted/40 p-4">

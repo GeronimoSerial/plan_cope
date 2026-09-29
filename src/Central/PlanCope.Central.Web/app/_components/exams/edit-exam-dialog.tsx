@@ -20,6 +20,7 @@ import type { ExamSummary, UpdateExamRequest } from "../../_lib/contracts";
 
 interface EditExamButtonProps {
   exam: ExamSummary;
+  canEditExams: boolean;
 }
 
 interface EditExamErrors {
@@ -41,7 +42,8 @@ function mapUpdateExamError(error: unknown): EditExamErrors {
 
 // "Editar datos" del examen: titulo, nivel, area y materia. El codigo es inmutable y se muestra
 // solo de lectura; el API devuelve 400 bajo la clave "code" si llegara a cambiar.
-export function EditExamButton({ exam }: EditExamButtonProps) {
+export function EditExamButton({ exam, canEditExams }: EditExamButtonProps) {
+  if (!canEditExams) return null;
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState(exam.title);

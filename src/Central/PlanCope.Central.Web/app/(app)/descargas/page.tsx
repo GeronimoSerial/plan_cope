@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { redirectAfterSessionExpired } from "../../_lib/server/auth-refresh";
 
 export const metadata: Metadata = { title: "Descargas · PlanCope Central" };
 
@@ -18,7 +19,7 @@ async function InstallerCard() {
     installer = await getLatestInstaller();
   } catch (error) {
     if (isSessionExpired(error)) {
-      redirect("/login?expired=1");
+      await redirectAfterSessionExpired("/descargas");
     }
     if (isNoInstallerPublishedError(error)) {
       return <p className="text-sm text-muted-foreground">Todavía no hay un instalador publicado.</p>;

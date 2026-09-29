@@ -60,12 +60,11 @@ interface ExamBuilderProps {
   basedOnVersionNumber?: number | null;
   currentPublishedVersionNumber?: number | null;
   nextVersionNumber: number;
-  draftVersionId?: string | null;
-  draftVersionNumber?: number | null;
   initialDocument: ExamDocument;
   canPublish: boolean;
   publishBlockedReason?: PublishBlockedReason | null;
   autoOpenPublish?: boolean;
+  canEditExams: boolean;
 }
 
 function blockedReasonMessage(reason: DocumentReadiness["blockedReason"]): string {
@@ -90,12 +89,11 @@ export function ExamBuilder({
   basedOnVersionNumber = null,
   currentPublishedVersionNumber = null,
   nextVersionNumber,
-  draftVersionId = null,
-  draftVersionNumber = null,
   initialDocument,
   canPublish,
   publishBlockedReason,
-  autoOpenPublish = false
+  autoOpenPublish = false,
+  canEditExams
 }: ExamBuilderProps) {
   const router = useRouter();
   const { setDirty, intercept } = useNavigationGuard();
@@ -113,7 +111,7 @@ export function ExamBuilder({
   const [createVersionOpen, setCreateVersionOpen] = useState(false);
 
   const dirty = useMemo(() => JSON.stringify(document) !== savedSnapshot, [document, savedSnapshot]);
-  const isReadOnly = published;
+  const isReadOnly = published || !canEditExams;
   const statusLine = versionStatusLine({ versionNumber, status, isCurrent, basedOnVersionNumber });
   const statusTerm = versionStatusTerm({ status, isCurrent });
   const needsPolicy = useMemo(() => documentNeedsScoringPolicy(document), [document]);
@@ -319,18 +317,18 @@ export function ExamBuilder({
         </p>
       </header>
 
-      {isReadOnly && (
+      {published && (
         <Alert>
           <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
             <span>Esta versión ya está publicada y no se puede editar.</span>
-            <Button
+            {canEditExams && <Button
               type="button"
               variant="outline"
               size="sm"
               onClick={() => setCreateVersionOpen(true)}
             >
               Crear versión a partir de esta
-            </Button>
+            </Button>}
           </AlertDescription>
         </Alert>
       )}
@@ -441,7 +439,7 @@ export function ExamBuilder({
         </TabsContent>
       </Tabs>
 
-      <PublishDialog
+      {canEditExams && <PublishDialog
         open={publishOpen}
         onOpenChange={setPublishOpen}
         examId={examId}
@@ -454,9 +452,9 @@ export function ExamBuilder({
           setPublished(true);
           router.refresh();
         }}
-      />
+      />}
 
-      <CreateVersionDialog
+      {canEditExams && <CreateVersionDialog
         examId={examId}
         open={createVersionOpen}
         onOpenChange={setCreateVersionOpen}
@@ -464,8 +462,7 @@ export function ExamBuilder({
         sourceNumber={versionNumber}
         sourcePublished
         nextNumber={nextVersionNumber}
-        draft={draftVersionId && draftVersionNumber != null ? { id: draftVersionId, versionNumber: draftVersionNumber } : null}
-      />
+      />}
     </div>
   );
 }

@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { isSessionExpired, listSchoolStats, type SchoolStatsRow } from "../../_lib/api/server";
 import { PageHeader } from "../../_components/layout/page-header";
 import { StatsPanel } from "../../_components/stats/stats-panel";
+import { redirectAfterSessionExpired } from "../../_lib/server/auth-refresh";
 
 export const metadata: Metadata = { title: "Estadísticas · PlanCope Central" };
 
@@ -12,7 +13,7 @@ export default async function StatsPage() {
     schools = await listSchoolStats();
   } catch (error) {
     if (isSessionExpired(error)) {
-      redirect("/login?expired=1");
+      await redirectAfterSessionExpired("/estadisticas");
     }
     throw error;
   }

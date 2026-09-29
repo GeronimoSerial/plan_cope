@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   createVersionConfirmation,
-  draftExistsMessage,
+  draftExistsConflict,
   findCurrent,
   findDraft,
   nextVersionNumber,
   primaryEditTarget,
   publishSupersedeMessage,
+  versionBuilderHref,
   versionStatusBadgeVariant,
   versionStatusLabel,
   versionStatusLine,
@@ -147,9 +148,35 @@ describe("createVersionConfirmation", () => {
   });
 });
 
-describe("draftExistsMessage", () => {
-  it("nombra el borrador existente", () => {
-    expect(draftExistsMessage(3)).toBe("Ya hay un borrador (versión 3). ¿Crear otra igualmente?");
+describe("versionBuilderHref", () => {
+  it("arma la ruta del builder de la version", () => {
+    expect(versionBuilderHref("ex_1", "ev_2")).toBe("/exams/ex_1/versions/ev_2/builder");
+  });
+});
+
+describe("draftExistsConflict", () => {
+  it("reconoce el 409 draft_exists y devuelve el borrador", () => {
+    expect(
+      draftExistsConflict({ status: 409, body: { code: "draft_exists", draftVersionId: "ev_draft" } })
+    ).toEqual({ draftVersionId: "ev_draft" });
+  });
+
+  it("ignora otros estados y otros codigos", () => {
+    expect(draftExistsConflict({ status: 400, body: { code: "draft_exists", draftVersionId: "x" } })).toBeNull();
+    expect(draftExistsConflict({ status: 409, body: { code: "other", draftVersionId: "x" } })).toBeNull();
+  });
+
+  it("ignora cuerpos sin draftVersionId util", () => {
+    expect(draftExistsConflict({ status: 409, body: { code: "draft_exists" } })).toBeNull();
+    expect(draftExistsConflict({ status: 409, body: { code: "draft_exists", draftVersionId: "" } })).toBeNull();
+    expect(draftExistsConflict({ status: 409, body: { code: "draft_exists", draftVersionId: "  " } })).toBeNull();
+    expect(draftExistsConflict({ status: 409, body: null })).toBeNull();
+  });
+
+  it("ignora errores sin estado ni cuerpo estructurado", () => {
+    expect(draftExistsConflict(new Error("boom"))).toBeNull();
+    expect(draftExistsConflict(null)).toBeNull();
+    expect(draftExistsConflict("409")).toBeNull();
   });
 });
 

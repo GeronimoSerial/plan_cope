@@ -2,9 +2,11 @@ import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { listExams, listVersions, getVersion, isSessionExpired } from "../../../../../../_lib/api/server";
 import { versionToDocument } from "../../../../../../_lib/schema/mappers";
-import { findDraft } from "../../../../../../_lib/exams/version-state";
 import { ExamBuilder } from "../../../../../../_components/builder/exam-builder";
 import type { ExamSummary, ExamVersion } from "../../../../../../_lib/contracts";
+import { redirectAfterSessionExpired } from "../../../../../../_lib/server/auth-refresh";
+import { getSessionUser } from "../../../../../../_lib/server/session";
+import { canEditExams } from "../../../../../../_lib/exam-permissions";
 
 export const metadata: Metadata = { title: "Builder · PlanCope Central" };
 
@@ -32,7 +34,7 @@ export default async function BuilderPage({
     versions = loadedVersions;
   } catch (error) {
     if (isSessionExpired(error)) {
-      redirect("/login?expired=1");
+      await redirectAfterSessionExpired(`/exams/${examId}/versions/${versionId}/builder`);
     }
     throw error;
   }
@@ -42,7 +44,6 @@ export default async function BuilderPage({
   }
 
   const nextVersionNumber = versions.reduce((max, item) => Math.max(max, item.versionNumber), 0) + 1;
-  const draft = findDraft(versions);
   const document = versionToDocument(version, exam);
 
   return (
@@ -57,12 +58,11 @@ export default async function BuilderPage({
       basedOnVersionNumber={version.basedOnVersionNumber ?? null}
       currentPublishedVersionNumber={exam.publishedVersionNumber ?? null}
       nextVersionNumber={nextVersionNumber}
-      draftVersionId={draft?.id ?? null}
-      draftVersionNumber={draft?.versionNumber ?? null}
       initialDocument={document}
       canPublish={version.canPublish}
       publishBlockedReason={version.publishBlockedReason}
       autoOpenPublish={publicar === "1" && version.canPublish}
+      canEditExams={canEditExams((await getSessionUser())?.role)}
     />
   );
 }

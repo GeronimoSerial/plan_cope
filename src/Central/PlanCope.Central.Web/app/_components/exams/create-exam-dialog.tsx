@@ -28,7 +28,8 @@ function mapCreateExamError(error: unknown): string {
   return "No se pudo crear el examen. Revisá los datos e intentá de nuevo.";
 }
 
-export function CreateExamButton() {
+export function CreateExamButton({ canEditExams }: { canEditExams: boolean }) {
+  if (!canEditExams) return null;
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState("");

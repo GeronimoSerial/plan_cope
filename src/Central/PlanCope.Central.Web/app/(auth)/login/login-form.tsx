@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { safeInternalPath } from "../../_lib/safe-redirect";
 
 interface LoginFormProps {
   redirectTo: string;
@@ -41,7 +42,7 @@ export function LoginForm({ redirectTo, expired }: LoginFormProps) {
       return;
     }
 
-    router.replace(redirectTo);
+    router.replace(safeInternalPath(redirectTo, window.location.origin));
     router.refresh();
   }
 

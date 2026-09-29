@@ -118,9 +118,41 @@ export function createVersionConfirmation(input: {
   return `${first} ${second}`;
 }
 
-/** Aviso cuando ya hay un borrador y se pide crear otro. */
-export function draftExistsMessage(draftNumber: number): string {
-  return `Ya hay un borrador (versión ${draftNumber}). ¿Crear otra igualmente?`;
+/** Ruta del builder que abre una version para editar. */
+export function versionBuilderHref(examId: string, versionId: string): string {
+  return `/exams/${encodeURIComponent(examId)}/versions/${encodeURIComponent(versionId)}/builder`;
+}
+
+export interface DraftExistsConflict {
+  draftVersionId: string;
+}
+
+/**
+ * Reconoce el conflicto 409 `draft_exists` que devuelve el API al crear una version cuando ya hay
+ * un borrador. El cuerpo trae `draftVersionId`, que es el borrador a abrir. Acepta cualquier error
+ * con `status` y `body` (el `CentralApiError` del cliente) para no acoplar este helper al fetch.
+ */
+export function draftExistsConflict(error: unknown): DraftExistsConflict | null {
+  if (typeof error !== "object" || error === null) {
+    return null;
+  }
+
+  const candidate = error as { status?: unknown; body?: unknown };
+  if (candidate.status !== 409) {
+    return null;
+  }
+
+  const body = candidate.body;
+  if (typeof body !== "object" || body === null) {
+    return null;
+  }
+
+  const { code, draftVersionId } = body as { code?: unknown; draftVersionId?: unknown };
+  if (code !== "draft_exists" || typeof draftVersionId !== "string" || draftVersionId.trim().length === 0) {
+    return null;
+  }
+
+  return { draftVersionId };
 }
 
 /**

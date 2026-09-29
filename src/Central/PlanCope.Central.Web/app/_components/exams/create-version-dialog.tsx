@@ -1,12 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { callCentral } from "../../_lib/api/client";
 import { getErrorMessage } from "../../_lib/json";
-import { createVersionConfirmation, draftExistsMessage } from "../../_lib/exams/version-state";
+import { createVersionConfirmation, draftExistsConflict, versionBuilderHref } from "../../_lib/exams/version-state";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -19,11 +18,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { ExamVersion } from "../../_lib/contracts";
 
-export interface DraftRef {
-  id: string;
-  versionNumber: number;
-}
-
 interface CreateVersionDialogProps {
   examId: string;
   open: boolean;
@@ -33,12 +27,10 @@ interface CreateVersionDialogProps {
   /** true cuando la fuente es la version publicada actual. */
   sourcePublished: boolean;
   nextNumber: number;
-  /** Borrador existente del examen, si lo hay. */
-  draft?: DraftRef | null;
 }
 
 // Dialogo de creacion de version copiada. Nunca crea una version vacia: el API deep-copia la
-// version fuente. Si ya hay un borrador, ofrece abrirlo antes que crear otro.
+// version fuente. Si el examen ya tiene un borrador, el API responde 409 y abrimos ese borrador.
 export function CreateVersionDialog({
   examId,
   open,
@@ -46,8 +38,7 @@ export function CreateVersionDialog({
   sourceVersionId,
   sourceNumber,
   sourcePublished,
-  nextNumber,
-  draft = null
+  nextNumber
 }: CreateVersionDialogProps) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
@@ -61,8 +52,15 @@ export function CreateVersionDialog({
       });
       toast.success(`Versión ${created.versionNumber} creada.`);
       onOpenChange(false);
-      router.push(`/exams/${examId}/versions/${created.id}/builder`);
+      router.push(versionBuilderHref(examId, created.id));
     } catch (error) {
+      const conflict = draftExistsConflict(error);
+      if (conflict) {
+        onOpenChange(false);
+        toast.info("Ya existe un borrador. Te llevamos a él.");
+        router.push(versionBuilderHref(examId, conflict.draftVersionId));
+        return;
+      }
       toast.error(getErrorMessage(error, "No se pudo crear la versión."));
       setPending(false);
     }
@@ -82,35 +80,14 @@ export function CreateVersionDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Crear versión</AlertDialogTitle>
           <AlertDialogDescription>
-            {draft
-              ? draftExistsMessage(draft.versionNumber)
-              : createVersionConfirmation({ nextNumber, sourceNumber, sourcePublished })}
+            {createVersionConfirmation({ nextNumber, sourceNumber, sourcePublished })}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          {draft ? (
-            <>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={pending}
-                render={<Link href={`/exams/${examId}/versions/${draft.id}/builder`} />}
-                onClick={() => onOpenChange(false)}
-              >
-                Abrir el borrador
-              </Button>
-              <Button type="button" disabled={pending} onClick={() => void createVersion()}>
-                {pending ? "Creando…" : "Crear igualmente"}
-              </Button>
-            </>
-          ) : (
-            <>
-              <AlertDialogCancel disabled={pending}>Cancelar</AlertDialogCancel>
-              <Button type="button" disabled={pending} onClick={() => void createVersion()}>
-                {pending ? "Creando…" : "Crear versión y editar"}
-              </Button>
-            </>
-          )}
+          <AlertDialogCancel disabled={pending}>Cancelar</AlertDialogCancel>
+          <Button type="button" disabled={pending} onClick={() => void createVersion()}>
+            {pending ? "Creando…" : "Crear versión y editar"}
+          </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
