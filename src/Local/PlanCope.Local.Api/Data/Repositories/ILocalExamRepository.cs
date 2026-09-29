@@ -8,6 +8,8 @@ public interface ILocalExamRepository
 
     Task<LocalExamVersion?> GetByIdAsync(string id, CancellationToken cancellationToken = default);
 
+    Task<bool> ExistsByExamCodeAsync(string examCode, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<LocalExamBlock>> GetBlocksAsync(string localExamVersionId, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<LocalAnswerKey>> GetAnswerKeysAsync(string localExamVersionId, CancellationToken cancellationToken = default);
