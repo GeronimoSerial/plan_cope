@@ -44,7 +44,10 @@ public static class LocalApiApplication
                 .SelfHealIfInconsistentAsync()
                 .GetAwaiter()
                 .GetResult();
-            if (builder.Configuration.GetValue("Local:SeedDemoExam", true))
+            // Demo exams are development-only. Absence of configuration in a production build
+            // must not inject compiled-in demo data into a real school node; only
+            // appsettings.Development.json / the dev launch profile opt in.
+            if (builder.Configuration.GetValue("Local:SeedDemoExam", false))
             {
                 scope.ServiceProvider.GetRequiredService<LocalDemoExamSeeder>().SeedIfEmpty();
             }

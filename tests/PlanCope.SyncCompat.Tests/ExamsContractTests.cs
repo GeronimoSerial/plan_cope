@@ -60,6 +60,13 @@ public sealed class ExamsContractTests
         AssertHasProperty(root, "subject");
         AssertHasProperty(root, "status");
         AssertHasProperty(root, "versionCount");
+        AssertHasProperty(root, "initialVersionId");
+        AssertHasProperty(root, "publicationState");
+        AssertHasProperty(root, "publishedVersionId");
+        AssertHasProperty(root, "publishedVersionNumber");
+        AssertHasProperty(root, "publishedAt");
+        AssertHasProperty(root, "targets");
+        AssertHasProperty(root, "pulledByNodeCount");
 
         AssertCanonicalRoundTrip(sample, PlanCopeJsonSerializerContext.Default.ExamSummaryDto);
     }
@@ -145,6 +152,9 @@ public sealed class ExamsContractTests
         AssertHasProperty(root, "answerKeys");
         AssertHasProperty(root, "assets");
         AssertHasProperty(root, "scoringPolicy");
+        AssertHasProperty(root, "blockCount");
+        AssertHasProperty(root, "canPublish");
+        AssertHasProperty(root, "publishBlockedReason");
 
         AssertCanonicalRoundTrip(sample, PlanCopeJsonSerializerContext.Default.ExamVersionDto);
     }
@@ -441,6 +451,8 @@ public sealed class ExamsContractTests
         AssertHasProperty(root, "subject");
         AssertHasProperty(root, "grade");
         AssertHasProperty(root, "division");
+        AssertHasProperty(root, "nodeIds");
+        AssertHasProperty(root, "schoolIds");
 
         AssertCanonicalRoundTrip(sample, PlanCopeJsonSerializerContext.Default.PublishExamVersionRequest);
     }

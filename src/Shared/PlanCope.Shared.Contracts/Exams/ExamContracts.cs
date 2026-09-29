@@ -3,9 +3,67 @@ using PlanCope.Shared.Domain;
 
 namespace PlanCope.Shared.Contracts.Exams;
 
-public sealed record ExamSummaryDto(string Id, string Code, string Title, string? Level, string? Area, string? Subject, string Status, int VersionCount);
+/// <summary>
+/// Computed publication states for an exam. <c>draft</c> means no version can be published yet,
+/// <c>ready_to_publish</c> means at least one version has blocks, and <c>published</c> means a
+/// package was emitted for a version. Delivery to nodes is described by
+/// <see cref="ExamSummaryDto.PulledByNodeCount"/> and the sync cursor, not by a fourth state.
+/// </summary>
+public static class ExamPublicationStates
+{
+    public const string Draft = "draft";
+    public const string ReadyToPublish = "ready_to_publish";
+    public const string Published = "published";
+}
 
-public sealed record ExamVersionDto(string Id, string ExamId, int VersionNumber, int SchemaVersion, string Status, JsonElement? Metadata, IReadOnlyList<BlockDto> Blocks, IReadOnlyList<AnswerKeyDto> AnswerKeys, IReadOnlyList<AssetDto> Assets, string? ScoringPolicy);
+/// <summary>
+/// Target type vocabulary shared by publish (writer) and sync pull (reader).
+/// <c>grade</c>, <c>subject</c> and <c>division</c> are descriptive metadata: they describe the
+/// audience of the exam but are NOT delivery filters. Only <c>node</c> and <c>school</c> filter
+/// which nodes receive a package; see docs/central/exam-publishing-contract.md.
+/// </summary>
+public static class PublicationTargetTypes
+{
+    public const string Grade = "grade";
+    public const string Subject = "subject";
+    public const string Division = "division";
+    public const string Node = "node";
+    public const string School = "school";
+
+    public static readonly IReadOnlyList<string> DeliveryFilterTypes = [Node, School];
+}
+
+public sealed record ExamSummaryDto(
+    string Id,
+    string Code,
+    string Title,
+    string? Level,
+    string? Area,
+    string? Subject,
+    string Status,
+    int VersionCount,
+    string? InitialVersionId = null,
+    string PublicationState = ExamPublicationStates.Draft,
+    string? PublishedVersionId = null,
+    int? PublishedVersionNumber = null,
+    DateTimeOffset? PublishedAt = null,
+    IReadOnlyList<PublicationTargetDto>? Targets = null,
+    int? PulledByNodeCount = null);
+
+public sealed record ExamVersionDto(
+    string Id,
+    string ExamId,
+    int VersionNumber,
+    int SchemaVersion,
+    string Status,
+    JsonElement? Metadata,
+    IReadOnlyList<BlockDto> Blocks,
+    IReadOnlyList<AnswerKeyDto> AnswerKeys,
+    IReadOnlyList<AssetDto> Assets,
+    string? ScoringPolicy,
+    int BlockCount = 0,
+    bool CanPublish = false,
+    string? PublishBlockedReason = null);
 
 public sealed record BlockDto(string Id, string VersionId, int OrderIndex, BlockType BlockType, string? Title, string? Description, JsonElement Config, JsonElement? Validation);
 
@@ -41,7 +99,12 @@ public sealed record UpsertBlockRequest(int OrderIndex, BlockType BlockType, str
 
 public sealed record CreateAssetRequest(string FileName, string MimeType, string ContentBase64);
 
-public sealed record PublishExamVersionRequest(string? Subject, string Grade, string? Division);
+public sealed record PublishExamVersionRequest(
+    string? Subject,
+    string Grade,
+    string? Division,
+    IReadOnlyList<string>? NodeIds = null,
+    IReadOnlyList<string>? SchoolIds = null);
 
 public sealed record PublishExamVersionResponse(string PackageId, string ExamVersionId, int PackageVersion, string Checksum, IReadOnlyList<PublicationTargetDto> Targets);
 

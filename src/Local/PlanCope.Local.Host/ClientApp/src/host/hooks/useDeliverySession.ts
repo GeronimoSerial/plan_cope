@@ -127,6 +127,9 @@ export function useDeliverySession(hostContext: HostContext) {
   const [status, setStatus] = useState("Iniciando API local...");
   const [isBusy, setIsBusy] = useState(false);
   const [isLoadingExams, setIsLoadingExams] = useState(false);
+  const [isPullingExams, setIsPullingExams] = useState(false);
+  const [pullMessage, setPullMessage] = useState<string | null>(null);
+  const [lastPullAt, setLastPullAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [resumeAccessCode, setResumeAccessCode] = useState("");
@@ -169,7 +172,10 @@ export function useDeliverySession(hostContext: HostContext) {
     setStatus("Sincronizando examenes...");
 
     try {
-      await api.pullExams(signal);
+      const result = await api.pullExams(signal);
+      if (!signal?.aborted && result.lastPullAt) {
+        setLastPullAt(result.lastPullAt);
+      }
     } catch (exception) {
       if (!signal?.aborted) {
         setError(exception instanceof Error ? exception.message : "No se pudo sincronizar con Central; se mostrara el catalogo local.");
@@ -177,6 +183,37 @@ export function useDeliverySession(hostContext: HostContext) {
     }
 
     await loadExams(signal);
+  }, [api, loadExams]);
+
+  // Operator-triggered pull: reports the server message inline, records the last successful
+  // pull time, and only reloads the exam catalog when something actually changed locally.
+  const pullExamsNow = useCallback(async (signal?: AbortSignal) => {
+    setIsPullingExams(true);
+    setPullMessage(null);
+
+    try {
+      const result = await api.pullExams(signal);
+      if (signal?.aborted) {
+        return;
+      }
+
+      setPullMessage(result.message);
+      if (result.lastPullAt) {
+        setLastPullAt(result.lastPullAt);
+      }
+
+      if (result.status === "updated") {
+        await loadExams(signal);
+      }
+    } catch (exception) {
+      if (!signal?.aborted) {
+        setPullMessage(exception instanceof Error ? exception.message : "No se pudieron buscar exámenes nuevos.");
+      }
+    } finally {
+      if (!signal?.aborted) {
+        setIsPullingExams(false);
+      }
+    }
   }, [api, loadExams]);
 
   const loadRoster = useCallback(async (signal?: AbortSignal) => {
@@ -356,6 +393,12 @@ export function useDeliverySession(hostContext: HostContext) {
       selectedExamId,
       setSelectedExamId,
       loadExams: refreshExams
+    },
+    syncPull: {
+      isPulling: isPullingExams,
+      message: pullMessage,
+      lastPullAt,
+      pullExamsNow
     },
     roster: {
       snapshot: rosterSnapshot,

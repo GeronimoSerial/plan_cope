@@ -9,6 +9,14 @@ name: Deploy Production
 # Order matters and is not negotiable: migrate BEFORE the API restarts. The API
 # has no migrate-on-boot; if the new image starts against the old schema it
 # serves errors against columns that do not exist yet.
+#
+# The image_tag input is a request, not a fact. The API and Web applications in
+# Coolify are docker-image apps pinned to a fixed reference, so triggering
+# /api/v1/deploy only re-runs whatever image is already saved. This workflow
+# therefore retargets each application through PATCH /api/v1/applications/{uuid}
+# (docker_registry_image_name + docker_registry_image_tag) before asking Coolify
+# to deploy. It only retargets a tag that was verified to exist in GHCR, and it
+# migrates first so the new API image never starts against the old schema.
 
 on:
   workflow_dispatch:
@@ -36,6 +44,7 @@ env:
   WEB_UUID: p7td4mjenfdnhcbjlszfkgzs
   API_HEALTH: https://api.plancope.sistemas.mec.gob.ar/health/ready
   WEB_HEALTH: https://plancope.sistemas.mec.gob.ar/login
+  COOLIFY_API: https://coolify.sistemas.mec.gob.ar/api/v1
 
 jobs:
   deploy:
@@ -43,9 +52,23 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - name: Record the state we are deploying over
+      - name: Validate the requested image tag
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
-          echo "Deploying tag: ${{ inputs.image_tag }}"
+          # Docker tag grammar: at most 128 chars, must not start with a
+          # separator. Validating here keeps an attacker-controlled string out
+          # of every later shell and out of the JSON body we send to Coolify.
+          if [[ ! "$IMAGE_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "::error::Invalid image_tag. Expected a Docker tag such as 'latest', 'sha-<commit>' or '1.2.3'."
+            exit 1
+          fi
+
+      - name: Record the state we are deploying over
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          echo "Deploying tag: $IMAGE_TAG"
           echo "API health before:"
           curl -sS -o /dev/null -w '  %{http_code}\n' "$API_HEALTH" || true
 
@@ -60,6 +83,23 @@ jobs:
         id: ns
         run: echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
 
+      - name: Verify the requested tag exists in GHCR
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          REGISTRY_NAMESPACE: ${{ steps.ns.outputs.owner }}
+        run: |
+          # Never point Coolify at a tag we cannot pull. A missing tag would
+          # otherwise leave the app configured for an image that does not exist,
+          # turning the next deploy (or restart) into an outage.
+          for image in plan-cope-central-api plan-cope-central-web; do
+            ref="ghcr.io/${REGISTRY_NAMESPACE}/${image}:${IMAGE_TAG}"
+            if ! docker manifest inspect "$ref" >/dev/null 2>&1; then
+              echo "::error::$ref is not in GHCR. Publish it before deploying (see publish-images.yml)."
+              exit 1
+            fi
+            echo "found $ref"
+          done
+
       - name: Apply migrations
         if: ${{ !inputs.skip_migrations }}
         env:
@@ -69,14 +109,39 @@ jobs:
           # it, so VerifyCA fails here with a certificate error that looks
           # nothing like a TLS problem.
           CONN: ${{ secrets.PLANCOPE_PROD_DB }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          REGISTRY_NAMESPACE: ${{ steps.ns.outputs.owner }}
         run: |
           if [ -z "$CONN" ]; then
             echo "::error::PLANCOPE_PROD_DB is not set. Refusing to deploy a new API image over an unmigrated schema."
             exit 1
           fi
+          # Migrations run BEFORE any application image is switched, so the API
+          # can never boot against a schema it does not expect.
           docker run --rm \
             -e ConnectionStrings__CentralDatabase="$CONN" \
-            "ghcr.io/${{ steps.ns.outputs.owner }}/plan-cope-central-migrate:${{ inputs.image_tag }}"
+            "ghcr.io/${REGISTRY_NAMESPACE}/plan-cope-central-migrate:${IMAGE_TAG}"
+
+      - name: Point the API application at the requested image
+        env:
+          TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          REGISTRY_NAMESPACE: ${{ steps.ns.outputs.owner }}
+        run: |
+          image="ghcr.io/${REGISTRY_NAMESPACE}/plan-cope-central-api"
+          body=$(jq -n --arg name "$image" --arg tag "$IMAGE_TAG" \
+            '{docker_registry_image_name: $name, docker_registry_image_tag: $tag}')
+          code=$(curl -sS -o /tmp/api-patch.json -w '%{http_code}' -X PATCH \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            --data "$body" \
+            "$COOLIFY_API/applications/$API_UUID")
+          cat /tmp/api-patch.json; echo
+          case "$code" in
+            2*) ;;
+            *) echo "::error::Coolify refused to retarget the API image (HTTP $code)."; exit 1 ;;
+          esac
 
       - name: Redeploy API
         env:
@@ -84,9 +149,30 @@ jobs:
         run: |
           code=$(curl -sS -o /tmp/api.json -w '%{http_code}' -X POST \
             -H "Authorization: Bearer $TOKEN" \
-            "https://coolify.sistemas.mec.gob.ar/api/v1/deploy?uuid=$API_UUID&force=false")
+            "$COOLIFY_API/deploy?uuid=$API_UUID&force=false")
           cat /tmp/api.json; echo
           [ "$code" = "200" ] || { echo "::error::Coolify returned $code for the API"; exit 1; }
+
+      - name: Point the Web application at the requested image
+        env:
+          TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          REGISTRY_NAMESPACE: ${{ steps.ns.outputs.owner }}
+        run: |
+          image="ghcr.io/${REGISTRY_NAMESPACE}/plan-cope-central-web"
+          body=$(jq -n --arg name "$image" --arg tag "$IMAGE_TAG" \
+            '{docker_registry_image_name: $name, docker_registry_image_tag: $tag}')
+          code=$(curl -sS -o /tmp/web-patch.json -w '%{http_code}' -X PATCH \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            --data "$body" \
+            "$COOLIFY_API/applications/$WEB_UUID")
+          cat /tmp/web-patch.json; echo
+          case "$code" in
+            2*) ;;
+            *) echo "::error::Coolify refused to retarget the Web image (HTTP $code)."; exit 1 ;;
+          esac
 
       - name: Redeploy Web
         env:
@@ -94,11 +180,13 @@ jobs:
         run: |
           code=$(curl -sS -o /tmp/web.json -w '%{http_code}' -X POST \
             -H "Authorization: Bearer $TOKEN" \
-            "https://coolify.sistemas.mec.gob.ar/api/v1/deploy?uuid=$WEB_UUID&force=false")
+            "$COOLIFY_API/deploy?uuid=$WEB_UUID&force=false")
           cat /tmp/web.json; echo
           [ "$code" = "200" ] || { echo "::error::Coolify returned $code for the Web"; exit 1; }
 
       - name: Verify the deploy actually landed
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
           # A queued deploy returns 200 immediately, so the API call succeeding
           # proves nothing about the running app. Poll the real health routes.
@@ -114,6 +202,6 @@ jobs:
             echo "::error::Health checks never came back green. Production may be down — check Coolify logs."
             exit 1
           fi
-          echo "### Deployed \`${{ inputs.image_tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Deployed \`${IMAGE_TAG}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "API and Web both answering 200." >> "$GITHUB_STEP_SUMMARY"

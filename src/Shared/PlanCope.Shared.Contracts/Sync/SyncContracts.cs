@@ -8,6 +8,19 @@ public sealed record SyncItem(string EntityType, string EntityId, string Operati
 
 public sealed record PullResponse(IReadOnlyList<SyncItem> Items, string NextCursor, bool HasMore, IReadOnlyDictionary<string, string> Checksums);
 
+/// <summary>
+/// Cursor keys persisted in Central's <c>sync.cursors</c> table. The exam-pull cursor tracks how
+/// far a node has scanned published packages; the per-package delivery marker records that a
+/// package was actually delivered to a node (used to compute <c>pulledByNodeCount</c>).
+/// </summary>
+public static class SyncCursorKeys
+{
+    public const string ExamPull = "exam_pull";
+    public const string PackageDeliveryPrefix = "package:";
+
+    public static string PackageDelivery(string packageId) => PackageDeliveryPrefix + packageId;
+}
+
 public sealed record PushItem(string IdempotencyKey, string EventType, string AggregateType, string AggregateId, JsonElement Payload, string Checksum, string OccurredAt);
 
 public sealed record PushRequest(string NodeId, IReadOnlyList<PushItem> Items);

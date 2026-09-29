@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using PlanCope.Local.Api.Data.Repositories;
@@ -25,41 +26,65 @@ public sealed class NodeCredentialRefresher(
         var client = httpClientFactory.CreateClient(nameof(NodeCredentialRefresher));
         client.BaseAddress = new Uri(centralUrl.Trim().TrimEnd('/') + "/");
         HttpResponseMessage response;
-        ActivationRefreshResponse? refreshed;
         try
         {
             response = await client.PostAsJsonAsync("api/activation/refresh", new ActivationRefreshRequest(refreshToken), cancellationToken);
-            if (!response.IsSuccessStatusCode)
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or TimeoutException)
+        {
+            // Transport failure (network down, timeout): the credential is still valid, so a
+            // transient blip must never revoke the node. Retry on a later tick.
+            return false;
+        }
+
+        using (response)
+        {
+            // Central answers 401 for an unknown/expired/rotated refresh token; that is the only
+            // status that legitimately means "this credential is dead". A 5xx or any other
+            // non-success is a server-side/transient failure and must not revoke the node.
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             {
                 await MarkRevokedAsync(cancellationToken);
                 return false;
             }
-            refreshed = await response.Content.ReadFromJsonAsync<ActivationRefreshResponse>(cancellationToken: cancellationToken);
-        }
-        catch (HttpRequestException)
-        {
-            await MarkRevokedAsync(cancellationToken);
-            return false;
-        }
 
-        if (refreshed is null)
-        {
-            await MarkRevokedAsync(cancellationToken);
-            return false;
+            if (!response.IsSuccessStatusCode)
+            {
+                return false;
+            }
+
+            ActivationRefreshResponse? refreshed;
+            try
+            {
+                refreshed = await response.Content.ReadFromJsonAsync<ActivationRefreshResponse>(cancellationToken: cancellationToken);
+            }
+            catch (JsonException)
+            {
+                return false;
+            }
+
+            if (refreshed is null)
+            {
+                return false;
+            }
+
+            await UpsertStateStringAsync("central_access_token", refreshed.AccessToken, cancellationToken);
+            await UpsertStateStringAsync("central_refresh_token", refreshed.RefreshToken, cancellationToken);
+            await UpsertStateStringAsync("central_access_token_expires_at", refreshed.AccessTokenExpiresAt.ToString("O"), cancellationToken);
+            await UpsertStateStringAsync("central_refresh_token_expires_at", refreshed.RefreshTokenExpiresAt.ToString("O"), cancellationToken);
+
+            if (refreshed.NodeRevoked)
+            {
+                await MarkRevokedAsync(cancellationToken);
+                return false;
+            }
+
+            return true;
         }
-
-        await UpsertStateStringAsync("central_access_token", refreshed.AccessToken, cancellationToken);
-        await UpsertStateStringAsync("central_refresh_token", refreshed.RefreshToken, cancellationToken);
-        await UpsertStateStringAsync("central_access_token_expires_at", refreshed.AccessTokenExpiresAt.ToString("O"), cancellationToken);
-        await UpsertStateStringAsync("central_refresh_token_expires_at", refreshed.RefreshTokenExpiresAt.ToString("O"), cancellationToken);
-
-        if (refreshed.NodeRevoked)
-        {
-            await MarkRevokedAsync(cancellationToken);
-            return false;
-        }
-
-        return true;
     }
 
     private async Task MarkRevokedAsync(CancellationToken cancellationToken)
