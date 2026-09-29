@@ -1,0 +1,143 @@
+# Automatic release on merge to main.
+#
+# This workflow is the automatic front door for release.yml: it plans a version
+# and then calls release.yml (workflow_call) with the same inputs. Manual
+# workflow_dispatch of release.yml keeps working unchanged.
+#
+# Only product-affecting paths trigger it (see the `paths` filter): source,
+# tests, deploy/containers and the shared build/tooling files. Docs-only,
+# workflow-only or .atl changes never release.
+#
+# The version is derived from the highest stable SemVer git tag + PATCH (see
+# scripts/next-release-version.sh). No tag exists yet only before the first
+# release, where the baseline is 1.0.0.
+#
+# The git tag itself is NOT created here: it is created by `gh release create`
+# in the github-release job of release.yml (--target $GITHUB_SHA). A failed
+# automatic release therefore leaves no tag behind, and re-running the workflow
+# or dispatching release.yml manually recovers cleanly.
+
+name: Auto Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      # Tests are included by explicit decision: test-only code merges also release.
+      - 'src/**'
+      - 'tests/**'
+      - 'deploy/**'
+      - '**/Dockerfile*'
+      - 'global.json'
+      - 'Directory.Packages.props'
+      - 'Directory.Build.props'
+      - 'NuGet.config'
+
+# Queue releases instead of cancelling them. A release that is already running
+# must finish; a newer push to main replaces the single pending run (GitHub
+# keeps only one pending run per concurrency group). That is acceptable: the
+# replacement builds the newer merge commit, which already contains the previous
+# one. The release always builds the commit that triggered its own run
+# (github.sha), never "whatever main points at now".
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Plan release
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.decide.outputs.skip }}
+      version: ${{ steps.version.outputs.version }}
+      allow_unsigned: ${{ steps.signing.outputs.allow_unsigned }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # Full history plus tags: version computation and `git tag -l` need them.
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Decide whether to release
+        id: decide
+        env:
+          HEAD_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          # Squash merges put the PR title (and body) into the head commit message,
+          # so an explicit "[skip release]" there opts the merge out of releasing.
+          if [[ "$HEAD_MESSAGE" == *"[skip release]"* ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Head commit message contains [skip release]; no release for this push."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Compute next version
+        id: version
+        if: steps.decide.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          version="$(bash scripts/next-release-version.sh)"
+          echo "Computed next version: $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Verify the computed tag does not already exist
+        if: steps.decide.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # release.yml's validate job is the single source of truth for tag
+          # non-existence; this is an early, explicit failure with a clearer
+          # message before any image is built.
+          set -euo pipefail
+          if [[ -n "$(git tag -l "$VERSION")" ]]; then
+            echo "::error::Computed tag '$VERSION' already exists locally. Refusing to release." >&2
+            exit 1
+          fi
+          if [[ -n "$(git ls-remote --tags origin "refs/tags/$VERSION")" ]]; then
+            echo "::error::Computed tag '$VERSION' already exists on origin. Refusing to release." >&2
+            exit 1
+          fi
+          echo "Computed tag $VERSION is free."
+      # Deliberately NOT guarded by the skip flag: the release job always needs a
+      # well-formed `allow_unsigned` output when it does run, and a missing output
+      # would make the boolean conversion below fail.
+      - name: Detect signing availability
+        id: signing
+        env:
+          # Only tested with -z; the secret value is never printed.
+          WINDOWS_SIGNING_PFX: ${{ secrets.WINDOWS_SIGNING_PFX }}
+        run: |
+          if [[ -z "${WINDOWS_SIGNING_PFX}" ]]; then
+            echo "allow_unsigned=true" >> "$GITHUB_OUTPUT"
+            echo "No WINDOWS_SIGNING_PFX secret: the release will build the installer UNSIGNED."
+          else
+            echo "allow_unsigned=false" >> "$GITHUB_OUTPUT"
+            echo "WINDOWS_SIGNING_PFX is set: the release will sign the installer."
+          fi
+
+  release:
+    name: Release
+    needs: plan
+    if: needs.plan.outputs.skip != 'true'
+    # A called workflow cannot exceed the caller's permissions, so grant here the
+    # superset that release.yml jobs need: contents (github-release), packages
+    # (images/promote), id-token + attestations (images provenance), actions
+    # (gh run download of the SBOM artifacts).
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+      actions: read
+    uses: ./.github/workflows/release.yml
+    with:
+      version: ${{ needs.plan.outputs.version }}
+      channel: stable
+      target: production
+      target_url: https://api.plancope.sistemas.mec.gob.ar
+      # fromJSON converts the job output (always a string) into a real boolean,
+      # which is what the called workflow's boolean input requires.
+      allow_unsigned: ${{ fromJSON(needs.plan.outputs.allow_unsigned) }}
+    secrets: inherit

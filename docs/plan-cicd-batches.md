@@ -496,6 +496,57 @@ política de rotación (Preguntas abiertas #4).
 `release.yml` falla después de publicar imágenes pero antes de disparar Coolify, no hay estado
 inconsistente porque Coolify no fue tocado.
 
+### Release automático al mergear a main
+
+Además del `workflow_dispatch` manual, `release.yml` es invocable como reusable workflow
+(`workflow_call`) y `.github/workflows/auto-release.yml` lo llama desde un `push` a `main`. La
+primera publicación automática ocurre en el primer merge posterior a la incorporación de este
+workflow.
+
+**Dispara** cuando un `push` a `main` toca alguna de estas rutas:
+
+Los cambios sólo de tests también liberan, por decisión explícita.
+
+- `src/**`, `tests/**`, `deploy/**`
+- cualquier `Dockerfile*` (por ejemplo `src/Central/PlanCope.Central.Api/Dockerfile`)
+- `global.json`, `Directory.Packages.props`, `Directory.Build.props`, `NuGet.config`
+
+**No dispara** con merges que sólo tocan documentación, otros workflows, `.atl/` u otros archivos
+fuera de esa lista: esos cambios no afectan a los productos que se publican.
+
+**Versión**: la calcula `scripts/next-release-version.sh` (probado por
+`scripts/tests/next-release-version.test.sh`, que corre en CI). Toma el tag estable más alto que
+cumpla SemVer `X.Y.Z` —ignora prereleases y tags que no son SemVer—, ordena numéricamente y suma 1
+al PATCH: `1.0.2 -> 1.0.3`. Si no existe ningún tag estable, la base es `1.0.0` (no se falla por
+ausencia de tags). Antes de publicar, el run verifica que el tag calculado no exista ni localmente
+ni en `origin`; el chequeo del job `validate` de `release.yml` sigue siendo la única fuente de
+verdad de esa validación.
+
+**Omitir un release**: incluir `[skip release]` en el mensaje del commit de merge. En un squash
+merge el título y el cuerpo del PR terminan en ese mensaje, así que alcanza con escribirlo ahí.
+
+**Manual**: `workflow_dispatch` de `release.yml` sigue funcionando igual que antes, con los mismos
+inputs (incluidos `channel` y `target` como listas desplegables).
+
+**Concurrencia**: el grupo `auto-release` encola los runs y nunca cancela uno en curso. GitHub
+mantiene un solo run pendiente por grupo: un segundo merge pendiente reemplaza al anterior, lo cual
+es aceptable porque el run reemplazante compila el commit de merge más nuevo, que ya contiene al
+anterior. El release siempre compila el commit que disparó su propio run (`github.sha`): el checkout
+por defecto de `release.yml` en el camino `workflow_call` resuelve a ese commit, y el tag lo crea
+`gh release create --target "$GITHUB_SHA"` en el job `github-release`, que además verifica al final
+que el tag quedó creado.
+
+**URL de salud**: `target_url` apunta a `https://api.plancope.sistemas.mec.gob.ar`, la base
+URL de Central API que usa el chequeo `/health/ready`; el host web devuelve 404 en esa ruta.
+
+**Build sin firma**: mientras no exista el secreto `WINDOWS_SIGNING_PFX`, el plan marca
+`allow_unsigned=true` y el instalador se publica como UNSIGNED (SmartScreen advierte en cada
+instalación). Cuando el secreto exista, se firma automáticamente sin cambios adicionales.
+
+**Si falla**: el tag recién lo crea `gh release create` al final del pipeline, así que un release
+automático fallido no deja tag. Se recupera volviendo a correr el workflow, o disparando
+`release.yml` a mano con la versión calculada.
+
 ---
 
 ## 7. Secretos y configuración

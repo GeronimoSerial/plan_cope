@@ -37,11 +37,40 @@ on:
           - staging
           - production
       target_url:
-        description: 'Public base URL of the deployed Central instance; used by the Coolify wait and smoke test'
+        description: 'API base URL of the deployed Central instance; used by the Coolify wait and smoke test'
+        # Must be the API base URL (https://api.plancope.sistemas.mec.gob.ar), not the web host.
         required: false
         type: string
       allow_unsigned:
         description: 'Build and publish the installer WITHOUT an Authenticode signature. Accepted while no certificate exists: Windows SmartScreen warns on every install and the operator must click past it. The release is titled UNSIGNED so it cannot be mistaken for a signed build.'
+        required: false
+        default: false
+        type: boolean
+  # Callable by auto-release.yml (push to main) with the same inputs. The `choice`
+  # type only exists for workflow_dispatch, so channel/target are plain strings here;
+  # the auto-release caller passes the fixed stable/production values. `secrets` is
+  # intentionally not declared: callers use `secrets: inherit`.
+  workflow_call:
+    inputs:
+      version:
+        description: 'Release version (strict SemVer, e.g. 1.2.3 or 1.2.3-rc.1)'
+        required: true
+        type: string
+      channel:
+        description: 'Release channel (stable or beta)'
+        required: true
+        type: string
+      target:
+        description: 'Deploy target (staging or production)'
+        required: true
+        type: string
+      target_url:
+        description: 'API base URL of the deployed Central instance; used by the Coolify wait and smoke test'
+        # Must be the API base URL (https://api.plancope.sistemas.mec.gob.ar), not the web host.
+        required: false
+        type: string
+      allow_unsigned:
+        description: 'Build and publish the installer without an Authenticode signature; Windows SmartScreen warns on install.'
         required: false
         default: false
         type: boolean
@@ -68,10 +97,14 @@ jobs:
             echo "::error::Invalid version '$VERSION'. Expected strict SemVer (X.Y.Z, optionally with -prerelease)." >&2
             exit 1
           fi
-          if [ -n "$(git tag -l "$VERSION")" ]; then
+          if [ -n "$(git ls-remote --tags origin "refs/tags/$VERSION")" ]; then
             echo "::error::Git tag '$VERSION' already exists. Refusing to build a release for an existing tag." >&2
             exit 1
           fi
+          # This check is the single source of truth for tag non-existence: it runs
+          # on both the workflow_dispatch and the workflow_call (auto-release) paths.
+          # auto-release.yml also pre-checks, but only to fail earlier with a clearer
+          # message; the release itself is gated here.
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
   images:
@@ -101,12 +134,34 @@ jobs:
         run: |
           core="${VERSION%%-*}"
           short="$(git rev-parse --short=8 HEAD)"
-          echo "VERSION_TAG=$VERSION" >> "$GITHUB_ENV"
-          echo "MINOR_TAG=${core%.*}" >> "$GITHUB_ENV"
-          echo "SHA_TAG=sha-$short" >> "$GITHUB_ENV"
-          echo "IMAGE_API=$REGISTRY/$NAMESPACE/plan-cope-central-api" >> "$GITHUB_ENV"
-          echo "IMAGE_WEB=$REGISTRY/$NAMESPACE/plan-cope-central-web" >> "$GITHUB_ENV"
-          echo "IMAGE_MIGRATE=$REGISTRY/$NAMESPACE/plan-cope-central-migrate" >> "$GITHUB_ENV"
+          {
+            echo "VERSION_TAG=$VERSION"
+            echo "MINOR_TAG=${core%.*}"
+            echo "SHA_TAG=sha-$short"
+            echo "IMAGE_API=$REGISTRY/$NAMESPACE/plan-cope-central-api"
+            echo "IMAGE_WEB=$REGISTRY/$NAMESPACE/plan-cope-central-web"
+            echo "IMAGE_MIGRATE=$REGISTRY/$NAMESPACE/plan-cope-central-migrate"
+          } >> "$GITHUB_ENV"
+      - name: Ensure immutable image tags are unused
+        run: |
+          for image in "$IMAGE_API" "$IMAGE_WEB" "$IMAGE_MIGRATE"; do
+            error_file="$(mktemp)"
+            if docker manifest inspect "$image:$VERSION_TAG" >/dev/null 2>"$error_file"; then
+              rm -f "$error_file"
+              echo "::error::Immutable image tag '$image:$VERSION_TAG' already exists in GHCR. Refusing to overwrite it." >&2
+              exit 1
+            fi
+
+            if grep -Eqi 'no such manifest|manifest unknown|not found' "$error_file"; then
+              rm -f "$error_file"
+              continue
+            fi
+
+            error_detail="$(cat "$error_file")"
+            rm -f "$error_file"
+            echo "::error::Could not verify immutable image tag '$image:$VERSION_TAG' in GHCR: $error_detail" >&2
+            exit 1
+          done
       - name: Build and push plan-cope-central-api
         run: |
           # --target is mandatory, not cosmetic: `migrate` is the LAST stage of this
@@ -560,3 +615,16 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "PlanCope $VERSION" \
             --notes "Metadata, SBOMs and checksums only — installer via private channel."
+      - name: Verify the release tag exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # `gh release create` above is what creates the git tag (there is no separate
+          # tagging step, so a failed release leaves no tag behind). Confirm the tag
+          # exists before reporting success.
+          tag_name="$(gh release view "$VERSION" --json tagName --jq .tagName)"
+          if [ "$tag_name" != "$VERSION" ]; then
+            echo "::error::Expected release tag '$VERSION', got '$tag_name'." >&2
+            exit 1
+          fi
+          echo "Release $VERSION exists and its git tag is $tag_name."
