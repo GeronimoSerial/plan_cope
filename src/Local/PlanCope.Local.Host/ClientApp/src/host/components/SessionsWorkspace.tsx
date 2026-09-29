@@ -21,6 +21,7 @@ export function SessionsWorkspace({ delivery }: SessionsWorkspaceProps) {
       onCreateSession={delivery.createSession}
       onRefreshExams={() => examCatalog.loadExams()}
       onSelectedExamChange={examCatalog.setSelectedExamId}
+      syncPull={delivery.syncPull}
       roster={delivery.roster}
     />
   );

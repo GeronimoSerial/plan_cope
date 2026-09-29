@@ -404,6 +404,25 @@
   font-size: 13px;
 }
 
+.exam-pull {
+  display: grid;
+  gap: 6px;
+  margin: 4px 0 12px;
+}
+
+.exam-pull-message {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.exam-pull-meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .session-list {
   display: grid;
   gap: 8px;

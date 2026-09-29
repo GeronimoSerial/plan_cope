@@ -25,14 +25,16 @@ public sealed class EnrolmentEndpointsTests
         var refreshTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(30);
         var handler = new StubCentralHandler(() => new HttpResponseMessage(HttpStatusCode.OK)
         {
-            Content = JsonContent.Create(new ActivationRedeemResponse
+            // Real Central wraps the credential payload in ActivationRedeemResult; the old test
+            // stub returned the bare response and masked the deserialization bug this covers.
+            Content = JsonContent.Create(ActivationRedeemResult.Succeeded(new ActivationRedeemResponse
             {
                 NodeId = RedeemedNodeId,
                 AccessToken = "central-access-token",
                 RefreshToken = "central-refresh-token",
                 AccessTokenExpiresAt = accessTokenExpiresAt,
                 RefreshTokenExpiresAt = refreshTokenExpiresAt,
-            }),
+            })),
         });
 
         using var factory = new EnrolmentApiFactory(handler);
@@ -63,6 +65,90 @@ public sealed class EnrolmentEndpointsTests
         Assert.Equal("active", reader.GetString(1));
         Assert.False(reader.IsDBNull(2));
         Assert.False(reader.Read());
+    }
+
+    [Fact]
+    public async Task Redeem_accepts_bare_legacy_central_body()
+    {
+        var handler = new StubCentralHandler(() => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            // Older Central builds returned the credential fields at the root with no wrapper.
+            Content = JsonContent.Create(new ActivationRedeemResponse
+            {
+                NodeId = RedeemedNodeId,
+                AccessToken = "central-access-token",
+                RefreshToken = "central-refresh-token",
+                AccessTokenExpiresAt = DateTimeOffset.UtcNow.AddMinutes(15),
+                RefreshTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(30),
+            }),
+        });
+
+        using var factory = new EnrolmentApiFactory(handler);
+        using var client = factory.CreateClient();
+        factory.SeedNodeIdentity();
+
+        var response = await client.PostAsJsonAsync("/api/enrolment/redeem", new EnrolmentRedeemRequest(ActivationKey));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(1, handler.CallCount);
+        using var connection = factory.CreateConnection();
+        Assert.Equal(RedeemedNodeId, ReadStateString(connection, "node_id"));
+        Assert.Equal("central-access-token", ReadStateString(connection, "central_access_token"));
+    }
+
+    [Fact]
+    public async Task Redeem_with_failed_wrapper_maps_reason_to_spanish_error()
+    {
+        var handler = new StubCentralHandler(() => new HttpResponseMessage(HttpStatusCode.Forbidden)
+        {
+            Content = new StringContent(
+                """{"isSuccess":false,"reason":"KeyRevoked","response":null}""",
+                System.Text.Encoding.UTF8,
+                "application/json"),
+        });
+
+        using var factory = new EnrolmentApiFactory(handler);
+        using var client = factory.CreateClient();
+        factory.SeedNodeIdentity();
+
+        var response = await client.PostAsJsonAsync("/api/enrolment/redeem", new EnrolmentRedeemRequest(ActivationKey));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(1, handler.CallCount);
+        Assert.Contains(
+            "La clave de activación fue revocada.",
+            await response.Content.ReadAsStringAsync(),
+            StringComparison.Ordinal);
+
+        using var connection = factory.CreateConnection();
+        Assert.Null(ReadStateString(connection, "node_id"));
+        Assert.Null(ReadStateString(connection, "central_access_token"));
+    }
+
+    [Fact]
+    public async Task Redeem_with_malformed_central_body_returns_bad_request_not_server_error()
+    {
+        var handler = new StubCentralHandler(() => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("{ this is not valid json", System.Text.Encoding.UTF8, "application/json"),
+        });
+
+        using var factory = new EnrolmentApiFactory(handler);
+        using var client = factory.CreateClient();
+        factory.SeedNodeIdentity();
+
+        var response = await client.PostAsJsonAsync("/api/enrolment/redeem", new EnrolmentRedeemRequest(ActivationKey));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(1, handler.CallCount);
+        Assert.Contains(
+            "Central devolvió una respuesta inválida.",
+            await response.Content.ReadAsStringAsync(),
+            StringComparison.Ordinal);
+
+        using var connection = factory.CreateConnection();
+        Assert.Null(ReadStateString(connection, "node_id"));
+        Assert.Null(ReadStateString(connection, "central_access_token"));
     }
 
     [Fact]

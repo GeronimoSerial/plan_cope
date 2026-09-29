@@ -21,6 +21,8 @@ public static class LocalDataServiceCollectionExtensions
         services.AddSingleton<LocalDatabaseInitializer>();
         services.AddScoped<LocalDemoExamSeeder>();
         services.AddScoped<LocalAssetFileService>();
+        // Singleton: the on-demand endpoint and the background sync must serialise pulls.
+        services.AddSingleton<ExamPullGate>();
         services.AddScoped<LocalExamPullService>();
         services.AddScoped<LocalRosterPullService>();
         services.AddSingleton<IEmbeddedRosterSource, EmbeddedRosterSource>();

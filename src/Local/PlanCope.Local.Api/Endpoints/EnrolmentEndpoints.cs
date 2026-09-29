@@ -49,13 +49,24 @@ public static class EnrolmentEndpoints
                 AppVersion: null);
 
             var response = await client.PostAsJsonAsync("api/activation/redeem", redeemRequest, ct);
+
+            var body = await response.Content.ReadAsStringAsync(ct);
+            var parsed = ParseRedeemBody(body);
+
             if (!response.IsSuccessStatusCode)
             {
-                return Results.BadRequest(new { error = "No se pudo validar la clave de activación. Verificá que sea correcta y no esté vencida o revocada." });
+                var message = parsed.FailureReason is { } failureReason
+                    ? FailureMessage(failureReason)
+                    : "No se pudo validar la clave de activación. Verificá que sea correcta y no esté vencida o revocada.";
+                return Results.BadRequest(new { error = message });
             }
 
-            var redeemed = await response.Content.ReadFromJsonAsync<ActivationRedeemResponse>(cancellationToken: ct);
-            if (redeemed is null)
+            if (parsed.FailureReason is { } reportedFailure)
+            {
+                return Results.BadRequest(new { error = FailureMessage(reportedFailure) });
+            }
+
+            if (parsed.Response is not { } redeemed)
             {
                 return Results.BadRequest(new { error = "Central devolvió una respuesta inválida." });
             }
@@ -79,6 +90,141 @@ public static class EnrolmentEndpoints
         return endpoints;
     }
 
+    /// <summary>
+    /// Tolerant reader for the Central redeem body. Accepts the current
+    /// <see cref="ActivationRedeemResult"/> wrapper, the legacy bare
+    /// <see cref="ActivationRedeemResponse"/> shape, and rejects anything malformed without
+    /// throwing so a bad Central body can never surface as a 500.
+    /// </summary>
+    private static RedeemBody ParseRedeemBody(string? body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return RedeemBody.Invalid;
+        }
+
+        JsonDocument document;
+        try
+        {
+            document = JsonDocument.Parse(body);
+        }
+        catch (JsonException)
+        {
+            return RedeemBody.Invalid;
+        }
+
+        using (document)
+        {
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return RedeemBody.Invalid;
+            }
+
+            if (root.TryGetProperty("isSuccess", out var isSuccess) &&
+                isSuccess.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            {
+                if (!isSuccess.GetBoolean())
+                {
+                    return new RedeemBody(null, ReadFailureReason(root));
+                }
+
+                return root.TryGetProperty("response", out var responseElement)
+                    ? new RedeemBody(ReadResponse(responseElement), null)
+                    : RedeemBody.Invalid;
+            }
+
+            // Legacy shape: the credential fields sit at the root with no wrapper.
+            return new RedeemBody(ReadResponse(root), null);
+        }
+    }
+
+    private static ActivationRedeemResponse? ReadResponse(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        if (!TryReadString(element, "nodeId", out var nodeId) ||
+            !TryReadString(element, "accessToken", out var accessToken) ||
+            !TryReadString(element, "refreshToken", out var refreshToken) ||
+            !TryReadDateTimeOffset(element, "accessTokenExpiresAt", out var accessTokenExpiresAt) ||
+            !TryReadDateTimeOffset(element, "refreshTokenExpiresAt", out var refreshTokenExpiresAt))
+        {
+            return null;
+        }
+
+        return new ActivationRedeemResponse
+        {
+            NodeId = nodeId,
+            AccessToken = accessToken,
+            RefreshToken = refreshToken,
+            AccessTokenExpiresAt = accessTokenExpiresAt,
+            RefreshTokenExpiresAt = refreshTokenExpiresAt,
+        };
+    }
+
+    private static bool TryReadString(JsonElement element, string property, out string value)
+    {
+        value = string.Empty;
+        if (!element.TryGetProperty(property, out var propertyValue) || propertyValue.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        var text = propertyValue.GetString();
+        if (string.IsNullOrEmpty(text))
+        {
+            return false;
+        }
+
+        value = text;
+        return true;
+    }
+
+    private static bool TryReadDateTimeOffset(JsonElement element, string property, out DateTimeOffset value)
+    {
+        value = default;
+        return element.TryGetProperty(property, out var propertyValue) &&
+            propertyValue.ValueKind == JsonValueKind.String &&
+            propertyValue.TryGetDateTimeOffset(out value);
+    }
+
+    private static ActivationRedeemFailureReason? ReadFailureReason(JsonElement root)
+    {
+        if (!root.TryGetProperty("reason", out var reason))
+        {
+            return null;
+        }
+
+        if (reason.ValueKind == JsonValueKind.String &&
+            Enum.TryParse<ActivationRedeemFailureReason>(reason.GetString(), ignoreCase: true, out var named))
+        {
+            return named;
+        }
+
+        if (reason.ValueKind == JsonValueKind.Number &&
+            reason.TryGetInt32(out var numeric) &&
+            Enum.IsDefined(typeof(ActivationRedeemFailureReason), numeric))
+        {
+            return (ActivationRedeemFailureReason)numeric;
+        }
+
+        return null;
+    }
+
+    private static string FailureMessage(ActivationRedeemFailureReason reason) => reason switch
+    {
+        ActivationRedeemFailureReason.MalformedKey => "La clave de activación tiene un formato inválido.",
+        ActivationRedeemFailureReason.KeyNotFound => "La clave de activación no existe.",
+        ActivationRedeemFailureReason.KeyRevoked => "La clave de activación fue revocada.",
+        ActivationRedeemFailureReason.KeyExpired => "La clave de activación está vencida.",
+        ActivationRedeemFailureReason.ActivationLimitReached => "La clave de activación alcanzó su límite de usos.",
+        ActivationRedeemFailureReason.FingerprintCollision => "La identidad del equipo ya está asociada a otra inscripción.",
+        _ => "No se pudo validar la clave de activación. Verificá que sea correcta y no esté vencida o revocada.",
+    };
+
     private static async Task<string?> ReadStateStringAsync(ISyncStateRepository repository, string key, CancellationToken ct)
     {
         var state = await repository.GetAsync(key, ct);
@@ -93,6 +239,13 @@ public static class EnrolmentEndpoints
     {
         var now = DateTimeOffset.UtcNow.ToString("O");
         return repository.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), key, JsonSerializer.Serialize(value, JsonOptions), now), ct);
+    }
+
+    private readonly record struct RedeemBody(
+        ActivationRedeemResponse? Response,
+        ActivationRedeemFailureReason? FailureReason)
+    {
+        public static RedeemBody Invalid => new(null, null);
     }
 }
 

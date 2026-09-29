@@ -55,7 +55,7 @@ public sealed class PublishPullRunPushTests
         var health = await localClient.GetAsync("/api/health");
         Assert.Equal(HttpStatusCode.OK, health.StatusCode);
 
-        await SeedSyncStateAsync(localFactory, centralFactory.PlaceholderCentralUrl, accessToken);
+        await SeedSyncStateAsync(localFactory, centralFactory.PlaceholderCentralUrl, CreateNodeAccessToken());
 
         using (var pullScope = localFactory.Services.CreateScope())
         {
@@ -83,6 +83,33 @@ public sealed class PublishPullRunPushTests
             Assert.NotNull(received);
             Assert.Equal("submitted", received.Status);
         }
+    }
+
+    [Fact]
+    public async Task Create_exam_returns_initial_version_that_can_build_publish_and_sync()
+    {
+        using var centralFactory = new CentralApiFactory();
+        var accessToken = CreateAccessToken();
+        using var centralClient = centralFactory.CreateClient();
+        centralClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+        var exam = await CreateExamOnCentralAsync(centralClient);
+        Assert.False(string.IsNullOrWhiteSpace(exam.InitialVersionId));
+
+        var block = await AddTrueFalseBlockOnCentralAsync(centralClient, exam.InitialVersionId!);
+        Assert.False(string.IsNullOrWhiteSpace(block.Id));
+        await PublishVersionOnCentralAsync(centralClient, exam.InitialVersionId!);
+
+        var listResponse = await centralClient.GetAsync("/api/exams");
+        Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
+        using var listDocument = JsonDocument.Parse(await listResponse.Content.ReadAsStringAsync());
+        var examNode = listDocument.RootElement
+            .EnumerateArray()
+            .Single(element => element.GetProperty("id").GetString() == exam.Id);
+
+        Assert.Equal("published", examNode.GetProperty("publicationState").GetString());
+        Assert.Equal(exam.InitialVersionId, examNode.GetProperty("publishedVersionId").GetString());
+        Assert.Equal(0, examNode.GetProperty("pulledByNodeCount").GetInt32());
     }
 
     [Fact]
@@ -121,7 +148,7 @@ public sealed class PublishPullRunPushTests
         using var localClient = localFactory.CreateClient();
         var health = await localClient.GetAsync("/api/health");
         Assert.True(health.StatusCode == HttpStatusCode.OK, $"health={health.StatusCode} body={await health.Content.ReadAsStringAsync()}");
-        await SeedSyncStateAsync(localFactory, centralFactory.PlaceholderCentralUrl, accessToken);
+        await SeedSyncStateAsync(localFactory, centralFactory.PlaceholderCentralUrl, CreateNodeAccessToken());
 
         // 4. Initial catalog pull WHILE CONNECTED (routine sync, before the school goes offline)
         localFactory.Connectivity.Offline = false;
@@ -303,6 +330,14 @@ public sealed class PublishPullRunPushTests
         return tokenService.CreateAccessToken(new UserProfileDto("e2e-user-id", "E2E User", "Admin", null, "province", []));
     }
 
+    // Local syncs with a node-access token, exactly like an enrolled node. The matching node_id
+    // claim is "e2e-node-1" (also the node_id stored in Local's sync_state by SeedSyncStateAsync).
+    private static string CreateNodeAccessToken()
+    {
+        var tokenService = new TokenService(Options.Create(new AuthOptions { SigningKey = CentralApiFactory.SigningKey }));
+        return tokenService.CreateNodeAccessToken("e2e-node-1", "180055400", TimeSpan.FromMinutes(30));
+    }
+
     private static async Task<ExamCreated> CreateExamOnCentralAsync(HttpClient client)
     {
         var response = await client.PostAsJsonAsync("/api/exams", new CreateExamRequest(
@@ -332,6 +367,18 @@ public sealed class PublishPullRunPushTests
             """);
         var response = await client.PutAsJsonAsync($"/api/exams/versions/{versionId}/blocks", new UpsertBlockRequest(
             0, BlockType.MultipleChoice, "Pregunta 1", null, config, null));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var block = await response.Content.ReadFromJsonAsync<BlockCreated>();
+        Assert.NotNull(block);
+        Assert.False(string.IsNullOrWhiteSpace(block!.Id));
+        return block;
+    }
+
+    private static async Task<BlockCreated> AddTrueFalseBlockOnCentralAsync(HttpClient client, string versionId)
+    {
+        var config = JsonSerializer.Deserialize<JsonElement>("""{"question":"La Tierra es redonda","correct":true}""");
+        var response = await client.PutAsJsonAsync($"/api/exams/versions/{versionId}/blocks", new UpsertBlockRequest(
+            0, BlockType.TrueFalse, "Enunciado", null, config, null));
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var block = await response.Content.ReadFromJsonAsync<BlockCreated>();
         Assert.NotNull(block);
@@ -393,7 +440,7 @@ public sealed class PublishPullRunPushTests
         return started.Attempt.Id;
     }
 
-    private sealed record ExamCreated(string Id);
+    private sealed record ExamCreated(string Id, string? InitialVersionId);
 
     private sealed record VersionCreated(string Id);
 

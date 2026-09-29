@@ -45,15 +45,12 @@ public static class SyncEndpoints
             });
         });
 
-        group.MapPost("/pull-exams", async (
-            LocalExamPullService pullService,
-            CancellationToken cancellationToken) =>
-        {
-            var result = await pullService.PullAsync(cancellationToken);
-            return result.Success
-                ? Results.Ok(result)
-                : Results.BadRequest(result);
-        });
+        // On-demand exam pull used by the operator UI. Pages until Central reports no more
+        // packages, serialises against the background sync, and always answers with the same
+        // JSON shape so the UI can render status/message without guessing the HTTP failure mode.
+        // The alias route keeps the older clients working while the response shape is stable.
+        group.MapPost("/pull-exams", PullExamsAsync);
+        group.MapPost("/pull-exams-now", PullExamsAsync);
 
         // Roster transport is deliberately manual. There is no hosted service,
         // timer, or implicit pull on startup; an operator/release invokes this
@@ -92,6 +89,26 @@ public static class SyncEndpoints
 
         return endpoints;
     }
+
+    private static async Task<IResult> PullExamsAsync(
+        LocalExamPullService pullService,
+        CancellationToken cancellationToken)
+    {
+        var result = await pullService.PullAsync(cancellationToken);
+        var response = result.ToResponse();
+        return result.Success
+            ? Results.Ok(response)
+            : Results.Json(response, statusCode: ErrorStatusCode(result.ErrorCode));
+    }
+
+    private static int ErrorStatusCode(string? errorCode) => errorCode switch
+    {
+        ExamPullErrorCodes.NotEnrolled => StatusCodes.Status409Conflict,
+        ExamPullErrorCodes.CentralUnreachable => StatusCodes.Status502BadGateway,
+        ExamPullErrorCodes.Unauthorized => StatusCodes.Status502BadGateway,
+        ExamPullErrorCodes.ChecksumMismatch => StatusCodes.Status502BadGateway,
+        _ => StatusCodes.Status500InternalServerError
+    };
 
     private static string? ReadJsonString(string? valueJson)
     {

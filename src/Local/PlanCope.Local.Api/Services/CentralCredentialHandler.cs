@@ -16,13 +16,17 @@ public sealed class CentralCredentialHandler(ISyncStateRepository syncStateRepos
             return response;
         }
 
+        // Clone before the refresh so a failed refresh can still return the original 401 body,
+        // then dispose the consumed 401 response so the socket is released before the retry.
+        var retryRequest = await CloneAsync(request);
         var refreshed = await refresher.TryRefreshAsync(cancellationToken);
         if (!refreshed)
         {
+            retryRequest.Dispose();
             return response;
         }
 
-        var retryRequest = await CloneAsync(request);
+        response.Dispose();
         await AttachTokenAsync(retryRequest, cancellationToken);
         return await base.SendAsync(retryRequest, cancellationToken);
     }
