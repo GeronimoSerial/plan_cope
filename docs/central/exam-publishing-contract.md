@@ -24,9 +24,18 @@ PUT  /api/exams/versions/{versionId}/document    (builder) replace blocks + scor
         v   version is READY when blockCount >= 1 (and scoring policy set if any MCQ)
 POST /api/exams/versions/{versionId}/publish     emit PublicationPackage (Status=Published)
         |
-        v
+        v   examSummary.publishedVersion* now points at this version
 GET  /api/sync/pull?nodeId=&cursor=&limit=       node receives the package
+
+Editing a published exam (published versions are immutable):
+PUT  /api/exams/{examId}                         (metadata only; code is immutable)
+POST /api/exams/{examId}/versions                deep-copy of a version -> NEW draft
+        |   body: { sourceVersionId?, schemaVersion?, metadata?, scoringPolicy? }
+        v   edit the draft copy, then publish it; it supersedes the previous version
 ```
+
+A published version can never be edited in place. The only way to change an exam's content is to
+create a new draft version copied from an existing one, edit it, and publish it (§3.10–§3.12).
 
 `GET /api/sync/pull` and `POST /api/sync/push` require a node-access token
 (`token_type = node_access`, non-empty `node_id` claim). The caller's node identity is always the
@@ -82,6 +91,20 @@ Per-version readiness is exposed on every `ExamVersionDto` (version list and ver
 applies request-level gates (`grade` required, block validation, referenced image assets must
 exist), so it is possible for `canPublish` to be true and publish to return `400`.
 
+Computed publication fields on every `ExamVersionDto` (version list and version detail). They are
+derived from the exam's versions, never stored (except the source link):
+
+| Field                   | Type          | Meaning                                                                                      |
+| ----------------------- | ------------- | -------------------------------------------------------------------------------------------- |
+| `publishedAt`           | ISO-8601 `string?` | `ExamVersion.PublishedAt`, or null while the version is a draft.                         |
+| `supersededAt`          | ISO-8601 `string?` | For a published version that has been superseded: the `publishedAt` of the next published version (lowest `versionNumber` greater than this one). Null for the current version and for drafts. |
+| `isCurrent`             | `bool`        | True only for the latest published version of the exam.                                      |
+| `basedOnVersionNumber`  | `int?`        | `versionNumber` of the version this one was copied from; null for an empty/initial version.  |
+
+`ExamSummaryDto.publishedVersionId` / `publishedVersionNumber` / `publishedAt` / `targets` /
+`pulledByNodeCount` always describe the **current** (latest published) version, so after publishing
+a newer version the summary moves to it automatically.
+
 ---
 
 ## 3. Endpoints
@@ -133,18 +156,40 @@ list responses).
 
 ### 3.3 Create another version — `POST /api/exams/{examId}/versions`
 
-Only needed when authoring a second (or later) version of an exam. The initial version already
-exists after create.
-
-Request:
+Creates a new draft version with `versionNumber = max(versionNumber) + 1`. Every body field is
+optional:
 
 ```json
-{ "schemaVersion": 1, "metadata": { "generatedBy": "teacher01" }, "scoringPolicy": null }
+{
+  "schemaVersion": 1,
+  "metadata": { "generatedBy": "teacher01" },
+  "scoringPolicy": "AllOrNothing",
+  "sourceVersionId": "ev_def456",
+  "empty": false
+}
 ```
 
-Response `201 Created`: `ExamVersionDto` (empty `blocks`, `blockCount: 0`,
-`canPublish: false`, `publishBlockedReason: "no_blocks"`).
-Errors: `404` unknown exam, `400` validation, `409` concurrent version creation.
+| Field             | Default                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------------- |
+| `sourceVersionId` | The exam's latest version (highest `versionNumber`).                                        |
+| `schemaVersion`   | The source version's `schemaVersion`, else `1`.                                             |
+| `metadata`        | Deep copy of the source version's metadata.                                                 |
+| `scoringPolicy`   | Copy of the source version's scoring policy.                                                |
+| `empty`           | `false`. Set `empty: true` to create an empty version instead of copying (legacy behaviour).|
+
+When the source is copied, the new version is a **deep copy**: new ids for the version, blocks,
+block options, answer keys and assets; image blocks' `config.assetId` is rewritten to the new asset
+id; `sourceVersionId` is stored and exposed as `basedOnVersionNumber`. The copy starts in status
+`Draft`, so it is fully editable.
+
+Response `201 Created`: `ExamVersionDto` for the new draft, carrying the copied `blocks`,
+`answerKeys` and `assets`, `basedOnVersionNumber`, and readiness fields. An empty copy reports
+`blockCount: 0`, `canPublish: false`, `publishBlockedReason: "no_blocks"`.
+
+Errors: `404` unknown exam or unknown `sourceVersionId`; `400` validation, or a `sourceVersionId`
+that belongs to a different exam (validation key `sourceVersionId`); `409` concurrent version
+creation. Creating a version while another draft already exists is allowed by the API (the web UI
+prevents it).
 
 ### 3.4 List versions — `GET /api/exams/{examId}/versions`
 
@@ -242,6 +287,60 @@ versions become immutable and can only be published once.
 Errors: `404` unknown version, `409` already published, `400` with a `ValidationProblemDetails`
 whose error keys are `blocks` (no blocks), `scoringPolicy` (MCQ without policy), `grade` (missing),
 or per-block/config keys; `400` when an `Image` block references an asset that does not exist.
+
+### 3.10 Edit exam metadata — `PUT /api/exams/{examId}`
+
+Updates the mutable metadata of an exam. The `code` is immutable.
+
+Request:
+
+```json
+{
+  "code": "EXA-2026-01",
+  "title": "Matemática · Primer Año (revisado)",
+  "description": "Segunda edición",
+  "level": "Secundario",
+  "area": "Matemática",
+  "subject": "Números y Operaciones"
+}
+```
+
+- `title` is required; `description` / `level` / `area` / `subject` are optional and replace the
+  stored value.
+- `code` is optional. Omitted (or equal to the stored code) keeps it; present and different from the
+  stored code is a `400` with validation key `code`.
+
+Response `200`: `ExamSummaryDto` with the same computed publication fields as `GET /api/exams`.
+
+Errors: `404` unknown exam, `400` validation (same `ExamValidator` as create: `title` non-empty and
+max 256, immutable `code`), authorization identical to `POST /api/exams` (controller-level
+`[Authorize]`).
+
+### 3.11 Edit-as-new-version flow (published exams)
+
+A published version is immutable: `PUT .../document`, `PUT .../blocks` and `POST .../assets` return
+`409`. To change a published exam:
+
+1. `POST /api/exams/{examId}/versions` with `{ "sourceVersionId": "<current published version id>" }`
+   (or no body at all, which defaults to the latest version) to get an editable draft deep-copy.
+2. Edit the draft with the normal `document` / `blocks` / `assets` endpoints.
+3. `POST /api/exams/versions/{draftVersionId}/publish` to emit a new package.
+
+The API also allows `PUT /api/exams/{examId}` at any time to fix metadata without a new version.
+
+### 3.12 Superseding semantics
+
+Publication is append-only: publishing never mutates or deletes an earlier package.
+
+- On publish, the version's `status` becomes `Published` and `publishedAt` is set.
+- The **current** version is the published version with the highest `versionNumber`; only it reports
+  `isCurrent: true`.
+- Every earlier published version reports `isCurrent: false` and `supersededAt` = the `publishedAt`
+  of the next published version.
+- `ExamSummaryDto.publishedVersion*` points at the current version.
+- Previous `PublicationPackage` rows stay `Published` and are not deleted, so a node that has not
+  pulled the older package yet can still receive it; the newer package is delivered afterwards
+  because `/api/sync/pull` orders candidates by `publishedAt` (see §5).
 
 ---
 
@@ -341,6 +440,9 @@ no published package, and `0` when published but not yet pulled.
   and `CursorKey = "package:{packageId}"` for delivery markers.
 - `exams` / `exam_versions` / `exam_blocks` / `exam_answer_keys` / `exam_assets` — authoring data;
   a version's `status` becomes `Published` and `published_at` is set at publish time.
+- `exam.versions.source_version_id` — nullable column added by the
+  `AddExamVersionSourceVersion` EF migration. It stores the version a draft copy was created from;
+  `basedOnVersionNumber` is resolved from it at read time.
 
-No schema migration is required by this change: all new fields are computed or stored in existing
-tables.
+The `publishedAt` / `supersededAt` / `isCurrent` / `basedOnVersionNumber` DTO fields are computed on
+read; only `source_version_id` is persisted by this change.

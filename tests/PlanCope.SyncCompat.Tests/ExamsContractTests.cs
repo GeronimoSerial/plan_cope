@@ -155,6 +155,10 @@ public sealed class ExamsContractTests
         AssertHasProperty(root, "blockCount");
         AssertHasProperty(root, "canPublish");
         AssertHasProperty(root, "publishBlockedReason");
+        AssertHasProperty(root, "publishedAt");
+        AssertHasProperty(root, "supersededAt");
+        AssertHasProperty(root, "isCurrent");
+        AssertHasProperty(root, "basedOnVersionNumber");
 
         AssertCanonicalRoundTrip(sample, PlanCopeJsonSerializerContext.Default.ExamVersionDto);
     }
@@ -394,8 +398,35 @@ public sealed class ExamsContractTests
         AssertHasProperty(root, "schemaVersion");
         AssertHasProperty(root, "metadata");
         AssertHasProperty(root, "scoringPolicy");
+        AssertHasProperty(root, "sourceVersionId");
+        AssertHasProperty(root, "empty");
 
         AssertCanonicalRoundTrip(sample, PlanCopeJsonSerializerContext.Default.CreateExamVersionRequest);
+    }
+
+    [Fact]
+    public void UpdateExamRequest_round_trips_through_source_generated_context()
+    {
+        var sample = new UpdateExamRequest(
+            "EXA-2026-01",
+            "Matemática · Primer Año",
+            "Evaluación de comprensión lectora",
+            "Secundario",
+            "Matemática",
+            "Literatura");
+
+        var json = Serialize(sample, PlanCopeJsonSerializerContext.Default.UpdateExamRequest);
+
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        AssertHasProperty(root, "code");
+        AssertHasProperty(root, "title");
+        AssertHasProperty(root, "description");
+        AssertHasProperty(root, "level");
+        AssertHasProperty(root, "area");
+        AssertHasProperty(root, "subject");
+
+        AssertCanonicalRoundTrip(sample, PlanCopeJsonSerializerContext.Default.UpdateExamRequest);
     }
 
     [Fact]
