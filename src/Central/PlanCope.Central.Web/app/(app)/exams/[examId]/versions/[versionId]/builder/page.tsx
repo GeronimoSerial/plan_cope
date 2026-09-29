@@ -1,26 +1,35 @@
 import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { listExams, getVersion, isSessionExpired } from "../../../../../../_lib/api/server";
+import { listExams, listVersions, getVersion, isSessionExpired } from "../../../../../../_lib/api/server";
 import { versionToDocument } from "../../../../../../_lib/schema/mappers";
-import { PageHeader } from "../../../../../../_components/layout/page-header";
+import { findDraft } from "../../../../../../_lib/exams/version-state";
 import { ExamBuilder } from "../../../../../../_components/builder/exam-builder";
 import type { ExamSummary, ExamVersion } from "../../../../../../_lib/contracts";
 
 export const metadata: Metadata = { title: "Builder · PlanCope Central" };
 
 export default async function BuilderPage({
-  params
+  params,
+  searchParams
 }: {
   params: Promise<{ examId: string; versionId: string }>;
+  searchParams: Promise<{ publicar?: string }>;
 }) {
   const { examId, versionId } = await params;
+  const { publicar } = await searchParams;
 
   let exam: ExamSummary | undefined;
   let version: ExamVersion;
+  let versions: ExamVersion[];
   try {
-    const [exams, loadedVersion] = await Promise.all([listExams(), getVersion(versionId)]);
+    const [exams, loadedVersion, loadedVersions] = await Promise.all([
+      listExams(),
+      getVersion(versionId),
+      listVersions(examId)
+    ]);
     exam = exams.find(item => item.id === examId);
     version = loadedVersion;
+    versions = loadedVersions;
   } catch (error) {
     if (isSessionExpired(error)) {
       redirect("/login?expired=1");
@@ -32,22 +41,28 @@ export default async function BuilderPage({
     notFound();
   }
 
+  const nextVersionNumber = versions.reduce((max, item) => Math.max(max, item.versionNumber), 0) + 1;
+  const draft = findDraft(versions);
   const document = versionToDocument(version, exam);
 
   return (
-    <>
-      <PageHeader
-        eyebrow={`${exam.code} · Versión ${version.versionNumber}`}
-        title="Builder de examen"
-        description="Construí las preguntas, previsualizá y publicá. Los cambios se guardan en la versión."
-        breadcrumbs={[
-          { label: "Inicio", href: "/dashboard" },
-          { label: "Exámenes", href: "/exams" },
-          { label: exam.code, href: `/exams/${examId}` },
-          { label: `Versión ${version.versionNumber}` }
-        ]}
-      />
-      <ExamBuilder versionId={version.id} status={version.status} initialDocument={document} />
-    </>
+    <ExamBuilder
+      examId={examId}
+      examCode={exam.code}
+      examTitle={exam.title}
+      versionId={version.id}
+      versionNumber={version.versionNumber}
+      status={version.status}
+      isCurrent={version.isCurrent}
+      basedOnVersionNumber={version.basedOnVersionNumber ?? null}
+      currentPublishedVersionNumber={exam.publishedVersionNumber ?? null}
+      nextVersionNumber={nextVersionNumber}
+      draftVersionId={draft?.id ?? null}
+      draftVersionNumber={draft?.versionNumber ?? null}
+      initialDocument={document}
+      canPublish={version.canPublish}
+      publishBlockedReason={version.publishBlockedReason}
+      autoOpenPublish={publicar === "1" && version.canPublish}
+    />
   );
 }

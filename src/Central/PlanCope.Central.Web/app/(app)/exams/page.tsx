@@ -1,18 +1,27 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { listExams, isSessionExpired } from "../../_lib/api/server";
+import {
+  isSessionExpired,
+  listExams,
+  listUnassignedGradingPolicies,
+  type UnassignedExamVersion
+} from "../../_lib/api/server";
 import { PageHeader } from "../../_components/layout/page-header";
-import { ExamList } from "../../_components/exams/exam-list";
-import { EmptyState } from "../../_components/ui/empty-state";
+import { CreateExamButton } from "../../_components/exams/create-exam-dialog";
+import { ExamsTable } from "../../_components/exams/exams-table";
+import { ExamsUnassignedAlert } from "../../_components/exams/exams-unassigned-alert";
 import type { ExamSummary } from "../../_lib/contracts";
 
 export const metadata: Metadata = { title: "Exámenes · PlanCope Central" };
 
 export default async function ExamsPage() {
   let exams: ExamSummary[];
+  let unassigned: UnassignedExamVersion[];
   try {
-    exams = await listExams();
+    [exams, unassigned] = await Promise.all([
+      listExams(),
+      listUnassignedGradingPolicies().catch(() => [] as UnassignedExamVersion[])
+    ]);
   } catch (error) {
     if (isSessionExpired(error)) {
       redirect("/login?expired=1");
@@ -23,25 +32,12 @@ export default async function ExamsPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Exámenes"
-        title="Tus exámenes"
-        description="Administrá tus exámenes."
-        breadcrumbs={[{ label: "Inicio", href: "/dashboard" }, { label: "Exámenes" }]}
-        actions={
-          <Link href="/exams/new" className="button">
-            Nuevo examen
-          </Link>
-        }
+        title="Exámenes"
+        description="Exámenes del sistema. Creá uno, cargá sus preguntas y publicalo para enviarlo a los nodos."
+        actions={<CreateExamButton />}
       />
-
-      {exams.length === 0 ? (
-        <EmptyState
-          title="Aún no hay exámenes"
-          description="Creá un examen para comenzar."
-        />
-      ) : (
-        <ExamList exams={exams} />
-      )}
+      <ExamsUnassignedAlert count={unassigned.length} />
+      <ExamsTable exams={exams} />
     </>
   );
 }

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -109,24 +110,55 @@ public sealed class ExamsController(
     [HttpPost("{examId}/versions")]
     public async Task<ActionResult<ExamVersionDto>> CreateVersion(string examId, CreateExamVersionRequest request, CancellationToken cancellationToken)
     {
-        var examExists = await dbContext.Exams.AnyAsync(x => x.Id == examId && x.DeletedAt == null, cancellationToken);
-        if (!examExists)
+        var exam = await dbContext.Exams.SingleOrDefaultAsync(x => x.Id == examId && x.DeletedAt == null, cancellationToken);
+        if (exam is null)
         {
             return NotFound();
         }
 
-        var latestVersion = await dbContext.ExamVersions
+        var examVersions = await dbContext.ExamVersions
             .Where(x => x.ExamId == examId)
-            .MaxAsync(x => (int?)x.VersionNumber, cancellationToken) ?? 0;
+            .ToListAsync(cancellationToken);
+
+        var latestVersionNumber = examVersions.Count == 0 ? 0 : examVersions.Max(static version => version.VersionNumber);
+
+        // The new version is a deep copy of an existing version unless the caller asks for an empty
+        // one. An explicit sourceVersionId wins; otherwise the latest version is the source. A draft
+        // already existing for the exam is allowed (the web UI prevents it, the API does not).
+        ExamVersion? source = null;
+        if (!request.Empty)
+        {
+            if (!string.IsNullOrWhiteSpace(request.SourceVersionId))
+            {
+                source = examVersions.FirstOrDefault(version => string.Equals(version.Id, request.SourceVersionId, StringComparison.Ordinal));
+                if (source is null)
+                {
+                    var belongsToAnotherExam = await dbContext.ExamVersions
+                        .AnyAsync(version => version.Id == request.SourceVersionId, cancellationToken);
+                    return belongsToAnotherExam
+                        ? BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]>
+                        {
+                            ["sourceVersionId"] = ["The source version does not belong to this exam."]
+                        }))
+                        : NotFound();
+                }
+            }
+            else
+            {
+                source = examVersions
+                    .OrderByDescending(static version => version.VersionNumber)
+                    .FirstOrDefault();
+            }
+        }
 
         var now = DateTimeOffset.UtcNow;
         var version = new ExamVersion(
             NewId(),
             examId,
-            latestVersion + 1,
-            request.SchemaVersion,
+            latestVersionNumber + 1,
+            request.SchemaVersion ?? source?.SchemaVersion ?? 1,
             "Draft",
-            ToJsonDocument(request.Metadata),
+            request.Metadata.HasValue ? ToJsonDocument(request.Metadata.Value) : Clone(source?.Metadata),
             null,
             null,
             null,
@@ -134,7 +166,8 @@ public sealed class ExamsController(
             null,
             now,
             now,
-            request.ScoringPolicy);
+            request.ScoringPolicy ?? source?.ScoringPolicy,
+            source?.Id);
 
         var validation = await versionValidator.ValidateAsync(version, cancellationToken);
         if (!validation.IsValid)
@@ -142,7 +175,122 @@ public sealed class ExamsController(
             return BadRequest(new ValidationProblemDetails(validation.ToDictionary()));
         }
 
+        var newBlocks = new List<ExamBlock>();
+        var newAnswerKeys = new List<AnswerKey>();
+        var newOptions = new List<ExamBlockOption>();
+        var newAssets = new List<ExamAsset>();
+        var newUsages = new List<AssetUsage>();
+
+        if (source is not null)
+        {
+            var sourceBlocks = await dbContext.ExamBlocks
+                .Where(x => x.ExamVersionId == source.Id)
+                .OrderBy(x => x.OrderIndex)
+                .ToListAsync(cancellationToken);
+            var sourceBlockIds = sourceBlocks.Select(static block => block.Id).ToList();
+
+            var sourceAnswerKeys = await dbContext.AnswerKeys
+                .Where(x => sourceBlockIds.Contains(x.ExamBlockId))
+                .ToListAsync(cancellationToken);
+            var sourceOptions = await dbContext.ExamBlockOptions
+                .Where(x => sourceBlockIds.Contains(x.ExamBlockId))
+                .ToListAsync(cancellationToken);
+            var sourceAssets = await dbContext.ExamAssets
+                .Where(x => x.ExamVersionId == source.Id)
+                .ToListAsync(cancellationToken);
+            var sourceUsages = await dbContext.AssetUsages
+                .Where(x => sourceBlockIds.Contains(x.ExamBlockId))
+                .ToListAsync(cancellationToken);
+
+            // Assets are per-version rows: copy them under fresh ids and keep image blocks' config
+            // pointing at the NEW asset ids so the copy owns its own files.
+            var assetIdMap = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var asset in sourceAssets)
+            {
+                var newAssetId = NewId();
+                assetIdMap[asset.Id] = newAssetId;
+                newAssets.Add(new ExamAsset(
+                    newAssetId,
+                    version.Id,
+                    asset.FileName,
+                    asset.MimeType,
+                    asset.SizeBytes,
+                    asset.Checksum,
+                    asset.StoragePath,
+                    now));
+            }
+
+            var blockIdMap = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var block in sourceBlocks)
+            {
+                var newBlockId = NewId();
+                blockIdMap[block.Id] = newBlockId;
+                newBlocks.Add(new ExamBlock(
+                    newBlockId,
+                    version.Id,
+                    block.OrderIndex,
+                    block.BlockType,
+                    block.Title,
+                    block.Description,
+                    CloneConfigWithAssetRemap(block.Config, assetIdMap),
+                    Clone(block.Validation),
+                    now,
+                    now));
+            }
+
+            foreach (var option in sourceOptions)
+            {
+                if (!blockIdMap.TryGetValue(option.ExamBlockId, out var newBlockId))
+                {
+                    continue;
+                }
+
+                newOptions.Add(new ExamBlockOption(
+                    NewId(),
+                    newBlockId,
+                    option.Value,
+                    option.Label,
+                    option.OrderIndex,
+                    Clone(option.Metadata),
+                    now,
+                    now));
+            }
+
+            foreach (var answerKey in sourceAnswerKeys)
+            {
+                if (!blockIdMap.TryGetValue(answerKey.ExamBlockId, out var newBlockId))
+                {
+                    continue;
+                }
+
+                newAnswerKeys.Add(new AnswerKey(
+                    NewId(),
+                    newBlockId,
+                    Clone(answerKey.CorrectAnswer)!,
+                    answerKey.ScoreValue,
+                    Clone(answerKey.Metadata),
+                    now,
+                    now));
+            }
+
+            foreach (var usage in sourceUsages)
+            {
+                if (!blockIdMap.TryGetValue(usage.ExamBlockId, out var newBlockId) ||
+                    !assetIdMap.TryGetValue(usage.ExamAssetId, out var newAssetId))
+                {
+                    continue;
+                }
+
+                newUsages.Add(new AssetUsage(NewId(), newBlockId, newAssetId, usage.UsageType, now, now));
+            }
+        }
+
         dbContext.ExamVersions.Add(version);
+        dbContext.ExamBlocks.AddRange(newBlocks);
+        dbContext.AnswerKeys.AddRange(newAnswerKeys);
+        dbContext.ExamBlockOptions.AddRange(newOptions);
+        dbContext.ExamAssets.AddRange(newAssets);
+        dbContext.AssetUsages.AddRange(newUsages);
 
         try
         {
@@ -153,7 +301,49 @@ public sealed class ExamsController(
             return Conflict("A version was created concurrently. Retry the request.");
         }
 
-        return CreatedAtAction(nameof(GetVersion), new { versionId = version.Id }, ToDto(version, [], [], []));
+        var allVersions = examVersions.Append(version).ToList();
+        return CreatedAtAction(nameof(GetVersion), new { versionId = version.Id }, ToDto(version, allVersions, newBlocks, newAnswerKeys, newAssets));
+    }
+
+    [HttpPut("{examId}")]
+    public async Task<ActionResult<ExamSummaryDto>> UpdateExam(string examId, UpdateExamRequest request, CancellationToken cancellationToken)
+    {
+        var exam = await dbContext.Exams.SingleOrDefaultAsync(x => x.Id == examId && x.DeletedAt == null, cancellationToken);
+        if (exam is null)
+        {
+            return NotFound();
+        }
+
+        // The code is the stable external identifier of the exam: it is immutable. Present and
+        // different from the stored code is a validation error keyed "code".
+        if (request.Code is not null && !string.Equals(request.Code.Trim(), exam.Code, StringComparison.Ordinal))
+        {
+            ModelState.AddModelError("code", "The exam code is immutable and cannot be changed.");
+            return ValidationProblem(ModelState);
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var updated = exam with
+        {
+            Title = request.Title?.Trim() ?? string.Empty,
+            Description = request.Description,
+            Level = request.Level,
+            Area = request.Area,
+            Subject = request.Subject,
+            UpdatedAt = now
+        };
+
+        var validation = await examValidator.ValidateAsync(updated, cancellationToken);
+        if (!validation.IsValid)
+        {
+            return BadRequest(new ValidationProblemDetails(validation.ToDictionary()));
+        }
+
+        dbContext.Entry(exam).CurrentValues.SetValues(updated);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        var summaries = await BuildExamSummariesAsync([updated], cancellationToken);
+        return Ok(summaries[0]);
     }
 
     [HttpGet("{examId}/versions")]
@@ -178,7 +368,7 @@ public sealed class ExamsController(
             .ToDictionary(static group => group.Key, static group => (IReadOnlyList<ExamBlock>)group.ToList());
 
         return Ok(versions.Select(version =>
-            ToDto(version, blocksByVersion.GetValueOrDefault(version.Id) ?? [], [], [])).ToList());
+            ToDto(version, versions, blocksByVersion.GetValueOrDefault(version.Id) ?? [], [], [])).ToList());
     }
 
     [HttpGet("versions/{versionId}")]
@@ -190,6 +380,9 @@ public sealed class ExamsController(
             return NotFound();
         }
 
+        var examVersions = await dbContext.ExamVersions
+            .Where(x => x.ExamId == version.ExamId)
+            .ToListAsync(cancellationToken);
         var blocks = await dbContext.ExamBlocks
             .Where(x => x.ExamVersionId == versionId)
             .OrderBy(x => x.OrderIndex)
@@ -206,7 +399,7 @@ public sealed class ExamsController(
             .OrderBy(x => x.FileName)
             .ToListAsync(cancellationToken);
 
-        return Ok(ToDto(version, blocks, answerKeys, assets));
+        return Ok(ToDto(version, examVersions, blocks, answerKeys, assets));
     }
 
     [HttpPut("versions/{versionId}/blocks")]
@@ -527,11 +720,13 @@ public sealed class ExamsController(
 
     private static ExamVersionDto ToDto(
         ExamVersion version,
+        IReadOnlyList<ExamVersion> examVersions,
         IReadOnlyList<ExamBlock> blocks,
         IReadOnlyList<AnswerKey> answerKeys,
         IReadOnlyList<ExamAsset> assets)
     {
         var (canPublish, publishBlockedReason) = EvaluatePublishReadiness(version, blocks);
+        var (publishedAt, supersededAt, isCurrent, basedOnVersionNumber) = ComputePublication(version, examVersions);
         return new ExamVersionDto(
             version.Id,
             version.ExamId,
@@ -545,7 +740,47 @@ public sealed class ExamsController(
             version.ScoringPolicy,
             blocks.Count,
             canPublish,
-            publishBlockedReason);
+            publishBlockedReason,
+            publishedAt,
+            supersededAt,
+            isCurrent,
+            basedOnVersionNumber);
+    }
+
+    /// <summary>
+    /// Computed publication fields for one version of an exam. The latest published version
+    /// (highest <c>versionNumber</c>) is "current"; every other published version has been
+    /// superseded by the next published version and reports that version's <c>publishedAt</c>.
+    /// <c>basedOnVersionNumber</c> resolves the stored <see cref="ExamVersion.SourceVersionId"/>.
+    /// </summary>
+    private static (DateTimeOffset? PublishedAt, DateTimeOffset? SupersededAt, bool IsCurrent, int? BasedOnVersionNumber) ComputePublication(
+        ExamVersion version,
+        IReadOnlyList<ExamVersion> examVersions)
+    {
+        var published = examVersions
+            .Where(IsPublished)
+            .OrderBy(static candidate => candidate.VersionNumber)
+            .ToList();
+
+        var isCurrent = published.Count > 0 && string.Equals(published[^1].Id, version.Id, StringComparison.Ordinal);
+
+        DateTimeOffset? supersededAt = null;
+        if (!isCurrent && IsPublished(version))
+        {
+            supersededAt = published
+                .FirstOrDefault(candidate => candidate.VersionNumber > version.VersionNumber)
+                ?.PublishedAt;
+        }
+
+        int? basedOnVersionNumber = null;
+        if (!string.IsNullOrWhiteSpace(version.SourceVersionId))
+        {
+            basedOnVersionNumber = examVersions
+                .FirstOrDefault(candidate => string.Equals(candidate.Id, version.SourceVersionId, StringComparison.Ordinal))
+                ?.VersionNumber;
+        }
+
+        return (version.PublishedAt, supersededAt, isCurrent, basedOnVersionNumber);
     }
 
     /// <summary>
@@ -793,6 +1028,61 @@ public sealed class ExamsController(
     private static JsonElement? ToJsonElement(JsonDocument? document)
     {
         return document?.RootElement.Clone();
+    }
+
+    /// <summary>Deep-copies a JSON document so the copy never shares mutable state with the source.</summary>
+    private static JsonDocument? Clone(JsonDocument? document)
+    {
+        return document is null ? null : JsonDocument.Parse(document.RootElement.GetRawText());
+    }
+
+    /// <summary>
+    /// Deep-copies a block config, rewriting every string value that matches a copied asset id to
+    /// the new asset id. Image blocks keep their <c>config.assetId</c> valid on the copied version.
+    /// </summary>
+    private static JsonDocument CloneConfigWithAssetRemap(JsonDocument config, IReadOnlyDictionary<string, string> assetIdMap)
+    {
+        var node = JsonNode.Parse(config.RootElement.GetRawText());
+        if (node is not null)
+        {
+            RemapAssetIds(node, assetIdMap);
+        }
+
+        return JsonDocument.Parse(node?.ToJsonString() ?? "{}");
+    }
+
+    private static void RemapAssetIds(JsonNode node, IReadOnlyDictionary<string, string> assetIdMap)
+    {
+        switch (node)
+        {
+            case JsonObject jsonObject:
+                foreach (var property in jsonObject.ToList())
+                {
+                    if (property.Value is JsonValue value &&
+                        value.TryGetValue<string>(out var text) &&
+                        text is not null &&
+                        assetIdMap.TryGetValue(text, out var replacement))
+                    {
+                        jsonObject[property.Key] = replacement;
+                    }
+                    else if (property.Value is not null)
+                    {
+                        RemapAssetIds(property.Value, assetIdMap);
+                    }
+                }
+
+                break;
+            case JsonArray jsonArray:
+                foreach (var item in jsonArray)
+                {
+                    if (item is not null)
+                    {
+                        RemapAssetIds(item, assetIdMap);
+                    }
+                }
+
+                break;
+        }
     }
 
     private static string NewId()

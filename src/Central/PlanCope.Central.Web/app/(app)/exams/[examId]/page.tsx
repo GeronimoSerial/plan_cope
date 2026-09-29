@@ -1,9 +1,27 @@
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { listExams, listVersions, isSessionExpired } from "../../../_lib/api/server";
+import { isSessionExpired, listExams, listVersions } from "../../../_lib/api/server";
 import { PageHeader } from "../../../_components/layout/page-header";
-import { StatusBadge } from "../../../_components/ui/status-badge";
-import { VersionManager } from "../../../_components/exams/version-manager";
+import { Badge } from "@/components/ui/badge";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator
+} from "@/components/ui/breadcrumb";
+import { ExamHeaderActions } from "../../../_components/exams/exam-header-actions";
+import { ExamVersionsTable } from "../../../_components/exams/exam-versions-table";
+import { TermLabel } from "../../../_components/help/term-hint";
+import {
+  formatPublishedAt,
+  formatReceivedBy,
+  publicationStateBadgeVariant,
+  publicationStateLabel,
+  publicationStateTerm
+} from "../../../_lib/exams/exam-state";
 import type { ExamSummary, ExamVersion } from "../../../_lib/contracts";
 
 export const metadata: Metadata = { title: "Examen · PlanCope Central" };
@@ -28,21 +46,44 @@ export default async function ExamDetailPage({ params }: { params: Promise<{ exa
     notFound();
   }
 
+  const published = exam.publicationState === "published";
+
   return (
     <>
+      <Breadcrumb className="mb-4">
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink render={<Link href="/exams" />}>Exámenes</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>{exam.title}</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+
       <PageHeader
-        eyebrow="Examen"
         title={exam.title}
-        description={[exam.code, exam.subject, exam.level].filter(Boolean).join(" · ")}
-        breadcrumbs={[
-          { label: "Inicio", href: "/dashboard" },
-          { label: "Exámenes", href: "/exams" },
-          { label: exam.code }
-        ]}
-        actions={<StatusBadge status={exam.status} />}
+        description={`${exam.code} · Versiones del examen, del borrador a la publicación en los nodos.`}
+        actions={<ExamHeaderActions exam={exam} versions={versions} />}
       />
 
-      <VersionManager examId={examId} initialVersions={versions} />
+      <div className="mb-6 flex flex-wrap items-center gap-2">
+        <TermLabel term={publicationStateTerm(exam.publicationState)}>
+          <Badge variant={publicationStateBadgeVariant(exam.publicationState)}>
+            {publicationStateLabel(exam.publicationState)}
+          </Badge>
+        </TermLabel>
+        {published && (
+          <span className="inline-flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+            <span>Publicado el {formatPublishedAt(exam.publishedAt)}</span>
+            <span aria-hidden="true">·</span>
+            <TermLabel term="recibido-por-nodos">{formatReceivedBy(exam.pulledByNodeCount)}</TermLabel>
+          </span>
+        )}
+      </div>
+
+      <ExamVersionsTable examId={exam.id} versions={versions} />
     </>
   );
 }

@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useNavigationGuard } from "./navigation-guard";
 import {
   BarChart3,
   Download,
@@ -9,7 +10,6 @@ import {
   Home,
   KeyRound,
   School,
-  ScrollText,
   Server,
   Users,
   type LucideIcon
@@ -41,19 +41,33 @@ const links: NavItem[] = [
   { href: "/claves", label: "Claves de activación", icon: KeyRound },
   { href: "/nodos", label: "Nodos", icon: Server },
   { href: "/estadisticas", label: "Estadísticas", icon: BarChart3 },
-  { href: "/politicas-legado", label: "Políticas de puntaje heredadas", icon: ScrollText },
   { href: "/descargas", label: "Descargas", icon: Download }
 ];
 
 export function AppSidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { intercept } = useNavigationGuard();
+
+  // Sidebar links must respect the builder's unsaved-changes guard: when dirty, prevent the
+  // default navigation and let the shared dialog decide whether to leave.
+  function guardNavigation(event: React.MouseEvent, href: string) {
+    if (intercept(() => router.push(href))) {
+      event.preventDefault();
+    }
+  }
 
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="p-3">
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" tooltip="PlanCope Central" render={<Link href="/dashboard" />}>
+            <SidebarMenuButton
+              size="lg"
+              tooltip="PlanCope Central"
+              render={<Link href="/dashboard" />}
+              onClick={event => guardNavigation(event, "/dashboard")}
+            >
               <span className="grid size-8 shrink-0 place-items-center rounded-md bg-primary text-sm font-bold text-primary-foreground">
                 PC
               </span>
@@ -79,6 +93,7 @@ export function AppSidebar() {
                       isActive={active}
                       tooltip={link.label}
                       render={<Link href={link.href} />}
+                      onClick={event => guardNavigation(event, link.href)}
                     >
                       <Icon />
                       <span>{link.label}</span>

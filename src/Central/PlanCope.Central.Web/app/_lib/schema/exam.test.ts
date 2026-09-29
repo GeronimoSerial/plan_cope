@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { examDocumentSchema, type ExamDocument } from "./exam";
+import {
+  examDocumentSchema,
+  scoringPolicies,
+  scoringPolicyExplanations,
+  scoringPolicyWarnings,
+  type ExamDocument
+} from "./exam";
 
 function baseDoc(questions: ExamDocument["questions"]): ExamDocument {
   return {
@@ -95,5 +101,21 @@ describe("examDocumentSchema", () => {
       ])
     );
     expect(result.success).toBe(true);
+  });
+});
+
+describe("scoringPolicy copy", () => {
+  it("explica cada política en una sola oración", () => {
+    for (const policy of scoringPolicies) {
+      const explanation = scoringPolicyExplanations[policy];
+      expect(explanation.length).toBeGreaterThan(0);
+      expect(explanation.includes(".") && explanation.indexOf(".") === explanation.length - 1).toBe(true);
+    }
+  });
+
+  it("solo advierte sobre el puntaje completo en Proporcional simple", () => {
+    expect(scoringPolicyWarnings.ProportionalPlain).toBe("Marcar todas las opciones da el puntaje completo.");
+    expect(scoringPolicyWarnings.AllOrNothing).toBeUndefined();
+    expect(scoringPolicyWarnings.ProportionalPenalised).toBeUndefined();
   });
 });

@@ -20,6 +20,7 @@ import {
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { TermHint, TermLabel } from "../help/term-hint";
 
 export interface IssuedActivationKey {
   id: string;
@@ -138,12 +139,17 @@ export function IssueKeyDialog({ open, issued, onOpenChange, onCreated }: IssueK
         ) : (
           <form onSubmit={handleSubmit(onSubmit)} noValidate className="grid gap-4">
             <DialogHeader>
-              <DialogTitle>Nueva clave</DialogTitle>
+              <DialogTitle>
+                <TermLabel term="clave-activacion">Nueva clave</TermLabel>
+              </DialogTitle>
             </DialogHeader>
 
             <FieldGroup className="gap-4">
               <Field data-invalid={errors.maxActivations ? true : undefined}>
-                <FieldLabel htmlFor="max-activations">Activaciones máximas</FieldLabel>
+                <div className="flex items-center gap-1.5">
+                  <FieldLabel htmlFor="max-activations">Activaciones máximas</FieldLabel>
+                  <TermHint term="nodo" />
+                </div>
                 <Input
                   id="max-activations"
                   type="number"

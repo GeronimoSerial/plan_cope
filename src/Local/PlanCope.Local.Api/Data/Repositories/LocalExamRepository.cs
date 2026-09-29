@@ -5,11 +5,31 @@ namespace PlanCope.Local.Api.Data.Repositories;
 
 public sealed class LocalExamRepository(ILocalSqliteConnectionFactory connectionFactory) : ILocalExamRepository
 {
+    // The local catalog is the operator-facing exam list used to create sessions. Central delivers
+    // every published version of an exam as a separate package, so the table holds one row per
+    // version; the catalog must expose only the CURRENT one (highest version_number per exam_code,
+    // newest sync as the tie-breaker). Superseded versions stay stored because in-flight sessions
+    // still reference them by id.
     public async Task<IReadOnlyList<LocalExamVersion>> GetExamsAsync(string? grade = null, CancellationToken cancellationToken = default)
     {
         var sql = """
             SELECT id, remote_exam_version_id, exam_code, version_number, checksum, metadata_json, schema_version, synced_at, scoring_policy
-            FROM local_exam_versions
+            FROM (
+                SELECT
+                    id,
+                    remote_exam_version_id,
+                    exam_code,
+                    version_number,
+                    checksum,
+                    metadata_json,
+                    schema_version,
+                    synced_at,
+                    scoring_policy,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY exam_code
+                        ORDER BY version_number DESC, synced_at DESC, id ASC
+                    ) AS version_rank
+                FROM local_exam_versions
             """;
 
         object? parameters = null;
@@ -25,7 +45,9 @@ public sealed class LocalExamRepository(ILocalSqliteConnectionFactory connection
 
         sql += """
 
-            ORDER BY exam_code, version_number DESC;
+            ) AS ranked
+            WHERE ranked.version_rank = 1
+            ORDER BY exam_code;
             """;
 
         using var connection = connectionFactory.CreateOpenConnection();
@@ -45,6 +67,20 @@ public sealed class LocalExamRepository(ILocalSqliteConnectionFactory connection
         using var connection = connectionFactory.CreateOpenConnection();
         var row = await connection.QuerySingleOrDefaultAsync<LocalExamVersionRow>(new CommandDefinition(sql, new { Id = id }, cancellationToken: cancellationToken));
         return row?.ToDomain();
+    }
+
+    public async Task<bool> ExistsByExamCodeAsync(string examCode, CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT EXISTS (
+                SELECT 1
+                FROM local_exam_versions
+                WHERE exam_code = @ExamCode
+            );
+            """;
+
+        using var connection = connectionFactory.CreateOpenConnection();
+        return await connection.ExecuteScalarAsync<bool>(new CommandDefinition(sql, new { ExamCode = examCode }, cancellationToken: cancellationToken));
     }
 
     public async Task<IReadOnlyList<LocalExamBlock>> GetBlocksAsync(string localExamVersionId, CancellationToken cancellationToken = default)

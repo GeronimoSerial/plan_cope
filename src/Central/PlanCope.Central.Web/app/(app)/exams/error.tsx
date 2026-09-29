@@ -1,17 +1,18 @@
 "use client";
 
-import { Banner } from "../../_components/ui/banner";
-import { Button } from "../../_components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 
-export default function ExamsError({ error, reset }: { error: Error; reset: () => void }) {
+export default function ExamsError({ reset }: { error: Error; reset: () => void }) {
   return (
-    <div className="stack">
-      <Banner tone="error">No se pudieron cargar los exámenes: {error.message}</Banner>
-      <div>
-        <Button variant="secondary" onClick={reset}>
+    <Alert variant="destructive">
+      <AlertTitle>No se pudieron cargar los exámenes</AlertTitle>
+      <AlertDescription>
+        <p className="mb-3">Volvé a intentarlo en unos segundos.</p>
+        <Button variant="outline" size="sm" onClick={reset}>
           Reintentar
         </Button>
-      </div>
-    </div>
+      </AlertDescription>
+    </Alert>
   );
 }

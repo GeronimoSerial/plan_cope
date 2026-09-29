@@ -123,10 +123,20 @@ public sealed class LocalExamPullService(
                         return await FailAsync(ExamPullErrorCodes.ChecksumMismatch, cursor, lastPullAt, cancellationToken);
                     }
 
+                    // A brand-new version of an exam that is already known locally (same exam_code)
+                    // is an UPDATE of that exam, not a new exam: the catalog still lists one entry.
+                    // Only a package whose exam_code is unseen counts as a new exam.
                     var existing = await examRepository.GetByIdAsync(package.ExamVersionId, cancellationToken);
                     if (existing is null)
                     {
-                        newExams++;
+                        if (await examRepository.ExistsByExamCodeAsync(package.ExamCode, cancellationToken))
+                        {
+                            updatedExams++;
+                        }
+                        else
+                        {
+                            newExams++;
+                        }
                     }
                     else if (!string.Equals(existing.Checksum, package.Checksum, StringComparison.OrdinalIgnoreCase))
                     {

@@ -31,8 +31,10 @@ import {
   canOfferRoleRevoke,
   cuesAvailableToAssign,
   roleLabel,
+  roleTerm,
   rolesAvailableToAssign
 } from "./user-mapping";
+import { TermLabel } from "../help/term-hint";
 import type { RoleSummary, UserSummary } from "../../_lib/api/server";
 import type { UserProfile } from "../../_lib/contracts";
 
@@ -146,28 +148,34 @@ export function ManageUserDialog({ target, roles, user, onClose }: ManageUserDia
 
         <div className="grid gap-5 py-1">
           <section className="grid gap-2">
-            <h3 className="text-sm font-medium">Roles asignados</h3>
+            <h3 className="text-sm font-medium">
+              <TermLabel term="rol">Roles asignados</TermLabel>
+            </h3>
             {target.roleCodes.length === 0 ? (
               <p className="text-sm text-muted-foreground">Sin roles asignados.</p>
             ) : (
               <div className="flex flex-wrap gap-2">
-                {target.roleCodes.map(code => (
-                  <span key={code} className="inline-flex items-center gap-1">
-                    <Badge variant="secondary">{roleLabel(code)}</Badge>
-                    {canOfferRoleRevoke(user, target.cues, code) && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-xs"
-                        aria-label={`Quitar rol ${roleLabel(code)}`}
-                        disabled={pending}
-                        onClick={() => void revokeRole(code)}
-                      >
-                        <XIcon />
-                      </Button>
-                    )}
-                  </span>
-                ))}
+                {target.roleCodes.map(code => {
+                  const term = roleTerm(code);
+                  const badge = <Badge variant="secondary">{roleLabel(code)}</Badge>;
+                  return (
+                    <span key={code} className="inline-flex items-center gap-1">
+                      {term ? <TermLabel term={term}>{badge}</TermLabel> : badge}
+                      {canOfferRoleRevoke(user, target.cues, code) && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label={`Quitar rol ${roleLabel(code)}`}
+                          disabled={pending}
+                          onClick={() => void revokeRole(code)}
+                        >
+                          <XIcon />
+                        </Button>
+                      )}
+                    </span>
+                  );
+                })}
               </div>
             )}
           </section>
@@ -204,7 +212,9 @@ export function ManageUserDialog({ target, roles, user, onClose }: ManageUserDia
           )}
 
           <section className="grid gap-2">
-            <h3 className="text-sm font-medium">Escuelas (CUEs) asignadas</h3>
+            <h3 className="text-sm font-medium">
+              <TermLabel term="cue">Escuelas (CUEs) asignadas</TermLabel>
+            </h3>
             {target.cues.length === 0 ? (
               <p className="text-sm text-muted-foreground">Sin CUEs asignados.</p>
             ) : (

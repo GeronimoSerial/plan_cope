@@ -1,321 +1,499 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { arrayMove } from "@dnd-kit/sortable";
+import { CircleCheckIcon, CircleDotIcon, Loader2Icon } from "lucide-react";
+import { toast } from "sonner";
+import { callCentral } from "../../_lib/api/client";
+import { getErrorMessage } from "../../_lib/json";
 import {
   examDocumentSchema,
-  scoringPolicies,
-  scoringPolicyExplanations,
-  scoringPolicyLabels,
-  scoringPolicyWarnings,
   type ExamDocument,
   type Question,
   type QuestionType,
   type ScoringPolicy
 } from "../../_lib/schema/exam";
-import { blankQuestion, documentToReplaceRequest } from "../../_lib/schema/mappers";
-import { callCentral } from "../../_lib/api/client";
-import { getErrorMessage } from "../../_lib/json";
-import { Tabs, TabPanel, type TabItem } from "../ui/tabs";
-import { Button } from "../ui/button";
-import { Banner } from "../ui/banner";
+import {
+  blankQuestion,
+  cloneQuestion,
+  documentNeedsScoringPolicy,
+  documentToReplaceRequest,
+  evaluateDocumentReadiness,
+  mergeDocumentReadiness,
+  type DocumentReadiness,
+  type ServerReadiness
+} from "../../_lib/schema/mappers";
+import { PolicyPicker } from "../policy/policy-picker";
 import { QuestionList } from "./question-list";
 import { ExamPreview } from "./exam-preview";
-import { ExportButton } from "./export-button";
-import { PublishPanel } from "./publish-panel";
+import { PublishDialog } from "./publish-dialog";
+import { CreateVersionDialog } from "../exams/create-version-dialog";
+import { useNavigationGuard } from "../layout/navigation-guard";
+import { versionStatusLine, versionStatusTerm } from "../../_lib/exams/version-state";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator
+} from "@/components/ui/breadcrumb";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Field, FieldError, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { TermLabel } from "../help/term-hint";
+import type { ExamVersion, PublishBlockedReason } from "../../_lib/contracts";
 
 interface ExamBuilderProps {
+  examId: string;
+  examCode: string;
+  examTitle: string;
   versionId: string;
+  versionNumber: number;
   status: string;
+  isCurrent: boolean;
+  basedOnVersionNumber?: number | null;
+  currentPublishedVersionNumber?: number | null;
+  nextVersionNumber: number;
+  draftVersionId?: string | null;
+  draftVersionNumber?: number | null;
   initialDocument: ExamDocument;
+  canPublish: boolean;
+  publishBlockedReason?: PublishBlockedReason | null;
+  autoOpenPublish?: boolean;
 }
 
-const TABS: TabItem[] = [
-  { id: "datos", label: "Datos" },
-  { id: "preguntas", label: "Preguntas" },
-  { id: "preview", label: "Vista previa" },
-  { id: "publicar", label: "Publicar" }
-];
-const TABS_ID = "exam-builder-tabs";
+function blockedReasonMessage(reason: DocumentReadiness["blockedReason"]): string {
+  if (reason === "no_blocks") {
+    return "Agregá al menos una pregunta.";
+  }
+  if (reason === "scoring_policy_required") {
+    return "Elegí una regla de puntaje.";
+  }
+  // Unknown/unmapped server reasons keep the button disabled and fall back to this generic text.
+  return "No se puede publicar todavía.";
+}
 
-const SCORING_POLICY_OPTIONS: Array<{ value: ScoringPolicy | null; label: string }> = [
-  { value: null, label: "Sin elegir" },
-  ...scoringPolicies.map(policy => ({ value: policy, label: scoringPolicyLabels[policy] }))
-];
-
-type Banners = { tone: "info" | "success" | "error"; text: string } | null;
-
-export function ExamBuilder({ versionId, status, initialDocument }: ExamBuilderProps) {
+export function ExamBuilder({
+  examId,
+  examCode,
+  examTitle,
+  versionId,
+  versionNumber,
+  status,
+  isCurrent,
+  basedOnVersionNumber = null,
+  currentPublishedVersionNumber = null,
+  nextVersionNumber,
+  draftVersionId = null,
+  draftVersionNumber = null,
+  initialDocument,
+  canPublish,
+  publishBlockedReason,
+  autoOpenPublish = false
+}: ExamBuilderProps) {
   const router = useRouter();
-  const isPublished = status.toLowerCase() === "published";
-
+  const { setDirty, intercept } = useNavigationGuard();
   const [document, setDocument] = useState<ExamDocument>(initialDocument);
   const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(initialDocument));
-  const [activeTab, setActiveTab] = useState("datos");
+  const [published, setPublished] = useState(() => status.toLowerCase() === "published");
+  const [activeTab, setActiveTab] = useState("edit");
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [banner, setBanner] = useState<Banners>(isPublished ? { tone: "info", text: "Versión publicada: solo lectura." } : null);
   const [saving, setSaving] = useState(false);
-  const tabs = isPublished
-    ? TABS.filter(tab => tab.id !== "preview").map(tab => (tab.id === "preguntas" ? { ...tab, label: "Vista previa" } : tab))
-    : TABS;
+  const [publishOpen, setPublishOpen] = useState(() => autoOpenPublish && status.toLowerCase() !== "published");
+  const [serverReadiness, setServerReadiness] = useState<ServerReadiness>({
+    canPublish,
+    blockedReason: publishBlockedReason ?? null
+  });
+  const [createVersionOpen, setCreateVersionOpen] = useState(false);
 
-  const dirty = JSON.stringify(document) !== savedSnapshot;
-
-  const errorsByIndex = useMemo(
-    () => (index: number) => {
-      const prefix = `questions.${index}.`;
-      const result: Record<string, string> = {};
-      for (const [key, message] of Object.entries(errors)) {
-        if (key.startsWith(prefix)) {
-          result[key.slice(prefix.length)] = message;
-        }
-      }
-      return result;
-    },
-    [errors]
+  const dirty = useMemo(() => JSON.stringify(document) !== savedSnapshot, [document, savedSnapshot]);
+  const isReadOnly = published;
+  const statusLine = versionStatusLine({ versionNumber, status, isCurrent, basedOnVersionNumber });
+  const statusTerm = versionStatusTerm({ status, isCurrent });
+  const needsPolicy = useMemo(() => documentNeedsScoringPolicy(document), [document]);
+  const readiness = useMemo(
+    () => mergeDocumentReadiness(evaluateDocumentReadiness(document), serverReadiness, dirty),
+    [document, dirty, serverReadiness]
   );
 
-  function patchDocument(patch: Partial<ExamDocument>) {
-    setDocument(current => ({ ...current, ...patch }));
-  }
+  const documentRef = useRef(document);
+  documentRef.current = document;
 
-  function setQuestions(next: Question[]) {
-    setDocument(current => ({ ...current, questions: next }));
-  }
-
-  function addQuestion(type: QuestionType) {
-    setQuestions([...document.questions, blankQuestion(type)]);
-    setActiveTab("preguntas");
-  }
-
-  function updateQuestion(index: number, next: Question) {
-    setQuestions(document.questions.map((question, i) => (i === index ? next : question)));
-  }
-
-  function removeQuestion(index: number) {
-    setQuestions(document.questions.filter((_, i) => i !== index));
-  }
-
-  function moveQuestion(index: number, direction: -1 | 1) {
-    const target = index + direction;
-    if (target < 0 || target >= document.questions.length) {
-      return;
-    }
-    setQuestions(arrayMove(document.questions, index, target));
-  }
-
-  function reorderQuestion(activeId: string, overId: string) {
-    const from = document.questions.findIndex(question => question.id === activeId);
-    const to = document.questions.findIndex(question => question.id === overId);
-    if (from >= 0 && to >= 0) {
-      setQuestions(arrayMove(document.questions, from, to));
-    }
-  }
-
-  function validate(): ExamDocument | null {
-    const result = examDocumentSchema.safeParse(document);
-    if (result.success) {
-      setErrors({});
-      return result.data;
-    }
-    const map: Record<string, string> = {};
-    for (const issue of result.error.issues) {
-      const key = issue.path.join(".");
-      if (!map[key]) {
-        map[key] = issue.message;
+  const save = useCallback(async (): Promise<boolean> => {
+    const current = documentRef.current;
+    const result = examDocumentSchema.safeParse(current);
+    if (!result.success) {
+      const map: Record<string, string> = {};
+      for (const issue of result.error.issues) {
+        const key = issue.path.join(".");
+        if (!map[key]) {
+          map[key] = issue.message;
+        }
       }
-    }
-    setErrors(map);
-    return null;
-  }
-
-  async function save() {
-    const valid = validate();
-    if (!valid) {
-      setBanner({ tone: "error", text: "Revisá los campos marcados antes de guardar." });
-      return;
+      setErrors(map);
+      toast.error("Revisá los campos marcados antes de guardar.");
+      return false;
     }
 
+    setErrors({});
     setSaving(true);
-    setBanner(null);
     try {
-      await callCentral(`exams/versions/${encodeURIComponent(versionId)}/document`, {
+      const effective: ExamDocument = {
+        ...result.data,
+        scoringPolicy: documentNeedsScoringPolicy(result.data) ? result.data.scoringPolicy ?? null : null
+      };
+      const updated = await callCentral<ExamVersion>(`exams/versions/${encodeURIComponent(versionId)}/document`, {
         method: "PUT",
-        body: JSON.stringify(documentToReplaceRequest(valid))
+        body: JSON.stringify(documentToReplaceRequest(effective))
       });
-      setSavedSnapshot(JSON.stringify(document));
-      setBanner({ tone: "success", text: "Cambios guardados." });
+      // La respuesta trae la readiness recalculada: sin esto el boton Publicar se quedaba
+      // deshabilitado con el canPublish viejo apenas dirty volvia a false.
+      const local = evaluateDocumentReadiness(effective);
+      setServerReadiness({
+        canPublish: typeof updated?.canPublish === "boolean" ? updated.canPublish : local.canPublish,
+        blockedReason:
+          updated?.publishBlockedReason ??
+          (local.blockedReason === "unknown" ? null : local.blockedReason)
+      });
+      setSavedSnapshot(JSON.stringify(current));
+      toast.success("Cambios guardados.");
+      return true;
     } catch (error) {
-      setBanner({ tone: "error", text: getErrorMessage(error, "No se pudo guardar el examen.") });
+      toast.error(getErrorMessage(error, "No se pudo guardar el examen."));
+      return false;
     } finally {
       setSaving(false);
     }
+  }, [versionId]);
+
+  // Ctrl/Cmd+S guarda sin salir del builder.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        if (!isReadOnly && !saving) {
+          void save();
+        }
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isReadOnly, saving, save]);
+
+  // Evita perder cambios al cerrar/recargar la pestaña.
+  useEffect(() => {
+    if (!dirty || isReadOnly) {
+      return;
+    }
+    function onBeforeUnload(event: BeforeUnloadEvent) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty, isReadOnly]);
+
+  // Registra el estado sucio en el guard compartido: sidebar, header y breadcrumbs lo consultan.
+  useEffect(() => {
+    setDirty(dirty, isReadOnly);
+    return () => setDirty(false, false);
+  }, [dirty, isReadOnly, setDirty]);
+
+  const patchDocument = useCallback((patch: Partial<ExamDocument>) => {
+    setDocument(current => ({ ...current, ...patch }));
+  }, []);
+
+  const addQuestion = useCallback((type: QuestionType) => {
+    setDocument(current => ({ ...current, questions: [...current.questions, blankQuestion(type)] }));
+    setActiveTab("edit");
+  }, []);
+
+  const updateQuestion = useCallback((id: string, next: Question) => {
+    setDocument(current => ({
+      ...current,
+      questions: current.questions.map(question => (question.id === id ? next : question))
+    }));
+  }, []);
+
+  const removeQuestion = useCallback((id: string) => {
+    setDocument(current => ({ ...current, questions: current.questions.filter(question => question.id !== id) }));
+  }, []);
+
+  const duplicateQuestion = useCallback((id: string) => {
+    setDocument(current => {
+      const index = current.questions.findIndex(question => question.id === id);
+      if (index < 0) {
+        return current;
+      }
+      const next = [...current.questions];
+      next.splice(index + 1, 0, cloneQuestion(current.questions[index]));
+      return { ...current, questions: next };
+    });
+  }, []);
+
+  const reorderQuestion = useCallback((activeId: string, overId: string) => {
+    setDocument(current => {
+      const from = current.questions.findIndex(question => question.id === activeId);
+      const to = current.questions.findIndex(question => question.id === overId);
+      return from >= 0 && to >= 0 ? { ...current, questions: arrayMove(current.questions, from, to) } : current;
+    });
+  }, []);
+
+  function requestNavigation(href: string) {
+    if (!intercept(() => router.push(href))) {
+      router.push(href);
+    }
   }
 
+  const publishBlockedId = "publish-blocked-reason";
+  const publishBlockedMessage = blockedReasonMessage(readiness.blockedReason);
+
   return (
-    <div className="stack">
-      {!isPublished && (
-        <div className="row row--between builder-actions-bar">
-          <div>{dirty && <Banner tone="info">Tenés cambios sin guardar.</Banner>}</div>
-          <Button onClick={() => void save()} disabled={saving}>
-            {saving ? "Guardando…" : "Guardar"}
-          </Button>
+    <div className="grid gap-4">
+      <header className="grid gap-3">
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink render={<button type="button" />} onClick={() => requestNavigation("/exams")}>
+                Exámenes
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink
+                render={<button type="button" />}
+                onClick={() => requestNavigation(`/exams/${examId}`)}
+              >
+                {examCode}
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>v{versionNumber}</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
+            <h1 className="truncate text-xl font-semibold tracking-tight">{document.title || examTitle}</h1>
+            <SaveState dirty={dirty} saving={saving} readOnly={isReadOnly} />
+          </div>
+          {!isReadOnly && (
+            <div className="flex flex-wrap items-start gap-2">
+              <Button type="button" variant="outline" disabled={saving || !dirty} onClick={() => void save()}>
+                {saving ? "Guardando…" : "Guardar"}
+              </Button>
+              <div className="grid gap-1">
+                <Button
+                  type="button"
+                  disabled={!readiness.canPublish}
+                  aria-describedby={!readiness.canPublish ? publishBlockedId : undefined}
+                  onClick={() => setPublishOpen(true)}
+                >
+                  Publicar
+                </Button>
+                {!readiness.canPublish && (
+                  <p id={publishBlockedId} className="max-w-56 text-xs text-muted-foreground">
+                    {publishBlockedMessage}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
+
+        <p className="text-sm text-muted-foreground">
+          <TermLabel term={statusTerm}>{statusLine}</TermLabel>
+        </p>
+
+        <p className="text-sm text-muted-foreground">
+          Armá las preguntas y la regla de puntaje. Al guardar y publicar, los nodos lo reciben en la próxima
+          sincronización.
+        </p>
+      </header>
+
+      {isReadOnly && (
+        <Alert>
+          <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+            <span>Esta versión ya está publicada y no se puede editar.</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setCreateVersionOpen(true)}
+            >
+              Crear versión a partir de esta
+            </Button>
+          </AlertDescription>
+        </Alert>
       )}
 
-      {banner && <Banner tone={banner.tone}>{banner.text}</Banner>}
+      <Tabs value={activeTab} onValueChange={value => setActiveTab(String(value))}>
+        <TabsList>
+          <TabsTrigger value="edit">Edición</TabsTrigger>
+          <TabsTrigger value="preview">Vista previa</TabsTrigger>
+        </TabsList>
 
-      <Tabs tabs={tabs} activeId={activeTab} onChange={setActiveTab} ariaLabel="Secciones del builder" idPrefix={TABS_ID} />
+        <TabsContent value="edit" className="grid gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Datos del examen</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field>
+                  <FieldLabel htmlFor="meta-code">Código</FieldLabel>
+                  <Input id="meta-code" value={document.code} readOnly disabled />
+                </Field>
+                <Field data-invalid={errors.title ? true : undefined}>
+                  <FieldLabel htmlFor="meta-title">Título</FieldLabel>
+                  <Input
+                    id="meta-title"
+                    value={document.title}
+                    disabled={isReadOnly}
+                    aria-invalid={errors.title ? true : undefined}
+                    onChange={event => patchDocument({ title: event.target.value })}
+                  />
+                  {errors.title && <FieldError>{errors.title}</FieldError>}
+                </Field>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <Field>
+                  <FieldLabel htmlFor="meta-subject">Materia</FieldLabel>
+                  <Input
+                    id="meta-subject"
+                    value={document.subject ?? ""}
+                    disabled={isReadOnly}
+                    onChange={event => patchDocument({ subject: event.target.value || undefined })}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="meta-level">Curso / grado</FieldLabel>
+                  <Input
+                    id="meta-level"
+                    value={document.level ?? ""}
+                    disabled={isReadOnly}
+                    onChange={event => patchDocument({ level: event.target.value || undefined })}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="meta-area">Área</FieldLabel>
+                  <Input
+                    id="meta-area"
+                    value={document.area ?? ""}
+                    disabled={isReadOnly}
+                    onChange={event => patchDocument({ area: event.target.value || undefined })}
+                  />
+                </Field>
+              </div>
+              <Field>
+                <FieldLabel htmlFor="meta-description">Descripción</FieldLabel>
+                <Textarea
+                  id="meta-description"
+                  value={document.description ?? ""}
+                  disabled={isReadOnly}
+                  onChange={event => patchDocument({ description: event.target.value || undefined })}
+                />
+              </Field>
+            </CardContent>
+          </Card>
 
-      <TabPanel id="datos" idPrefix={TABS_ID} active={activeTab === "datos"}>
-        <div className="card">
-          <div className="card__body">
-            <div className="cols-2">
-              <div className="field">
-                <label htmlFor="meta-code">Código</label>
-                <input id="meta-code" value={document.code} readOnly disabled />
-              </div>
-              <div className="field">
-                <label htmlFor="meta-subject">Materia</label>
-                <input
-                  id="meta-subject"
-                  value={document.subject ?? ""}
-                  onChange={event => patchDocument({ subject: event.target.value || undefined })}
-                  disabled={isPublished}
+          {needsPolicy && (
+            <Card>
+              <CardHeader>
+                <CardTitle>
+                  <TermLabel term="regla-puntaje">Regla de puntaje</TermLabel>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <PolicyPicker
+                  value={document.scoringPolicy ?? null}
+                  disabled={isReadOnly}
+                  idPrefix="builder-policy"
+                  onChange={(policy: ScoringPolicy) => patchDocument({ scoringPolicy: policy })}
                 />
-              </div>
-            </div>
-            <div className="field">
-              <label htmlFor="meta-title">
-                Título<span className="field-required" aria-hidden="true">*</span>
-              </label>
-              <input
-                id="meta-title"
-                value={document.title}
-                onChange={event => patchDocument({ title: event.target.value })}
-                aria-invalid={errors.title ? true : undefined}
-                disabled={isPublished}
-              />
-              {errors.title && (
-                <span className="field__error" role="alert">
-                  {errors.title}
-                </span>
-              )}
-            </div>
-            <div className="cols-2">
-              <div className="field">
-                <label htmlFor="meta-level">Curso / grado</label>
-                <input
-                  id="meta-level"
-                  value={document.level ?? ""}
-                  onChange={event => patchDocument({ level: event.target.value || undefined })}
-                  disabled={isPublished}
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="meta-area">Área</label>
-                <input
-                  id="meta-area"
-                  value={document.area ?? ""}
-                  onChange={event => patchDocument({ area: event.target.value || undefined })}
-                  disabled={isPublished}
-                />
-              </div>
-            </div>
-            <div className="field">
-              <label htmlFor="meta-description">Descripción</label>
-              <textarea
-                id="meta-description"
-                value={document.description ?? ""}
-                onChange={event => patchDocument({ description: event.target.value || undefined })}
-                disabled={isPublished}
-              />
-            </div>
-            <div className="field">
-              <label id="meta-scoring-policy-label">Política de puntaje</label>
-              <div className="stack" role="radiogroup" aria-labelledby="meta-scoring-policy-label">
-                {SCORING_POLICY_OPTIONS.map(option => (
-                  <div key={option.value ?? "none"} className="stack">
-                    <label
-                      htmlFor={`meta-scoring-policy-${option.value ?? "none"}`}
-                      style={{ display: "flex", alignItems: "flex-start", gap: "var(--space-2)", fontWeight: 400 }}
-                    >
-                      <input
-                        id={`meta-scoring-policy-${option.value ?? "none"}`}
-                        type="radio"
-                        name="meta-scoring-policy"
-                        checked={(document.scoringPolicy ?? null) === option.value}
-                        onChange={() => patchDocument({ scoringPolicy: option.value })}
-                        disabled={isPublished}
-                        style={{ width: "auto", marginTop: 3 }}
-                      />
-                      <span>{option.label}</span>
-                    </label>
-                    {option.value && (
-                      <span
-                        className="field__hint"
-                        style={{ display: "block", marginLeft: "calc(var(--space-2) + 16px)" }}
-                      >
-                        {scoringPolicyExplanations[option.value]}
-                      </span>
-                    )}
-                    {option.value && scoringPolicyWarnings[option.value] && (
-                      <Banner tone="error">{scoringPolicyWarnings[option.value]}</Banner>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </TabPanel>
+              </CardContent>
+            </Card>
+          )}
 
-      <TabPanel id="preguntas" idPrefix={TABS_ID} active={activeTab === "preguntas"}>
-        {isPublished ? (
-          <ExamPreview document={document} />
-        ) : (
           <QuestionList
             questions={document.questions}
-            errorsByIndex={errorsByIndex}
+            errors={errors}
+            disabled={isReadOnly}
             onReorder={reorderQuestion}
             onUpdate={updateQuestion}
             onRemove={removeQuestion}
-            onMove={moveQuestion}
+            onDuplicate={duplicateQuestion}
             onAdd={addQuestion}
           />
-        )}
-        {errors.questions && <Banner tone="error">{errors.questions}</Banner>}
-      </TabPanel>
+          {errors.questions && <FieldError>{errors.questions}</FieldError>}
+        </TabsContent>
 
-      {!isPublished && (
-        <TabPanel id="preview" idPrefix={TABS_ID} active={activeTab === "preview"}>
-          <div className="row row--between builder-preview-actions">
-            <span className="field__hint">Vista para revisar antes de publicar.</span>
-            <ExportButton document={document} onError={text => setBanner({ tone: "error", text })} />
-          </div>
+        <TabsContent value="preview">
           <ExamPreview document={document} />
-        </TabPanel>
-      )}
+        </TabsContent>
+      </Tabs>
 
-      <TabPanel id="publicar" idPrefix={TABS_ID} active={activeTab === "publicar"}>
-        {isPublished ? (
-          <Banner tone="success">Esta versión ya está publicada.</Banner>
-        ) : (
-          <PublishPanel
-            versionId={versionId}
-            defaultSubject={document.subject ?? null}
-            hasUnsavedChanges={dirty}
-            hasMultipleChoiceWithoutPolicy={
-              document.questions.some(question => question.type === "multiple_choice") && !document.scoringPolicy
-            }
-            onPublished={() => {
-              setBanner({ tone: "success", text: "Versión publicada correctamente." });
-              router.refresh();
-            }}
-          />
-        )}
-      </TabPanel>
+      <PublishDialog
+        open={publishOpen}
+        onOpenChange={setPublishOpen}
+        examId={examId}
+        versionId={versionId}
+        versionNumber={versionNumber}
+        currentPublishedVersionNumber={currentPublishedVersionNumber}
+        document={document}
+        onSaveBeforePublish={async () => (dirty ? save() : true)}
+        onPublished={() => {
+          setPublished(true);
+          router.refresh();
+        }}
+      />
+
+      <CreateVersionDialog
+        examId={examId}
+        open={createVersionOpen}
+        onOpenChange={setCreateVersionOpen}
+        sourceVersionId={versionId}
+        sourceNumber={versionNumber}
+        sourcePublished
+        nextNumber={nextVersionNumber}
+        draft={draftVersionId && draftVersionNumber != null ? { id: draftVersionId, versionNumber: draftVersionNumber } : null}
+      />
     </div>
+  );
+}
+
+function SaveState({ dirty, saving, readOnly }: { dirty: boolean; saving: boolean; readOnly: boolean }) {
+  if (readOnly) {
+    return null;
+  }
+  if (saving) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Loader2Icon className="size-3.5 animate-spin" />
+        Guardando…
+      </span>
+    );
+  }
+  if (dirty) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-500">
+        <CircleDotIcon className="size-3.5" />
+        Cambios sin guardar
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+      <CircleCheckIcon className="size-3.5" />
+      Guardado
+    </span>
   );
 }

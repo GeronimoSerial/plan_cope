@@ -63,7 +63,11 @@ public sealed record ExamVersionDto(
     string? ScoringPolicy,
     int BlockCount = 0,
     bool CanPublish = false,
-    string? PublishBlockedReason = null);
+    string? PublishBlockedReason = null,
+    DateTimeOffset? PublishedAt = null,
+    DateTimeOffset? SupersededAt = null,
+    bool IsCurrent = false,
+    int? BasedOnVersionNumber = null);
 
 public sealed record BlockDto(string Id, string VersionId, int OrderIndex, BlockType BlockType, string? Title, string? Description, JsonElement Config, JsonElement? Validation);
 
@@ -93,7 +97,17 @@ public sealed record PublicationTargetDto(string TargetType, string? TargetId);
 
 public sealed record CreateExamRequest(string Code, string Title, string? Description, string? Level, string? Area, string? Subject);
 
-public sealed record CreateExamVersionRequest(int SchemaVersion, JsonElement? Metadata, string? ScoringPolicy);
+// Body is fully optional. Without sourceVersionId the new version is a deep copy of the exam's
+// latest version; with sourceVersionId it copies that version. empty=true keeps the pre-versioning
+// behaviour of creating a brand-new empty draft version.
+public sealed record CreateExamVersionRequest(
+    int? SchemaVersion = null,
+    JsonElement? Metadata = null,
+    string? ScoringPolicy = null,
+    string? SourceVersionId = null,
+    bool Empty = false);
+
+public sealed record UpdateExamRequest(string? Code, string Title, string? Description, string? Level, string? Area, string? Subject);
 
 public sealed record UpsertBlockRequest(int OrderIndex, BlockType BlockType, string? Title, string? Description, JsonElement Config, JsonElement? Validation);
 

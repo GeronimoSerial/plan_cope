@@ -1,19 +1,34 @@
 "use client";
 
 import { useId } from "react";
-import { questionTypes, questionTypeLabels, type Question, type QuestionType, type ExamOption } from "../../_lib/schema/exam";
+import { XIcon } from "lucide-react";
+import {
+  questionTypes,
+  questionTypeLabels,
+  type Question,
+  type QuestionType,
+  type ExamOption
+} from "../../_lib/schema/exam";
 import { blankQuestion, newId } from "../../_lib/schema/mappers";
-import { Button } from "../ui/button";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Field, FieldError, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { TermHint } from "../help/term-hint";
 
 interface QuestionEditorProps {
   question: Question;
   errors: Record<string, string>;
+  disabled?: boolean;
   onChange: (next: Question) => void;
 }
 
-export function QuestionEditor({ question, errors, onChange }: QuestionEditorProps) {
+export function QuestionEditor({ question, errors, disabled = false, onChange }: QuestionEditorProps) {
   const uid = useId();
-
   const isContentBlock = question.type === "text_block" || question.type === "image_block";
 
   function patchCommon(patch: Partial<{ prompt: string; help: string | undefined; required: boolean; score: number }>) {
@@ -36,42 +51,44 @@ export function QuestionEditor({ question, errors, onChange }: QuestionEditorPro
     } as Question);
   }
 
-  return (
-    <div className="stack">
-      <div className="field">
-        <label htmlFor={`${uid}-type`}>Tipo de pregunta</label>
-        <select
-          id={`${uid}-type`}
-          value={question.type}
-          onChange={event => changeType(event.target.value as QuestionType)}
-        >
-          {questionTypes.map(type => (
-            <option key={type} value={type}>
-              {questionTypeLabels[type]}
-            </option>
-          ))}
-        </select>
-      </div>
+  const promptLabel =
+    question.type === "text_block"
+      ? "Texto del bloque"
+      : question.type === "image_block"
+        ? "Pie de imagen (opcional)"
+        : "Enunciado";
 
-      <div className="field">
-        <label htmlFor={`${uid}-prompt`}>
-          {question.type === "text_block"
-            ? "Texto del bloque"
-            : question.type === "image_block"
-              ? "Pie de imagen (opcional)"
-              : "Enunciado"}
-          {question.type !== "image_block" && (
-            <span className="field-required" aria-hidden="true">
-              *
-            </span>
-          )}
-        </label>
-        <textarea
+  return (
+    <div className="grid gap-4">
+      <Field>
+        <FieldLabel htmlFor={`${uid}-type`}>Tipo</FieldLabel>
+        <Select
+          value={question.type}
+          onValueChange={value => changeType(value as QuestionType)}
+          disabled={disabled}
+          items={questionTypeLabels}
+        >
+          <SelectTrigger id={`${uid}-type`} className="w-full" aria-label="Tipo de pregunta">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {questionTypes.map(type => (
+              <SelectItem key={type} value={type}>
+                {questionTypeLabels[type]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
+
+      <Field data-invalid={errors.prompt ? true : undefined}>
+        <FieldLabel htmlFor={`${uid}-prompt`}>{promptLabel}</FieldLabel>
+        <Textarea
           id={`${uid}-prompt`}
           value={question.prompt ?? ""}
+          disabled={disabled}
           onChange={event => patchCommon({ prompt: event.target.value })}
           aria-invalid={errors.prompt ? true : undefined}
-          aria-describedby={errors.prompt ? `${uid}-prompt-error` : undefined}
           placeholder={
             question.type === "text_block"
               ? "Escribí el contenido que verá el estudiante."
@@ -80,125 +97,131 @@ export function QuestionEditor({ question, errors, onChange }: QuestionEditorPro
                 : "Escribí la pregunta tal como la verá el estudiante."
           }
         />
-        {errors.prompt && (
-          <span className="field__error" id={`${uid}-prompt-error`} role="alert">
-            {errors.prompt}
-          </span>
-        )}
-      </div>
+        {errors.prompt && <FieldError>{errors.prompt}</FieldError>}
+      </Field>
 
-      <div className="cols-2">
-        <div className="field">
-          <label htmlFor={`${uid}-help`}>Texto de ayuda</label>
-          <input
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field>
+          <FieldLabel htmlFor={`${uid}-help`}>Texto de ayuda (opcional)</FieldLabel>
+          <Input
             id={`${uid}-help`}
             value={question.help ?? ""}
+            disabled={disabled}
             onChange={event => patchCommon({ help: event.target.value || undefined })}
             placeholder="Aclaración opcional."
           />
-        </div>
-        {question.type !== "text_block" && question.type !== "image_block" && (
-          <div className="field">
-            <label htmlFor={`${uid}-score`}>Puntaje</label>
-            <input
+        </Field>
+        {!isContentBlock && (
+          <Field>
+            <div className="flex items-center gap-1.5">
+              <FieldLabel htmlFor={`${uid}-score`}>Puntos de esta pregunta</FieldLabel>
+              <TermHint term="puntos" />
+            </div>
+            <Input
               id={`${uid}-score`}
               type="number"
               min={0}
               step={1}
               value={question.score}
+              disabled={disabled}
               onChange={event => patchCommon({ score: Number(event.target.value) })}
             />
-          </div>
+          </Field>
         )}
       </div>
 
-      {question.type !== "text_block" && question.type !== "image_block" && (
-        <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontWeight: 600 }}>
-          <input
-            type="checkbox"
+      {!isContentBlock && (
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id={`${uid}-required`}
             checked={question.required}
-            onChange={event => patchCommon({ required: event.target.checked })}
-            style={{ width: "auto" }}
+            disabled={disabled}
+            onCheckedChange={checked => patchCommon({ required: checked === true })}
           />
-          Respuesta obligatoria
-        </label>
+          <Label htmlFor={`${uid}-required`} className="font-normal">
+            Respuesta obligatoria
+          </Label>
+        </div>
       )}
 
       {(question.type === "single_choice" || question.type === "multiple_choice") && (
-        <ChoiceEditor question={question} errors={errors} onChange={onChange} />
+        <ChoiceEditor question={question} errors={errors} disabled={disabled} onChange={onChange} />
       )}
 
       {question.type === "true_false" && (
-        <fieldset style={{ border: "1px solid var(--line)", borderRadius: "var(--radius-sm)", padding: "var(--space-3)" }}>
-          <legend style={{ fontWeight: 700, fontSize: 13 }}>Respuesta correcta</legend>
-          <div className="row">
-            {[true, false].map(value => (
-              <label key={String(value)} style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-                <input
-                  type="radio"
-                  name={`${uid}-tf`}
-                  checked={question.correctAnswer === value}
-                  onChange={() => onChange({ ...question, correctAnswer: value })}
-                  style={{ width: "auto" }}
-                />
-                {value ? "Verdadero" : "Falso"}
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        <Field>
+          <FieldLabel>Respuesta correcta</FieldLabel>
+          <RadioGroup
+            value={question.correctAnswer ? "true" : "false"}
+            onValueChange={value => onChange({ ...question, correctAnswer: value === "true" })}
+            disabled={disabled}
+            className="grid-cols-2"
+          >
+            <div className="flex items-center gap-2">
+              <RadioGroupItem id={`${uid}-tf-true`} value="true" disabled={disabled} />
+              <Label htmlFor={`${uid}-tf-true`} className="font-normal">
+                Verdadero
+              </Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <RadioGroupItem id={`${uid}-tf-false`} value="false" disabled={disabled} />
+              <Label htmlFor={`${uid}-tf-false`} className="font-normal">
+                Falso
+              </Label>
+            </div>
+          </RadioGroup>
+        </Field>
       )}
 
       {question.type === "free_text" && (
-        <div className="cols-2">
-          <div className="field">
-            <label htmlFor={`${uid}-sample`}>Respuesta modelo (opcional)</label>
-            <input
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field>
+            <FieldLabel htmlFor={`${uid}-sample`}>Respuesta modelo (opcional)</FieldLabel>
+            <Input
               id={`${uid}-sample`}
               value={question.sampleAnswer ?? ""}
+              disabled={disabled}
               onChange={event => onChange({ ...question, sampleAnswer: event.target.value || undefined })}
               placeholder="Referencia para corregir."
             />
-          </div>
-          <div className="field">
-            <label htmlFor={`${uid}-max`}>Largo máximo (caracteres)</label>
-            <input
+          </Field>
+          <Field>
+            <FieldLabel htmlFor={`${uid}-max`}>Largo máximo (caracteres)</FieldLabel>
+            <Input
               id={`${uid}-max`}
               type="number"
               min={1}
               value={question.maxLength ?? ""}
+              disabled={disabled}
               onChange={event =>
                 onChange({ ...question, maxLength: event.target.value ? Number(event.target.value) : undefined })
               }
             />
-          </div>
+          </Field>
         </div>
       )}
+
       {question.type === "text_block" && (
-        <span className="field__hint">
-          Este bloque es contenido de lectura: no se puntúa ni se responde. El texto de arriba es el cuerpo del bloque.
-        </span>
+        <p className="text-xs text-muted-foreground">
+          Es contenido de lectura: no se puntúa ni se responde. El texto de arriba es el cuerpo del bloque.
+        </p>
       )}
 
       {question.type === "image_block" && (
-        <div className="field">
-          <label htmlFor={`${uid}-asset`}>ID del recurso</label>
-          <input
+        <Field data-invalid={errors.assetId ? true : undefined}>
+          <FieldLabel htmlFor={`${uid}-asset`}>ID del recurso</FieldLabel>
+          <Input
             id={`${uid}-asset`}
             value={question.assetId}
+            disabled={disabled}
             onChange={event => onChange({ ...question, assetId: event.target.value })}
             aria-invalid={errors.assetId ? true : undefined}
-            aria-describedby={errors.assetId ? `${uid}-asset-error` : `${uid}-asset-hint`}
           />
-          <span className="field__hint" id={`${uid}-asset-hint`}>
-            Subí la imagen por otro medio y pegá acá el ID del recurso (`assetId`) que te devolvió el servidor. La
-            carga directa de imágenes todavía no está disponible en el builder.
-          </span>
-          {errors.assetId && (
-            <span className="field__error" id={`${uid}-asset-error`} role="alert">
-              {errors.assetId}
-            </span>
-          )}
-        </div>
+          <p className="text-xs text-muted-foreground">
+            Pegá el ID del recurso que devolvió el servidor. La carga directa de imágenes todavía no está disponible.
+          </p>
+          {errors.assetId && <FieldError>{errors.assetId}</FieldError>}
+        </Field>
       )}
     </div>
   );
@@ -207,10 +230,12 @@ export function QuestionEditor({ question, errors, onChange }: QuestionEditorPro
 function ChoiceEditor({
   question,
   errors,
+  disabled,
   onChange
 }: {
   question: Extract<Question, { type: "single_choice" | "multiple_choice" }>;
   errors: Record<string, string>;
+  disabled: boolean;
   onChange: (next: Question) => void;
 }) {
   const single = question.type === "single_choice";
@@ -243,50 +268,43 @@ function ChoiceEditor({
   }
 
   return (
-    <fieldset style={{ border: "1px solid var(--line)", borderRadius: "var(--radius-sm)", padding: "var(--space-3)" }}>
-      <legend style={{ fontWeight: 700, fontSize: 13 }}>
-        Opciones {single ? "(marcá la correcta)" : "(marcá todas las correctas)"}
-      </legend>
-      {question.options.map((option, index) => (
-        <div className="option-row" key={option.id}>
-          <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <input
-              type={single ? "radio" : "checkbox"}
-              name={`correct-${question.id}`}
+    <Field data-invalid={errors.options ? true : undefined}>
+      <FieldLabel>Opciones {single ? "(marcá la correcta)" : "(marcá todas las correctas)"}</FieldLabel>
+      <div className="grid gap-2">
+        {question.options.map((option, index) => (
+          <div key={option.id} className="flex items-center gap-2">
+            <Checkbox
               checked={option.isCorrect}
-              onChange={() => toggleCorrect(option.id)}
-              style={{ width: "auto" }}
+              disabled={disabled}
+              onCheckedChange={() => toggleCorrect(option.id)}
               aria-label={`Marcar opción ${index + 1} como correcta`}
             />
-          </label>
-          <input
-            type="text"
-            value={option.label}
-            onChange={event => setLabel(option.id, event.target.value)}
-            placeholder={`Opción ${index + 1}`}
-            aria-label={`Texto de la opción ${index + 1}`}
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => removeOption(option.id)}
-            disabled={question.options.length <= 2}
-            aria-label={`Eliminar opción ${index + 1}`}
-          >
-            ✕
-          </Button>
-        </div>
-      ))}
-      {errors.options && (
-        <span className="field__error" role="alert">
-          {errors.options}
-        </span>
-      )}
-      <div style={{ marginTop: "var(--space-2)" }}>
-        <Button variant="secondary" size="sm" onClick={addOption}>
-          + Agregar opción
+            <Input
+              value={option.label}
+              disabled={disabled}
+              onChange={event => setLabel(option.id, event.target.value)}
+              placeholder={`Opción ${index + 1}`}
+              aria-label={`Texto de la opción ${index + 1}`}
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              disabled={disabled || question.options.length <= 2}
+              onClick={() => removeOption(option.id)}
+              aria-label={`Eliminar opción ${index + 1}`}
+            >
+              <XIcon />
+            </Button>
+          </div>
+        ))}
+      </div>
+      {errors.options && <FieldError>{errors.options}</FieldError>}
+      <div>
+        <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={addOption}>
+          Agregar opción
         </Button>
       </div>
-    </fieldset>
+    </Field>
   );
 }

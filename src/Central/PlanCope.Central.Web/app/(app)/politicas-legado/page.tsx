@@ -8,7 +8,7 @@ import {
 import { PageHeader } from "../../_components/layout/page-header";
 import { LegacyPolicyPanel } from "../../_components/legacy-policy/legacy-policy-panel";
 
-export const metadata: Metadata = { title: "Políticas de puntaje heredadas · PlanCope Central" };
+export const metadata: Metadata = { title: "Reglas de puntaje pendientes · PlanCope Central" };
 
 export default async function LegacyGradingPoliciesPage() {
   let versions: UnassignedExamVersion[];
@@ -24,12 +24,9 @@ export default async function LegacyGradingPoliciesPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Políticas de puntaje"
-        title="Políticas de puntaje heredadas"
-        description="Asigná una regla de puntaje a versiones publicadas que no la tienen."
-        breadcrumbs={[{ label: "Inicio", href: "/dashboard" }, { label: "Políticas de puntaje heredadas" }]}
+        title="Reglas de puntaje pendientes"
+        description="Versiones publicadas que todavía no tienen regla de puntaje."
       />
-
       <LegacyPolicyPanel initialVersions={versions} />
     </>
   );

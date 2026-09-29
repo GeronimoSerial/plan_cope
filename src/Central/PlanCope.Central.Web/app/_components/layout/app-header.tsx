@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
+import { useNavigationGuard } from "./navigation-guard";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -34,7 +35,7 @@ const sectionLabels: Record<string, string> = {
   claves: "Claves de activación",
   nodos: "Nodos",
   estadisticas: "Estadísticas",
-  "politicas-legado": "Políticas de puntaje heredadas",
+  "politicas-legado": "Reglas de puntaje pendientes",
   descargas: "Descargas"
 };
 
@@ -55,6 +56,7 @@ function sectionFor(pathname: string) {
 export function AppHeader({ user }: AppHeaderProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const { intercept } = useNavigationGuard();
   const [loading, setLoading] = useState(false);
 
   async function logout() {
@@ -64,6 +66,13 @@ export function AppHeader({ user }: AppHeaderProps) {
     } finally {
       router.replace("/login");
       router.refresh();
+    }
+  }
+
+  // Logging out leaves the current view; respect the builder's unsaved-changes guard first.
+  function requestLogout() {
+    if (!intercept(() => void logout())) {
+      void logout();
     }
   }
 
@@ -94,7 +103,7 @@ export function AppHeader({ user }: AppHeaderProps) {
             <span className="truncate text-xs text-muted-foreground">{roleLabel(user.role)}</span>
           </div>
           <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" disabled={loading} onClick={() => void logout()}>
+          <DropdownMenuItem variant="destructive" disabled={loading} onClick={requestLogout}>
             <LogOut />
             {loading ? "Saliendo…" : "Cerrar sesión"}
           </DropdownMenuItem>

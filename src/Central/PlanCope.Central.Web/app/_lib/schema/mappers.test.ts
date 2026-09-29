@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { documentToReplaceRequest, versionToDocument, normalizeBlockType } from "./mappers";
+import {
+  documentToReplaceRequest,
+  versionToDocument,
+  normalizeBlockType,
+  documentNeedsScoringPolicy,
+  evaluateDocumentReadiness,
+  mergeDocumentReadiness,
+  type DocumentReadiness,
+  type ServerReadiness
+} from "./mappers";
 import type { ExamDocument } from "./exam";
 import type { ExamVersion } from "../contracts";
 
@@ -108,7 +117,7 @@ describe("versionToDocument", () => {
     assets: []
   };
 
-  const doc = versionToDocument(version, { code: "MAT-1", subject: null, level: null, area: null });
+  const doc = versionToDocument(version, { code: "MAT-1", title: "Examen de prueba", subject: null, level: null, area: null });
 
   it("reconstruye metadata y preguntas desde la versión del API", () => {
     expect(doc.title).toBe("Título guardado");
@@ -156,7 +165,7 @@ describe("versionToDocument", () => {
       ]
     };
 
-    const mapped = versionToDocument(withContent, { code: "MAT-1", subject: null, level: null, area: null });
+    const mapped = versionToDocument(withContent, { code: "MAT-1", title: "Examen de prueba", subject: null, level: null, area: null });
 
     const text = mapped.questions[1];
     expect(text.type).toBe("text_block");
@@ -171,5 +180,141 @@ describe("versionToDocument", () => {
       expect(image.assetId).toBe("asset-1");
       expect(image.prompt).toBe("Diagrama");
     }
+  });
+});
+
+describe("evaluateDocumentReadiness", () => {
+  const choice = (type: "single_choice" | "multiple_choice"): ExamDocument["questions"][number] => ({
+    id: "q",
+    type,
+    prompt: "¿?",
+    required: true,
+    score: 1,
+    options: [
+      { id: "a", label: "A", isCorrect: true },
+      { id: "b", label: "B", isCorrect: false }
+    ]
+  });
+
+  const doc = (questions: ExamDocument["questions"], scoringPolicy?: ExamDocument["scoringPolicy"]): ExamDocument => ({
+    schemaVersion: 1,
+    code: "MAT-1",
+    title: "T",
+    scoringPolicy,
+    questions
+  });
+
+  it("bloquea sin preguntas", () => {
+    expect(evaluateDocumentReadiness(doc([]))).toEqual({ canPublish: false, blockedReason: "no_blocks" });
+  });
+
+  it("exige regla de puntaje para cualquier bloque MultipleChoice (incluye opción única)", () => {
+    expect(documentNeedsScoringPolicy(doc([choice("multiple_choice")]))).toBe(true);
+    // single_choice también se persiste como bloque MultipleChoice (config.multiple=false).
+    expect(documentNeedsScoringPolicy(doc([choice("single_choice")]))).toBe(true);
+    expect(evaluateDocumentReadiness(doc([choice("multiple_choice")]))).toEqual({
+      canPublish: false,
+      blockedReason: "scoring_policy_required"
+    });
+    expect(evaluateDocumentReadiness(doc([choice("multiple_choice")], "AllOrNothing"))).toEqual({
+      canPublish: true,
+      blockedReason: null
+    });
+    expect(evaluateDocumentReadiness(doc([choice("single_choice")]))).toEqual({
+      canPublish: false,
+      blockedReason: "scoring_policy_required"
+    });
+  });
+
+  it("no exige regla cuando solo hay bloques sin puntaje parcial", () => {
+    expect(documentNeedsScoringPolicy(doc([{ id: "q", type: "true_false", prompt: "¿?", required: true, score: 1, correctAnswer: true }]))).toBe(false);
+    expect(evaluateDocumentReadiness(doc([{ id: "q", type: "text_block", prompt: "Leé." }]))).toEqual({
+      canPublish: true,
+      blockedReason: null
+    });
+  });
+});
+
+describe("versionToDocument fallbacks", () => {
+  const emptyVersion: ExamVersion = {
+    id: "v1",
+    examId: "e1",
+    versionNumber: 1,
+    schemaVersion: 1,
+    status: "Draft",
+    metadata: null,
+    scoringPolicy: null,
+    blocks: [],
+    answerKeys: [],
+    assets: []
+  };
+
+  const summary = {
+    code: "EXA-2026-01",
+    title: "Matemática · Primer Año",
+    subject: "Números",
+    level: "Secundario",
+    area: "Matemática"
+  };
+
+  it("usa el ExamSummary como fallback cuando la versión no tiene metadata (create -> builder)", () => {
+    const doc = versionToDocument(emptyVersion, summary);
+    expect(doc.title).toBe("Matemática · Primer Año");
+    expect(doc.code).toBe("EXA-2026-01");
+    expect(doc.subject).toBe("Números");
+    expect(doc.level).toBe("Secundario");
+    expect(doc.area).toBe("Matemática");
+  });
+
+  it("ignora metadata vacío o en blanco y cae al fallback", () => {
+    const doc = versionToDocument({ ...emptyVersion, metadata: { title: "   " } }, summary);
+    expect(doc.title).toBe("Matemática · Primer Año");
+  });
+
+  it("la metadata gana sobre el fallback cuando trae valor", () => {
+    const doc = versionToDocument({ ...emptyVersion, metadata: { title: "Título guardado", level: "Primario" } }, summary);
+    expect(doc.title).toBe("Título guardado");
+    expect(doc.level).toBe("Primario");
+    // Sin metadata de subject/area, siguen cayendo al summary.
+    expect(doc.subject).toBe("Números");
+    expect(doc.area).toBe("Matemática");
+  });
+});
+
+describe("mergeDocumentReadiness", () => {
+  it("con cambios locales manda la evaluación en memoria", () => {
+    const local: DocumentReadiness = { canPublish: true, blockedReason: null };
+    const server: ServerReadiness = { canPublish: false, blockedReason: "no_blocks" };
+    expect(mergeDocumentReadiness(local, server, true)).toEqual({ canPublish: true, blockedReason: null });
+  });
+
+  it("sin cambios usa el servidor (evita usar un canPublish viejo tras guardar)", () => {
+    const local: DocumentReadiness = { canPublish: false, blockedReason: "no_blocks" };
+    const server: ServerReadiness = { canPublish: true, blockedReason: null };
+    expect(mergeDocumentReadiness(local, server, false)).toEqual({ canPublish: true, blockedReason: null });
+  });
+
+  it("sin cambios respeta el motivo de bloqueo del servidor", () => {
+    const local: DocumentReadiness = { canPublish: true, blockedReason: null };
+    const server: ServerReadiness = { canPublish: false, blockedReason: "scoring_policy_required" };
+    expect(mergeDocumentReadiness(local, server, false)).toEqual({
+      canPublish: false,
+      blockedReason: "scoring_policy_required"
+    });
+  });
+
+  it("un motivo desconocido del servidor deshabilita y cae a un motivo genérico", () => {
+    const local: DocumentReadiness = { canPublish: true, blockedReason: null };
+    // already_published is a real server reason this client does not render locally...
+    expect(mergeDocumentReadiness(local, { canPublish: false, blockedReason: "already_published" }, false)).toEqual({
+      canPublish: false,
+      blockedReason: "unknown"
+    });
+    // ...and an entirely future reason must behave the same way.
+    const future = "future_reason" as unknown as ServerReadiness["blockedReason"];
+    expect(mergeDocumentReadiness(local, { canPublish: false, blockedReason: future }, false)).toEqual({
+      canPublish: false,
+      blockedReason: "unknown"
+    });
   });
 });

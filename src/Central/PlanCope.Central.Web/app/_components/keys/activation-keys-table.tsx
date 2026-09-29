@@ -18,12 +18,14 @@ import {
   TableRow
 } from "@/components/ui/table";
 import { activationKeyStatus, type ActivationKeyTone } from "./activation-key-mapping";
+import { TermLabel } from "../help/term-hint";
 import type { ActivationKeySummary } from "../../_lib/api/server";
 
 interface ActivationKeysTableProps {
   keys: ActivationKeySummary[];
   onRevoke: (key: ActivationKeySummary) => void;
   onReissue: (key: ActivationKeySummary) => void;
+  onCreate: () => void;
 }
 
 const toneVariant: Record<ActivationKeyTone, "default" | "secondary" | "outline" | "destructive"> = {
@@ -41,12 +43,15 @@ function formatDate(value: string): string {
   });
 }
 
-export function ActivationKeysTable({ keys, onRevoke, onReissue }: ActivationKeysTableProps) {
+export function ActivationKeysTable({ keys, onRevoke, onReissue, onCreate }: ActivationKeysTableProps) {
   if (keys.length === 0) {
     return (
-      <p className="rounded-xl border py-10 text-center text-sm text-muted-foreground">
-        Todavía no hay claves.
-      </p>
+      <div className="grid justify-items-center gap-3 rounded-xl border py-10 text-center">
+        <p className="text-sm text-muted-foreground">
+          Todavía no hay claves. Emití una para activar la primera computadora.
+        </p>
+        <Button onClick={onCreate}>Nueva clave</Button>
+      </div>
     );
   }
 
@@ -54,14 +59,18 @@ export function ActivationKeysTable({ keys, onRevoke, onReissue }: ActivationKey
     <div className="overflow-hidden rounded-xl border">
       <Table>
         <TableHeader className="bg-muted/40">
-          <TableRow>
-            <TableHead>Clave</TableHead>
-            <TableHead>Emitida</TableHead>
-            <TableHead>Vencimiento</TableHead>
-            <TableHead>Activaciones</TableHead>
-            <TableHead>Estado</TableHead>
-            <TableHead className="text-right">Acciones</TableHead>
-          </TableRow>
+            <TableRow>
+              <TableHead>
+                <TermLabel term="clave-activacion">Clave</TermLabel>
+              </TableHead>
+              <TableHead>Emitida</TableHead>
+              <TableHead>Vencimiento</TableHead>
+              <TableHead>
+                <TermLabel term="nodo">Activaciones</TermLabel>
+              </TableHead>
+              <TableHead>Estado</TableHead>
+              <TableHead className="text-right">Acciones</TableHead>
+            </TableRow>
         </TableHeader>
         <TableBody>
           {keys.map(key => {

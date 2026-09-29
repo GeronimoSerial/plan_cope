@@ -1,20 +1,9 @@
 import type { ReactNode } from "react";
-import type { Crumb } from "../ui/breadcrumbs";
 
 interface PageHeaderProps {
   title: string;
   description?: string;
   actions?: ReactNode;
-  /**
-   * @deprecated The app header renders the breadcrumb trail. Kept so pages still
-   * passing `eyebrow` keep compiling; the value is intentionally not rendered.
-   */
-  eyebrow?: string;
-  /**
-   * @deprecated Navigation location is shown in the app header. Accepted for
-   * backward compatibility, not rendered here.
-   */
-  breadcrumbs?: Crumb[];
 }
 
 export function PageHeader({ title, description, actions }: PageHeaderProps) {

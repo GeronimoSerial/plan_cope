@@ -69,6 +69,25 @@ public sealed class PullExamsEndpointTests
     }
 
     [Fact]
+    public async Task Exams_endpoint_lists_only_the_current_version_when_two_versions_exist()
+    {
+        using var factory = new PullApiFactory(new StubCentralHandler());
+        using var client = factory.CreateClient();
+        await client.GetAsync("/api/health");
+        factory.SeedTwoVersionsOfOneExam();
+
+        using var response = await client.GetAsync("/api/exams/");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal(JsonValueKind.Array, body.RootElement.ValueKind);
+        var entries = body.RootElement.EnumerateArray().ToList();
+        var current = Assert.Single(entries);
+        Assert.Equal("ev-v2", current.GetProperty("id").GetString());
+        Assert.Equal(2, current.GetProperty("versionNumber").GetInt32());
+    }
+
+    [Fact]
     public async Task Demo_exams_are_not_seeded_by_default_in_production()
     {
         using var factory = new DefaultSeedApiFactory();
@@ -197,6 +216,44 @@ public sealed class PullExamsEndpointTests
             UpsertState(connection, "central_url", "http://central.test/");
             UpsertState(connection, "node_id", "node-1");
             UpsertState(connection, "central_access_token", "test-access-token");
+        }
+
+        public void SeedTwoVersionsOfOneExam()
+        {
+            using var connection = CreateConnection();
+            using var transaction = connection.BeginTransaction();
+            InsertExamVersion(connection, transaction, "ev-v1", "rem-v1", "EXA-DUP", 1, """
+                {"title":"Matematica","grade":"6"}
+                """);
+            InsertExamVersion(connection, transaction, "ev-v2", "rem-v2", "EXA-DUP", 2, """
+                {"title":"Matematica","grade":"6"}
+                """);
+            transaction.Commit();
+        }
+
+        private static void InsertExamVersion(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            string id,
+            string remoteId,
+            string examCode,
+            int versionNumber,
+            string metadataJson)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                INSERT INTO local_exam_versions (id, remote_exam_version_id, exam_code, version_number, checksum, metadata_json, schema_version, synced_at)
+                VALUES ($id, $remoteId, $code, $version, $checksum, $metadata, 1, $now);
+                """;
+            command.Parameters.AddWithValue("$id", id);
+            command.Parameters.AddWithValue("$remoteId", remoteId);
+            command.Parameters.AddWithValue("$code", examCode);
+            command.Parameters.AddWithValue("$version", versionNumber);
+            command.Parameters.AddWithValue("$checksum", $"checksum-{id}");
+            command.Parameters.AddWithValue("$metadata", metadataJson);
+            command.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToString("O"));
+            command.ExecuteNonQuery();
         }
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
