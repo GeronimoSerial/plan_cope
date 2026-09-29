@@ -15,6 +15,18 @@ export type SyncStatusDto = {
   nextAttempt: string | null;
 };
 
+export type PullExamsStatus = "updated" | "up_to_date" | "error";
+
+export type PullExamsResult = {
+  status: PullExamsStatus;
+  newExams: number;
+  updatedExams: number;
+  totalReceived: number;
+  errorCode: string | null;
+  message: string;
+  lastPullAt: string | null;
+};
+
 export type CourseStatDto = { course: string; attemptCount: number | string; averageScorePercent: number | string };
 export type BlockStatDto = { blockId: string; correctCount: number; partialCount: number; incorrectCount: number; blankCount: number; ungradableCount: number };
 export type ExamStatDto = { examVersionId: string; examCode: string; versionNumber: number; attemptCount: number | string; averageScorePercent: number | string; blocks: BlockStatDto[] };
@@ -26,8 +38,16 @@ export class ApiClient {
     return this.get<LocalExam[]>("/api/exams/", signal);
   }
 
-  pullExams(signal?: AbortSignal): Promise<unknown> {
-    return this.post<unknown>("/api/sync/pull-exams", {}, signal);
+  async pullExams(signal?: AbortSignal): Promise<PullExamsResult> {
+    // The endpoint answers with the same JSON body for 200 and for the 409/502 error statuses,
+    // so read the payload regardless of `response.ok` instead of throwing the body away.
+    const response = await fetch(`${this.baseUrl}/api/sync/pull-exams`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+      signal
+    });
+    return (await response.json()) as PullExamsResult;
   }
 
   getSyncStatus(signal?: AbortSignal): Promise<SyncStatusDto> {

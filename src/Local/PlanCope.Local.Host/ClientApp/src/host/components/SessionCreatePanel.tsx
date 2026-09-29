@@ -2,6 +2,13 @@ import type { ExamOption, FormErrors } from "../types";
 import type { RosterSection, RosterSnapshot } from "../types";
 import { ActionButton, Field, SectionTitle, SelectInput } from "../../shared/ui";
 
+type ExamSyncPull = {
+  isPulling: boolean;
+  message: string | null;
+  lastPullAt: string | null;
+  pullExamsNow: () => void;
+};
+
 type SessionCreatePanelProps = {
   exams: ExamOption[];
   formErrors: FormErrors;
@@ -11,6 +18,7 @@ type SessionCreatePanelProps = {
   onCreateSession: () => void;
   onRefreshExams: () => void;
   onSelectedExamChange: (value: string) => void;
+  syncPull: ExamSyncPull;
   roster: {
     snapshot: RosterSnapshot | null;
     sections: RosterSection[];
@@ -30,9 +38,11 @@ export function SessionCreatePanel({
   onCreateSession,
   onRefreshExams,
   onSelectedExamChange,
+  syncPull,
   roster
 }: SessionCreatePanelProps) {
   const examOptions = exams.map(exam => ({ value: exam.id, label: exam.displayName }));
+  const lastPullLabel = formatPullTime(syncPull.lastPullAt);
   const rosterSectionOptions = roster.sections.map(section => ({
     value: section.id,
     label: sectionLabel(section)
@@ -65,6 +75,22 @@ export function SessionCreatePanel({
             onChange={onSelectedExamChange}
           />
         </Field>
+      </div>
+
+      <div className="exam-pull">
+        <ActionButton
+          variant="secondary"
+          disabled={isBusy || syncPull.isPulling}
+          onClick={syncPull.pullExamsNow}
+        >
+          {syncPull.isPulling ? "Buscando…" : "Buscar exámenes nuevos"}
+        </ActionButton>
+        {syncPull.message && (
+          <p className="exam-pull-message" role="status">{syncPull.message}</p>
+        )}
+        {lastPullLabel && (
+          <p className="exam-pull-meta">Última búsqueda: {lastPullLabel}</p>
+        )}
       </div>
 
       {selectedSection && (
@@ -119,4 +145,17 @@ function sectionDetails(section: RosterSection): string {
 
 function sectionLabel(section: RosterSection): string {
   return sectionName(section);
+}
+
+function formatPullTime(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date.toLocaleString("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }

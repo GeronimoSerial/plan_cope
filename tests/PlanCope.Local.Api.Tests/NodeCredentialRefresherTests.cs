@@ -97,8 +97,26 @@ public sealed class NodeCredentialRefresherTests
     }
 
     [Fact]
-    public async Task Non_success_status_marks_identity_revoked_and_returns_false()
+    public async Task Unauthorized_refresh_marks_identity_revoked_and_returns_false()
     {
+        var syncState = new InMemorySyncStateRepository();
+        await SeedRefreshableStateAsync(syncState);
+        var identityRepository = new InMemoryNodeIdentityRepository(NewIdentity("active"));
+        var handler = new StubHttpMessageHandler(new HttpResponseMessage(HttpStatusCode.Unauthorized));
+        var refresher = CreateRefresher(syncState, identityRepository, handler);
+
+        var result = await refresher.TryRefreshAsync(CancellationToken.None);
+
+        Assert.False(result);
+        Assert.NotNull(identityRepository.Current);
+        Assert.Equal("revoked", identityRepository.Current!.CredentialState);
+    }
+
+    [Fact]
+    public async Task Server_error_does_not_revoke_and_returns_false()
+    {
+        // A 5xx is a transient Central failure, not a dead credential: revoking here would force
+        // an otherwise healthy node to re-enrol after a single bad gateway response.
         var syncState = new InMemorySyncStateRepository();
         await SeedRefreshableStateAsync(syncState);
         var identityRepository = new InMemoryNodeIdentityRepository(NewIdentity("active"));
@@ -109,7 +127,23 @@ public sealed class NodeCredentialRefresherTests
 
         Assert.False(result);
         Assert.NotNull(identityRepository.Current);
-        Assert.Equal("revoked", identityRepository.Current!.CredentialState);
+        Assert.Equal("active", identityRepository.Current!.CredentialState);
+    }
+
+    [Fact]
+    public async Task Transport_failure_does_not_revoke_and_returns_false()
+    {
+        var syncState = new InMemorySyncStateRepository();
+        await SeedRefreshableStateAsync(syncState);
+        var identityRepository = new InMemoryNodeIdentityRepository(NewIdentity("active"));
+        var handler = new ThrowingHttpMessageHandler();
+        var refresher = CreateRefresher(syncState, identityRepository, handler);
+
+        var result = await refresher.TryRefreshAsync(CancellationToken.None);
+
+        Assert.False(result);
+        Assert.NotNull(identityRepository.Current);
+        Assert.Equal("active", identityRepository.Current!.CredentialState);
     }
 
     private static async Task SeedRefreshableStateAsync(InMemorySyncStateRepository syncState)
@@ -157,6 +191,12 @@ public sealed class NodeCredentialRefresherTests
             CallCount++;
             return Task.FromResult(response ?? new HttpResponseMessage(HttpStatusCode.OK));
         }
+    }
+
+    private sealed class ThrowingHttpMessageHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            => Task.FromException<HttpResponseMessage>(new HttpRequestException("central is unreachable"));
     }
 
     private sealed class InMemorySyncStateRepository : ISyncStateRepository
