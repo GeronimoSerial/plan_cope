@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { listExams, listVersions, getVersion, isSessionExpired } from "../../../../../../_lib/api/server";
+import { listExams, listVersions, getVersion, isNotFound, isSessionExpired } from "../../../../../../_lib/api/server";
 import { versionToDocument } from "../../../../../../_lib/schema/mappers";
 import { ExamBuilder } from "../../../../../../_components/builder/exam-builder";
 import type { ExamSummary, ExamVersion } from "../../../../../../_lib/contracts";
@@ -33,6 +33,9 @@ export default async function BuilderPage({
     version = loadedVersion;
     versions = loadedVersions;
   } catch (error) {
+    if (isNotFound(error)) {
+      notFound();
+    }
     if (isSessionExpired(error)) {
       await redirectAfterSessionExpired(`/exams/${examId}/versions/${versionId}/builder`);
     }

@@ -373,7 +373,9 @@ export function ExamBuilder({
                   />
                 </Field>
                 <Field>
-                  <FieldLabel htmlFor="meta-level">Curso / grado</FieldLabel>
+                  <FieldLabel htmlFor="meta-level">
+                    <TermLabel term="curso-grado">Curso / grado</TermLabel>
+                  </FieldLabel>
                   <Input
                     id="meta-level"
                     value={document.level ?? ""}

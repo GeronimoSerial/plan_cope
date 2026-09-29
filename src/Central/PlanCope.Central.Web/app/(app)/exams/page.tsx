@@ -37,7 +37,6 @@ export default async function ExamsPage() {
     <>
       <PageHeader
         title="Exámenes"
-        description="Exámenes del sistema. Creá uno, cargá sus preguntas y publicalo para enviarlo a los nodos."
         actions={<CreateExamButton canEditExams={canEdit} />}
       />
       <ExamsUnassignedAlert count={unassigned.length} />

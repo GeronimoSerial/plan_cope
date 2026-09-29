@@ -244,7 +244,9 @@ export function PublishDialog({
             <div className="grid gap-5">
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field data-invalid={validationError?.field === "grade" ? true : undefined}>
-                  <FieldLabel htmlFor="publish-grade">Curso / grado</FieldLabel>
+                  <FieldLabel htmlFor="publish-grade">
+                    <TermLabel term="curso-grado">Curso / grado</TermLabel>
+                  </FieldLabel>
                   <Input
                     id="publish-grade"
                     value={grade}

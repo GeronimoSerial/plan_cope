@@ -24,7 +24,7 @@ export function ExamHeaderActions({ exam, versions, canEditExams }: ExamHeaderAc
     return (
       <div className="flex flex-wrap items-center gap-2">
         <EditExamButton exam={exam} canEditExams={canEditExams} />
-        {canEditExams && <Button render={<Link href={`/exams/${exam.id}/versions/${target.versionId}/builder`} />}>Editar</Button>}
+        {canEditExams && <Button nativeButton={false} render={<Link href={`/exams/${exam.id}/versions/${target.versionId}/builder`} />}>Editar</Button>}
       </div>
     );
   }
@@ -50,7 +50,6 @@ export function ExamHeaderActions({ exam, versions, canEditExams }: ExamHeaderAc
   return (
     <div className="flex flex-wrap items-center gap-2">
       <EditExamButton exam={exam} canEditExams={canEditExams} />
-      <Button disabled>Editar</Button>
     </div>
   );
 }

@@ -63,7 +63,7 @@ export function LegacyPolicyPanel({ initialVersions }: LegacyPolicyPanelProps) {
     return (
       <div className="grid justify-items-center gap-3 rounded-xl border py-10 text-center">
         <p className="text-sm text-muted-foreground">No hay versiones sin regla de puntaje.</p>
-        <Button variant="outline" render={<Link href="/exams" />}>
+        <Button nativeButton={false} variant="outline" render={<Link href="/exams" />}>
           Volver a exámenes
         </Button>
       </div>

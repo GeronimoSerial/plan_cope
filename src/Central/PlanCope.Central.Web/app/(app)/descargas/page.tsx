@@ -40,7 +40,7 @@ async function InstallerCard() {
       </CardHeader>
       <CardContent className="grid gap-4">
         <p className="inline-flex flex-wrap items-center gap-1 text-sm">
-          <TermLabel term="version">
+          <TermLabel term="version-instalador">
             <span>
               Versión <span className="font-medium">{installer.version}</span>
             </span>
@@ -53,7 +53,7 @@ async function InstallerCard() {
           </TermLabel>
         </p>
         <div>
-          <Button render={<a href={buildInstallerDownloadHref(installer.channel)} download />}>
+          <Button nativeButton={false} render={<a href={buildInstallerDownloadHref(installer.channel)} download />}>
             Descargar instalador
           </Button>
         </div>
@@ -84,7 +84,7 @@ export default function DescargasPage() {
     <>
       <PageHeader
         title="Descargas"
-        description="Instalador de PlanCope para las escuelas. Descargá el último publicado y activá cada equipo con una clave."
+        description="Después de instalar, activá cada equipo con una clave de activación."
       />
       <Suspense fallback={<InstallerCardSkeleton />}>
         <InstallerCard />

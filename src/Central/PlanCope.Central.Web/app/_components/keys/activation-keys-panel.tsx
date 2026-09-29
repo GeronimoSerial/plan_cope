@@ -31,7 +31,7 @@ export function ActivationKeysPanel({ keys }: ActivationKeysPanelProps) {
     <>
       <PageHeader
         title="Claves de activación"
-        description="Claves para enrolar computadoras como nodos. Emití una por equipo y revocala si se pierde."
+        description="Una por equipo. Revocala si el equipo se pierde."
         actions={
           <Button onClick={openIssue}>
             <Plus data-icon="inline-start" />

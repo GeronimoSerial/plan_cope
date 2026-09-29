@@ -71,7 +71,6 @@ export default async function SchoolsPage({ searchParams }: SchoolsPageProps) {
     <>
       <PageHeader
         title="Escuelas"
-        description="Establecimientos de la provincia con su CUE y anexo. La lista se arma con el padrón."
       />
 
       <form method="get" role="search" className="mb-4 flex max-w-md items-end gap-2">
