@@ -16,6 +16,7 @@ import {
   PaginationPrevious
 } from "@/components/ui/pagination";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TermLabel } from "../../_components/help/term-hint";
 import {
   buildPageHref,
   buildPageWindow,
@@ -67,7 +68,10 @@ export default async function SchoolsPage({ searchParams }: SchoolsPageProps) {
 
   return (
     <>
-      <PageHeader title="Escuelas" />
+      <PageHeader
+        title="Escuelas"
+        description="Establecimientos de la provincia con su CUE y anexo. La lista se arma con el padrón."
+      />
 
       <form method="get" role="search" className="mb-4 flex max-w-md items-end gap-2">
         <div className="grid flex-1 gap-1.5">
@@ -87,9 +91,15 @@ export default async function SchoolsPage({ searchParams }: SchoolsPageProps) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>CUE</TableHead>
+                  <TableHead>
+                    <TermLabel term="cue">CUE</TermLabel>
+                  </TableHead>
                   <TableHead>Nombre</TableHead>
-                  {hasAnnex && <TableHead>Anexo</TableHead>}
+                  {hasAnnex && (
+                    <TableHead>
+                      <TermLabel term="anexo">Anexo</TermLabel>
+                    </TableHead>
+                  )}
                   <TableHead>Estado</TableHead>
                 </TableRow>
               </TableHeader>

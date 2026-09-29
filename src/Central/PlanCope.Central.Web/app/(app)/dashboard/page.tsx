@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { isSessionExpired, listExams } from "../../_lib/api/server";
 import { getSessionUser } from "../../_lib/server/session";
 import { PageHeader } from "../../_components/layout/page-header";
+import { TermLabel } from "../../_components/help/term-hint";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,7 +41,7 @@ export default async function DashboardPage() {
 
   const title = `Hola, ${user.displayName}`;
   const newExamAction = (
-    <Button render={<Link href="/exams/new" />}>Nuevo examen</Button>
+    <Button render={<Link href="/exams" />}>Nuevo examen</Button>
   );
 
   if ("error" in examsSettled) {
@@ -49,7 +50,11 @@ export default async function DashboardPage() {
     }
     return (
       <>
-        <PageHeader title={title} actions={newExamAction} />
+        <PageHeader
+          title={title}
+          description="Resumen de los exámenes. Creá uno nuevo o retomá un borrador."
+          actions={newExamAction}
+        />
         <Alert variant="destructive">
           <AlertDescription>No se pudieron cargar los exámenes. Intentá nuevamente más tarde.</AlertDescription>
         </Alert>
@@ -64,7 +69,11 @@ export default async function DashboardPage() {
 
   return (
     <>
-      <PageHeader title={title} actions={newExamAction} />
+      <PageHeader
+        title={title}
+        description="Resumen de los exámenes. Creá uno nuevo o retomá un borrador."
+        actions={newExamAction}
+      />
 
       <Card>
         <CardHeader>
@@ -79,7 +88,9 @@ export default async function DashboardPage() {
                 <TableRow>
                   <TableHead>Título</TableHead>
                   <TableHead>Código</TableHead>
-                  <TableHead>Estado</TableHead>
+                  <TableHead>
+                    <TermLabel term="estado">Estado</TermLabel>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

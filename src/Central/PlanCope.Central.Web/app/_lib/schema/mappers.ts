@@ -3,6 +3,7 @@ import {
   type BlockType,
   type DocumentBlock,
   type ExamVersion,
+  type PublishBlockedReason,
   type ReplaceExamDocumentRequest,
   type ExamSummary
 } from "../contracts";
@@ -44,6 +45,9 @@ export function documentToReplaceRequest(document: ExamDocument): ReplaceExamDoc
       area: document.area ?? null
     },
     blocks,
+    // Known limitation: the API cannot clear a stored policy. ExamsController.ReplaceDocument
+    // merges with `request.ScoringPolicy ?? version.ScoringPolicy`, so sending null here keeps the
+    // previous policy server-side; removing every multiple-choice question does not unset it.
     scoringPolicy: document.scoringPolicy ?? null
   };
 }
@@ -110,7 +114,17 @@ function questionToBlock(question: Question, orderIndex: number): DocumentBlock 
 }
 
 // ---------- API -> Canonico (cargar en el builder) ----------
-export function versionToDocument(version: ExamVersion, exam: Pick<ExamSummary, "code" | "subject" | "level" | "area">): ExamDocument {
+// Los metadatos de la version ganan cuando traen un valor util; los datos del ExamSummary
+// (title/level/area/subject) actuan como fallback: POST /api/exams deja Metadata=null en la
+// version inicial, asi que sin este fallback el builder abriria sin titulo.
+function metadataText(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+export function versionToDocument(
+  version: ExamVersion,
+  exam: Pick<ExamSummary, "code" | "title" | "subject" | "level" | "area">
+): ExamDocument {
   const answerByBlock = new Map(version.answerKeys?.map(key => [key.blockId, key]) ?? []);
   const metadata = (version.metadata ?? {}) as Record<string, unknown>;
 
@@ -197,11 +211,11 @@ export function versionToDocument(version: ExamVersion, exam: Pick<ExamSummary, 
   return {
     schemaVersion: 1,
     code: exam.code,
-    title: typeof metadata.title === "string" ? metadata.title : "",
+    title: metadataText(metadata.title) ?? exam.title,
     description: typeof metadata.description === "string" ? metadata.description : undefined,
-    subject: typeof metadata.subject === "string" ? metadata.subject : exam.subject ?? undefined,
-    level: typeof metadata.level === "string" ? metadata.level : exam.level ?? undefined,
-    area: typeof metadata.area === "string" ? metadata.area : exam.area ?? undefined,
+    subject: metadataText(metadata.subject) ?? exam.subject ?? undefined,
+    level: metadataText(metadata.level) ?? exam.level ?? undefined,
+    area: metadataText(metadata.area) ?? exam.area ?? undefined,
     scoringPolicy: (version.scoringPolicy as ScoringPolicy | null) ?? null,
     questions
   };
@@ -209,6 +223,71 @@ export function versionToDocument(version: ExamVersion, exam: Pick<ExamSummary, 
 
 function emptyOptions(count: number): ExamOption[] {
   return Array.from({ length: Math.max(0, count) }, () => ({ id: newId(), label: "", isCorrect: false }));
+}
+
+// Espeja EvaluatePublishReadiness de ExamsController: una version es publicable cuando tiene
+// al menos un bloque y, si contiene un bloque MultipleChoice, tiene regla de puntaje.
+// single_choice tambien se guarda como bloque MultipleChoice (config.multiple=false), por lo que
+// el API le exige regla igual que a multiple_choice; mirror exacto de la validacion de publicacion.
+export function documentNeedsScoringPolicy(document: ExamDocument): boolean {
+  return document.questions.some(question => question.type === "single_choice" || question.type === "multiple_choice");
+}
+
+export type DocumentBlockedReason = "no_blocks" | "scoring_policy_required" | "unknown" | null;
+
+export interface DocumentReadiness {
+  canPublish: boolean;
+  blockedReason: DocumentBlockedReason;
+}
+
+export function evaluateDocumentReadiness(document: ExamDocument): DocumentReadiness {
+  if (document.questions.length === 0) {
+    return { canPublish: false, blockedReason: "no_blocks" };
+  }
+  if (documentNeedsScoringPolicy(document) && !document.scoringPolicy) {
+    return { canPublish: false, blockedReason: "scoring_policy_required" };
+  }
+  return { canPublish: true, blockedReason: null };
+}
+
+// Readiness reportada por el servidor (ExamVersionDto o la respuesta del PUT document).
+export interface ServerReadiness {
+  canPublish: boolean;
+  blockedReason: PublishBlockedReason | null;
+}
+
+// Cuando hay cambios locales, manda la evaluacion en memoria. Sin cambios, manda el servidor:
+// asi el boton Publicar no queda deshabilitado por un `canPublish` viejo tras guardar.
+export function mergeDocumentReadiness(
+  local: DocumentReadiness,
+  server: ServerReadiness,
+  dirty: boolean
+): DocumentReadiness {
+  if (dirty) {
+    return local;
+  }
+  if (!server.canPublish) {
+    if (server.blockedReason === "no_blocks" || server.blockedReason === "scoring_policy_required") {
+      return { canPublish: false, blockedReason: server.blockedReason };
+    }
+    // Unknown/unmapped server reason (for example already_published, or a new reason this client
+    // does not know yet): never trust the stale local evaluation. Keep the button disabled and let
+    // the UI fall back to a generic message.
+    return { canPublish: false, blockedReason: "unknown" };
+  }
+  return { canPublish: true, blockedReason: null };
+}
+
+// Duplica una pregunta con ids nuevos (la copia no comparte identidad con el original).
+export function cloneQuestion(question: Question): Question {
+  if (question.type === "single_choice" || question.type === "multiple_choice") {
+    return {
+      ...question,
+      id: newId(),
+      options: question.options.map(option => ({ ...option, id: newId() }))
+    };
+  }
+  return { ...question, id: newId() };
 }
 
 // Pregunta nueva en blanco segun tipo (para el boton "Agregar pregunta").

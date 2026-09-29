@@ -30,7 +30,11 @@ export default async function UsersPage() {
 
   return (
     <>
-      <PageHeader title="Usuarios" actions={<CreateUserButton user={user!} />} />
+      <PageHeader
+        title="Usuarios"
+        description="Usuarios de Central y sus roles. Creá cuentas y asigná roles y escuelas."
+        actions={<CreateUserButton user={user!} />}
+      />
       <UsersTable users={users} roles={roles} user={user!} />
     </>
   );

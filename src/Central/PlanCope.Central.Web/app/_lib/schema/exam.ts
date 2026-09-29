@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { GlossaryTerm } from "../glossary";
 
 // ============================================================
 // Schema canonico del examen — FUENTE DE VERDAD.
@@ -34,18 +35,27 @@ export const scoringPolicyLabels: Record<ScoringPolicy, string> = {
   ProportionalPlain: "Proporcional simple"
 };
 
-export const scoringPolicyExplanations: Record<ScoringPolicy, string> = {
-  AllOrNothing:
-    "Solo se otorga el puntaje si la selección coincide exactamente con la clave de respuesta. Cualquier otra combinación vale cero.",
-  ProportionalPenalised:
-    "Puntaje = (opciones correctas seleccionadas − opciones incorrectas seleccionadas) / total de opciones correctas, sin bajar de cero. Seleccionar opciones de más resta puntaje.",
-  ProportionalPlain:
-    "Puntaje = opciones correctas seleccionadas / total de opciones correctas. Seleccionar TODAS las opciones da el puntaje completo, sin importar cuántas sean incorrectas."
+// Término del glosario que explica cada política de puntaje.
+export const scoringPolicyTerms: Record<ScoringPolicy, GlossaryTerm> = {
+  AllOrNothing: "politica-all-or-nothing",
+  ProportionalPenalised: "politica-proportional-penalised",
+  ProportionalPlain: "politica-proportional-plain"
 };
 
+/** True cuando el string del API corresponde a una política de puntaje conocida. */
+export function isScoringPolicy(value: string | null | undefined): value is ScoringPolicy {
+  return value === "AllOrNothing" || value === "ProportionalPenalised" || value === "ProportionalPlain";
+}
+
+export const scoringPolicyExplanations: Record<ScoringPolicy, string> = {
+  AllOrNothing: "Solo suma si marca exactamente las correctas.",
+  ProportionalPenalised: "Suma por cada correcta y resta por cada incorrecta, sin bajar de 0.",
+  ProportionalPlain: "Suma por cada correcta marcada; no penaliza las incorrectas."
+};
+
+// Caveat shown under the option only while it is selected.
 export const scoringPolicyWarnings: Partial<Record<ScoringPolicy, string>> = {
-  ProportionalPlain:
-    "Atención: con esta regla, un estudiante que marque todas las opciones obtiene el puntaje máximo. Elegila solo si entendés esta consecuencia."
+  ProportionalPlain: "Marcar todas las opciones da el puntaje completo."
 };
 
 const optionSchema = z.object({

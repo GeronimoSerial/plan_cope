@@ -42,7 +42,7 @@ export function formatRoleCodes(roleCodes: string[]): string {
   return roleCodes.length === 0 ? "—" : roleCodes.join(", ");
 }
 
-export { roleLabel } from "../../_lib/roles";
+export { roleLabel, roleTerm } from "../../_lib/roles";
 
 /** Etiqueta en español para el estado del usuario que expone el backend (Active/Inactive). */
 export function userStatusLabel(status: string): string {

@@ -9,6 +9,7 @@ import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/componen
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TermLabel } from "../help/term-hint";
 import type { SchoolStatsRow } from "../../_lib/api/server";
 
 interface CourseStatsRow {
@@ -49,6 +50,14 @@ function formatCount(value: number | string): string {
   return typeof value === "number" ? String(value) : value;
 }
 
+// Muestra un número con su formato o, si el backend suprimió el dato, el texto con su explicación.
+function StatValue({ value, format }: { value: number | string; format: (value: number | string) => string }) {
+  if (typeof value === "string") {
+    return <TermLabel term="stats-cohorte-insuficiente">{value}</TermLabel>;
+  }
+  return <>{format(value)}</>;
+}
+
 function csvEscape(value: number | string): string {
   const text = typeof value === "number" ? String(value) : value;
   return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
@@ -72,7 +81,7 @@ function activateOnKey(handler: () => void) {
 }
 
 function TableShell({ children }: { children: ReactNode }) {
-  return <div className="overflow-hidden rounded-lg ring-1 ring-foreground/10">{children}</div>;
+  return <div className="overflow-x-auto rounded-lg ring-1 ring-foreground/10">{children}</div>;
 }
 
 export function StatsPanel({ initialSchools }: StatsPanelProps) {
@@ -238,9 +247,15 @@ export function StatsPanel({ initialSchools }: StatsPanelProps) {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>CUE</TableHead>
-                    <TableHead>Intentos</TableHead>
-                    <TableHead>Promedio</TableHead>
+                    <TableHead>
+                      <TermLabel term="cue">CUE</TermLabel>
+                    </TableHead>
+                    <TableHead>
+                      <TermLabel term="stats-intentos">Intentos</TermLabel>
+                    </TableHead>
+                    <TableHead>
+                      <TermLabel term="stats-promedio">Promedio de puntaje (%)</TermLabel>
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -255,8 +270,12 @@ export function StatsPanel({ initialSchools }: StatsPanelProps) {
                       onKeyDown={activateOnKey(() => void selectCue(row.cue))}
                     >
                       <TableCell className="font-mono font-medium">{row.cue}</TableCell>
-                      <TableCell>{formatCount(row.attemptCount)}</TableCell>
-                      <TableCell>{formatPercent(row.averageScorePercent)}</TableCell>
+                      <TableCell>
+                        <StatValue value={row.attemptCount} format={formatCount} />
+                      </TableCell>
+                      <TableCell>
+                        <StatValue value={row.averageScorePercent} format={formatPercent} />
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -288,8 +307,12 @@ export function StatsPanel({ initialSchools }: StatsPanelProps) {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Curso</TableHead>
-                      <TableHead>Intentos</TableHead>
-                      <TableHead>Promedio</TableHead>
+                      <TableHead>
+                        <TermLabel term="stats-intentos">Intentos</TermLabel>
+                      </TableHead>
+                      <TableHead>
+                        <TermLabel term="stats-promedio">Promedio de puntaje (%)</TermLabel>
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -304,8 +327,12 @@ export function StatsPanel({ initialSchools }: StatsPanelProps) {
                         onKeyDown={activateOnKey(() => void selectCourse(course.course))}
                       >
                         <TableCell className="font-medium">{course.course}</TableCell>
-                        <TableCell>{formatCount(course.attemptCount)}</TableCell>
-                        <TableCell>{formatPercent(course.averageScorePercent)}</TableCell>
+                        <TableCell>
+                          <StatValue value={course.attemptCount} format={formatCount} />
+                        </TableCell>
+                        <TableCell>
+                          <StatValue value={course.averageScorePercent} format={formatPercent} />
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -331,8 +358,13 @@ export function StatsPanel({ initialSchools }: StatsPanelProps) {
                       {exam.examCode} · versión {exam.versionNumber}
                     </h3>
                     <p className="text-sm text-muted-foreground">
-                      Intentos: {formatCount(exam.attemptCount)} · Promedio:{" "}
-                      {formatPercent(exam.averageScorePercent)}
+                      <TermLabel term="stats-intentos">
+                        <span>Intentos: {formatCount(exam.attemptCount)}</span>
+                      </TermLabel>{" "}
+                      ·{" "}
+                      <TermLabel term="stats-promedio">
+                        <span>Promedio de puntaje: {formatPercent(exam.averageScorePercent)}</span>
+                      </TermLabel>
                     </p>
                     {exam.blocks.length === 0 ? (
                       <p className="text-sm text-muted-foreground">Sin datos por bloque.</p>
@@ -341,18 +373,34 @@ export function StatsPanel({ initialSchools }: StatsPanelProps) {
                         <Table>
                           <TableHeader>
                             <TableRow>
-                              <TableHead>Bloque</TableHead>
-                              <TableHead>Correctas</TableHead>
-                              <TableHead>Parciales</TableHead>
-                              <TableHead>Incorrectas</TableHead>
-                              <TableHead>En blanco</TableHead>
-                              <TableHead>No calificables</TableHead>
+                              <TableHead>
+                                <TermLabel term="bloque">Bloque</TermLabel>
+                              </TableHead>
+                              <TableHead>
+                                <TermLabel term="stats-correctas">Correctas</TermLabel>
+                              </TableHead>
+                              <TableHead>
+                                <TermLabel term="stats-parciales">Parciales</TermLabel>
+                              </TableHead>
+                              <TableHead>
+                                <TermLabel term="stats-incorrectas">Incorrectas</TermLabel>
+                              </TableHead>
+                              <TableHead>
+                                <TermLabel term="stats-en-blanco">En blanco</TermLabel>
+                              </TableHead>
+                              <TableHead>
+                                <TermLabel term="stats-no-calificables">No calificables</TermLabel>
+                              </TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
                             {exam.blocks.map(block => (
                               <TableRow key={block.blockId}>
-                                <TableCell className="font-mono">{block.blockId}</TableCell>
+                                <TableCell className="font-mono">
+                                  <span className="block max-w-[14rem] truncate" title={block.blockId}>
+                                    {block.blockId}
+                                  </span>
+                                </TableCell>
                                 <TableCell>{block.correctCount}</TableCell>
                                 <TableCell>{block.partialCount}</TableCell>
                                 <TableCell>{block.incorrectCount}</TableCell>

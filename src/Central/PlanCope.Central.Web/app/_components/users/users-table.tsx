@@ -21,12 +21,15 @@ import {
 import { DeactivateUserDialog } from "./deactivate-user-dialog";
 import { ManageUserDialog } from "./manage-user-dialog";
 import { ResetPasswordDialog } from "./reset-password-dialog";
+import { CreateUserButton } from "./create-user-dialog";
+import { TermLabel } from "../help/term-hint";
 import {
   canOfferUserDeactivate,
   canOfferResetPassword,
   formatCues,
   hasAnyRoleOrCueAction,
   roleLabel,
+  roleTerm,
   userStatusLabel,
   usersEmptyStateDescription
 } from "./user-mapping";
@@ -45,11 +48,21 @@ function RoleBadges({ codes }: { codes: string[] }) {
   }
   return (
     <div className="flex flex-wrap gap-1">
-      {codes.map(code => (
-        <Badge key={code} variant="secondary">
-          {roleLabel(code)}
-        </Badge>
-      ))}
+      {codes.map(code => {
+        const term = roleTerm(code);
+        if (!term) {
+          return (
+            <Badge key={code} variant="secondary">
+              {roleLabel(code)}
+            </Badge>
+          );
+        }
+        return (
+          <TermLabel key={code} term={term}>
+            <Badge variant="secondary">{roleLabel(code)}</Badge>
+          </TermLabel>
+        );
+      })}
     </div>
   );
 }
@@ -65,9 +78,10 @@ export function UsersTable({ users, roles, user }: UsersTableProps) {
 
   if (users.length === 0) {
     return (
-      <p className="rounded-xl border py-10 text-center text-sm text-muted-foreground">
-        {usersEmptyStateDescription(user)}
-      </p>
+      <div className="grid justify-items-center gap-3 rounded-xl border py-10 text-center">
+        <p className="text-sm text-muted-foreground">{usersEmptyStateDescription(user)}</p>
+        <CreateUserButton user={user} />
+      </div>
     );
   }
 
@@ -80,8 +94,12 @@ export function UsersTable({ users, roles, user }: UsersTableProps) {
               <TableHead>Nombre</TableHead>
               <TableHead>Correo</TableHead>
               <TableHead>Estado</TableHead>
-              <TableHead>Roles</TableHead>
-              <TableHead>Escuelas (CUEs)</TableHead>
+              <TableHead>
+                <TermLabel term="rol">Roles</TermLabel>
+              </TableHead>
+              <TableHead>
+                <TermLabel term="cue">Escuelas (CUEs)</TermLabel>
+              </TableHead>
               <TableHead className="text-right">Acciones</TableHead>
             </TableRow>
           </TableHeader>
@@ -93,8 +111,16 @@ export function UsersTable({ users, roles, user }: UsersTableProps) {
               const hasActions = canDeactivate || canReset || canManage;
               return (
                 <TableRow key={target.id}>
-                  <TableCell className="font-medium">{target.fullName}</TableCell>
-                  <TableCell>{target.email}</TableCell>
+                  <TableCell className="font-medium">
+                    <span className="block max-w-[14rem] truncate" title={target.fullName}>
+                      {target.fullName}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="block max-w-[16rem] truncate" title={target.email}>
+                      {target.email}
+                    </span>
+                  </TableCell>
                   <TableCell>
                     <Badge variant={target.status.toLowerCase() === "active" ? "default" : "secondary"}>
                       {userStatusLabel(target.status)}
@@ -103,7 +129,11 @@ export function UsersTable({ users, roles, user }: UsersTableProps) {
                   <TableCell>
                     <RoleBadges codes={target.roleCodes} />
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{formatCues(target.cues)}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    <span className="block max-w-[16rem] truncate" title={formatCues(target.cues)}>
+                      {formatCues(target.cues)}
+                    </span>
+                  </TableCell>
                   <TableCell className="text-right">
                     {hasActions ? (
                       <DropdownMenu>

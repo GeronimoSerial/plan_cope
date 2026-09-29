@@ -19,7 +19,10 @@ export default async function StatsPage() {
 
   return (
     <>
-      <PageHeader title="Estadísticas" />
+      <PageHeader
+        title="Estadísticas"
+        description="Resultados de exámenes por escuela, curso y examen. Los datos los envían los nodos."
+      />
       <StatsPanel initialSchools={schools} />
     </>
   );

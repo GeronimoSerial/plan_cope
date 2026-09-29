@@ -22,24 +22,30 @@ export function ActivationKeysPanel({ keys }: ActivationKeysPanelProps) {
   const [revokeTarget, setRevokeTarget] = useState<ActivationKeySummary | null>(null);
   const [reissueTarget, setReissueTarget] = useState<ActivationKeySummary | null>(null);
 
+  function openIssue() {
+    setIssued(null);
+    setIssueOpen(true);
+  }
+
   return (
     <>
       <PageHeader
         title="Claves de activación"
+        description="Claves para enrolar computadoras como nodos. Emití una por equipo y revocala si se pierde."
         actions={
-          <Button
-            onClick={() => {
-              setIssued(null);
-              setIssueOpen(true);
-            }}
-          >
+          <Button onClick={openIssue}>
             <Plus data-icon="inline-start" />
             Nueva clave
           </Button>
         }
       />
 
-      <ActivationKeysTable keys={keys} onRevoke={setRevokeTarget} onReissue={setReissueTarget} />
+      <ActivationKeysTable
+        keys={keys}
+        onRevoke={setRevokeTarget}
+        onReissue={setReissueTarget}
+        onCreate={openIssue}
+      />
 
       <IssueKeyDialog
         open={issueOpen}

@@ -12,27 +12,29 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { questionTypes, questionTypeLabels, type Question, type QuestionType } from "../../_lib/schema/exam";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { QuestionCard } from "./question-card";
-import { Button } from "../ui/button";
-import { EmptyState } from "../ui/empty-state";
 
 interface QuestionListProps {
   questions: Question[];
-  errorsByIndex: (index: number) => Record<string, string>;
+  errors: Record<string, string>;
+  disabled?: boolean;
   onReorder: (activeId: string, overId: string) => void;
-  onUpdate: (index: number, next: Question) => void;
-  onRemove: (index: number) => void;
-  onMove: (index: number, direction: -1 | 1) => void;
+  onUpdate: (id: string, next: Question) => void;
+  onRemove: (id: string) => void;
+  onDuplicate: (id: string) => void;
   onAdd: (type: QuestionType) => void;
 }
 
 export function QuestionList({
   questions,
-  errorsByIndex,
+  errors,
+  disabled = false,
   onReorder,
   onUpdate,
   onRemove,
-  onMove,
+  onDuplicate,
   onAdd
 }: QuestionListProps) {
   const [newType, setNewType] = useState<QuestionType>("single_choice");
@@ -49,52 +51,54 @@ export function QuestionList({
   }
 
   return (
-    <div className="stack">
-      <div className="card">
-        <div className="card__body row row--between">
-          <div className="row" style={{ alignItems: "center" }}>
-            <label htmlFor="new-question-type" className="field-label">
+    <div className="grid gap-4">
+      {!disabled && (
+        <div className="flex flex-col gap-2 rounded-xl border p-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="grid gap-1.5 sm:max-w-xs sm:flex-1">
+            <label htmlFor="new-question-type" className="text-sm font-medium">
               Agregar pregunta
             </label>
-            <select
-              id="new-question-type"
+            <Select
               value={newType}
-              onChange={event => setNewType(event.target.value as QuestionType)}
-              style={{ width: "auto" }}
+              onValueChange={value => setNewType(value as QuestionType)}
+              items={questionTypeLabels}
             >
-              {questionTypes.map(type => (
-                <option key={type} value={type}>
-                  {questionTypeLabels[type]}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger id="new-question-type" className="w-full" aria-label="Tipo de pregunta nueva">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {questionTypes.map(type => (
+                  <SelectItem key={type} value={type}>
+                    {questionTypeLabels[type]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <Button variant="secondary" onClick={() => onAdd(newType)}>
+          <Button type="button" variant="secondary" onClick={() => onAdd(newType)}>
             Agregar pregunta
           </Button>
         </div>
-      </div>
+      )}
 
       {questions.length === 0 ? (
-        <EmptyState
-          title="Todavía no hay preguntas"
-          description="Elegí un tipo y agregá la primera pregunta."
-        />
+        <p className="rounded-xl border py-10 text-center text-sm text-muted-foreground">
+          Todavía no hay preguntas. Agregá la primera para empezar.
+        </p>
       ) : (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={questions.map(question => question.id)} strategy={verticalListSortingStrategy}>
-            <div className="stack">
+            <div className="grid gap-4">
               {questions.map((question, index) => (
                 <QuestionCard
                   key={question.id}
                   question={question}
                   index={index}
-                  total={questions.length}
-                  errors={errorsByIndex(index)}
-                  onChange={next => onUpdate(index, next)}
-                  onRemove={() => onRemove(index)}
-                  onMoveUp={() => onMove(index, -1)}
-                  onMoveDown={() => onMove(index, 1)}
+                  errors={errors}
+                  disabled={disabled}
+                  onUpdate={onUpdate}
+                  onRemove={onRemove}
+                  onDuplicate={onDuplicate}
                 />
               ))}
             </div>

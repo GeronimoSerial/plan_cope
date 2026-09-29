@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { getLatestInstaller, isNoInstallerPublishedError, isSessionExpired } from "../../_lib/api/server";
 import { buildInstallerDownloadHref } from "../../_lib/installer-download";
 import { PageHeader } from "../../_components/layout/page-header";
+import { TermLabel } from "../../_components/help/term-hint";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,12 +33,23 @@ async function InstallerCard() {
   return (
     <Card className="max-w-md">
       <CardHeader>
-        <CardTitle>Instalador de escritorio</CardTitle>
+        <CardTitle>
+          <TermLabel term="instalador">Instalador de escritorio</TermLabel>
+        </CardTitle>
       </CardHeader>
       <CardContent className="grid gap-4">
-        <p className="text-sm">
-          Versión <span className="font-medium">{installer.version}</span> · Canal{" "}
-          <span className="font-medium">{installer.channel}</span>
+        <p className="inline-flex flex-wrap items-center gap-1 text-sm">
+          <TermLabel term="version">
+            <span>
+              Versión <span className="font-medium">{installer.version}</span>
+            </span>
+          </TermLabel>
+          <span aria-hidden="true">·</span>
+          <TermLabel term="canal">
+            <span>
+              Canal <span className="font-medium">{installer.channel}</span>
+            </span>
+          </TermLabel>
         </p>
         <div>
           <Button render={<a href={buildInstallerDownloadHref(installer.channel)} download />}>
@@ -69,7 +81,10 @@ function InstallerCardSkeleton() {
 export default function DescargasPage() {
   return (
     <>
-      <PageHeader title="Descargas" />
+      <PageHeader
+        title="Descargas"
+        description="Instalador de PlanCope para las escuelas. Descargá el último publicado y activá cada equipo con una clave."
+      />
       <Suspense fallback={<InstallerCardSkeleton />}>
         <InstallerCard />
       </Suspense>

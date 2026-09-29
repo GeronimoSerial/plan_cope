@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { callCentral } from "../../_lib/api/client";
 import { getErrorMessage } from "../../_lib/json";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -18,6 +19,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TermLabel } from "../help/term-hint";
 import type { RegisteredNodeSummary } from "../../_lib/api/server";
 
 interface NodeRegistryPanelProps {
@@ -90,14 +92,30 @@ export function NodeRegistryPanel({ initialNodes }: NodeRegistryPanelProps) {
   return (
     <>
       {nodes.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No hay nodos registrados.</p>
+        <div className="grid justify-items-center gap-3 rounded-xl border py-10 text-center">
+          <p className="max-w-prose text-sm text-muted-foreground">
+            Todavía no hay nodos. Emití una clave de activación e instalá PlanCope en la escuela.
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <Button variant="outline" render={<Link href="/claves" />}>
+              Ir a claves
+            </Button>
+            <Button variant="outline" render={<Link href="/descargas" />}>
+              Ir a descargas
+            </Button>
+          </div>
+        </div>
       ) : (
-        <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
+        <div className="overflow-x-auto rounded-xl ring-1 ring-foreground/10">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Nodo</TableHead>
-                <TableHead>Escuela</TableHead>
+                <TableHead>
+                  <TermLabel term="nodo">Nodo</TermLabel>
+                </TableHead>
+                <TableHead>
+                  <TermLabel term="cue">Escuela</TermLabel>
+                </TableHead>
                 <TableHead>Equipo</TableHead>
                 <TableHead>Registrado</TableHead>
                 <TableHead>Última conexión</TableHead>
@@ -108,9 +126,24 @@ export function NodeRegistryPanel({ initialNodes }: NodeRegistryPanelProps) {
             <TableBody>
               {nodes.map(node => (
                 <TableRow key={node.id}>
-                  <TableCell className="font-mono font-medium">{node.nodeCode}</TableCell>
-                  <TableCell>{node.schoolName ?? `CUE ${node.cue}`}</TableCell>
-                  <TableCell>{node.deviceName ?? "—"}</TableCell>
+                  <TableCell className="font-mono font-medium">
+                    <span className="block max-w-[9rem] truncate" title={node.nodeCode}>
+                      {node.nodeCode}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <span
+                      className="block max-w-[12rem] truncate"
+                      title={node.schoolName ?? `CUE ${node.cue}`}
+                    >
+                      {node.schoolName ?? `CUE ${node.cue}`}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="block max-w-[10rem] truncate" title={node.deviceName ?? undefined}>
+                      {node.deviceName ?? "—"}
+                    </span>
+                  </TableCell>
                   <TableCell>{formatDate(node.enrolledAt)}</TableCell>
                   <TableCell>{node.lastSeenAt ? formatDate(node.lastSeenAt) : "Nunca"}</TableCell>
                   <TableCell>

@@ -26,6 +26,8 @@ export interface LoginResponse {
   user: UserProfile;
 }
 
+export type PublicationState = "draft" | "ready_to_publish" | "published";
+
 export interface ExamSummary {
   id: string;
   code: string;
@@ -35,6 +37,13 @@ export interface ExamSummary {
   subject?: string | null;
   status: string;
   versionCount: number;
+  initialVersionId?: string | null;
+  publicationState?: PublicationState;
+  publishedVersionId?: string | null;
+  publishedVersionNumber?: number | null;
+  publishedAt?: string | null;
+  targets?: PublicationTarget[] | null;
+  pulledByNodeCount?: number | null;
 }
 
 export interface CreateExamRequest {
@@ -46,10 +55,29 @@ export interface CreateExamRequest {
   subject?: string | null;
 }
 
+// Creacion de versiones. Todos los campos son opcionales: por defecto el API deep-copia la
+// version fuente (`sourceVersionId`, o la ultima si se omite). `empty: true` conserva el
+// comportamiento viejo de crear una version vacia.
 export interface CreateExamVersionRequest {
-  schemaVersion: number;
+  schemaVersion?: number;
   metadata?: Record<string, unknown> | null;
+  scoringPolicy?: string | null;
+  sourceVersionId?: string;
+  empty?: boolean;
 }
+
+// Edicion de los datos del examen. `code` es inmutable: si viene distinto del guardado el API
+// responde 400 con un ValidationProblem bajo la clave "code".
+export interface UpdateExamRequest {
+  title: string;
+  description?: string | null;
+  level?: string | null;
+  area?: string | null;
+  subject?: string | null;
+  code?: string;
+}
+
+export type PublishBlockedReason = "already_published" | "no_blocks" | "scoring_policy_required";
 
 export interface ExamVersion {
   id: string;
@@ -62,6 +90,17 @@ export interface ExamVersion {
   answerKeys: AnswerKey[];
   assets: ExamAsset[];
   scoringPolicy: string | null;
+  blockCount: number;
+  canPublish: boolean;
+  publishBlockedReason?: PublishBlockedReason | null;
+  /** Fecha de publicacion de esta version (null si sigue en borrador). */
+  publishedAt?: string | null;
+  /** Fecha en que una version publicada posterior la reemplazo (null si no fue reemplazada). */
+  supersededAt?: string | null;
+  /** true solo para la ultima version publicada del examen. */
+  isCurrent: boolean;
+  /** Numero de la version de la que se copio esta (null para versiones vacias/iniciales). */
+  basedOnVersionNumber?: number | null;
 }
 
 export interface ExamBlock {
@@ -124,6 +163,8 @@ export interface PublishExamVersionRequest {
   subject?: string | null;
   grade: string;
   division?: string | null;
+  nodeIds?: string[];
+  schoolIds?: string[];
 }
 
 export interface PublicationTarget {
