@@ -17,7 +17,7 @@ public sealed class ActivationRevalidationService(
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly TimeSpan RetryInterval = TimeSpan.FromHours(6);
-    private static readonly TimeSpan ForwardClockJumpGrace = TimeSpan.FromDays(5);
+    private static readonly TimeSpan MaximumWorkDeferral = TimeSpan.FromDays(7);
     private const int WarningDays = 5;
 
     public async Task CheckAsync(CancellationToken cancellationToken = default)
@@ -45,13 +45,11 @@ public sealed class ActivationRevalidationService(
         var now = Max(timeProvider.GetUtcNow(), lastServerTime ?? lastSuccessful);
         var deadline = lastSuccessful.AddDays(intervalDays);
         var dueAt = deadline.AddDays(-WarningDays);
-        var clockWasCorrectedBackwards = false;
 
         if (now >= dueAt)
         {
             var lastAttempt = await ReadDateAsync("last_revalidation_attempt_at", cancellationToken);
-            clockWasCorrectedBackwards = lastAttempt is not null && now < lastAttempt;
-            if (lastAttempt is null || clockWasCorrectedBackwards || now - lastAttempt >= RetryInterval)
+            if (lastAttempt is null || now < lastAttempt || now - lastAttempt >= RetryInterval)
             {
                 await WriteStringAsync("last_revalidation_attempt_at", now.ToUniversalTime().ToString("O"), cancellationToken);
                 if (await credentialRefresher.TryRefreshAsync(cancellationToken))
@@ -74,19 +72,8 @@ public sealed class ActivationRevalidationService(
         intervalDays = Math.Clamp(await ReadIntAsync("revalidation_interval_days", cancellationToken) ?? 30, 1, 365);
         if (now >= lastSuccessful.AddDays(intervalDays))
         {
-            // A wildly future local date can trigger the warning and a refresh attempt, but it
-            // cannot permanently expire/wipe the node. Recheck after the clock is corrected or
-            // Central responds. Ordinary offline expiry reaches this branch within the grace.
-            if (now > lastSuccessful.AddDays(intervalDays) + ForwardClockJumpGrace && !clockWasCorrectedBackwards)
-            {
-                logger.LogWarning("Local clock is far ahead of the last Central validation; expiry wipe is deferred until the clock is corrected or Central responds.");
-                return;
-            }
             await WriteBoolAsync("activation_expiry_pending", true, cancellationToken);
-            if (!await HasActiveExamWorkAsync(cancellationToken))
-            {
-                await ExpireAndWipeAsync(cancellationToken);
-            }
+            await ExpireAndWipeAsync(cancellationToken);
         }
     }
 
@@ -133,6 +120,51 @@ public sealed class ActivationRevalidationService(
         {
             using var connection = connectionFactory.CreateOpenConnection();
             using var transaction = connection.BeginTransaction();
+            var hasActiveWork = await connection.ExecuteScalarAsync<bool>(new CommandDefinition("""
+                SELECT EXISTS (SELECT 1 FROM delivery_sessions WHERE lower(status) IN ('active', 'paused'))
+                    OR EXISTS (SELECT 1 FROM student_attempts WHERE submitted_at IS NULL);
+                """, transaction: transaction, cancellationToken: cancellationToken));
+            var pendingSinceJson = await connection.ExecuteScalarAsync<string?>(new CommandDefinition(
+                "SELECT value_json FROM sync_state WHERE key='activation_expiry_pending_since';", transaction: transaction, cancellationToken: cancellationToken));
+            var pendingSince = DateTimeOffset.TryParse(pendingSinceJson?.Trim('"'), out var parsedPending) ? parsedPending : timeProvider.GetUtcNow();
+            if (hasActiveWork && timeProvider.GetUtcNow() - pendingSince < MaximumWorkDeferral)
+            {
+                await connection.ExecuteAsync(new CommandDefinition(
+                    "INSERT INTO sync_state (id,key,value_json,updated_at) VALUES (@Id,'activation_expiry_pending_since',@Value,@Now) " +
+                    "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at;",
+                    new { Id = Guid.NewGuid().ToString("N"), Value = JsonSerializer.Serialize(pendingSince, JsonOptions), Now = DateTimeOffset.UtcNow.ToString("O") },
+                    transaction, cancellationToken: cancellationToken));
+                transaction.Commit();
+                return;
+            }
+            if (hasActiveWork)
+            {
+                var unfinished = await connection.QueryAsync<ExpiryAttempt>(new CommandDefinition("""
+                    SELECT a.id, a.delivery_session_id, a.student_code, a.started_at, a.local_sequence,
+                           s.roster_snapshot_id, s.roster_section_id, e.remote_exam_version_id
+                    FROM student_attempts a JOIN delivery_sessions s ON s.id=a.delivery_session_id
+                    LEFT JOIN local_exam_versions e ON e.id=s.exam_version_id WHERE a.submitted_at IS NULL;
+                    """, transaction: transaction, cancellationToken: cancellationToken));
+                foreach (var attempt in unfinished)
+                {
+                    var submittedAt = timeProvider.GetUtcNow().ToString("O");
+                    var confirmationCode = Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+                    var answers = (await connection.QueryAsync(new CommandDefinition(
+                        "SELECT id AS Id, student_attempt_id AS StudentAttemptId, block_id AS BlockId, answer_json AS AnswerJson, created_at AS CreatedAt FROM submission_answers WHERE student_attempt_id=@Id ORDER BY created_at;",
+                        new { attempt.Id }, transaction, cancellationToken: cancellationToken))).ToArray();
+                    var payload = JsonSerializer.Serialize(new { attempt = new { attempt.Id, deliverySessionId = attempt.DeliverySessionId,
+                        studentCode = attempt.StudentCode, status = "submitted", startedAt = attempt.StartedAt, submittedAt,
+                        localSequence = attempt.LocalSequence, confirmationCode }, answers, rosterSnapshotId = attempt.RosterSnapshotId,
+                        rosterSectionId = attempt.RosterSectionId, examVersionRemoteId = attempt.RemoteExamVersionId }, JsonOptions);
+                    await connection.ExecuteAsync(new CommandDefinition("""
+                        UPDATE student_attempts SET status='submitted', submitted_at=@SubmittedAt, confirmation_code=@Code WHERE id=@Id;
+                        INSERT INTO sync_outbox (id,event_type,aggregate_type,aggregate_id,idempotency_key,payload_json,status,retry_count,created_at)
+                        VALUES (@OutboxId,'attempt.submitted','student_attempt',@Id,@IdempotencyKey,@Payload,'pending',0,@SubmittedAt);
+                        """, new { attempt.Id, SubmittedAt = submittedAt, Code = confirmationCode, OutboxId = Guid.NewGuid().ToString(),
+                        IdempotencyKey = Guid.NewGuid().ToString(), Payload = payload }, transaction, cancellationToken: cancellationToken));
+                }
+                await connection.ExecuteAsync(new CommandDefinition("UPDATE delivery_sessions SET status='closed' WHERE lower(status) IN ('active','paused');", transaction: transaction, cancellationToken: cancellationToken));
+            }
             await connection.ExecuteAsync(new CommandDefinition(
                 "INSERT INTO sync_state (id, key, value_json, updated_at) VALUES (@Id, 'activation_expired', @Value, @Now) " +
                 "ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at;",
@@ -157,7 +189,7 @@ public sealed class ActivationRevalidationService(
                 "node_id", "central_access_token", "central_refresh_token", "central_access_token_expires_at",
                 "central_refresh_token_expires_at", "last_revalidation_at", "last_server_time", "last_effective_time",
                 "last_revalidation_attempt_at", "revalidation_interval_days", "last_exam_pull_cursor", "activation_in_progress",
-                "activation_expiry_pending", "central_url"
+                "activation_expiry_pending", "activation_expiry_pending_since", "central_url"
             })
                 await connection.ExecuteAsync(new CommandDefinition("DELETE FROM sync_state WHERE key = @Key;", new { Key = key }, transaction, cancellationToken: cancellationToken));
             await connection.ExecuteAsync(new CommandDefinition("DELETE FROM node_identity;", transaction: transaction, cancellationToken: cancellationToken));
@@ -172,14 +204,8 @@ public sealed class ActivationRevalidationService(
         }
     }
 
-    private async Task<bool> HasActiveExamWorkAsync(CancellationToken cancellationToken)
-    {
-        using var connection = connectionFactory.CreateOpenConnection();
-        return await connection.ExecuteScalarAsync<bool>(new CommandDefinition("""
-            SELECT EXISTS (SELECT 1 FROM delivery_sessions WHERE lower(status) IN ('active', 'paused'))
-                OR EXISTS (SELECT 1 FROM student_attempts WHERE submitted_at IS NULL);
-            """, cancellationToken: cancellationToken));
-    }
+    private sealed record ExpiryAttempt(string Id, string DeliverySessionId, string StudentCode, string StartedAt,
+        long LocalSequence, string? RosterSnapshotId, string? RosterSectionId, string? RemoteExamVersionId);
 
     private async Task<DateTimeOffset?> ReadDateAsync(string key, CancellationToken ct)
     {

@@ -27,7 +27,8 @@ public enum ActivationRedeemFailureReason
     KeyRevoked,
     KeyExpired,
     ActivationLimitReached,
-    FingerprintCollision
+    FingerprintCollision,
+    NodeRevoked
 }
 
 /// <summary>

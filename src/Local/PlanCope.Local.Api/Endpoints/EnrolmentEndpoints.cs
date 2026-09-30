@@ -271,6 +271,7 @@ public static class EnrolmentEndpoints
         ActivationRedeemFailureReason.KeyRevoked => "La clave de activación fue revocada.",
         ActivationRedeemFailureReason.KeyExpired => "La clave de activación está vencida.",
         ActivationRedeemFailureReason.ActivationLimitReached => "La clave de activación alcanzó su límite de usos.",
+        ActivationRedeemFailureReason.NodeRevoked => "Este equipo fue dado de baja en Central. Contactá a la administración para volver a activarlo.",
         ActivationRedeemFailureReason.FingerprintCollision => "La identidad del equipo ya está asociada a otra inscripción.",
         _ => "No se pudo validar la clave de activación. Verificá que sea correcta y no esté vencida o revocada.",
     };

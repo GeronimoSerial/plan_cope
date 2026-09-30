@@ -88,7 +88,31 @@ public sealed class ActivationRevalidationServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Future_local_clock_only_warns_and_recovers_when_corrected()
+    public async Task Expiry_auto_finalizes_answers_after_seven_day_work_deferral()
+    {
+        var validatedAt = DateTimeOffset.UtcNow.AddDays(-31);
+        await SeedExpiredIdentityAsync(validatedAt);
+        await SeedWipeGraphAsync(activeSession: true, unsubmittedAttempt: true);
+        var clock = new MutableTimeProvider(DateTimeOffset.UtcNow);
+        var service = CreateService(clock);
+
+        await service.CheckAsync();
+        Assert.True(await service.IsExpiryPendingAsync());
+        Assert.NotNull(await identities.GetAsync());
+
+        clock.UtcNow = clock.UtcNow.AddDays(8);
+        await service.CheckAsync();
+
+        Assert.Null(await identities.GetAsync());
+        using var verify = connectionFactory.CreateOpenConnection();
+        var payload = await verify.QuerySingleAsync<string>("SELECT payload_json FROM sync_outbox WHERE aggregate_id='attempt-1' AND payload_json LIKE '%answers%';");
+        Assert.Contains("answers", payload);
+        Assert.Contains("{}", payload);
+        Assert.Equal(0, await verify.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM student_attempts;"));
+    }
+
+    [Fact]
+    public async Task Future_local_clock_triggers_expiry_and_wipe()
     {
         var validatedAt = DateTimeOffset.UtcNow.AddDays(-10);
         await SeedExpiredIdentityAsync(validatedAt);
@@ -97,35 +121,48 @@ public sealed class ActivationRevalidationServiceTests : IDisposable
 
         await service.CheckAsync();
 
-        Assert.NotNull(await identities.GetAsync());
-        Assert.False(await service.IsExpiredAsync());
+        Assert.Null(await identities.GetAsync());
+        Assert.True(await service.IsExpiredAsync());
         Assert.False(await service.IsExpiryPendingAsync());
-        Assert.Equal(0, await service.GetDaysRemainingAsync());
+        Assert.Null(await service.GetDaysRemainingAsync());
 
         clock.UtcNow = validatedAt.AddDays(10);
         await service.CheckAsync();
 
-        Assert.NotNull(await identities.GetAsync());
-        Assert.False(await service.IsExpiredAsync());
-        Assert.InRange(await service.GetDaysRemainingAsync() ?? -1, 19, 20);
+        Assert.Null(await identities.GetAsync());
+        Assert.True(await service.IsExpiredAsync());
     }
 
     [Fact]
-    public async Task Corrected_future_clock_does_not_hide_a_real_expiry_after_long_offline_period()
+    public async Task Sixty_days_offline_expires_even_if_clock_is_corrected_after_a_future_jump()
     {
-        var validatedAt = DateTimeOffset.UtcNow.AddDays(-40);
+        var validatedAt = DateTimeOffset.UtcNow.AddDays(-60);
         await SeedExpiredIdentityAsync(validatedAt);
         var clock = new MutableTimeProvider(validatedAt.AddDays(365));
         var service = CreateService(clock);
 
         await service.CheckAsync();
 
-        Assert.NotNull(await identities.GetAsync());
-        Assert.False(await service.IsExpiredAsync());
+        Assert.Null(await identities.GetAsync());
+        Assert.True(await service.IsExpiredAsync());
 
-        clock.UtcNow = validatedAt.AddDays(40);
+        clock.UtcNow = validatedAt.AddDays(60);
         await service.CheckAsync();
 
+        Assert.Null(await identities.GetAsync());
+        Assert.True(await service.IsExpiredAsync());
+    }
+
+    [Fact]
+    public async Task Last_server_time_prevents_local_clock_rollback_from_avoiding_expiry()
+    {
+        var validatedAt = DateTimeOffset.UtcNow.AddDays(-60);
+        await SeedExpiredIdentityAsync(validatedAt);
+        await state.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "last_server_time",
+            System.Text.Json.JsonSerializer.Serialize(DateTimeOffset.UtcNow), DateTimeOffset.UtcNow.ToString("O")));
+        var clock = new MutableTimeProvider(DateTimeOffset.UtcNow.AddDays(-20));
+        var service = CreateService(clock);
+        await service.CheckAsync();
         Assert.Null(await identities.GetAsync());
         Assert.True(await service.IsExpiredAsync());
     }

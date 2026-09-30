@@ -157,6 +157,23 @@ public sealed class EnrolmentEndpointsTests
     }
 
     [Fact]
+    public async Task Redeem_revoked_node_maps_specific_spanish_message()
+    {
+        var handler = new StubCentralHandler(() => new HttpResponseMessage(HttpStatusCode.Forbidden)
+        {
+            Content = new StringContent("""{"isSuccess":false,"reason":"NodeRevoked","response":null}""", System.Text.Encoding.UTF8, "application/json")
+        });
+        using var factory = new EnrolmentApiFactory(handler);
+        using var client = factory.CreateClient();
+        factory.SeedNodeIdentity();
+
+        var response = await client.PostAsJsonAsync("/api/enrolment/redeem", new EnrolmentRedeemRequest(ActivationKey));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("Este equipo fue dado de baja en Central", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task Redeem_with_malformed_central_body_returns_bad_request_not_server_error()
     {
         var handler = new StubCentralHandler(() => new HttpResponseMessage(HttpStatusCode.OK)

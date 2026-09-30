@@ -26,13 +26,13 @@ public sealed class LocalOutboxPushService(
         var token = await ReadStateStringAsync("central_access_token", cancellationToken);
         if (string.IsNullOrWhiteSpace(centralUrl) || string.IsNullOrWhiteSpace(nodeId))
         {
-            return new(false, 0, 0, 0, "central_url and node_id must be configured in sync_state.");
+            return new(false, 0, 0, 0, "central_url and node_id must be configured in sync_state.", true);
         }
 
         if (!Uri.TryCreate(centralUrl.Trim().TrimEnd('/') + "/", UriKind.Absolute, out var baseAddress) ||
             baseAddress.Scheme is not ("http" or "https"))
         {
-            return new(false, 0, 0, 0, "central_url is invalid.");
+            return new(false, 0, 0, 0, "central_url is invalid.", true);
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -92,7 +92,8 @@ public sealed class LocalOutboxPushService(
                     await RequeueAsync(item, $"Central push failed: {(int)response.StatusCode} {error}", cancellationToken);
                 }
 
-                return new(false, pending.Count, 0, pending.Count, $"Central push failed: {(int)response.StatusCode}.");
+                return new(false, pending.Count, 0, pending.Count, $"Central push failed: {(int)response.StatusCode}.",
+                    response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden || (int)response.StatusCode >= 500);
             }
 
             var result = await response.Content.ReadFromJsonAsync<PushResponse>(JsonOptions, cancellationToken);
@@ -140,7 +141,7 @@ public sealed class LocalOutboxPushService(
                 await RequeueAsync(item, exception.Message, cancellationToken);
             }
 
-            return new(false, pending.Count, 0, pending.Count, exception.Message);
+            return new(false, pending.Count, 0, pending.Count, exception.Message, true);
         }
     }
 
@@ -204,4 +205,4 @@ public sealed class LocalOutboxPushService(
         name.Contains("dni", StringComparison.OrdinalIgnoreCase);
 }
 
-public sealed record LocalOutboxPushResult(bool Success, int Considered, int Accepted, int Pending, string? Error);
+public sealed record LocalOutboxPushResult(bool Success, int Considered, int Accepted, int Pending, string? Error, bool TransportOrAuthFailure = false);
