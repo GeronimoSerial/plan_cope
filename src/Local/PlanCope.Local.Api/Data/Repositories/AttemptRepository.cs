@@ -320,6 +320,47 @@ public sealed class AttemptRepository(ILocalSqliteConnectionFactory connectionFa
         return true;
     }
 
+    public async Task<bool> PreserveUnsubmittedWithOutboxAsync(
+        string id,
+        string submittedAt,
+        string confirmationCode,
+        SyncOutbox outbox,
+        CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateOpenConnection();
+        using var transaction = connection.BeginTransaction();
+        var updated = await connection.ExecuteAsync(new CommandDefinition("""
+            UPDATE student_attempts
+            SET status='submitted', submitted_at=@SubmittedAt, confirmation_code=@ConfirmationCode
+            WHERE id=@Id AND submitted_at IS NULL;
+            """, new { Id = id, SubmittedAt = submittedAt, ConfirmationCode = confirmationCode }, transaction, cancellationToken: cancellationToken));
+        if (updated != 1)
+        {
+            transaction.Rollback();
+            return false;
+        }
+        await connection.ExecuteAsync(new CommandDefinition("""
+            INSERT INTO sync_outbox
+                (id, event_type, aggregate_type, aggregate_id, idempotency_key, payload_json,
+                 status, retry_count, next_retry_at, last_error, created_at, processed_at)
+            VALUES
+                (@Id, @EventType, @AggregateType, @AggregateId, @IdempotencyKey, @PayloadJson,
+                 @Status, @RetryCount, @NextRetryAt, @LastError, @CreatedAt, @ProcessedAt);
+            INSERT INTO attempt_results
+                (id, student_attempt_id, grading_schema_version, scoring_policy, status,
+                 score, score_max, blocks_json, graded_at)
+            VALUES (@ResultId, @AttemptId, @SchemaVersion, NULL, 'ungradable', NULL, NULL, NULL, @SubmittedAt);
+            """, new
+        {
+            outbox.Id, outbox.EventType, outbox.AggregateType, outbox.AggregateId, outbox.IdempotencyKey,
+            outbox.PayloadJson, outbox.Status, outbox.RetryCount, outbox.NextRetryAt, outbox.LastError,
+            outbox.CreatedAt, outbox.ProcessedAt, ResultId = Guid.NewGuid().ToString(), AttemptId = id,
+            SchemaVersion = PlanCope.Shared.Grading.GradingSchemaVersion.Current, SubmittedAt = submittedAt
+        }, transaction, cancellationToken: cancellationToken));
+        transaction.Commit();
+        return true;
+    }
+
     private sealed class StudentAttemptRow
     {
         public string Id { get; init; } = string.Empty;

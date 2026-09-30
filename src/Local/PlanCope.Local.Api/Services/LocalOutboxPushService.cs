@@ -11,10 +11,15 @@ namespace PlanCope.Local.Api.Services;
 /// Sends the local outbox only when explicitly invoked by an operator or release.
 /// There is intentionally no hosted service, timer, polling loop, or startup push.
 /// </summary>
+public interface ILocalOutboxPushService
+{
+    Task<LocalOutboxPushResult> PushAsync(int requestedLimit, CancellationToken cancellationToken = default);
+}
+
 public sealed class LocalOutboxPushService(
     IHttpClientFactory httpClientFactory,
     ISyncStateRepository syncStateRepository,
-    IOutboxRepository outboxRepository)
+    IOutboxRepository outboxRepository) : ILocalOutboxPushService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -65,6 +66,9 @@ public sealed class LocalSessionFlowTests
         using var reader = command.ExecuteReader();
         Assert.True(reader.Read());
         Assert.Equal(SyncEventTypes.AttemptSubmitted, reader.GetString(0));
+        var declaredEventTypes = typeof(SyncEventTypes).GetFields(BindingFlags.Public | BindingFlags.Static)
+            .Select(field => field.GetValue(null)).OfType<string>().ToHashSet(StringComparer.Ordinal);
+        Assert.Contains(reader.GetString(0), declaredEventTypes);
         Assert.Equal("student_attempt", reader.GetString(1));
         Assert.Equal(started.Attempt.Id, reader.GetString(2));
         Assert.Equal("pending", reader.GetString(4));

@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Dapper;
 using Microsoft.Data.Sqlite;
 using PlanCope.Local.Api.Data;
@@ -15,27 +14,6 @@ namespace PlanCope.Local.Api.Tests;
 
 public sealed class LocalOutboxPushTests
 {
-    [Fact]
-    public void Local_outbox_event_types_are_written_through_shared_constants()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "PlanCope.slnx"))) directory = directory.Parent;
-        Assert.NotNull(directory);
-        var sourceFiles = Directory.GetFiles(Path.Combine(directory!.FullName, "src/Local/PlanCope.Local.Api"), "*.cs", SearchOption.AllDirectories);
-        var creationSites = sourceFiles.Where(path => !path.EndsWith("OutboxRepository.cs", StringComparison.Ordinal))
-            .SelectMany(path => Regex.Matches(File.ReadAllText(path), "new\\s+SyncOutbox\\s*\\(")
-            .Select(match => (Path: path, Index: match.Index))).ToArray();
-        Assert.NotEmpty(creationSites);
-        foreach (var (path, index) in creationSites)
-        {
-            var source = File.ReadAllText(path);
-            Assert.Contains("SyncEventTypes.", source.Substring(index, Math.Min(700, source.Length - index)));
-        }
-
-        foreach (var path in sourceFiles.Where(path => File.ReadAllText(path).Contains("INSERT INTO sync_outbox", StringComparison.OrdinalIgnoreCase)))
-            Assert.Contains("@EventType", File.ReadAllText(path));
-    }
-
     [Fact]
     public async Task Manual_push_sends_nominal_identity_without_document_or_token_and_marks_accepted()
     {

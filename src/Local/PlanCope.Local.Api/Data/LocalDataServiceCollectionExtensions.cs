@@ -28,6 +28,9 @@ public static class LocalDataServiceCollectionExtensions
         services.AddScoped<LocalRosterPullService>();
         services.AddScoped<IInitialActivationDownloadService, InitialActivationDownloadService>();
         services.AddScoped<LocalOutboxPushService>();
+        services.AddScoped<ILocalExamPullService>(provider => provider.GetRequiredService<LocalExamPullService>());
+        services.AddScoped<ILocalRosterPullService>(provider => provider.GetRequiredService<LocalRosterPullService>());
+        services.AddScoped<ILocalOutboxPushService>(provider => provider.GetRequiredService<LocalOutboxPushService>());
         services.AddScoped<ILocalRosterRepository, LocalRosterRepository>();
         services.AddScoped<IDocumentHmacService, DocumentHmacService>();
         services.AddSingleton<IStudentResolutionTokenService, StudentResolutionTokenService>();

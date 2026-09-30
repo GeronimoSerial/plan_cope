@@ -116,7 +116,9 @@ public sealed class ActivationRevalidationService(
         if (contactServer is null || contactLocal is null) return false;
         var elapsed = timeProvider.GetUtcNow() - contactLocal.Value;
         var expectedLocal = contactServer.Value + (elapsed > TimeSpan.Zero ? elapsed : TimeSpan.Zero);
-        return timeProvider.GetUtcNow() - expectedLocal > TimeSpan.FromHours(24);
+        var contactSkew = contactLocal.Value - contactServer.Value;
+        return contactSkew.Duration() > TimeSpan.FromHours(24) ||
+               (timeProvider.GetUtcNow() - expectedLocal).Duration() > TimeSpan.FromHours(24);
     }
 
     private async Task<DateTimeOffset> GetTrustedNowAsync(DateTimeOffset fallback, CancellationToken cancellationToken)
@@ -132,7 +134,12 @@ public sealed class ActivationRevalidationService(
             await WriteStringAsync("last_server_contact_local_time", localNow.ToString("O"), cancellationToken);
             contactLocal = localNow;
         }
-        var elapsed = localNow - contactLocal.Value;
+        var contactSkew = contactLocal.Value - contactServer.Value;
+        // A clock that was behind at contact may later be corrected forward. Subtracting the
+        // initial behind offset avoids counting the correction itself as elapsed trusted time.
+        var elapsed = contactSkew < TimeSpan.FromHours(-24)
+            ? localNow - contactServer.Value
+            : localNow - contactLocal.Value;
         if (elapsed < TimeSpan.Zero) elapsed = TimeSpan.Zero;
         return Max(fallback, contactServer.Value + elapsed);
     }
@@ -150,7 +157,7 @@ public sealed class ActivationRevalidationService(
         await WriteBoolAsync("activation_assets_cleanup_pending", false, cancellationToken);
     }
 
-    private async Task ExpireAndWipeAsync(CancellationToken cancellationToken)
+    private async Task ExpireAndWipeAsync(CancellationToken cancellationToken, bool preserveUnfinalizableExamData = false)
     {
         try
         {
@@ -173,14 +180,19 @@ public sealed class ActivationRevalidationService(
                 transaction.Commit();
                 return;
             }
-            if (hasActiveWork)
+            if (hasActiveWork && !preserveUnfinalizableExamData)
             {
                 await connection.ExecuteAsync(new CommandDefinition(
                     "UPDATE delivery_sessions SET status='closed' WHERE lower(status) IN ('active','paused');",
                     transaction: transaction, cancellationToken: cancellationToken));
+                await connection.ExecuteAsync(new CommandDefinition(
+                    "INSERT INTO sync_state (id,key,value_json,updated_at) VALUES (@Id,'activation_in_progress','true',@Now) " +
+                    "ON CONFLICT(key) DO UPDATE SET value_json='true',updated_at=excluded.updated_at;",
+                    new { Id = Guid.NewGuid().ToString("N"), Now = DateTimeOffset.UtcNow.ToString("O") }, transaction,
+                    cancellationToken: cancellationToken));
                 transaction.Commit();
-                await attemptSubmissionService.FinalizeUnsubmittedAttemptsAsync(cancellationToken);
-                await ExpireAndWipeAsync(cancellationToken);
+                var preserve = await attemptSubmissionService.FinalizeUnsubmittedAttemptsAsync(cancellationToken);
+                await ExpireAndWipeAsync(cancellationToken, preserve);
                 return;
             }
             await connection.ExecuteAsync(new CommandDefinition(
@@ -196,12 +208,18 @@ public sealed class ActivationRevalidationService(
             await connection.ExecuteAsync(new CommandDefinition("DELETE FROM student_resolutions;", transaction: transaction, cancellationToken: cancellationToken));
             await connection.ExecuteAsync(new CommandDefinition("DELETE FROM stats_rollup_blocks;", transaction: transaction, cancellationToken: cancellationToken));
             await connection.ExecuteAsync(new CommandDefinition("DELETE FROM stats_rollups;", transaction: transaction, cancellationToken: cancellationToken));
-            await connection.ExecuteAsync(new CommandDefinition("DELETE FROM delivery_sessions;", transaction: transaction, cancellationToken: cancellationToken));
-            await connection.ExecuteAsync(new CommandDefinition("DELETE FROM local_roster_students;", transaction: transaction, cancellationToken: cancellationToken));
-            await connection.ExecuteAsync(new CommandDefinition("DELETE FROM local_roster_sections;", transaction: transaction, cancellationToken: cancellationToken));
-            await connection.ExecuteAsync(new CommandDefinition("DELETE FROM local_roster_snapshots;", transaction: transaction, cancellationToken: cancellationToken));
-            await connection.ExecuteAsync(new CommandDefinition("DELETE FROM schools;", transaction: transaction, cancellationToken: cancellationToken));
-            await connection.ExecuteAsync(new CommandDefinition("DELETE FROM local_exam_versions;", transaction: transaction, cancellationToken: cancellationToken));
+            if (!preserveUnfinalizableExamData)
+            {
+                await connection.ExecuteAsync(new CommandDefinition("DELETE FROM delivery_sessions;", transaction: transaction, cancellationToken: cancellationToken));
+                // Also remove damaged/orphaned attempt rows that are not reachable by the session cascade.
+                // Their answers have already been placed in the outbox by expiry finalization.
+                await connection.ExecuteAsync(new CommandDefinition("DELETE FROM student_attempts;", transaction: transaction, cancellationToken: cancellationToken));
+                await connection.ExecuteAsync(new CommandDefinition("DELETE FROM local_roster_students;", transaction: transaction, cancellationToken: cancellationToken));
+                await connection.ExecuteAsync(new CommandDefinition("DELETE FROM local_roster_sections;", transaction: transaction, cancellationToken: cancellationToken));
+                await connection.ExecuteAsync(new CommandDefinition("DELETE FROM local_roster_snapshots;", transaction: transaction, cancellationToken: cancellationToken));
+                await connection.ExecuteAsync(new CommandDefinition("DELETE FROM schools;", transaction: transaction, cancellationToken: cancellationToken));
+                await connection.ExecuteAsync(new CommandDefinition("DELETE FROM local_exam_versions;", transaction: transaction, cancellationToken: cancellationToken));
+            }
             foreach (var key in new[]
             {
                 "node_id", "central_access_token", "central_refresh_token", "central_access_token_expires_at",

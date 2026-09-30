@@ -13,11 +13,16 @@ namespace PlanCope.Local.Api.Services;
 /// not a hosted service and has no timer or scheduler: a release/operator calls
 /// the endpoint when the node should receive a new snapshot.
 /// </summary>
+public interface ILocalRosterPullService
+{
+    Task<LocalRosterBulkPullResult> PullAllAsync(CancellationToken cancellationToken = default);
+}
+
 public sealed class LocalRosterPullService(
     IHttpClientFactory httpClientFactory,
     ISyncStateRepository syncStateRepository,
     ILocalRosterRepository rosterRepository,
-    IDocumentHmacService documentHmacService)
+    IDocumentHmacService documentHmacService) : ILocalRosterPullService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {

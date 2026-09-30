@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using PlanCope.Local.Api.Data;
 using PlanCope.Local.Api.Data.Repositories;
 using PlanCope.Local.Api.Services;
+using PlanCope.Shared.Contracts.Sync;
 using PlanCope.Shared.Domain.Local;
 using Xunit;
 
@@ -114,6 +115,31 @@ public sealed class ActivationRevalidationServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Expiry_preserves_raw_answers_when_attempt_status_cannot_be_finalized_normally()
+    {
+        var validatedAt = DateTimeOffset.UtcNow.AddDays(-31);
+        await SeedExpiredIdentityAsync(validatedAt);
+        await SeedWipeGraphAsync(activeSession: true, unsubmittedAttempt: true);
+        using (var setup = connectionFactory.CreateOpenConnection())
+            await setup.ExecuteAsync("DELETE FROM attempt_results WHERE student_attempt_id='attempt-1'; UPDATE student_attempts SET status='unexpected';");
+        var clock = new MutableTimeProvider(DateTimeOffset.UtcNow);
+        var service = CreateService(clock);
+
+        await service.CheckAsync();
+        clock.UtcNow = clock.UtcNow.AddDays(8);
+        await service.CheckAsync();
+
+        Assert.Null(await identities.GetAsync());
+        Assert.True(await service.IsExpiredAsync());
+        using var verify = connectionFactory.CreateOpenConnection();
+        var payload = await verify.QuerySingleAsync<string>("SELECT payload_json FROM sync_outbox WHERE aggregate_id='attempt-1' AND event_type=@EventType;",
+            new { EventType = SyncEventTypes.AttemptSubmitted });
+        Assert.Contains("answers", payload);
+        Assert.Contains("answer-1", payload);
+        Assert.Equal(0, await verify.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM student_attempts;"));
+    }
+
+    [Fact]
     public async Task Successful_revalidation_clears_old_deferral_and_active_work_gets_full_seven_days()
     {
         var validatedAt = DateTimeOffset.UtcNow.AddDays(-31);
@@ -163,6 +189,29 @@ public sealed class ActivationRevalidationServiceTests : IDisposable
         clock.UtcNow = serverNow;
         Assert.Equal(30, await service.GetDaysRemainingAsync());
         Assert.False(await service.IsLocalClockWarningAsync());
+    }
+
+    [Fact]
+    public async Task Clock_behind_at_server_contact_does_not_count_correction_as_elapsed_time()
+    {
+        var serverNow = DateTimeOffset.UtcNow.AddDays(-26);
+        var localAtContact = serverNow.AddDays(-3);
+        var correctedLocalNow = serverNow;
+        await identities.UpsertAsync(new NodeIdentity("local-node", "node-1", null, "fp", "{}",
+            serverNow.AddDays(-26).ToString("O"), null, "active", null, null));
+        await state.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "last_server_time", System.Text.Json.JsonSerializer.Serialize(serverNow), serverNow.ToString("O")));
+        await state.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "last_revalidation_at", System.Text.Json.JsonSerializer.Serialize(serverNow.AddDays(-26)), serverNow.ToString("O")));
+        await state.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "last_server_contact_time", System.Text.Json.JsonSerializer.Serialize(serverNow), serverNow.ToString("O")));
+        await state.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "last_server_contact_local_time", System.Text.Json.JsonSerializer.Serialize(localAtContact), serverNow.ToString("O")));
+        await state.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "revalidation_interval_days", "30", serverNow.ToString("O")));
+        var service = CreateService(new MutableTimeProvider(correctedLocalNow));
+
+        await service.CheckAsync();
+
+        Assert.NotNull(await identities.GetAsync());
+        Assert.False(await service.IsExpiredAsync());
+        Assert.True(await service.IsLocalClockWarningAsync());
+        Assert.Equal(4, await service.GetDaysRemainingAsync());
     }
 
     [Fact]
@@ -292,7 +341,8 @@ public sealed class ActivationRevalidationServiceTests : IDisposable
         var assetService = new LocalAssetFileService(configuration, new LocalExamRepository(connectionFactory));
         var exams = new LocalExamRepository(connectionFactory);
         var submission = new AttemptSubmissionService(new AttemptRepository(connectionFactory), new SessionRepository(connectionFactory),
-            exams, new StatsRollupRepository(connectionFactory, NullLogger<StatsRollupRepository>.Instance), connectionFactory);
+            exams, new StatsRollupRepository(connectionFactory, NullLogger<StatsRollupRepository>.Instance), connectionFactory,
+            NullLogger<AttemptSubmissionService>.Instance);
         return new ActivationRevalidationService(identities, state, connectionFactory, refresher, submission,
             assetService, NullLogger<ActivationRevalidationService>.Instance, clock);
     }

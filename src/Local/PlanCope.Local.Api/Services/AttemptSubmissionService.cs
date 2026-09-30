@@ -14,7 +14,8 @@ public sealed class AttemptSubmissionService(
     ISessionRepository sessionRepository,
     ILocalExamRepository examRepository,
     IStatsRollupRepository statsRollupRepository,
-    ILocalSqliteConnectionFactory connectionFactory)
+    ILocalSqliteConnectionFactory connectionFactory,
+    ILogger<AttemptSubmissionService> logger)
 {
     private static readonly JsonSerializerOptions SyncJsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -51,18 +52,72 @@ public sealed class AttemptSubmissionService(
         return new(true, new SubmitAttemptResponse(attemptId, confirmationCode, submittedAt), null);
     }
 
-    public async Task FinalizeUnsubmittedAttemptsAsync(CancellationToken cancellationToken = default)
+    public async Task<bool> FinalizeUnsubmittedAttemptsAsync(CancellationToken cancellationToken = default)
     {
         using var connection = connectionFactory.CreateOpenConnection();
         var ids = (await Dapper.SqlMapper.QueryAsync<string>(connection, new Dapper.CommandDefinition(
             "SELECT id FROM student_attempts WHERE submitted_at IS NULL ORDER BY started_at;", cancellationToken: cancellationToken))).ToArray();
+        var unresolved = false;
         foreach (var id in ids)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var result = await SubmitAsync(id, allowInactiveSession: true, cancellationToken);
-            if (!result.Success)
-                throw new InvalidOperationException($"Could not preserve unfinished attempt {id} for expiry.");
+            AttemptSubmitResult result;
+            try
+            {
+                result = await SubmitAsync(id, allowInactiveSession: true, cancellationToken);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                logger.LogWarning(exception, "Normal submission failed while finalizing attempt {AttemptId}; preserving its raw answers.", id);
+                result = new(false, null, exception.Message);
+            }
+            if (result.Success) continue;
+
+            try
+            {
+                if (!await PreserveRawAttemptAsync(id, cancellationToken))
+                {
+                    var current = await attemptRepository.GetByIdAsync(id, cancellationToken);
+                    if (current?.SubmittedAt is null)
+                    {
+                        unresolved = true;
+                        logger.LogError("Attempt {AttemptId} could not be written to the outbox; its exam data must be retained during expiry.", id);
+                    }
+                }
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                unresolved = true;
+                logger.LogError(exception, "Could not preserve raw answers for attempt {AttemptId}; its exam data must be retained during expiry.", id);
+            }
         }
+        return unresolved;
+    }
+
+    private async Task<bool> PreserveRawAttemptAsync(string attemptId, CancellationToken cancellationToken)
+    {
+        var attempt = await attemptRepository.GetByIdAsync(attemptId, cancellationToken);
+        if (attempt is null || attempt.SubmittedAt is not null) return false;
+        var session = await sessionRepository.GetByIdAsync(attempt.DeliverySessionId, cancellationToken);
+        var answers = await attemptRepository.GetAnswersAsync(attemptId, cancellationToken);
+        var submittedAt = DateTimeOffset.UtcNow.ToString("O");
+        var confirmationCode = Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+        var normalizedAttempt = attempt with { Status = "submitted", SubmittedAt = submittedAt, ConfirmationCode = confirmationCode };
+        var payload = JsonSerializer.Serialize(new
+        {
+            attempt = normalizedAttempt,
+            answers,
+            rosterSnapshotId = session?.RosterSnapshotId,
+            rosterSectionId = session?.RosterSectionId,
+            examVersionRemoteId = (string?)null
+        }, SyncJsonOptions);
+        var outbox = new SyncOutbox(Guid.NewGuid().ToString(), SyncEventTypes.AttemptSubmitted,
+            "student_attempt", attemptId, Guid.NewGuid().ToString(), payload, "pending", 0, null, null, submittedAt, null);
+        var preserved = await attemptRepository.PreserveUnsubmittedWithOutboxAsync(attemptId, submittedAt,
+            confirmationCode, outbox, cancellationToken);
+        if (preserved)
+            await statsRollupRepository.UpsertForAttemptAsync(attemptId, cancellationToken);
+        return preserved;
     }
 
     private static GradingOutcome GradeAttempt(LocalExamVersion? examVersion, IReadOnlyList<LocalExamBlock> blocks,

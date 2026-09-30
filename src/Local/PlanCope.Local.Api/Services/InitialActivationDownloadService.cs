@@ -9,12 +9,28 @@ public interface IInitialActivationDownloadService
 
 public sealed class InitialActivationDownloadService(
     IOutboxRepository outboxRepository,
-    LocalOutboxPushService outboxPushService,
-    LocalExamPullService examPullService,
-    LocalRosterPullService rosterPullService,
+    ILocalOutboxPushService outboxPushService,
+    ILocalExamPullService examPullService,
+    ILocalRosterPullService rosterPullService,
     ActivationRevalidationService revalidationService) : IInitialActivationDownloadService
 {
     public async Task<InitialActivationDownloadResult> DownloadAllAsync(CancellationToken cancellationToken = default)
+    {
+        var returnedNormally = false;
+        try
+        {
+            var result = await DownloadCoreAsync(cancellationToken);
+            returnedNormally = true;
+            return result;
+        }
+        finally
+        {
+            if (!returnedNormally)
+                await revalidationService.SetActivationInProgressAsync(false, CancellationToken.None);
+        }
+    }
+
+    private async Task<InitialActivationDownloadResult> DownloadCoreAsync(CancellationToken cancellationToken)
     {
         // An expiry wipe commits before asset files can be removed. Resume the idempotent
         // cleanup before writing any assets from the reactivated node.
@@ -25,18 +41,7 @@ public sealed class InitialActivationDownloadService(
         // row or a row in backoff must never block reactivation; the normal sync loop retries it.
         if (await outboxRepository.CountPendingAsync(cancellationToken) > 0)
         {
-            LocalOutboxPushResult pushed;
-            var pushCompleted = false;
-            try
-            {
-                pushed = await outboxPushService.PushAsync(200, cancellationToken);
-                pushCompleted = true;
-            }
-            finally
-            {
-                if (!pushCompleted)
-                    await revalidationService.SetActivationInProgressAsync(false, CancellationToken.None);
-            }
+            var pushed = await outboxPushService.PushAsync(200, cancellationToken);
             if (pushed.TransportOrAuthFailure)
             {
                 await revalidationService.SetActivationInProgressAsync(false, cancellationToken);
