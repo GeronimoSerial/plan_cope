@@ -21,6 +21,7 @@ public static class EnrolmentEndpoints
             IHttpClientFactory httpClientFactory,
             ISyncStateRepository syncStateRepository,
             INodeIdentityRepository nodeIdentityRepository,
+            LocalExamPullService examPullService,
             HardwareFingerprintService fingerprintService,
             CancellationToken ct) =>
         {
@@ -83,6 +84,15 @@ public static class EnrolmentEndpoints
                 EnrolledAt = DateTimeOffset.UtcNow.ToString("O"),
                 CredentialState = "active"
             }, ct);
+
+            // Establish the initial exam package cache before the host opens the workspace.
+            // The persisted credentials make a retry safe if Central is temporarily unavailable.
+            var initialPull = await examPullService.PullAsync(ct);
+            if (!initialPull.Success)
+            {
+                return Results.Problem("La activación se guardó, pero no se pudieron descargar los datos iniciales. Reintentá cuando vuelva la conexión.",
+                    statusCode: StatusCodes.Status502BadGateway);
+            }
 
             return Results.Ok(new { nodeId = redeemed.NodeId });
         });

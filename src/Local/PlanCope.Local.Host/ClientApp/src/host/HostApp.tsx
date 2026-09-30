@@ -6,7 +6,6 @@ import { StatsWorkspace } from "./components/StatsWorkspace";
 import { useDeliverySession } from "./hooks/useDeliverySession";
 import { useHostContext } from "./hooks/useHostContext";
 import { ActivationScreen, shouldShowActivation } from "./activation/ActivationScreen";
-import { EnrolmentScreen } from "./enrolment/EnrolmentScreen";
 
 export function HostApp() {
   const hostContext = useHostContext();
@@ -39,9 +38,7 @@ export function HostApp() {
 
   if (isLocked) {
     return (
-      <main className="school-gate">
-        <EnrolmentScreen apiBaseUrl={hostContext.apiBaseUrl} variant="reactivate" onDone={() => setIsLocked(false)} />
-      </main>
+      <ActivationScreen apiBaseUrl={hostContext.apiBaseUrl} />
     );
   }
 
