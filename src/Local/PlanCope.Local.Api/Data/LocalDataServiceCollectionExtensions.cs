@@ -17,6 +17,7 @@ public static class LocalDataServiceCollectionExtensions
                                }.ToString();
 
         services.AddSingleton(new LocalDatabaseOptions(connectionString));
+        services.AddSingleton(TimeProvider.System);
         services.AddSingleton<ILocalSqliteConnectionFactory, LocalSqliteConnectionFactory>();
         services.AddSingleton<LocalDatabaseInitializer>();
         services.AddScoped<LocalDemoExamSeeder>();

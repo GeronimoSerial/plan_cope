@@ -16,6 +16,11 @@ public sealed class InitialActivationDownloadService(
 {
     public async Task<InitialActivationDownloadResult> DownloadAllAsync(CancellationToken cancellationToken = default)
     {
+        // An expiry wipe commits before asset files can be removed. Resume the idempotent
+        // cleanup before writing any assets from the reactivated node.
+        if (await revalidationService.IsExpiredAsync(cancellationToken))
+            await revalidationService.CompletePendingAssetCleanupAsync(cancellationToken);
+
         // On reactivation, preserved results must reach Central before fresh school data is pulled.
         for (var batch = 0; batch < 100; batch++)
         {
@@ -39,6 +44,7 @@ public sealed class InitialActivationDownloadService(
             return new(false, "La activación se guardó, pero no se pudieron descargar todas las escuelas y listas. Reintentá cuando vuelva la conexión.");
 
         await revalidationService.ClearExpiredFlagAsync(cancellationToken);
+        await revalidationService.SetExpiryPendingAsync(false, cancellationToken);
         await revalidationService.SetActivationInProgressAsync(false, cancellationToken);
         return new(true, null);
     }

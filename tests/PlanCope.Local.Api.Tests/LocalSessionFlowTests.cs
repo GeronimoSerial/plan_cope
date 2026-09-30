@@ -246,6 +246,28 @@ public sealed class LocalSessionFlowTests
     }
 
     [Fact]
+    public async Task Pending_expiry_blocks_starting_new_sessions()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        using (var connection = factory.CreateConnection())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "INSERT INTO sync_state (id, key, value_json, updated_at) VALUES ('expiry-pending', 'activation_expiry_pending', 'true', @Now);";
+            command.Parameters.AddWithValue("@Now", DateTimeOffset.UtcNow.ToString("O"));
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var response = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
+            LocalApiFactory.ExamVersionId, "180055400", null, null, "Operador", 1, null));
+
+        Assert.Equal(HttpStatusCode.Locked, response.StatusCode);
+        Assert.Contains("Finalizá", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Nominal_session_links_to_a_ready_roster_snapshot_and_section()
     {
         using var factory = new LocalApiFactory();

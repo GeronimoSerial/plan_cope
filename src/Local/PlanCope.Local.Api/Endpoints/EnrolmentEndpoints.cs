@@ -28,8 +28,10 @@ public static class EnrolmentEndpoints
         {
             var identity = await nodeIdentityRepository.GetAsync(ct);
 
-            var centralUrl = await ReadStateStringAsync(syncStateRepository, "central_url", ct)
-                ?? configuration["Central:BaseUrl"];
+            // Shipped/developer configuration is authoritative; an old persisted URL must never
+            // route this installation back to a stale Central host.
+            var centralUrl = configuration["Central:BaseUrl"]
+                ?? await ReadStateStringAsync(syncStateRepository, "central_url", ct);
             if (string.IsNullOrWhiteSpace(centralUrl))
             {
                 return Results.BadRequest(new { error = "No hay una URL de Central configurada." });
@@ -80,9 +82,10 @@ public static class EnrolmentEndpoints
             await UpsertStateStringAsync(syncStateRepository, "central_refresh_token", redeemed.RefreshToken, ct);
             await UpsertStateStringAsync(syncStateRepository, "central_access_token_expires_at", redeemed.AccessTokenExpiresAt.ToString("O"), ct);
             await UpsertStateStringAsync(syncStateRepository, "central_refresh_token_expires_at", redeemed.RefreshTokenExpiresAt.ToString("O"), ct);
-            var serverTime = redeemed.ServerTime == default ? DateTimeOffset.UtcNow : redeemed.ServerTime;
-            await UpsertStateStringAsync(syncStateRepository, "last_server_time", serverTime.ToString("O"), ct);
-            await UpsertStateStringAsync(syncStateRepository, "last_revalidation_at", serverTime.ToString("O"), ct);
+            if (redeemed.ServerTime != default)
+            {
+                await UpsertTrustedServerTimeAsync(syncStateRepository, redeemed.ServerTime, ct);
+            }
             await UpsertStateStringAsync(syncStateRepository, "revalidation_interval_days", redeemed.RevalidationIntervalDays.ToString(System.Globalization.CultureInfo.InvariantCulture), ct);
 
             var enrolledIdentity = identity ?? new NodeIdentity(
@@ -106,6 +109,30 @@ public static class EnrolmentEndpoints
                     statusCode: StatusCodes.Status502BadGateway);
             }
             return Results.Ok(new { nodeId = redeemed.NodeId });
+        });
+
+        group.MapPost("/retry-download", async (
+            INodeIdentityRepository nodeIdentityRepository,
+            ISyncStateRepository syncStateRepository,
+            IInitialActivationDownloadService initialDownloadService,
+            ActivationRevalidationService revalidationService,
+            CancellationToken ct) =>
+        {
+            var identity = await nodeIdentityRepository.GetAsync(ct);
+            if (identity?.CredentialState != "active" ||
+                !await revalidationService.IsActivationInProgressAsync(ct) ||
+                string.IsNullOrWhiteSpace(await ReadStateStringAsync(syncStateRepository, "node_id", ct)) ||
+                string.IsNullOrWhiteSpace(await ReadStateStringAsync(syncStateRepository, "central_access_token", ct)) ||
+                string.IsNullOrWhiteSpace(await ReadStateStringAsync(syncStateRepository, "central_refresh_token", ct)))
+            {
+                return Results.BadRequest(new { error = "No hay una activación pendiente de descarga para reintentar." });
+            }
+
+            var result = await initialDownloadService.DownloadAllAsync(ct);
+            return result.Success
+                ? Results.Ok(new { nodeId = identity.NodeId })
+                : Results.Problem(result.Error ?? "No se pudieron descargar los datos iniciales. Reintentá cuando vuelva la conexión.",
+                    statusCode: StatusCodes.Status502BadGateway);
         });
 
         return endpoints;
@@ -262,6 +289,16 @@ public static class EnrolmentEndpoints
     {
         var now = DateTimeOffset.UtcNow.ToString("O");
         return repository.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), key, JsonSerializer.Serialize(value, JsonOptions), now), ct);
+    }
+
+    private static async Task UpsertTrustedServerTimeAsync(ISyncStateRepository repository, DateTimeOffset serverTime, CancellationToken ct)
+    {
+        var previous = await ReadStateStringAsync(repository, "last_server_time", ct);
+        var trusted = DateTimeOffset.TryParse(previous, out var previousTime) && previousTime > serverTime
+            ? previousTime
+            : serverTime;
+        await UpsertStateStringAsync(repository, "last_server_time", trusted.ToString("O"), ct);
+        await UpsertStateStringAsync(repository, "last_revalidation_at", trusted.ToString("O"), ct);
     }
 
     private readonly record struct RedeemBody(

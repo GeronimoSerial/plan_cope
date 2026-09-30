@@ -13,6 +13,7 @@ export function HostApp() {
   const [isSchoolConfirmed, setIsSchoolConfirmed] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [revalidationDaysRemaining, setRevalidationDaysRemaining] = useState<number | null>(null);
+  const [expiryPending, setExpiryPending] = useState(false);
   const [activeTab, setActiveTab] = useState<"sessions" | "stats">("sessions");
 
   useEffect(() => {
@@ -24,6 +25,7 @@ export function HostApp() {
           if (!cancelled && data && typeof data.isLocked === "boolean") {
             setIsLocked(data.isLocked);
             setRevalidationDaysRemaining(typeof data.revalidationDaysRemaining === "number" ? data.revalidationDaysRemaining : null);
+            setExpiryPending(data.expiryPending === true);
           }
         })
         .catch(() => {
@@ -51,7 +53,8 @@ export function HostApp() {
   if (!isSchoolConfirmed) {
     return (
       <>
-        {revalidationDaysRemaining !== null && revalidationDaysRemaining <= 5 && (
+        {expiryPending && <p className="sync-warning" role="status">La revalidación está vencida. Finalizá y enviá la evaluación en curso; no inicies otra sesión.</p>}
+        {!expiryPending && revalidationDaysRemaining !== null && revalidationDaysRemaining <= 5 && (
           <p className="sync-warning" role="status" aria-live="polite">
             Conectate a internet para revalidar el equipo. Quedan {revalidationDaysRemaining} {revalidationDaysRemaining === 1 ? "día" : "días"}.
           </p>
@@ -71,7 +74,8 @@ export function HostApp() {
 
   return (
     <AppShell status={delivery.status} apiBaseUrl={hostContext.apiBaseUrl} appVersion={hostContext.appVersion}>
-      {revalidationDaysRemaining !== null && revalidationDaysRemaining <= 5 && (
+      {expiryPending && <p className="sync-warning" role="status">La revalidación está vencida. Finalizá y enviá la evaluación en curso; no inicies otra sesión.</p>}
+      {!expiryPending && revalidationDaysRemaining !== null && revalidationDaysRemaining <= 5 && (
         <p className="sync-warning" role="status" aria-live="polite">
           Conectate a internet para revalidar el equipo. Quedan {revalidationDaysRemaining} {revalidationDaysRemaining === 1 ? "día" : "días"}.
         </p>

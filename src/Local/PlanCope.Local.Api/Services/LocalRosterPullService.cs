@@ -145,9 +145,14 @@ public sealed class LocalRosterPullService(
             await syncStateRepository.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"),
                 "last_full_roster_pull_at", JsonSerializer.Serialize(DateTimeOffset.UtcNow, JsonOptions),
                 DateTimeOffset.UtcNow.ToString("O")), cancellationToken);
-            await syncStateRepository.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"),
-                "last_server_time", JsonSerializer.Serialize(index.ServerTime, JsonOptions),
-                DateTimeOffset.UtcNow.ToString("O")), cancellationToken);
+            var previousServerTime = await ReadStateStringAsync("last_server_time", cancellationToken);
+            if (index.ServerTime != default &&
+                (!DateTimeOffset.TryParse(previousServerTime, out var previous) || index.ServerTime > previous))
+            {
+                await syncStateRepository.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"),
+                    "last_server_time", JsonSerializer.Serialize(index.ServerTime, JsonOptions),
+                    DateTimeOffset.UtcNow.ToString("O")), cancellationToken);
+            }
             return new(true, imported, index.Rosters.Count, null);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

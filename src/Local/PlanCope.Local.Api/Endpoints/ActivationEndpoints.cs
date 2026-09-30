@@ -18,6 +18,8 @@ public static class ActivationEndpoints
                 phaseAComplete = identity?.CredentialState == "active" && !expired && !inProgress,
                 cue = identity?.Cue,
                 isLocked = identity?.RevocationStage == "locked" || expired || inProgress,
+                activationInProgress = inProgress,
+                expiryPending = await revalidation.IsExpiryPendingAsync(ct),
                 revalidationDaysRemaining = daysRemaining,
                 revalidationWarning = daysRemaining is <= 5
             });

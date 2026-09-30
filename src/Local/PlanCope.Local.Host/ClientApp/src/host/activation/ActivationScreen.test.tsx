@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { ActivationScreen, isValidActivationKeyFormat, shouldShowActivation } from "./ActivationScreen";
+import { ActivationScreen, canRetryActivationDownload, isValidActivationKeyFormat, shouldShowActivation } from "./ActivationScreen";
 
 describe("activation", () => {
   it("validates the PCOPE checksum and accepts cosmetic separators", () => {
@@ -20,5 +20,11 @@ describe("activation", () => {
   it("shows activation only when the node is not enrolled", () => {
     expect(shouldShowActivation(false)).toBe(true);
     expect(shouldShowActivation(true)).toBe(false);
+  });
+
+  it("offers download retry only for a redeem that already stored credentials", () => {
+    expect(canRetryActivationDownload({ activationInProgress: true })).toBe(true);
+    expect(canRetryActivationDownload({ activationInProgress: false })).toBe(false);
+    expect(canRetryActivationDownload(null)).toBe(false);
   });
 });

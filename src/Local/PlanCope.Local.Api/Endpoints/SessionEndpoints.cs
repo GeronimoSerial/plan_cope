@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using FluentValidation;
 using PlanCope.Local.Api.Data.Repositories;
+using PlanCope.Local.Api.Services;
 using PlanCope.Shared.Contracts.Local;
 using PlanCope.Shared.Contracts.Sync;
 using PlanCope.Shared.Domain.Local;
@@ -34,8 +35,14 @@ public static class SessionEndpoints
             IValidator<CreateSessionRequest> validator,
             ISessionRepository sessionRepository,
             ILocalRosterRepository rosterRepository,
+            ActivationRevalidationService activationRevalidation,
             CancellationToken cancellationToken) =>
         {
+            if (await activationRevalidation.IsExpiryPendingAsync(cancellationToken))
+            {
+                return Results.Json(new { error = "El equipo debe revalidarse. Finalizá y enviá la evaluación en curso antes de volver a conectarte." }, statusCode: StatusCodes.Status423Locked);
+            }
+
             var validation = await validator.ValidateAsync(request, cancellationToken);
 
             if (!validation.IsValid)
