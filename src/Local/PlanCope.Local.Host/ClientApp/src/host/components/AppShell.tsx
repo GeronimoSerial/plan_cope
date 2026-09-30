@@ -1,6 +1,4 @@
-import { useState } from "react";
 import type { ReactNode } from "react";
-import { EnrolmentScreen } from "../enrolment/EnrolmentScreen";
 import { UpdateStatus } from "./UpdateStatus";
 import { SyncStatusIndicator } from "./SyncStatusIndicator";
 import { useUpdateStatus } from "../hooks/useUpdateStatus";
@@ -14,7 +12,6 @@ type AppShellProps = {
 };
 
 export function AppShell({ status, apiBaseUrl, appVersion, children }: AppShellProps) {
-  const [isEnrolmentOpen, setIsEnrolmentOpen] = useState(false);
   const update = useUpdateStatus();
   const sync = useSyncStatus(apiBaseUrl ?? "");
 
@@ -28,21 +25,7 @@ export function AppShell({ status, apiBaseUrl, appVersion, children }: AppShellP
           <h1>Plan Cope Local</h1>
           <p>Gestión de sesiones escolares</p>
         </div>
-        {apiBaseUrl ? (
-          <button type="button" className="enrolment-trigger" onClick={() => setIsEnrolmentOpen(true)}>
-            Inscribir equipo
-          </button>
-        ) : null}
       </header>
-
-      {isEnrolmentOpen && apiBaseUrl ? (
-        <div className="enrolment-overlay">
-          <EnrolmentScreen apiBaseUrl={apiBaseUrl} onDone={() => setIsEnrolmentOpen(false)} />
-          <button type="button" onClick={() => setIsEnrolmentOpen(false)}>
-            Cerrar
-          </button>
-        </div>
-      ) : null}
 
       <div className="workspace">{children}</div>
 

@@ -227,5 +227,11 @@ public sealed class NodeCredentialRefresherTests
             Current = identity;
             return Task.CompletedTask;
         }
+
+        public Task DeleteAsync(CancellationToken cancellationToken = default)
+        {
+            Current = null;
+            return Task.CompletedTask;
+        }
     }
 }

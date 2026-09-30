@@ -13,12 +13,17 @@ namespace PlanCope.Local.Api.Services;
 /// on-demand endpoint, so a single implementation must page until <c>hasMore</c> is false and
 /// must classify failures into stable <see cref="ExamPullErrorCodes"/> values.
 /// </summary>
+public interface ILocalExamPullService
+{
+    Task<LocalExamPullResult> PullAsync(CancellationToken cancellationToken = default);
+}
+
 public sealed class LocalExamPullService(
     IHttpClientFactory httpClientFactory,
     ISyncStateRepository syncStateRepository,
     ILocalExamRepository examRepository,
     LocalAssetFileService assetFileService,
-    ExamPullGate? pullGate = null)
+    ExamPullGate? pullGate = null) : ILocalExamPullService
 {
     // 50 matches the Central default; the hard page cap keeps a pathological Central from
     // spinning the endpoint forever (50 pages * 50 = 2500 packages per invocation).

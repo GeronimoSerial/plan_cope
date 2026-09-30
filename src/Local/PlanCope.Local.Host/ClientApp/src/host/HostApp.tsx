@@ -6,13 +6,15 @@ import { StatsWorkspace } from "./components/StatsWorkspace";
 import { useDeliverySession } from "./hooks/useDeliverySession";
 import { useHostContext } from "./hooks/useHostContext";
 import { ActivationScreen, shouldShowActivation } from "./activation/ActivationScreen";
-import { EnrolmentScreen } from "./enrolment/EnrolmentScreen";
 
 export function HostApp() {
   const hostContext = useHostContext();
   const delivery = useDeliverySession(hostContext);
   const [isSchoolConfirmed, setIsSchoolConfirmed] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
+  const [revalidationDaysRemaining, setRevalidationDaysRemaining] = useState<number | null>(null);
+  const [expiryPending, setExpiryPending] = useState(false);
+  const [localClockWarning, setLocalClockWarning] = useState(false);
   const [activeTab, setActiveTab] = useState<"sessions" | "stats">("sessions");
 
   useEffect(() => {
@@ -23,6 +25,9 @@ export function HostApp() {
         .then(data => {
           if (!cancelled && data && typeof data.isLocked === "boolean") {
             setIsLocked(data.isLocked);
+            setRevalidationDaysRemaining(typeof data.revalidationDaysRemaining === "number" ? data.revalidationDaysRemaining : null);
+            setExpiryPending(data.expiryPending === true);
+            setLocalClockWarning(data.localClockWarning === true);
           }
         })
         .catch(() => {
@@ -39,9 +44,7 @@ export function HostApp() {
 
   if (isLocked) {
     return (
-      <main className="school-gate">
-        <EnrolmentScreen apiBaseUrl={hostContext.apiBaseUrl} variant="reactivate" onDone={() => setIsLocked(false)} />
-      </main>
+      <ActivationScreen apiBaseUrl={hostContext.apiBaseUrl} />
     );
   }
 
@@ -51,20 +54,36 @@ export function HostApp() {
 
   if (!isSchoolConfirmed) {
     return (
-      <SchoolGate
-        cue={delivery.sessionForm.form.cue}
-        schoolName={delivery.sessionForm.schoolName}
-        hasRoster={delivery.roster.snapshot?.status.toLowerCase() === "ready" && delivery.roster.sections.length > 0}
-        isLoadingRoster={delivery.roster.isLoading}
-        rosterError={delivery.roster.error}
-        onCueChange={value => delivery.sessionForm.updateForm("cue", value)}
-        onContinue={() => setIsSchoolConfirmed(true)}
-      />
+      <>
+        {localClockWarning && <p className="sync-warning" role="alert">La fecha y hora de este equipo son incorrectas. Corregilas para mantener la revalidación al día.</p>}
+        {expiryPending && <p className="sync-warning" role="status">La revalidación está vencida. Finalizá y enviá la evaluación en curso; no inicies otra sesión.</p>}
+        {!expiryPending && revalidationDaysRemaining !== null && revalidationDaysRemaining <= 5 && (
+          <p className="sync-warning" role="status" aria-live="polite">
+            Conectate a internet para revalidar el equipo. Quedan {revalidationDaysRemaining} {revalidationDaysRemaining === 1 ? "día" : "días"}.
+          </p>
+        )}
+        <SchoolGate
+          cue={delivery.sessionForm.form.cue}
+          schoolName={delivery.sessionForm.schoolName}
+          hasRoster={delivery.roster.snapshot?.status.toLowerCase() === "ready" && delivery.roster.sections.length > 0}
+          isLoadingRoster={delivery.roster.isLoading}
+          rosterError={delivery.roster.error}
+          onCueChange={value => delivery.sessionForm.updateForm("cue", value)}
+          onContinue={() => setIsSchoolConfirmed(true)}
+        />
+      </>
     );
   }
 
   return (
     <AppShell status={delivery.status} apiBaseUrl={hostContext.apiBaseUrl} appVersion={hostContext.appVersion}>
+      {localClockWarning && <p className="sync-warning" role="alert">La fecha y hora de este equipo son incorrectas. Corregilas para mantener la revalidación al día.</p>}
+      {expiryPending && <p className="sync-warning" role="status">La revalidación está vencida. Finalizá y enviá la evaluación en curso; no inicies otra sesión.</p>}
+      {!expiryPending && revalidationDaysRemaining !== null && revalidationDaysRemaining <= 5 && (
+        <p className="sync-warning" role="status" aria-live="polite">
+          Conectate a internet para revalidar el equipo. Quedan {revalidationDaysRemaining} {revalidationDaysRemaining === 1 ? "día" : "días"}.
+        </p>
+      )}
       <div className="mode-tabs">
         <button
           type="button"

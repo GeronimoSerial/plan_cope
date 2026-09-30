@@ -50,6 +50,12 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
         }
 
         var normalizedNodeId = claimNodeId;
+        var registeredNode = await dbContext.RegisteredNodes.AsNoTracking()
+            .SingleOrDefaultAsync(node => node.Id == normalizedNodeId, cancellationToken);
+        if (registeredNode?.RevokedAt is not null)
+        {
+            return Forbid();
+        }
         var normalizedLimit = Math.Clamp(limit, 1, 200);
         // Materialize the cursor as a DateTimeOffset so the comparison stays translatable to SQL:
         // EF cannot translate `x.PublishedAt.Value.UtcTicks` and would throw on real PostgreSQL.
@@ -138,6 +144,9 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
         {
             return Forbid();
         }
+
+        // Deliberately do not reject a revoked node here. Results already collected on that
+        // device must remain deliverable after revocation; revocation blocks new pulls/redeems.
 
         if (request.Items.Count > 200)
         {
@@ -507,6 +516,17 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
         if (node is null)
         {
             return schoolIds;
+        }
+
+        // Universal PCOPE keys are not attached to an individual school. Empty CUE is
+        // the persisted marker for that scope and lets the node receive every publication.
+        if (string.IsNullOrWhiteSpace(node.Cue))
+        {
+            var schools = await dbContext.Schools.AsNoTracking()
+                .Select(static school => new { school.Id, school.Cue }).ToListAsync(cancellationToken);
+            return schools.SelectMany(static school => new[]
+                { school.Id, school.Cue.ToString(System.Globalization.CultureInfo.InvariantCulture) })
+                .ToHashSet(StringComparer.Ordinal);
         }
 
         if (!string.IsNullOrWhiteSpace(node.SchoolId))

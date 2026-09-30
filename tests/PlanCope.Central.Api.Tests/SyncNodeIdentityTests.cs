@@ -90,6 +90,22 @@ public sealed class SyncNodeIdentityTests
     }
 
     [Fact]
+    public async Task Pull_with_revoked_node_is_forbidden()
+    {
+        using var dbContext = CreateDbContext();
+        await SeedNodeAsync(dbContext, "node-A", "");
+        var node = await dbContext.RegisteredNodes.SingleAsync(x => x.Id == "node-A");
+        dbContext.Entry(node).CurrentValues.SetValues(node with { RevokedAt = DateTimeOffset.UtcNow });
+        await dbContext.SaveChangesAsync();
+        var controller = CreateController(dbContext);
+        SyncTestPrincipals.BindNode(controller, "node-A");
+
+        var result = await controller.Pull("node-A", cursor: null, limit: 50, CancellationToken.None);
+
+        Assert.IsType<ForbidResult>(result.Result);
+    }
+
+    [Fact]
     public async Task Pull_writes_delivery_and_cursor_markers_only_for_the_claim_node()
     {
         using var dbContext = CreateDbContext();
@@ -152,6 +168,24 @@ public sealed class SyncNodeIdentityTests
         Assert.Equal(1, response.Received);
         var inbox = Assert.Single(dbContext.SyncInbox);
         Assert.Equal("node-A", inbox.SourceNodeId);
+    }
+
+    [Fact]
+    public async Task Push_from_revoked_node_still_accepts_already_collected_results()
+    {
+        using var dbContext = CreateDbContext();
+        await SeedNodeAsync(dbContext, "node-revoked", "180000100");
+        var node = await dbContext.RegisteredNodes.SingleAsync();
+        dbContext.Entry(node).CurrentValues.SetValues(node with { RevokedAt = BaseTime });
+        await dbContext.SaveChangesAsync();
+        var request = new PushRequest("node-revoked", new[] { CreateItem("revoked-result", "exam_published", "ev-1") });
+        var controller = CreateController(dbContext);
+        SyncTestPrincipals.BindNode(controller, "node-revoked");
+
+        var result = await controller.Push(request, "node-revoked", new PushRequestValidator(), CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result.Result);
+        Assert.Equal("node-revoked", Assert.Single(dbContext.SyncInbox).SourceNodeId);
     }
 
     [Fact]

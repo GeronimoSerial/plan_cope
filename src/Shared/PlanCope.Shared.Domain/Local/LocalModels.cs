@@ -61,4 +61,4 @@ public sealed record LocalAuditLog(string Id, string? ActorId, string Action, st
 
 public sealed record AppSetting(string Id, string Key, string ValueJson, string UpdatedAt);
 
-public sealed record NodeIdentity(string Id, string? NodeId, string Cue, string FingerprintHash, string FingerprintComponentsJson, string? EnrolledAt, string? LastSyncAt, string CredentialState, string? RevocationDetectedAt, string? RevocationStage);
+public sealed record NodeIdentity(string Id, string? NodeId, string? Cue, string FingerprintHash, string FingerprintComponentsJson, string? EnrolledAt, string? LastSyncAt, string CredentialState, string? RevocationDetectedAt, string? RevocationStage);

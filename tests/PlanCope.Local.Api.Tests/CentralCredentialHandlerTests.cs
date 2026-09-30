@@ -143,5 +143,7 @@ public sealed class CentralCredentialHandlerTests
 
         public Task UpsertAsync(NodeIdentity identity, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
+
+        public Task DeleteAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }

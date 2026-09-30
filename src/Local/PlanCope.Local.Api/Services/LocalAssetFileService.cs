@@ -5,6 +5,17 @@ namespace PlanCope.Local.Api.Services;
 
 public sealed class LocalAssetFileService(IConfiguration configuration, ILocalExamRepository repository)
 {
+    public void ClearAll()
+    {
+        var root = Path.GetFullPath(GetAssetsRoot());
+        if (!Directory.Exists(root)) return;
+        foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+            File.Delete(file);
+        foreach (var directory in Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories)
+                     .OrderByDescending(static path => path.Length))
+            Directory.Delete(directory, recursive: false);
+    }
+
     public async Task<SavedLocalAsset> SaveAsync(string assetId, string fileName, string mimeType, byte[] bytes, CancellationToken cancellationToken)
     {
         var assetsRoot = GetAssetsRoot();

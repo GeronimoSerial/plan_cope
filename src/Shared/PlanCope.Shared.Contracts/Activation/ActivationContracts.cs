@@ -27,7 +27,8 @@ public enum ActivationRedeemFailureReason
     KeyRevoked,
     KeyExpired,
     ActivationLimitReached,
-    FingerprintCollision
+    FingerprintCollision,
+    NodeRevoked
 }
 
 /// <summary>
@@ -61,6 +62,10 @@ public sealed record ActivationRedeemResponse
     public required DateTimeOffset AccessTokenExpiresAt { get; init; }
 
     public required DateTimeOffset RefreshTokenExpiresAt { get; init; }
+
+    public DateTimeOffset ServerTime { get; init; }
+
+    public int RevalidationIntervalDays { get; init; } = 30;
 }
 
 public sealed record ActivationRefreshRequest(string RefreshToken);
@@ -82,4 +87,8 @@ public sealed record ActivationRefreshResponse
     public required DateTimeOffset RefreshTokenExpiresAt { get; init; }
 
     public required bool NodeRevoked { get; init; }
+
+    public DateTimeOffset ServerTime { get; init; }
+
+    public int RevalidationIntervalDays { get; init; } = 30;
 }

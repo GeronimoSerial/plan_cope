@@ -20,8 +20,9 @@ using PlanCope.Central.Api.Data;
 using PlanCope.Local.Api;
 using PlanCope.Local.Api.Data;
 using PlanCope.Local.Api.Data.Repositories;
+using PlanCope.Local.Api.Endpoints;
 using PlanCope.Local.Api.Services;
-using PlanCope.RosterCrypto;
+using PlanCope.Shared.Contracts.Activation;
 using PlanCope.Shared.Contracts.Auth;
 using PlanCope.Shared.Contracts.Exams;
 using PlanCope.Shared.Contracts.Local;
@@ -86,6 +87,87 @@ public sealed class PublishPullRunPushTests
     }
 
     [Fact]
+    public async Task Expiry_auto_finalization_pushes_attempt_and_every_answer_to_central()
+    {
+        using var centralFactory = new CentralApiFactory();
+        using var centralClient = centralFactory.CreateClient();
+        centralClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", CreateAccessToken());
+        var exam = await CreateExamOnCentralAsync(centralClient);
+        var version = await CreateExamVersionOnCentralAsync(centralClient, exam.Id);
+        var block = await AddBlockOnCentralAsync(centralClient, version.Id);
+        await PublishVersionOnCentralAsync(centralClient, version.Id);
+
+        using var localFactory = new LocalApiFactory(centralFactory);
+        using var localClient = localFactory.CreateClient();
+        await SeedSyncStateAsync(localFactory, centralFactory.PlaceholderCentralUrl, CreateNodeAccessToken());
+        using (var scope = localFactory.Services.CreateScope())
+        {
+            var pull = scope.ServiceProvider.GetRequiredService<LocalExamPullService>();
+            Assert.True((await pull.PullAsync(CancellationToken.None)).Success);
+        }
+
+        var sessionResponse = await localClient.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
+            version.Id, "180055400", "6A", null, "Operador", 30, null));
+        Assert.Equal(HttpStatusCode.Created, sessionResponse.StatusCode);
+        var session = await sessionResponse.Content.ReadFromJsonAsync<LocalDeliverySession>();
+        var startResponse = await localClient.PostAsync($"/api/sessions/{session!.AccessCode}/attempts", null);
+        Assert.Equal(HttpStatusCode.Created, startResponse.StatusCode);
+        var started = await startResponse.Content.ReadFromJsonAsync<StartAttemptResponse>();
+        var attemptId = started!.Attempt.Id;
+        var saved = await localClient.PutAsJsonAsync($"/api/attempts/{attemptId}/answers", new
+        {
+            answers = new[] { new { blockId = block.Id, answer = "42" } }
+        });
+        Assert.Equal(HttpStatusCode.NoContent, saved.StatusCode);
+
+        using (var scope = localFactory.Services.CreateScope())
+        {
+            var identities = scope.ServiceProvider.GetRequiredService<INodeIdentityRepository>();
+            var state = scope.ServiceProvider.GetRequiredService<ISyncStateRepository>();
+            var localNow = DateTimeOffset.UtcNow;
+            await identities.UpsertAsync(new NodeIdentity("local-node", "e2e-node-1", "180055400", "fp", "{}",
+                localNow.AddDays(-40).ToString("O"), null, "active", null, null));
+            await state.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "last_server_time", JsonSerializer.Serialize(localNow.AddDays(-40)), localNow.ToString("O")));
+            await state.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "last_revalidation_at", JsonSerializer.Serialize(localNow.AddDays(-40)), localNow.ToString("O")));
+            await state.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "last_revalidation_attempt_at", JsonSerializer.Serialize(localNow.AddHours(-1)), localNow.ToString("O")));
+            await state.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "revalidation_interval_days", "30", localNow.ToString("O")));
+            await state.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "activation_expiry_pending_since", JsonSerializer.Serialize(localNow.AddDays(-8)), localNow.ToString("O")));
+            var factory = scope.ServiceProvider.GetRequiredService<ILocalSqliteConnectionFactory>();
+            using var connection = factory.CreateOpenConnection();
+            await connection.ExecuteAsync("""
+                UPDATE student_attempts SET student_code='GE:910001', ge_person_id=910001, roster_student_id='roster-student',
+                    student_first_name='Ada', student_last_name='Ejemplo', document_last4='0001',
+                    verification_source='ge_roster', verified_at=@VerifiedAt WHERE id=@Id;
+                """, new { VerifiedAt = localNow.ToString("O"), Id = attemptId });
+            await scope.ServiceProvider.GetRequiredService<ActivationRevalidationService>().CheckAsync();
+        }
+
+        using (var expiryScope = localFactory.Services.CreateScope())
+            Assert.True(await expiryScope.ServiceProvider.GetRequiredService<ActivationRevalidationService>().IsExpiredAsync());
+        await SeedSyncStateAsync(localFactory, centralFactory.PlaceholderCentralUrl, CreateNodeAccessToken());
+        using (var scope = localFactory.Services.CreateScope())
+        {
+            var push = scope.ServiceProvider.GetRequiredService<LocalOutboxPushService>();
+            var pushed = await push.PushAsync(50);
+            Assert.True(pushed.Success, pushed.Error);
+            Assert.Equal(1, pushed.Accepted);
+        }
+
+        using var centralScope = centralFactory.Services.CreateScope();
+        var db = centralScope.ServiceProvider.GetRequiredService<PlanCopeDbContext>();
+        var received = await db.ReceivedStudentAttempts.SingleAsync(x => x.RemoteLocalId == attemptId);
+        Assert.Equal(910001, received.GePersonId);
+        Assert.Equal("roster-student", received.RosterStudentId);
+        Assert.Equal("Ada", received.StudentFirstName);
+        Assert.Equal("Ejemplo", received.StudentLastName);
+        Assert.Equal("0001", received.DocumentLast4);
+        Assert.Equal("ge_roster", received.VerificationSource);
+        Assert.NotNull(received.VerifiedAt);
+        var receivedAnswer = await db.ReceivedSubmissionAnswers.SingleAsync(x => x.StudentAttemptId == attemptId);
+        Assert.Equal("42", receivedAnswer.Answer.RootElement.GetString());
+    }
+
+    [Fact]
     public async Task Create_exam_returns_initial_version_that_can_build_publish_and_sync()
     {
         using var centralFactory = new CentralApiFactory();
@@ -126,53 +208,55 @@ public sealed class PublishPullRunPushTests
         var block = await AddBlockOnCentralAsync(centralClient, version.Id);
         await PublishVersionOnCentralAsync(centralClient, version.Id);
 
-        // 2. Build a REAL encrypted roster bundle on disk, exactly like
-        //    tests/PlanCope.Local.Api.Tests/EmbeddedRosterSeederTests.cs's CreatePackage()/setup does
-        var bundleDir = Path.Combine(Path.GetTempPath(), $"plancope-e2e-bundle-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(bundleDir);
-        var input = Path.Combine(bundleDir, "input");
-        Directory.CreateDirectory(input);
+        // 2. Seed Central with a published roster snapshot for the universal activation download.
         var section = new GeRosterSectionPackageDto("e2e-section", 900001, "1", "A", "Primario", "Mañana",
             [new("e2e-student", "e2e-section", 910001, "99000001", "Ada", "Ejemplo")]);
         var withoutChecksum = new GeRosterPackageDto("e2e-snapshot", "180055400", "2026",
             DateTimeOffset.Parse("2026-01-15T12:00:00Z"), new string('0', 64), 1, 1, "Ready", [section], "Escuela E2E");
         var package = withoutChecksum with { Checksum = GeRosterPackageChecksum.Calculate(withoutChecksum) };
-        await File.WriteAllTextAsync(Path.Combine(input, "180055400-2026.roster.json"),
-            JsonSerializer.Serialize(package, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
-        var bundlePath = Path.Combine(bundleDir, "rosters.enc");
-        const string passphrase = "e2e-only";
-        await EnvelopeEncryption.EncryptDirectoryAsync(input, bundlePath, passphrase, new Argon2Parameters(8, 1, 1));
+        await SeedCentralRosterAsync(centralFactory, package);
+        var annexSectionId = "e2e-section-annex";
+        var annexSections = package.Sections.Select(section => section with
+        {
+            Id = annexSectionId,
+            Students = section.Students.Select(student => student with
+            {
+                Id = "e2e-student-annex",
+                SectionId = annexSectionId
+            }).ToArray()
+        }).ToArray();
+        var annexBase = package with
+        {
+            SnapshotId = "e2e-snapshot-annex",
+            Cue = "180055401",
+            Checksum = new string('0', 64),
+            Sections = annexSections
+        };
+        var annexPackage = annexBase with { Checksum = GeRosterPackageChecksum.Calculate(annexBase) };
+        await SeedCentralRosterAsync(centralFactory, annexPackage);
 
-        // 3. Local factory, with the bundle wired in
-        using var localFactory = new LocalApiFactory(centralFactory, bundlePath, passphrase);
+        // 3. Local factory; activation and both bulk downloads use Central's authenticated API.
+        using var localFactory = new LocalApiFactory(centralFactory);
         using var localClient = localFactory.CreateClient();
         var health = await localClient.GetAsync("/api/health");
         Assert.True(health.StatusCode == HttpStatusCode.OK, $"health={health.StatusCode} body={await health.Content.ReadAsStringAsync()}");
-        await SeedSyncStateAsync(localFactory, centralFactory.PlaceholderCentralUrl, CreateNodeAccessToken());
-
-        // 4. Initial catalog pull WHILE CONNECTED (routine sync, before the school goes offline)
+        // 4. Redeem a universal PCOPE key online and complete the full initial download.
         localFactory.Connectivity.Offline = false;
-        using (var pullScope = localFactory.Services.CreateScope())
+        var activationKey = await SeedUniversalActivationKeyAsync(centralFactory);
+        var activationResponse = await localClient.PostAsJsonAsync("/api/enrolment/redeem", new EnrolmentRedeemRequest(activationKey));
+        Assert.True(activationResponse.StatusCode == HttpStatusCode.OK, await activationResponse.Content.ReadAsStringAsync());
+        using (var localScope = localFactory.Services.CreateScope())
         {
-            var pull = pullScope.ServiceProvider.GetRequiredService<LocalExamPullService>();
-            var result = await pull.PullAsync(CancellationToken.None);
-            Assert.True(result.Success, result.Error);
-            Assert.True(result.Imported >= 1, $"expected at least one imported exam version but got {result.Imported}");
+            var repositories = localScope.ServiceProvider.GetRequiredService<ILocalRosterRepository>();
+            var snapshot = await repositories.GetLatestSnapshotAsync("180055400", "2026", CancellationToken.None);
+            Assert.NotNull(snapshot);
+            Assert.Equal("Escuela E2E", snapshot.SchoolName);
+            var annexSnapshot = await repositories.GetLatestSnapshotAsync("180055401", "2026", CancellationToken.None);
+            Assert.NotNull(annexSnapshot);
         }
 
-        // 5. Go OFFLINE for everything that follows until step 9 — any Central call in this window throws.
+        // 5. Go OFFLINE for everything that follows until reconnect.
         localFactory.Connectivity.Offline = true;
-
-        // 6. OFFLINE Phase A activation, through the real HTTP endpoints
-        var bundleCuesResponse = await localClient.GetAsync("/api/activation/bundle-cues");
-        Assert.Equal(HttpStatusCode.OK, bundleCuesResponse.StatusCode);
-        using (var bundleCuesDoc = JsonDocument.Parse(await bundleCuesResponse.Content.ReadAsStringAsync()))
-        {
-            var cues = bundleCuesDoc.RootElement.GetProperty("cues").EnumerateArray().Select(x => x.GetString()).ToArray();
-            Assert.Contains("180055400", cues);
-        }
-        var unlockResponse = await localClient.PostAsJsonAsync("/api/activation/unlock", new { passphrase, cue = "180055400" });
-        Assert.True(unlockResponse.StatusCode == HttpStatusCode.OK, await unlockResponse.Content.ReadAsStringAsync());
 
         // 7. OFFLINE: run a NOMINAL session against the real roster activated in step 6 and submit
         //    an attempt. Rollups are only written for nominal sessions, so step 8's stats assertion
@@ -321,7 +405,6 @@ public sealed class PublishPullRunPushTests
         var finalStatsResponse = await localClient.GetAsync("/api/stats/course?cue=180055400");
         Assert.Equal(HttpStatusCode.OK, finalStatsResponse.StatusCode);
 
-        Directory.Delete(bundleDir, recursive: true);
     }
 
     private static string CreateAccessToken()
@@ -405,6 +488,65 @@ public sealed class PublishPullRunPushTests
         await repository.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "central_url", JsonSerializer.Serialize(centralUrl), now));
         await repository.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "node_id", JsonSerializer.Serialize("e2e-node-1"), now));
         await repository.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "central_access_token", JsonSerializer.Serialize(accessToken), now));
+    }
+
+    private static async Task<string> SeedUniversalActivationKeyAsync(CentralApiFactory factory)
+    {
+        var issued = new PlanCope.Central.Api.Services.ActivationKeyService().Generate();
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<PlanCopeDbContext>();
+        db.ActivationKeys.Add(new ActivationKey(Guid.NewGuid().ToString("N"), issued.KeyHash, issued.KeyPrefix,
+            "e2e", DateTimeOffset.UtcNow, null, 1, 0, null, null, null, "universal E2E key"));
+        await db.SaveChangesAsync();
+        return issued.PlaintextKey;
+    }
+
+    private static async Task SeedCentralRosterAsync(CentralApiFactory factory, GeRosterPackageDto package)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<PlanCopeDbContext>();
+        var schoolCue = long.Parse(package.Cue[..7], System.Globalization.CultureInfo.InvariantCulture);
+        var annex = int.Parse(package.Cue[7..], System.Globalization.CultureInfo.InvariantCulture);
+        db.Schools.Add(new School($"{package.SnapshotId}-school", package.SnapshotId, schoolCue, annex, "Escuela E2E", "e2e-locality",
+            "Active", null, package.FetchedAt, package.FetchedAt));
+        var snapshot = new GeRosterSnapshot
+        {
+            Id = package.SnapshotId,
+            Cue = package.Cue,
+            SchoolYear = package.SchoolYear,
+            FetchedAt = package.FetchedAt,
+            Checksum = package.Checksum,
+            SectionCount = package.SectionCount,
+            StudentCount = package.StudentCount,
+            Status = package.Status
+        };
+        foreach (var sectionDto in package.Sections)
+        {
+            var section = new GeRosterSection
+            {
+                Id = sectionDto.Id,
+                SnapshotId = package.SnapshotId,
+                GeSectionId = sectionDto.GeSectionId,
+                Course = sectionDto.Course,
+                Division = sectionDto.Division,
+                Level = sectionDto.Level,
+                Shift = sectionDto.Shift
+            };
+            foreach (var studentDto in sectionDto.Students)
+                section.Students.Add(new GeRosterStudent
+                {
+                    Id = studentDto.Id,
+                    SnapshotId = package.SnapshotId,
+                    SectionId = sectionDto.Id,
+                    GePersonId = studentDto.GePersonId,
+                    Document = studentDto.Document,
+                    FirstName = studentDto.FirstName,
+                    LastName = studentDto.LastName
+                });
+            snapshot.Sections.Add(section);
+        }
+        db.GeRosterSnapshots.Add(snapshot);
+        await db.SaveChangesAsync();
     }
 
     private static async Task<string> RunSessionAndSubmitAsync(HttpClient client, string examVersionId, string blockId)
@@ -509,8 +651,6 @@ public sealed class PublishPullRunPushTests
     private sealed class LocalApiFactory : WebApplicationFactory<LocalDatabaseInitializer>
     {
         private readonly CentralApiFactory centralFactory;
-        private readonly string bundlePath;
-        private readonly string bundlePassphrase;
         private readonly string databasePath = Path.Combine(Path.GetTempPath(), $"plancope-e2e-local-{Guid.NewGuid():N}.db");
         private readonly string? previousConnectionString;
         private readonly string? previousSeedDemoExam;
@@ -518,11 +658,9 @@ public sealed class PublishPullRunPushTests
 
         public readonly SwitchableHandler Connectivity;
 
-        public LocalApiFactory(CentralApiFactory centralFactory, string bundlePath = "", string bundlePassphrase = "")
+        public LocalApiFactory(CentralApiFactory centralFactory)
         {
             this.centralFactory = centralFactory;
-            this.bundlePath = bundlePath;
-            this.bundlePassphrase = bundlePassphrase;
             Connectivity = new SwitchableHandler(centralFactory.CreateInProcessHandler());
             previousConnectionString = Environment.GetEnvironmentVariable("ConnectionStrings__LocalDatabase");
             previousSeedDemoExam = Environment.GetEnvironmentVariable("Local__SeedDemoExam");
@@ -539,8 +677,7 @@ public sealed class PublishPullRunPushTests
                     ["ConnectionStrings:LocalDatabase"] = ConnectionString,
                     ["Local:SeedDemoExam"] = "false",
                     ["Nominalization:DocumentHmacKey"] = "e2e-test-hmac-key-with-at-least-32-bytes",
-                    ["RosterBundle:Path"] = bundlePath,
-                    ["RosterBundle:Passphrase"] = bundlePassphrase
+                    ["Central:BaseUrl"] = centralFactory.PlaceholderCentralUrl,
                 });
             });
             builder.ConfigureServices(services =>
@@ -552,6 +689,10 @@ public sealed class PublishPullRunPushTests
                 services.AddHttpClient(nameof(LocalExamPullService))
                     .ConfigurePrimaryHttpMessageHandler(() => Connectivity);
                 services.AddHttpClient(nameof(LocalOutboxPushService))
+                    .ConfigurePrimaryHttpMessageHandler(() => Connectivity);
+                services.AddHttpClient(nameof(LocalRosterPullService))
+                    .ConfigurePrimaryHttpMessageHandler(() => Connectivity);
+                services.AddHttpClient(nameof(EnrolmentEndpoints))
                     .ConfigurePrimaryHttpMessageHandler(() => Connectivity);
             });
         }
@@ -585,6 +726,8 @@ public sealed class PublishPullRunPushTests
             {
                 throw new HttpRequestException("Simulated offline: no connectivity to Central.");
             }
+
+            request.Headers.TryAddWithoutValidation("X-Forwarded-For", "127.0.0.1");
 
             return onlineInvoker.SendAsync(request, cancellationToken);
         }

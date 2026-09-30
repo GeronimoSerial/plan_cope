@@ -17,6 +17,7 @@ public static class LocalDataServiceCollectionExtensions
                                }.ToString();
 
         services.AddSingleton(new LocalDatabaseOptions(connectionString));
+        services.AddSingleton(TimeProvider.System);
         services.AddSingleton<ILocalSqliteConnectionFactory, LocalSqliteConnectionFactory>();
         services.AddSingleton<LocalDatabaseInitializer>();
         services.AddScoped<LocalDemoExamSeeder>();
@@ -25,10 +26,11 @@ public static class LocalDataServiceCollectionExtensions
         services.AddSingleton<ExamPullGate>();
         services.AddScoped<LocalExamPullService>();
         services.AddScoped<LocalRosterPullService>();
-        services.AddSingleton<IEmbeddedRosterSource, EmbeddedRosterSource>();
-        services.Configure<RosterBundleOptions>(configuration.GetSection(RosterBundleOptions.SectionName));
-        services.AddScoped<EmbeddedRosterSeeder>();
+        services.AddScoped<IInitialActivationDownloadService, InitialActivationDownloadService>();
         services.AddScoped<LocalOutboxPushService>();
+        services.AddScoped<ILocalExamPullService>(provider => provider.GetRequiredService<LocalExamPullService>());
+        services.AddScoped<ILocalRosterPullService>(provider => provider.GetRequiredService<LocalRosterPullService>());
+        services.AddScoped<ILocalOutboxPushService>(provider => provider.GetRequiredService<LocalOutboxPushService>());
         services.AddScoped<ILocalRosterRepository, LocalRosterRepository>();
         services.AddScoped<IDocumentHmacService, DocumentHmacService>();
         services.AddSingleton<IStudentResolutionTokenService, StudentResolutionTokenService>();
@@ -42,6 +44,7 @@ public static class LocalDataServiceCollectionExtensions
         services.AddScoped<HardwareFingerprintService>();
         services.AddScoped<INodeIdentityRepository, NodeIdentityRepository>();
         services.AddScoped<NodeCredentialRefresher>();
+        services.AddScoped<ActivationRevalidationService>();
         services.AddTransient<CentralCredentialHandler>();
         services.AddHttpClient(nameof(LocalExamPullService)).AddHttpMessageHandler<CentralCredentialHandler>().AddSyncResilience();
         services.AddHttpClient(nameof(LocalRosterPullService)).AddHttpMessageHandler<CentralCredentialHandler>().AddSyncResilience();
@@ -54,11 +57,13 @@ public static class LocalDataServiceCollectionExtensions
         services.AddScoped<ISessionRepository, SessionRepository>();
         services.AddScoped<IAttemptRepository, AttemptRepository>();
         services.AddScoped<IStatsRollupRepository, StatsRollupRepository>();
+        services.AddScoped<AttemptSubmissionService>();
         services.AddScoped<IStatsQueryRepository, StatsQueryRepository>();
         services.AddScoped<IOutboxRepository, OutboxRepository>();
         services.AddScoped<ISyncStateRepository, SyncStateRepository>();
         services.AddScoped<RevocationEnforcer>();
         services.AddHostedService<RevocationEnforcementHostedService>();
+        services.AddHostedService<ActivationRevalidationHostedService>();
         services.AddHostedService<SyncBackgroundService>();
 
 

@@ -6,7 +6,9 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using PlanCope.Local.Api.Endpoints;
+using PlanCope.Local.Api.Services;
 using PlanCope.Shared.Contracts.Activation;
 using Xunit;
 
@@ -68,6 +70,35 @@ public sealed class EnrolmentEndpointsTests
     }
 
     [Fact]
+    public async Task Retry_download_uses_saved_credentials_without_redeeming_key_again()
+    {
+        var download = new RetryableInitialDownloadService();
+        var handler = new StubCentralHandler(() => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(ActivationRedeemResult.Succeeded(new ActivationRedeemResponse
+            {
+                NodeId = RedeemedNodeId,
+                AccessToken = "central-access-token",
+                RefreshToken = "central-refresh-token",
+                AccessTokenExpiresAt = DateTimeOffset.UtcNow.AddMinutes(15),
+                RefreshTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(30),
+            }))
+        });
+        using var factory = new EnrolmentApiFactory(handler, download);
+        using var client = factory.CreateClient();
+        factory.SeedNodeIdentity();
+
+        var failedDownload = await client.PostAsJsonAsync("/api/enrolment/redeem", new EnrolmentRedeemRequest(ActivationKey));
+        Assert.Equal(HttpStatusCode.BadGateway, failedDownload.StatusCode);
+
+        var retry = await client.PostAsync("/api/enrolment/retry-download", null);
+
+        Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
+        Assert.Equal(1, handler.CallCount);
+        Assert.Equal(2, download.CallCount);
+    }
+
+    [Fact]
     public async Task Redeem_accepts_bare_legacy_central_body()
     {
         var handler = new StubCentralHandler(() => new HttpResponseMessage(HttpStatusCode.OK)
@@ -123,6 +154,23 @@ public sealed class EnrolmentEndpointsTests
         using var connection = factory.CreateConnection();
         Assert.Null(ReadStateString(connection, "node_id"));
         Assert.Null(ReadStateString(connection, "central_access_token"));
+    }
+
+    [Fact]
+    public async Task Redeem_revoked_node_maps_specific_spanish_message()
+    {
+        var handler = new StubCentralHandler(() => new HttpResponseMessage(HttpStatusCode.Forbidden)
+        {
+            Content = new StringContent("""{"isSuccess":false,"reason":"NodeRevoked","response":null}""", System.Text.Encoding.UTF8, "application/json")
+        });
+        using var factory = new EnrolmentApiFactory(handler);
+        using var client = factory.CreateClient();
+        factory.SeedNodeIdentity();
+
+        var response = await client.PostAsJsonAsync("/api/enrolment/redeem", new EnrolmentRedeemRequest(ActivationKey));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("Este equipo fue dado de baja en Central", await response.Content.ReadAsStringAsync());
     }
 
     [Fact]
@@ -190,6 +238,27 @@ public sealed class EnrolmentEndpointsTests
     }
 
     [Fact]
+    public async Task Configured_central_url_overrides_a_stale_saved_url()
+    {
+        var handler = new StubCentralHandler(() => new HttpResponseMessage(HttpStatusCode.BadRequest));
+        using var factory = new EnrolmentApiFactory(handler);
+        using var client = factory.CreateClient();
+        factory.SeedNodeIdentity();
+        using (var connection = factory.CreateConnection())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "INSERT INTO sync_state (id, key, value_json, updated_at) VALUES ('central-url', 'central_url', '" +
+                JsonSerializer.Serialize("http://stale-central.test/") + "', @Now);";
+            command.Parameters.AddWithValue("@Now", DateTimeOffset.UtcNow.ToString("O"));
+            await command.ExecuteNonQueryAsync();
+        }
+
+        await client.PostAsJsonAsync("/api/enrolment/redeem", new EnrolmentRedeemRequest(ActivationKey));
+
+        Assert.Equal("central.test", handler.LastRequestUri?.Host);
+    }
+
+    [Fact]
     public async Task Redeem_when_central_is_unreachable_surfaces_the_transport_failure()
     {
         var handler = new StubCentralHandler(() => throw new HttpRequestException("central.test is unreachable"));
@@ -231,10 +300,12 @@ public sealed class EnrolmentEndpointsTests
     private sealed class StubCentralHandler(Func<HttpResponseMessage> responder) : HttpMessageHandler
     {
         public int CallCount { get; private set; }
+        public Uri? LastRequestUri { get; private set; }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             CallCount++;
+            LastRequestUri = request.RequestUri;
             try
             {
                 return Task.FromResult(responder());
@@ -247,19 +318,34 @@ public sealed class EnrolmentEndpointsTests
         }
     }
 
+    private sealed class RetryableInitialDownloadService : IInitialActivationDownloadService
+    {
+        public int CallCount { get; private set; }
+
+        public Task<InitialActivationDownloadResult> DownloadAllAsync(CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            return Task.FromResult(CallCount == 1
+                ? new InitialActivationDownloadResult(false, "download failed")
+                : new InitialActivationDownloadResult(true, null));
+        }
+    }
+
     private sealed class EnrolmentApiFactory : WebApplicationFactory<Program>
     {
         private const string CentralBaseUrl = "http://central.test/";
 
         private readonly HttpMessageHandler centralHandler;
+        private readonly IInitialActivationDownloadService initialDownloadService;
         private readonly string databasePath = Path.Combine(Path.GetTempPath(), $"plancope-enrolment-{Guid.NewGuid():N}.db");
         private readonly string? previousConnectionString;
         private readonly string? previousSeedDemoExam;
         private string ConnectionString => $"Data Source={databasePath};Pooling=False";
 
-        public EnrolmentApiFactory(HttpMessageHandler centralHandler)
+        public EnrolmentApiFactory(HttpMessageHandler centralHandler, IInitialActivationDownloadService? initialDownloadService = null)
         {
             this.centralHandler = centralHandler;
+            this.initialDownloadService = initialDownloadService ?? new StubInitialDownloadService();
             previousConnectionString = Environment.GetEnvironmentVariable("ConnectionStrings__LocalDatabase");
             previousSeedDemoExam = Environment.GetEnvironmentVariable("Local__SeedDemoExam");
             Environment.SetEnvironmentVariable("ConnectionStrings__LocalDatabase", ConnectionString);
@@ -316,9 +402,17 @@ public sealed class EnrolmentEndpointsTests
             // CentralCredentialHandler middleware keeps running in front of the stub.
             builder.ConfigureServices(services =>
             {
+                services.RemoveAll<IInitialActivationDownloadService>();
+                services.AddSingleton(initialDownloadService);
                 services.AddHttpClient(nameof(EnrolmentEndpoints))
                     .ConfigurePrimaryHttpMessageHandler(() => centralHandler);
             });
+        }
+
+        private sealed class StubInitialDownloadService : IInitialActivationDownloadService
+        {
+            public Task<InitialActivationDownloadResult> DownloadAllAsync(CancellationToken cancellationToken = default) =>
+                Task.FromResult(new InitialActivationDownloadResult(true, null));
         }
 
         protected override void Dispose(bool disposing)

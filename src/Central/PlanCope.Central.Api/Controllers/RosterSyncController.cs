@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using PlanCope.Central.Api.Data;
 using PlanCope.Central.Api.Integrations.Ge;
+using PlanCope.Central.Api.Services;
 using PlanCope.Shared.Contracts.Sync;
 using PlanCope.Shared.Domain.ValueObjects;
 
@@ -16,6 +17,49 @@ public sealed class RosterSyncController(
     IGeRosterService rosterService,
     IAuthorizationService authorizationService) : ControllerBase
 {
+    [HttpGet("rosters/index")]
+    public async Task<ActionResult<object>> GetRosterIndex(CancellationToken cancellationToken = default)
+    {
+        if (!NodeAccessAuth.TryGetNodeId(User, out var nodeId))
+        {
+            return Forbid();
+        }
+
+        var node = await dbContext.RegisteredNodes.AsNoTracking()
+            .SingleOrDefaultAsync(candidate => candidate.Id == nodeId, cancellationToken);
+        if (node is null || node.RevokedAt is not null)
+            return Forbid();
+
+        var schools = await dbContext.Schools.AsNoTracking()
+            .Select(static school => new { school.Cue, school.Annex, school.Name })
+            .ToListAsync(cancellationToken);
+        var rosterRows = await dbContext.GeRosterSnapshots.AsNoTracking()
+            .OrderByDescending(static snapshot => snapshot.FetchedAt)
+            .Select(static snapshot => new { snapshot.Cue, snapshot.SchoolYear, snapshot.FetchedAt })
+            .ToListAsync(cancellationToken);
+
+        var rosters = rosterRows
+            .GroupBy(static row => new { row.Cue, row.SchoolYear })
+            .Select(static group => group.First())
+            .OrderBy(static row => row.Cue, StringComparer.Ordinal)
+            .ThenBy(static row => row.SchoolYear, StringComparer.Ordinal)
+            .Select(static row => new { cue = row.Cue, schoolYear = row.SchoolYear })
+            .ToList();
+        var schoolList = schools.Select(static school => new
+        {
+            cue = $"{school.Cue:D7}{(school.Annex ?? 0):D2}",
+            name = school.Name
+        }).ToList();
+
+        if (!string.IsNullOrEmpty(node.Cue))
+        {
+            schoolList = schoolList.Where(school => school.cue == node.Cue).ToList();
+            rosters = rosters.Where(roster => roster.cue == node.Cue).ToList();
+        }
+
+        return Ok(new { serverTime = DateTimeOffset.UtcNow, schools = schoolList, rosters });
+    }
+
     [HttpGet("roster/{cue}/{schoolYear}")]
     public async Task<ActionResult<GeRosterPackageDto>> GetRoster(
         string cue,
@@ -32,7 +76,17 @@ public sealed class RosterSyncController(
             return BadRequest("cue and schoolYear are required and must be within the supported limits.");
         }
 
-        if (!(await authorizationService.AuthorizeAsync(User, cue, "RosterCueAccess")).Succeeded)
+        var nodeId = NodeAccessAuth.TryGetNodeId(User, out var tokenNodeId) ? tokenNodeId : null;
+        var node = nodeId is null ? null : await dbContext.RegisteredNodes.AsNoTracking()
+            .SingleOrDefaultAsync(candidate => candidate.Id == nodeId, cancellationToken);
+        if (nodeId is not null && (node is null || node.RevokedAt is not null))
+            return Forbid();
+
+        var universalNode = node is not null && string.IsNullOrEmpty(node.Cue);
+        var scopedNode = node is not null && !string.IsNullOrEmpty(node.Cue);
+        if (scopedNode && !string.Equals(node!.Cue, cue, StringComparison.Ordinal))
+            return Forbid();
+        if (!universalNode && !scopedNode && !(await authorizationService.AuthorizeAsync(User, cue, "RosterCueAccess")).Succeeded)
         {
             return Forbid();
         }

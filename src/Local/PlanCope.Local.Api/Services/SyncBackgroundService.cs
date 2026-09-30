@@ -49,6 +49,16 @@ public sealed class SyncBackgroundService(
                 var examPullService = scope.ServiceProvider.GetRequiredService<LocalExamPullService>();
                 var outboxPushService = scope.ServiceProvider.GetRequiredService<LocalOutboxPushService>();
 
+                var activationInProgress = await ReadStateStringAsync(syncStateRepository, "activation_in_progress", stoppingToken);
+                var activationExpired = await ReadStateStringAsync(syncStateRepository, "activation_expired", stoppingToken);
+                if (string.Equals(activationInProgress, "true", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(activationExpired, "true", StringComparison.OrdinalIgnoreCase))
+                {
+                    nextDelay = IdleInterval;
+                }
+                else
+                {
+
                 // Hard gate: never sync while a delivery session is active or paused. Delivery
                 // latency for a student mid-exam beats sync freshness, and this check runs before
                 // any network call on every single tick.
@@ -113,6 +123,7 @@ public sealed class SyncBackgroundService(
                             stoppingToken);
                         nextDelay = IdleInterval;
                     }
+                }
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

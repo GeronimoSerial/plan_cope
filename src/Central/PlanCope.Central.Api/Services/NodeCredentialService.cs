@@ -19,17 +19,15 @@ public sealed class NodeCredentialService
     // token rotates a replacement long before it matters.
     private static readonly TimeSpan AccessTokenLifetime = TimeSpan.FromMinutes(45);
 
-    // Refresh tokens live 60 days and are retired on first use (rotation), so a single stolen
-    // token stops working at the next refresh.
-    private static readonly TimeSpan RefreshTokenLifetime = TimeSpan.FromDays(60);
-
     private readonly PlanCopeDbContext _dbContext;
     private readonly ITokenService _tokenService;
+    private readonly IConfiguration _configuration;
 
-    public NodeCredentialService(PlanCopeDbContext dbContext, ITokenService tokenService)
+    public NodeCredentialService(PlanCopeDbContext dbContext, ITokenService tokenService, IConfiguration configuration)
     {
         _dbContext = dbContext;
         _tokenService = tokenService;
+        _configuration = configuration;
     }
 
     /// <summary>
@@ -45,6 +43,9 @@ public sealed class NodeCredentialService
         string? rotatedFrom = null)
     {
         var now = DateTimeOffset.UtcNow;
+        var configuredRefreshDays = Math.Clamp(_configuration.GetValue("Auth:RefreshTokenDays", 7), 1, 365);
+        var revalidationDays = Math.Clamp(_configuration.GetValue("Activation:RevalidationIntervalDays", 30), 1, 365);
+        var refreshTokenLifetime = TimeSpan.FromDays(Math.Max(configuredRefreshDays, revalidationDays + 7));
         var accessToken = _tokenService.CreateNodeAccessToken(node.Id, node.Cue, AccessTokenLifetime);
 
         var plaintextRefreshToken = GenerateRefreshToken();
@@ -53,7 +54,7 @@ public sealed class NodeCredentialService
             node.Id,
             HashRefreshToken(plaintextRefreshToken),
             now,
-            now.Add(RefreshTokenLifetime),
+            now.Add(refreshTokenLifetime),
             rotatedFrom,
             RevokedAt: null);
 
@@ -95,25 +96,39 @@ public sealed class NodeCredentialService
     }
 
     /// <summary>
-    /// Finds the node enrolled under the given (Cue, FingerprintHash) pair, or enrolls a new one.
-    /// Identity IS that pair: a returning node is reused and never consumes another activation
-    /// from the key. A new node increments the key's ActivationCount in the same SaveChangesAsync,
-    /// so a crash can never desync the count from the node.
+    /// Finds the node enrolled under the given activation key and fingerprint, or enrolls a new
+    /// one using the key's stored scope. A new node increments the key's ActivationCount in the
+    /// same SaveChangesAsync, so a crash can never desync the count from the node.
     /// </summary>
+    public async Task<RegisteredNode?> FindExistingNodeForKeyAsync(
+        ActivationKey key,
+        string fingerprintHash,
+        CancellationToken cancellationToken) => await _dbContext.RegisteredNodes
+            .SingleOrDefaultAsync(node => node.FingerprintHash == fingerprintHash && node.ActivationKeyId == key.Id, cancellationToken);
+
     public async Task<(RegisteredNode Node, bool IsNewNode)> FindOrEnrollAsync(
         ActivationKey key,
-        string cue,
         string fingerprintHash,
         JsonDocument fingerprintComponents,
         string? appVersion,
         CancellationToken cancellationToken)
     {
+        var cue = NormalizeScopeCue(key.ScopeCue);
         var existing = await _dbContext.RegisteredNodes
-            .Where(node => node.Cue == cue && node.FingerprintHash == fingerprintHash)
+            .Where(node => node.FingerprintHash == fingerprintHash && node.ActivationKeyId == key.Id)
             .SingleOrDefaultAsync(cancellationToken);
 
         if (existing is not null)
         {
+            // A universal key intentionally migrates legacy CUE-bound enrollments to universal
+            // scope. A scoped key can never widen an existing universal enrollment.
+            if (key.ScopeCue is null && NormalizeScopeCue(existing.Cue) != string.Empty)
+            {
+                existing = existing with { Cue = string.Empty, SchoolId = null };
+                _dbContext.Entry(await _dbContext.RegisteredNodes.SingleAsync(n => n.Id == existing.Id, cancellationToken))
+                    .CurrentValues.SetValues(existing);
+                await _dbContext.SaveChangesAsync(cancellationToken);
+            }
             return (existing, IsNewNode: false);
         }
 
@@ -140,6 +155,14 @@ public sealed class NodeCredentialService
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         return (node, IsNewNode: true);
+    }
+
+    private static string NormalizeScopeCue(string? scopeCue)
+    {
+        if (string.IsNullOrWhiteSpace(scopeCue)) return string.Empty;
+        if (!PlanCope.Shared.Domain.ValueObjects.CueCode.TryNormalize(scopeCue, out var normalized))
+            throw new InvalidOperationException("Activation key has an invalid CUE scope.");
+        return normalized;
     }
 
     private static string GenerateRefreshToken()

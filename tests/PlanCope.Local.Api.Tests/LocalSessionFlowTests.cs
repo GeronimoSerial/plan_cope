@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -65,12 +66,15 @@ public sealed class LocalSessionFlowTests
         using var reader = command.ExecuteReader();
         Assert.True(reader.Read());
         Assert.Equal(SyncEventTypes.AttemptSubmitted, reader.GetString(0));
+        var declaredEventTypes = typeof(SyncEventTypes).GetFields(BindingFlags.Public | BindingFlags.Static)
+            .Select(field => field.GetValue(null)).OfType<string>().ToHashSet(StringComparer.Ordinal);
+        Assert.Contains(reader.GetString(0), declaredEventTypes);
         Assert.Equal("student_attempt", reader.GetString(1));
         Assert.Equal(started.Attempt.Id, reader.GetString(2));
         Assert.Equal("pending", reader.GetString(4));
 
         using var payload = JsonDocument.Parse(reader.GetString(3));
-        Assert.Equal("submitted", payload.RootElement.GetProperty("attempt").GetProperty("Status").GetString());
+        Assert.Equal("submitted", payload.RootElement.GetProperty("attempt").GetProperty("status").GetString());
         Assert.Single(payload.RootElement.GetProperty("answers").EnumerateArray());
     }
 
@@ -243,6 +247,28 @@ public sealed class LocalSessionFlowTests
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var body = await response.Content.ReadAsStringAsync();
         Assert.Contains("errors", body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Pending_expiry_blocks_starting_new_sessions()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        using (var connection = factory.CreateConnection())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "INSERT INTO sync_state (id, key, value_json, updated_at) VALUES ('expiry-pending', 'activation_expiry_pending', 'true', @Now);";
+            command.Parameters.AddWithValue("@Now", DateTimeOffset.UtcNow.ToString("O"));
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var response = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
+            LocalApiFactory.ExamVersionId, "180055400", null, null, "Operador", 1, null));
+
+        Assert.Equal(HttpStatusCode.Locked, response.StatusCode);
+        Assert.Contains("Finalizá", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
     }
 
     [Fact]

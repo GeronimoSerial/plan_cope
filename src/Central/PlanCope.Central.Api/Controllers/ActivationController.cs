@@ -6,6 +6,7 @@ using PlanCope.Central.Api.Data;
 using PlanCope.Central.Api.Services;
 using PlanCope.Shared.Contracts.Activation;
 using PlanCope.Shared.Domain.Central;
+using PlanCope.Shared.Domain.ValueObjects;
 
 namespace PlanCope.Central.Api.Controllers;
 
@@ -20,7 +21,8 @@ namespace PlanCope.Central.Api.Controllers;
 public sealed class ActivationController(
     PlanCopeDbContext dbContext,
     ActivationKeyService keyService,
-    NodeCredentialService credentialService) : ControllerBase
+    NodeCredentialService credentialService,
+    IConfiguration configuration) : ControllerBase
 {
     [HttpPost("redeem")]
     [AllowAnonymous]
@@ -57,14 +59,34 @@ public sealed class ActivationController(
             return StatusCode(StatusCodes.Status403Forbidden, ActivationRedeemResult.Failed(ActivationRedeemFailureReason.KeyExpired));
         }
 
-        if (ActivationKeyService.IsExhausted(key))
+        var scopedCue = string.Empty;
+        if (key.ScopeCue is not null && !CueCode.TryNormalize(key.ScopeCue, out scopedCue))
+        {
+            return Problem("La clave tiene un CUE de alcance inválido.", statusCode: StatusCodes.Status500InternalServerError);
+        }
+
+        // Check for this key/device pair before exhaustion so a lost download or a wiped Local
+        // node can resume on the same machine without consuming a second activation.
+        var returningNode = await credentialService.FindExistingNodeForKeyAsync(key, request.FingerprintHash, cancellationToken);
+        if (returningNode?.RevokedAt is not null)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, ActivationRedeemResult.Failed(ActivationRedeemFailureReason.NodeRevoked));
+        }
+        var returningCueMatches = returningNode is null || key.ScopeCue is null ||
+            (CueCode.TryNormalize(returningNode.Cue, out var normalizedReturningCue) &&
+             string.Equals(normalizedReturningCue, scopedCue, StringComparison.Ordinal));
+        if (!returningCueMatches)
+        {
+            return Conflict(new { error = "El alcance de esta clave no coincide con el equipo ya registrado." });
+        }
+
+        if (returningNode is null && ActivationKeyService.IsExhausted(key))
         {
             return StatusCode(StatusCodes.Status403Forbidden, ActivationRedeemResult.Failed(ActivationRedeemFailureReason.ActivationLimitReached));
         }
 
         var (node, isNewNode) = await credentialService.FindOrEnrollAsync(
             key,
-            request.Cue,
             request.FingerprintHash,
             request.FingerprintComponents,
             request.AppVersion,
@@ -94,7 +116,9 @@ public sealed class ActivationController(
             AccessToken = credentials.AccessToken,
             RefreshToken = credentials.PlaintextRefreshToken,
             AccessTokenExpiresAt = credentials.AccessTokenExpiresAt,
-            RefreshTokenExpiresAt = credentials.RefreshTokenExpiresAt
+            RefreshTokenExpiresAt = credentials.RefreshTokenExpiresAt,
+            ServerTime = DateTimeOffset.UtcNow,
+            RevalidationIntervalDays = Math.Clamp(configuration.GetValue("Activation:RevalidationIntervalDays", 30), 1, 365)
         }));
     }
 
@@ -119,7 +143,9 @@ public sealed class ActivationController(
             RefreshToken = rotation.Credentials.PlaintextRefreshToken,
             AccessTokenExpiresAt = rotation.Credentials.AccessTokenExpiresAt,
             RefreshTokenExpiresAt = rotation.Credentials.RefreshTokenExpiresAt,
-            NodeRevoked = rotation.Node.RevokedAt is not null
+            NodeRevoked = rotation.Node.RevokedAt is not null,
+            ServerTime = DateTimeOffset.UtcNow,
+            RevalidationIntervalDays = Math.Clamp(configuration.GetValue("Activation:RevalidationIntervalDays", 30), 1, 365)
         });
     }
 }

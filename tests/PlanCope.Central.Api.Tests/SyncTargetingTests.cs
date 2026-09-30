@@ -94,6 +94,23 @@ public sealed class SyncTargetingTests
     }
 
     [Fact]
+    public async Task Universal_node_receives_all_school_targeted_packages()
+    {
+        var options = CreateOptions();
+        using var dbContext = new PlanCopeDbContext(options);
+        await SeedNodeAsync(dbContext, "node-universal", string.Empty);
+        await SeedSchoolAsync(dbContext, "sch-1", 1001);
+        await SeedSchoolAsync(dbContext, "sch-2", 1002);
+        await SeedPackageAsync(dbContext, "pkg-cue", 1, ("school", "1001"));
+        await SeedPackageAsync(dbContext, "pkg-school-id", 2, ("school", "sch-2"));
+        var controller = CreateController(dbContext);
+
+        var response = await PullAsync(controller, "node-universal");
+
+        Assert.Equal(new[] { "pkg-cue", "pkg-school-id" }, response.Items.Select(static item => item.EntityId));
+    }
+
+    [Fact]
     public async Task Unknown_node_still_receives_untargeted_packages()
     {
         var options = CreateOptions();

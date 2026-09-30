@@ -38,7 +38,6 @@ public partial class MainForm : Form
     private readonly HttpClient _localHttp = new();
     private readonly HttpClient _centralHttp = new();
     private readonly DataDirectoryResolver _directories;
-    private readonly ActivationKeyStore _activationKeyStore;
     private readonly UpdateHealthTracker _healthTracker;
 
     private UpdateService? _updateService;
@@ -49,10 +48,9 @@ public partial class MainForm : Form
     private string? _updateMessage;
     private readonly System.Windows.Forms.Timer _sessionGateTimer = new() { Interval = 30000, Enabled = false };
 
-    public MainForm(DataDirectoryResolver directories, ActivationKeyStore activationKeyStore, UpdateHealthTracker healthTracker)
+    public MainForm(DataDirectoryResolver directories, UpdateHealthTracker healthTracker)
     {
         _directories = directories;
-        _activationKeyStore = activationKeyStore;
         _healthTracker = healthTracker;
         InitializeComponent();
         Controls.Add(_loadingLabel);
@@ -184,11 +182,8 @@ public partial class MainForm : Form
             case "host:openStudentView":
                 OpenLocalStudentView(message.AccessCode);
                 break;
-            case "host:getStoredPassphrase":
-                SendStoredPassphrase();
-                break;
             case "host:activationComplete":
-                _ = OnActivationCompleteAsync(message.Passphrase);
+                _ = OnActivationCompleteAsync();
                 break;
             case "host:checkForUpdates":
                 _ = HandleCheckForUpdatesAsync();
@@ -464,50 +459,8 @@ public partial class MainForm : Form
         }
     }
 
-    private void SendStoredPassphrase()
+    private async Task OnActivationCompleteAsync()
     {
-        if (_webView.CoreWebView2 is null)
-        {
-            return;
-        }
-
-        string? passphrase = null;
-        try
-        {
-            if (_activationKeyStore.HasStoredKey)
-            {
-                passphrase = System.Text.Encoding.UTF8.GetString(_activationKeyStore.Load());
-            }
-        }
-        catch
-        {
-            passphrase = null;
-        }
-
-        var payload = new
-        {
-            type = "host:storedPassphrase",
-            passphrase
-        };
-
-        _webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, JsonOptions));
-    }
-
-    private async Task OnActivationCompleteAsync(string? passphrase)
-    {
-        if (!string.IsNullOrWhiteSpace(passphrase))
-        {
-            try
-            {
-                _activationKeyStore.Store(System.Text.Encoding.UTF8.GetBytes(passphrase));
-            }
-            catch
-            {
-                // Storing the passphrase for later convenience must never
-                // block the user past an activation that already succeeded.
-            }
-        }
-
         await RefreshPhaseAStatusAsync();
         PostHostContext();
     }
@@ -607,6 +560,6 @@ public partial class MainForm : Form
         Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
     }
 
-    private sealed record HostBridgeMessage(string Type, string? AccessCode, string? Passphrase);
+    private sealed record HostBridgeMessage(string Type, string? AccessCode);
     private sealed record ActivationStatus(bool PhaseAComplete);
 }

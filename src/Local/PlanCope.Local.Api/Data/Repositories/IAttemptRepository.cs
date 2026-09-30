@@ -68,6 +68,13 @@ public interface IAttemptRepository
         SyncOutbox outbox,
         GradingOutcome gradingOutcome,
         CancellationToken cancellationToken = default);
+
+    Task<bool> PreserveUnsubmittedWithOutboxAsync(
+        string id,
+        string submittedAt,
+        string confirmationCode,
+        SyncOutbox outbox,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record StudentResolution(

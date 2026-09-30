@@ -113,6 +113,63 @@ public sealed class LocalOutboxPushTests
     }
 
     [Fact]
+    public async Task Rejected_result_is_pending_but_does_not_report_transport_or_auth_failure()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"plancope-outbox-{Guid.NewGuid():N}.db");
+        try
+        {
+            var connectionString = $"Data Source={databasePath};Pooling=False";
+            new LocalDatabaseInitializer(new LocalDatabaseOptions(connectionString)).Initialize();
+            var factory = new LocalSqliteConnectionFactory(new LocalDatabaseOptions(connectionString));
+            var state = new SyncStateRepository(factory);
+            var outbox = new OutboxRepository(factory);
+            await state.UpsertAsync(new SyncState("node", "central_url", JsonSerializer.Serialize("https://central.test"), DateTimeOffset.UtcNow.ToString("O")));
+            await state.UpsertAsync(new SyncState("node-id", "node_id", JsonSerializer.Serialize("node-1"), DateTimeOffset.UtcNow.ToString("O")));
+            await outbox.InsertAsync(new SyncOutbox("outbox-1", SyncEventTypes.AttemptSubmitted, "student_attempt", "attempt-1", "key-1", "{\"attempt\":{}}", "pending", 0, null, null, DateTimeOffset.UtcNow.ToString("O"), null));
+            var handler = new DelegateHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new PushResponse(0, 1, [new PushItemResult("key-1", "failed", "rejected")]))
+            }));
+            var result = await new LocalOutboxPushService(new TestHttpClientFactory(handler), state, outbox).PushAsync(20);
+
+            Assert.False(result.Success);
+            Assert.False(result.TransportOrAuthFailure);
+            using var connection = new SqliteConnection(connectionString);
+            connection.Open();
+            Assert.Equal("pending", connection.ExecuteScalar<string>("SELECT status FROM sync_outbox WHERE id='outbox-1';"));
+        }
+        finally { if (File.Exists(databasePath)) File.Delete(databasePath); }
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.RequestTimeout)]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    public async Task Timeout_and_rate_limit_responses_are_transient_transport_failures(HttpStatusCode statusCode)
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"plancope-outbox-{Guid.NewGuid():N}.db");
+        try
+        {
+            var connectionString = $"Data Source={databasePath};Pooling=False";
+            new LocalDatabaseInitializer(new LocalDatabaseOptions(connectionString)).Initialize();
+            var factory = new LocalSqliteConnectionFactory(new LocalDatabaseOptions(connectionString));
+            var state = new SyncStateRepository(factory);
+            var outbox = new OutboxRepository(factory);
+            await state.UpsertAsync(new SyncState("node", "central_url", JsonSerializer.Serialize("https://central.test"), DateTimeOffset.UtcNow.ToString("O")));
+            await state.UpsertAsync(new SyncState("node-id", "node_id", JsonSerializer.Serialize("node-1"), DateTimeOffset.UtcNow.ToString("O")));
+            await outbox.InsertAsync(new SyncOutbox("outbox-1", SyncEventTypes.AttemptSubmitted, "student_attempt", "attempt-1", "key-1", "{\"attempt\":{}}", "pending", 0, null, null, DateTimeOffset.UtcNow.ToString("O"), null));
+            var handler = new DelegateHandler((_, _) => Task.FromResult(new HttpResponseMessage(statusCode)));
+
+            var result = await new LocalOutboxPushService(new TestHttpClientFactory(handler), state, outbox).PushAsync(20);
+
+            Assert.True(result.TransportOrAuthFailure);
+            using var connection = new SqliteConnection(connectionString);
+            connection.Open();
+            Assert.Equal("pending", connection.ExecuteScalar<string>("SELECT status FROM sync_outbox WHERE id='outbox-1';"));
+        }
+        finally { if (File.Exists(databasePath)) File.Delete(databasePath); }
+    }
+
+    [Fact]
     public async Task Manual_push_with_invalid_and_accepted_items_reports_partial_failure_and_requeues_invalid_once()
     {
         var databasePath = Path.Combine(Path.GetTempPath(), $"plancope-outbox-{Guid.NewGuid():N}.db");
