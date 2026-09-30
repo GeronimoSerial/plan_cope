@@ -5,7 +5,7 @@ namespace PlanCope.Local.Api.Data.Repositories;
 
 public interface ILocalRosterRepository
 {
-    Task UpsertSchoolsAsync(IReadOnlyCollection<LocalSchoolSummary> schools, CancellationToken cancellationToken = default);
+    Task<int> UpsertSchoolsAsync(IReadOnlyCollection<LocalSchoolSummary> schools, CancellationToken cancellationToken = default);
     Task<LocalRosterImportResult> ImportAsync(
         GeRosterPackageDto package,
         IDocumentHmacService documentHmacService,

@@ -22,7 +22,8 @@ public sealed class LocalRosterPullService(
     IHttpClientFactory httpClientFactory,
     ISyncStateRepository syncStateRepository,
     ILocalRosterRepository rosterRepository,
-    IDocumentHmacService documentHmacService) : ILocalRosterPullService
+    IDocumentHmacService documentHmacService,
+    ILogger<LocalRosterPullService> logger) : ILocalRosterPullService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -120,9 +121,9 @@ public sealed class LocalRosterPullService(
         var centralUrl = await ReadStateStringAsync("central_url", cancellationToken);
         var nodeId = await ReadStateStringAsync("node_id", cancellationToken);
         if (string.IsNullOrWhiteSpace(centralUrl) || string.IsNullOrWhiteSpace(nodeId))
-            return new(false, 0, 0, "Central credentials are not configured.");
+            return new(false, 0, 0, 0, "Central credentials are not configured.");
         if (!Uri.TryCreate(centralUrl.Trim().TrimEnd('/') + "/", UriKind.Absolute, out var baseAddress))
-            return new(false, 0, 0, "Central URL is invalid.");
+            return new(false, 0, 0, 0, "Central URL is invalid.");
 
         try
         {
@@ -130,20 +131,27 @@ public sealed class LocalRosterPullService(
             client.BaseAddress = baseAddress;
             using var response = await client.GetAsync("api/sync/rosters/index", cancellationToken);
             if (!response.IsSuccessStatusCode)
-                return new(false, 0, 0, $"Central roster index failed: {(int)response.StatusCode}.");
+                return new(false, 0, 0, 0, $"Central roster index failed: {(int)response.StatusCode}.");
             var index = await response.Content.ReadFromJsonAsync<RosterIndex>(JsonOptions, cancellationToken);
             if (index is null)
-                return new(false, 0, 0, "Central returned an empty roster index.");
+                return new(false, 0, 0, 0, "Central returned an empty roster index.");
 
-            await rosterRepository.UpsertSchoolsAsync(index.Schools
+            var skipped = await rosterRepository.UpsertSchoolsAsync((index.Schools ?? [])
                 .Select(static school => new LocalSchoolSummary(school.Cue, school.Name)).ToArray(), cancellationToken);
             var imported = 0;
-            foreach (var roster in index.Rosters)
+            var total = (index.Rosters ?? []).Count;
+            foreach (var roster in index.Rosters ?? [])
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (!CueCode.TryNormalize(roster.Cue, out _))
+                {
+                    skipped++;
+                    logger.LogWarning("Skipping Central roster index entry with invalid CUE {Cue} for school year {SchoolYear}.", roster.Cue, roster.SchoolYear);
+                    continue;
+                }
                 var result = await PullAsync(roster.Cue, roster.SchoolYear, cancellationToken);
                 if (!result.Success)
-                    return new(false, imported, index.Rosters.Count, result.Error);
+                    return new(false, imported, total, skipped, result.Error);
                 imported++;
             }
 
@@ -158,7 +166,7 @@ public sealed class LocalRosterPullService(
                     "last_server_time", JsonSerializer.Serialize(index.ServerTime, JsonOptions),
                     DateTimeOffset.UtcNow.ToString("O")), cancellationToken);
             }
-            return new(true, imported, index.Rosters.Count, null);
+            return new(true, imported, total, skipped, null);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -166,7 +174,7 @@ public sealed class LocalRosterPullService(
         }
         catch (Exception exception) when (exception is HttpRequestException or JsonException or InvalidOperationException or ArgumentException)
         {
-            return new(false, 0, 0, exception.Message);
+            return new(false, 0, 0, 0, exception.Message);
         }
     }
 
@@ -201,4 +209,4 @@ public sealed record LocalRosterPullResult(
     int StudentCount,
     string? Error);
 
-public sealed record LocalRosterBulkPullResult(bool Success, int Downloaded, int Total, string? Error);
+public sealed record LocalRosterBulkPullResult(bool Success, int Downloaded, int Total, int Skipped, string? Error);

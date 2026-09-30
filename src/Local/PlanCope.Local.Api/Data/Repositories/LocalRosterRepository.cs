@@ -4,21 +4,27 @@ using PlanCope.Shared.Contracts.Sync;
 
 namespace PlanCope.Local.Api.Data.Repositories;
 
-public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connectionFactory) : ILocalRosterRepository
+public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connectionFactory, ILogger<LocalRosterRepository> logger) : ILocalRosterRepository
 {
-    public async Task UpsertSchoolsAsync(IReadOnlyCollection<LocalSchoolSummary> schools, CancellationToken cancellationToken = default)
+    public async Task<int> UpsertSchoolsAsync(IReadOnlyCollection<LocalSchoolSummary> schools, CancellationToken cancellationToken = default)
     {
         using var connection = connectionFactory.CreateOpenConnection();
         using var transaction = connection.BeginTransaction();
+        var skipped = 0;
         foreach (var school in schools)
         {
             if (!PlanCope.Shared.Domain.ValueObjects.CueCode.TryNormalize(school.Cue, out var cue))
-                throw new ArgumentException("Central returned an invalid CUE.", nameof(schools));
+            {
+                skipped++;
+                logger.LogWarning("Skipping Central school with invalid CUE {Cue}.", school.Cue);
+                continue;
+            }
             await connection.ExecuteAsync(new CommandDefinition(
                 "INSERT INTO schools (cue, name) VALUES (@Cue, @Name) ON CONFLICT(cue) DO UPDATE SET name=COALESCE(excluded.name, schools.name);",
                 new { Cue = cue, school.Name }, transaction, cancellationToken: cancellationToken));
         }
         transaction.Commit();
+        return skipped;
     }
 
     public async Task<LocalRosterImportResult> ImportAsync(
