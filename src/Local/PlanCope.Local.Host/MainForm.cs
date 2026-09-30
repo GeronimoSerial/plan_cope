@@ -97,7 +97,8 @@ public partial class MainForm : Form
                     DataSource = _directories.DatabasePath,
                     Cache = SqliteCacheMode.Shared
                 }.ToString(),
-                "--Local:AssetsPath", _directories.AssetsDirectory
+                "--Local:AssetsPath", _directories.AssetsDirectory,
+                "--Logging:FilePath", Path.Combine(_directories.LogsDirectory, "local-api.log")
             ]));
         await _api.StartAsync();
         await RefreshPhaseAStatusAsync();

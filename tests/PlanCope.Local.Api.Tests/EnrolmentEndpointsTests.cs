@@ -90,6 +90,8 @@ public sealed class EnrolmentEndpointsTests
 
         var failedDownload = await client.PostAsJsonAsync("/api/enrolment/redeem", new EnrolmentRedeemRequest(ActivationKey));
         Assert.Equal(HttpStatusCode.BadGateway, failedDownload.StatusCode);
+        using (var failureBody = JsonDocument.Parse(await failedDownload.Content.ReadAsStringAsync()))
+            Assert.Equal("download failed", failureBody.RootElement.GetProperty("error").GetString());
 
         var retry = await client.PostAsync("/api/enrolment/retry-download", null);
 

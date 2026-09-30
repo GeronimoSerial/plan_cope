@@ -14,6 +14,9 @@ public static class LocalApiApplication
     public static WebApplication Build(string[] args)
     {
         var builder = WebApplication.CreateBuilder(args);
+        var logFilePath = builder.Configuration["Logging:FilePath"];
+        if (!string.IsNullOrWhiteSpace(logFilePath))
+            builder.Logging.AddProvider(new RollingFileLoggerProvider(logFilePath));
 
         builder.Services.AddPlanCopeSharedInfrastructure();
         builder.Services.AddPlanCopeLocalData(builder.Configuration);

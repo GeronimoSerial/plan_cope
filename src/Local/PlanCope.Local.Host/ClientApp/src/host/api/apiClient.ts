@@ -121,9 +121,8 @@ export class ApiClient {
 async function readApiError(response: Response): Promise<string> {
   try {
     const payload = (await response.json()) as ApiErrorPayload;
-    if (payload.error) {
-      return payload.error;
-    }
+    const message = payload.error ?? payload.detail;
+    if (message) return message;
 
     const firstValidationError = payload.errors ? Object.values(payload.errors).flat()[0] : undefined;
     if (firstValidationError) {
