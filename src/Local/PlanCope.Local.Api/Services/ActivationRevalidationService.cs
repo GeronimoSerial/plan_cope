@@ -45,11 +45,13 @@ public sealed class ActivationRevalidationService(
         var now = Max(timeProvider.GetUtcNow(), lastServerTime ?? lastSuccessful);
         var deadline = lastSuccessful.AddDays(intervalDays);
         var dueAt = deadline.AddDays(-WarningDays);
+        var clockWasCorrectedBackwards = false;
 
         if (now >= dueAt)
         {
             var lastAttempt = await ReadDateAsync("last_revalidation_attempt_at", cancellationToken);
-            if (lastAttempt is null || now < lastAttempt || now - lastAttempt >= RetryInterval)
+            clockWasCorrectedBackwards = lastAttempt is not null && now < lastAttempt;
+            if (lastAttempt is null || clockWasCorrectedBackwards || now - lastAttempt >= RetryInterval)
             {
                 await WriteStringAsync("last_revalidation_attempt_at", now.ToUniversalTime().ToString("O"), cancellationToken);
                 if (await credentialRefresher.TryRefreshAsync(cancellationToken))
@@ -75,7 +77,7 @@ public sealed class ActivationRevalidationService(
             // A wildly future local date can trigger the warning and a refresh attempt, but it
             // cannot permanently expire/wipe the node. Recheck after the clock is corrected or
             // Central responds. Ordinary offline expiry reaches this branch within the grace.
-            if (now > lastSuccessful.AddDays(intervalDays) + ForwardClockJumpGrace)
+            if (now > lastSuccessful.AddDays(intervalDays) + ForwardClockJumpGrace && !clockWasCorrectedBackwards)
             {
                 logger.LogWarning("Local clock is far ahead of the last Central validation; expiry wipe is deferred until the clock is corrected or Central responds.");
                 return;

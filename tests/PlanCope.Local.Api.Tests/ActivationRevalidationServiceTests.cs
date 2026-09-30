@@ -111,6 +111,26 @@ public sealed class ActivationRevalidationServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Corrected_future_clock_does_not_hide_a_real_expiry_after_long_offline_period()
+    {
+        var validatedAt = DateTimeOffset.UtcNow.AddDays(-40);
+        await SeedExpiredIdentityAsync(validatedAt);
+        var clock = new MutableTimeProvider(validatedAt.AddDays(365));
+        var service = CreateService(clock);
+
+        await service.CheckAsync();
+
+        Assert.NotNull(await identities.GetAsync());
+        Assert.False(await service.IsExpiredAsync());
+
+        clock.UtcNow = validatedAt.AddDays(40);
+        await service.CheckAsync();
+
+        Assert.Null(await identities.GetAsync());
+        Assert.True(await service.IsExpiredAsync());
+    }
+
+    [Fact]
     public async Task Expiry_asset_cleanup_resumes_after_a_crash()
     {
         Directory.CreateDirectory(assetsPath);
