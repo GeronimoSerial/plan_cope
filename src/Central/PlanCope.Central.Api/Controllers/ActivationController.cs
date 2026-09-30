@@ -68,7 +68,14 @@ public sealed class ActivationController(
         // Check for this key/device pair before exhaustion so a lost download or a wiped Local
         // node can resume on the same machine without consuming a second activation.
         var returningNode = await credentialService.FindExistingNodeForKeyAsync(key, request.FingerprintHash, cancellationToken);
-        if (returningNode is not null && !string.Equals(returningNode.Cue, scopedCue, StringComparison.Ordinal))
+        if (returningNode?.RevokedAt is not null)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, ActivationRedeemResult.Failed(ActivationRedeemFailureReason.NodeRevoked));
+        }
+        var returningCueMatches = returningNode is null || key.ScopeCue is null ||
+            (CueCode.TryNormalize(returningNode.Cue, out var normalizedReturningCue) &&
+             string.Equals(normalizedReturningCue, scopedCue, StringComparison.Ordinal));
+        if (!returningCueMatches)
         {
             return Conflict(new { error = "El alcance de esta clave no coincide con el equipo ya registrado." });
         }

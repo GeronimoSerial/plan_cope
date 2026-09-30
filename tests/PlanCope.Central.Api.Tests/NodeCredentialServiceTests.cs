@@ -93,7 +93,19 @@ public sealed class NodeCredentialServiceTests
     }
 
     [Fact]
-    public async Task FindOrEnrollAsync_DoesNotUpgrade_existing_CUE_bound_node_for_universal_key()
+    public async Task FindOrEnrollAsync_StoresNormalizedKeyScope()
+    {
+        using var dbContext = CreateDbContext();
+        var key = CreateKey(scopeCue: "180-000 100");
+        dbContext.ActivationKeys.Add(key);
+        await dbContext.SaveChangesAsync();
+        var (node, _) = await CreateService(dbContext).FindOrEnrollAsync(
+            key, "fp-formatted", JsonDocument.Parse("{}"), "1.0.0", CancellationToken.None);
+        Assert.Equal(Cue, node.Cue);
+    }
+
+    [Fact]
+    public async Task FindOrEnrollAsync_Migrates_existing_CUE_bound_node_for_universal_key()
     {
         using var dbContext = CreateDbContext();
         var key = CreateKey();
@@ -107,8 +119,8 @@ public sealed class NodeCredentialServiceTests
             key, "fp-existing", JsonDocument.Parse("{}"), "1.0.0", CancellationToken.None);
 
         Assert.False(isNewNode);
-        Assert.Equal(Cue, node.Cue);
-        Assert.Equal(Cue, (await dbContext.RegisteredNodes.SingleAsync()).Cue);
+        Assert.Equal(string.Empty, node.Cue);
+        Assert.Equal(string.Empty, (await dbContext.RegisteredNodes.SingleAsync()).Cue);
     }
 
     [Fact]

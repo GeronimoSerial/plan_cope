@@ -113,15 +113,22 @@ public sealed class NodeCredentialService
         string? appVersion,
         CancellationToken cancellationToken)
     {
-        var cue = key.ScopeCue ?? string.Empty;
+        var cue = NormalizeScopeCue(key.ScopeCue);
         var existing = await _dbContext.RegisteredNodes
             .Where(node => node.FingerprintHash == fingerprintHash && node.ActivationKeyId == key.Id)
             .SingleOrDefaultAsync(cancellationToken);
 
         if (existing is not null)
         {
-            // A scope mismatch must never silently widen a node. The controller reports a
-            // conflict before issuing credentials; retaining the existing row is defensive.
+            // A universal key intentionally migrates legacy CUE-bound enrollments to universal
+            // scope. A scoped key can never widen an existing universal enrollment.
+            if (key.ScopeCue is null && NormalizeScopeCue(existing.Cue) != string.Empty)
+            {
+                existing = existing with { Cue = string.Empty, SchoolId = null };
+                _dbContext.Entry(await _dbContext.RegisteredNodes.SingleAsync(n => n.Id == existing.Id, cancellationToken))
+                    .CurrentValues.SetValues(existing);
+                await _dbContext.SaveChangesAsync(cancellationToken);
+            }
             return (existing, IsNewNode: false);
         }
 
@@ -148,6 +155,14 @@ public sealed class NodeCredentialService
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         return (node, IsNewNode: true);
+    }
+
+    private static string NormalizeScopeCue(string? scopeCue)
+    {
+        if (string.IsNullOrWhiteSpace(scopeCue)) return string.Empty;
+        if (!PlanCope.Shared.Domain.ValueObjects.CueCode.TryNormalize(scopeCue, out var normalized))
+            throw new InvalidOperationException("Activation key has an invalid CUE scope.");
+        return normalized;
     }
 
     private static string GenerateRefreshToken()

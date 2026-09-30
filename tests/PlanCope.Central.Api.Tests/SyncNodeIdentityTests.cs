@@ -171,6 +171,24 @@ public sealed class SyncNodeIdentityTests
     }
 
     [Fact]
+    public async Task Push_from_revoked_node_still_accepts_already_collected_results()
+    {
+        using var dbContext = CreateDbContext();
+        await SeedNodeAsync(dbContext, "node-revoked", "180000100");
+        var node = await dbContext.RegisteredNodes.SingleAsync();
+        dbContext.Entry(node).CurrentValues.SetValues(node with { RevokedAt = BaseTime });
+        await dbContext.SaveChangesAsync();
+        var request = new PushRequest("node-revoked", new[] { CreateItem("revoked-result", "exam_published", "ev-1") });
+        var controller = CreateController(dbContext);
+        SyncTestPrincipals.BindNode(controller, "node-revoked");
+
+        var result = await controller.Push(request, "node-revoked", new PushRequestValidator(), CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result.Result);
+        Assert.Equal("node-revoked", Assert.Single(dbContext.SyncInbox).SourceNodeId);
+    }
+
+    [Fact]
     public async Task Push_with_header_and_body_mismatch_still_returns_400_after_the_claim_check()
     {
         using var dbContext = CreateDbContext();

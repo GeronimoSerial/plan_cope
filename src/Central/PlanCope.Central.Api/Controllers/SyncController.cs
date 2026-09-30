@@ -145,6 +145,9 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
             return Forbid();
         }
 
+        // Deliberately do not reject a revoked node here. Results already collected on that
+        // device must remain deliverable after revocation; revocation blocks new pulls/redeems.
+
         if (request.Items.Count > 200)
         {
             return BadRequest(new { error = "A push request cannot contain more than 200 items." });

@@ -93,6 +93,23 @@ public sealed class ActivationControllerTests
     }
 
     [Fact]
+    public async Task Redeem_RevokedReturningNode_Returns403NodeRevoked()
+    {
+        var options = CreateOptions();
+        var (plaintext, keyId) = SeedKey(options, maxActivations: 1, activationCount: 1);
+        using var dbContext = CreateDbContext(options);
+        var revoked = new RegisteredNode("revoked-node", null, "node-code", null, "Active", null,
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "fp-revoked", JsonDocument.Parse("{}"), string.Empty,
+            keyId, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, null);
+        dbContext.RegisteredNodes.Add(revoked);
+        await dbContext.SaveChangesAsync();
+
+        var result = await CreateController(dbContext).Redeem(CreateRedeemRequest(plaintext, "fp-revoked", Cue), CancellationToken.None);
+
+        AssertFailure(result, StatusCodes.Status403Forbidden, ActivationRedeemFailureReason.NodeRevoked);
+    }
+
+    [Fact]
     public async Task Redeem_ConsumesMaxActivations_ThenReusesSameFingerprint()
     {
         var options = CreateOptions();
@@ -169,7 +186,7 @@ public sealed class ActivationControllerTests
     }
 
     [Fact]
-    public async Task Redeem_DoesNotUpgradeExistingCueBoundNodeForUniversalKey()
+    public async Task Redeem_MigratesExistingCueBoundNodeForUniversalKey()
     {
         var options = CreateOptions();
         var (plaintext, keyId) = SeedKey(options, maxActivations: 1, activationCount: 1);
@@ -183,8 +200,8 @@ public sealed class ActivationControllerTests
 
         var result = await controller.Redeem(CreateRedeemRequest(plaintext, "fp-bound", Cue), CancellationToken.None);
 
-        Assert.IsType<ConflictObjectResult>(result.Result);
-        Assert.Equal(Cue, (await dbContext.RegisteredNodes.SingleAsync()).Cue);
+        Assert.IsType<OkObjectResult>(result.Result);
+        Assert.Equal(string.Empty, (await dbContext.RegisteredNodes.SingleAsync()).Cue);
     }
 
     [Fact]
