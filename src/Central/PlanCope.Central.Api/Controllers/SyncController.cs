@@ -50,6 +50,12 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
         }
 
         var normalizedNodeId = claimNodeId;
+        var registeredNode = await dbContext.RegisteredNodes.AsNoTracking()
+            .SingleOrDefaultAsync(node => node.Id == normalizedNodeId, cancellationToken);
+        if (registeredNode?.RevokedAt is not null)
+        {
+            return Forbid();
+        }
         var normalizedLimit = Math.Clamp(limit, 1, 200);
         // Materialize the cursor as a DateTimeOffset so the comparison stays translatable to SQL:
         // EF cannot translate `x.PublishedAt.Value.UtcTicks` and would throw on real PostgreSQL.

@@ -19,17 +19,15 @@ public sealed class NodeCredentialService
     // token rotates a replacement long before it matters.
     private static readonly TimeSpan AccessTokenLifetime = TimeSpan.FromMinutes(45);
 
-    // Refresh tokens live 60 days and are retired on first use (rotation), so a single stolen
-    // token stops working at the next refresh.
-    private static readonly TimeSpan RefreshTokenLifetime = TimeSpan.FromDays(60);
-
     private readonly PlanCopeDbContext _dbContext;
     private readonly ITokenService _tokenService;
+    private readonly IConfiguration _configuration;
 
-    public NodeCredentialService(PlanCopeDbContext dbContext, ITokenService tokenService)
+    public NodeCredentialService(PlanCopeDbContext dbContext, ITokenService tokenService, IConfiguration configuration)
     {
         _dbContext = dbContext;
         _tokenService = tokenService;
+        _configuration = configuration;
     }
 
     /// <summary>
@@ -45,6 +43,9 @@ public sealed class NodeCredentialService
         string? rotatedFrom = null)
     {
         var now = DateTimeOffset.UtcNow;
+        var configuredRefreshDays = Math.Clamp(_configuration.GetValue("Auth:RefreshTokenDays", 7), 1, 365);
+        var revalidationDays = Math.Clamp(_configuration.GetValue("Activation:RevalidationIntervalDays", 30), 1, 365);
+        var refreshTokenLifetime = TimeSpan.FromDays(Math.Max(configuredRefreshDays, revalidationDays + 7));
         var accessToken = _tokenService.CreateNodeAccessToken(node.Id, node.Cue, AccessTokenLifetime);
 
         var plaintextRefreshToken = GenerateRefreshToken();
@@ -53,7 +54,7 @@ public sealed class NodeCredentialService
             node.Id,
             HashRefreshToken(plaintextRefreshToken),
             now,
-            now.Add(RefreshTokenLifetime),
+            now.Add(refreshTokenLifetime),
             rotatedFrom,
             RevokedAt: null);
 
@@ -95,32 +96,32 @@ public sealed class NodeCredentialService
     }
 
     /// <summary>
-    /// Finds the node enrolled under the given (Cue, FingerprintHash) pair, or enrolls a new one.
-    /// Identity IS that pair: a returning node is reused and never consumes another activation
-    /// from the key. A new node increments the key's ActivationCount in the same SaveChangesAsync,
-    /// so a crash can never desync the count from the node.
+    /// Finds the node enrolled under the given activation key and fingerprint, or enrolls a new
+    /// one using the key's stored scope. A new node increments the key's ActivationCount in the
+    /// same SaveChangesAsync, so a crash can never desync the count from the node.
     /// </summary>
+    public async Task<RegisteredNode?> FindExistingNodeForKeyAsync(
+        ActivationKey key,
+        string fingerprintHash,
+        CancellationToken cancellationToken) => await _dbContext.RegisteredNodes
+            .SingleOrDefaultAsync(node => node.FingerprintHash == fingerprintHash && node.ActivationKeyId == key.Id, cancellationToken);
+
     public async Task<(RegisteredNode Node, bool IsNewNode)> FindOrEnrollAsync(
         ActivationKey key,
-        string cue,
         string fingerprintHash,
         JsonDocument fingerprintComponents,
         string? appVersion,
         CancellationToken cancellationToken)
     {
+        var cue = key.ScopeCue ?? string.Empty;
         var existing = await _dbContext.RegisteredNodes
-            .Where(node => node.FingerprintHash == fingerprintHash && (string.IsNullOrEmpty(cue) || node.Cue == cue))
+            .Where(node => node.FingerprintHash == fingerprintHash && node.ActivationKeyId == key.Id)
             .SingleOrDefaultAsync(cancellationToken);
 
         if (existing is not null)
         {
-            if (string.IsNullOrEmpty(cue) && !string.IsNullOrEmpty(existing.Cue))
-            {
-                var universal = existing with { Cue = string.Empty, SchoolId = null };
-                _dbContext.Entry(existing).CurrentValues.SetValues(universal);
-                existing = universal;
-                await _dbContext.SaveChangesAsync(cancellationToken);
-            }
+            // A scope mismatch must never silently widen a node. The controller reports a
+            // conflict before issuing credentials; retaining the existing row is defensive.
             return (existing, IsNewNode: false);
         }
 

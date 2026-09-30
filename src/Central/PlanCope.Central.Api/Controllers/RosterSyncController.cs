@@ -20,12 +20,15 @@ public sealed class RosterSyncController(
     [HttpGet("rosters/index")]
     public async Task<ActionResult<object>> GetRosterIndex(CancellationToken cancellationToken = default)
     {
-        if (!NodeAccessAuth.TryGetNodeId(User, out var nodeId) ||
-            !await dbContext.RegisteredNodes.AsNoTracking().AnyAsync(
-                node => node.Id == nodeId && node.Cue == string.Empty, cancellationToken))
+        if (!NodeAccessAuth.TryGetNodeId(User, out var nodeId))
         {
             return Forbid();
         }
+
+        var node = await dbContext.RegisteredNodes.AsNoTracking()
+            .SingleOrDefaultAsync(candidate => candidate.Id == nodeId, cancellationToken);
+        if (node is null || node.RevokedAt is not null)
+            return Forbid();
 
         var schools = await dbContext.Schools.AsNoTracking()
             .Select(static school => new { school.Cue, school.Annex, school.Name })
@@ -48,6 +51,12 @@ public sealed class RosterSyncController(
             name = school.Name
         }).ToList();
 
+        if (!string.IsNullOrEmpty(node.Cue))
+        {
+            schoolList = schoolList.Where(school => school.cue == node.Cue).ToList();
+            rosters = rosters.Where(roster => roster.cue == node.Cue).ToList();
+        }
+
         return Ok(new { serverTime = DateTimeOffset.UtcNow, schools = schoolList, rosters });
     }
 
@@ -68,9 +77,16 @@ public sealed class RosterSyncController(
         }
 
         var nodeId = NodeAccessAuth.TryGetNodeId(User, out var tokenNodeId) ? tokenNodeId : null;
-        var universalNode = nodeId is not null && await dbContext.RegisteredNodes.AsNoTracking()
-            .AnyAsync(node => node.Id == nodeId && node.Cue == string.Empty, cancellationToken);
-        if (!universalNode && !(await authorizationService.AuthorizeAsync(User, cue, "RosterCueAccess")).Succeeded)
+        var node = nodeId is null ? null : await dbContext.RegisteredNodes.AsNoTracking()
+            .SingleOrDefaultAsync(candidate => candidate.Id == nodeId, cancellationToken);
+        if (nodeId is not null && (node is null || node.RevokedAt is not null))
+            return Forbid();
+
+        var universalNode = node is not null && string.IsNullOrEmpty(node.Cue);
+        var scopedNode = node is not null && !string.IsNullOrEmpty(node.Cue);
+        if (scopedNode && !string.Equals(node!.Cue, cue, StringComparison.Ordinal))
+            return Forbid();
+        if (!universalNode && !scopedNode && !(await authorizationService.AuthorizeAsync(User, cue, "RosterCueAccess")).Succeeded)
         {
             return Forbid();
         }

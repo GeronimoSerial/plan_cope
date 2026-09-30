@@ -58,6 +58,36 @@ public sealed class RosterSyncUniversalTests
         Assert.IsType<ForbidResult>(result.Result);
     }
 
+    [Fact]
+    public async Task Revoked_universal_node_is_rejected_by_both_roster_endpoints()
+    {
+        using var db = CreateDatabase();
+        db.RegisteredNodes.Add(Node("revoked", string.Empty) with { RevokedAt = DateTimeOffset.UtcNow });
+        await db.SaveChangesAsync();
+        var controller = Controller(db, isNode: true, "revoked");
+
+        Assert.IsType<ForbidResult>((await controller.GetRosterIndex()).Result);
+        Assert.IsType<ForbidResult>((await controller.GetRoster("100000100", "2025")).Result);
+    }
+
+    [Fact]
+    public async Task Scoped_node_roster_index_contains_only_its_key_scope()
+    {
+        using var db = CreateDatabase();
+        db.RegisteredNodes.Add(Node("scoped", "100000100"));
+        db.Schools.AddRange(School("school-1", 1000001, 0, "Uno"), School("school-2", 1000002, 0, "Dos"));
+        db.GeRosterSnapshots.AddRange(
+            Snapshot("one", "100000100", "2025", DateTimeOffset.UtcNow),
+            Snapshot("two", "100000200", "2025", DateTimeOffset.UtcNow));
+        await db.SaveChangesAsync();
+        var controller = Controller(db, isNode: true, "scoped");
+
+        var ok = Assert.IsType<OkObjectResult>((await controller.GetRosterIndex()).Result);
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.Equal("100000100", json.RootElement.GetProperty("schools")[0].GetProperty("cue").GetString());
+        Assert.Equal("100000100", json.RootElement.GetProperty("rosters")[0].GetProperty("cue").GetString());
+    }
+
     private static PlanCopeDbContext CreateDatabase() => new(new DbContextOptionsBuilder<PlanCopeDbContext>()
         .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
         .UseInternalServiceProvider(InMemoryServices).Options);

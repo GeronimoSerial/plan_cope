@@ -6,6 +6,7 @@ using PlanCope.Central.Api.Data;
 using PlanCope.Central.Api.Services;
 using PlanCope.Shared.Contracts.Activation;
 using PlanCope.Shared.Domain.Central;
+using PlanCope.Shared.Domain.ValueObjects;
 
 namespace PlanCope.Central.Api.Controllers;
 
@@ -58,14 +59,27 @@ public sealed class ActivationController(
             return StatusCode(StatusCodes.Status403Forbidden, ActivationRedeemResult.Failed(ActivationRedeemFailureReason.KeyExpired));
         }
 
-        if (ActivationKeyService.IsExhausted(key))
+        var scopedCue = string.Empty;
+        if (key.ScopeCue is not null && !CueCode.TryNormalize(key.ScopeCue, out scopedCue))
+        {
+            return Problem("La clave tiene un CUE de alcance inválido.", statusCode: StatusCodes.Status500InternalServerError);
+        }
+
+        // Check for this key/device pair before exhaustion so a lost download or a wiped Local
+        // node can resume on the same machine without consuming a second activation.
+        var returningNode = await credentialService.FindExistingNodeForKeyAsync(key, request.FingerprintHash, cancellationToken);
+        if (returningNode is not null && !string.Equals(returningNode.Cue, scopedCue, StringComparison.Ordinal))
+        {
+            return Conflict(new { error = "El alcance de esta clave no coincide con el equipo ya registrado." });
+        }
+
+        if (returningNode is null && ActivationKeyService.IsExhausted(key))
         {
             return StatusCode(StatusCodes.Status403Forbidden, ActivationRedeemResult.Failed(ActivationRedeemFailureReason.ActivationLimitReached));
         }
 
         var (node, isNewNode) = await credentialService.FindOrEnrollAsync(
             key,
-            request.Cue,
             request.FingerprintHash,
             request.FingerprintComponents,
             request.AppVersion,

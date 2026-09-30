@@ -90,6 +90,22 @@ public sealed class SyncNodeIdentityTests
     }
 
     [Fact]
+    public async Task Pull_with_revoked_node_is_forbidden()
+    {
+        using var dbContext = CreateDbContext();
+        await SeedNodeAsync(dbContext, "node-A", "");
+        var node = await dbContext.RegisteredNodes.SingleAsync(x => x.Id == "node-A");
+        dbContext.Entry(node).CurrentValues.SetValues(node with { RevokedAt = DateTimeOffset.UtcNow });
+        await dbContext.SaveChangesAsync();
+        var controller = CreateController(dbContext);
+        SyncTestPrincipals.BindNode(controller, "node-A");
+
+        var result = await controller.Pull("node-A", cursor: null, limit: 50, CancellationToken.None);
+
+        Assert.IsType<ForbidResult>(result.Result);
+    }
+
+    [Fact]
     public async Task Pull_writes_delivery_and_cursor_markers_only_for_the_claim_node()
     {
         using var dbContext = CreateDbContext();

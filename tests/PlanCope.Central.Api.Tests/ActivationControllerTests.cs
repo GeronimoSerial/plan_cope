@@ -93,7 +93,7 @@ public sealed class ActivationControllerTests
     }
 
     [Fact]
-    public async Task Redeem_ConsumesMaxActivations_ThenReturnsActivationLimitReached()
+    public async Task Redeem_ConsumesMaxActivations_ThenReusesSameFingerprint()
     {
         var options = CreateOptions();
         var (plaintext, _) = SeedKey(options, maxActivations: 1);
@@ -102,10 +102,11 @@ public sealed class ActivationControllerTests
         var controller = CreateController(dbContext);
 
         var first = await controller.Redeem(CreateRedeemRequest(plaintext, "fp-1", Cue), CancellationToken.None);
-        AssertSuccess(first);
+        var firstNode = AssertSuccess(first).Response!.NodeId;
 
         var second = await controller.Redeem(CreateRedeemRequest(plaintext, "fp-1", Cue), CancellationToken.None);
-        AssertFailure(second, StatusCodes.Status403Forbidden, ActivationRedeemFailureReason.ActivationLimitReached);
+        Assert.Equal(firstNode, AssertSuccess(second).Response!.NodeId);
+        Assert.Equal(1, (await dbContext.ActivationKeys.SingleAsync()).ActivationCount);
     }
 
     [Fact]
@@ -127,6 +128,7 @@ public sealed class ActivationControllerTests
         var key = await dbContext.ActivationKeys.SingleAsync();
         Assert.Equal(1, key.ActivationCount);
         Assert.Equal(1, await dbContext.RegisteredNodes.CountAsync());
+        Assert.Equal(string.Empty, (await dbContext.RegisteredNodes.SingleAsync()).Cue);
     }
 
     [Fact]
@@ -148,6 +150,41 @@ public sealed class ActivationControllerTests
         var key = await dbContext.ActivationKeys.SingleAsync();
         Assert.Equal(2, key.ActivationCount);
         Assert.Equal(2, await dbContext.RegisteredNodes.CountAsync());
+    }
+
+    [Fact]
+    public async Task Redeem_UsesKeyScopeAndIgnoresClientCue()
+    {
+        var options = CreateOptions();
+        var (plaintext, keyId) = SeedKey(options, scopeCue: Cue);
+        using var dbContext = CreateDbContext(options);
+        var controller = CreateController(dbContext);
+
+        var result = await controller.Redeem(CreateRedeemRequest(plaintext, "fp-scoped", "999999999"), CancellationToken.None);
+
+        var nodeId = AssertSuccess(result).Response!.NodeId;
+        var node = await dbContext.RegisteredNodes.SingleAsync(x => x.Id == nodeId);
+        Assert.Equal(keyId, node.ActivationKeyId);
+        Assert.Equal(Cue, node.Cue);
+    }
+
+    [Fact]
+    public async Task Redeem_DoesNotUpgradeExistingCueBoundNodeForUniversalKey()
+    {
+        var options = CreateOptions();
+        var (plaintext, keyId) = SeedKey(options, maxActivations: 1, activationCount: 1);
+        using var dbContext = CreateDbContext(options);
+        var existing = new RegisteredNode("bound-node", null, "node-code", null, "Active", null,
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "fp-bound", JsonDocument.Parse("{}"), Cue,
+            keyId, DateTimeOffset.UtcNow, null, null);
+        dbContext.RegisteredNodes.Add(existing);
+        await dbContext.SaveChangesAsync();
+        var controller = CreateController(dbContext);
+
+        var result = await controller.Redeem(CreateRedeemRequest(plaintext, "fp-bound", Cue), CancellationToken.None);
+
+        Assert.IsType<ConflictObjectResult>(result.Result);
+        Assert.Equal(Cue, (await dbContext.RegisteredNodes.SingleAsync()).Cue);
     }
 
     [Fact]
@@ -199,7 +236,8 @@ public sealed class ActivationControllerTests
         int maxActivations = 5,
         int activationCount = 0,
         DateTimeOffset? expiresAt = null,
-        DateTimeOffset? revokedAt = null)
+        DateTimeOffset? revokedAt = null,
+        string? scopeCue = null)
     {
         using var dbContext = CreateDbContext(options);
         var generated = new ActivationKeyService().Generate();
@@ -214,7 +252,7 @@ public sealed class ActivationControllerTests
             activationCount,
             revokedAt,
             RevokedReason: null,
-            ScopeCue: null,
+            ScopeCue: scopeCue,
             Note: "Clave de prueba");
         dbContext.ActivationKeys.Add(key);
         dbContext.SaveChanges();
@@ -271,11 +309,12 @@ public sealed class ActivationControllerTests
         {
             SigningKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         });
-        var credentialService = new NodeCredentialService(dbContext, new TokenService(options));
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
-            ["Activation:RevalidationIntervalDays"] = "30"
+            ["Activation:RevalidationIntervalDays"] = "30",
+            ["Auth:RefreshTokenDays"] = "7"
         }).Build();
+        var credentialService = new NodeCredentialService(dbContext, new TokenService(options), configuration);
         return new ActivationController(dbContext, new ActivationKeyService(), credentialService, configuration)
         {
             ControllerContext = new ControllerContext

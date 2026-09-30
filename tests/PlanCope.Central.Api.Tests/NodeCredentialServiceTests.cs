@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using PlanCope.Central.Api.Auth;
@@ -53,7 +54,7 @@ public sealed class NodeCredentialServiceTests
     public async Task FindOrEnrollAsync_ReusesExistingNodeWithoutIncrementingCount()
     {
         using var dbContext = CreateDbContext();
-        var key = CreateKey();
+        var key = CreateKey(scopeCue: Cue);
         var existing = CreateNode(key.Id, "fp-existing");
         dbContext.ActivationKeys.Add(key);
         dbContext.RegisteredNodes.Add(existing);
@@ -61,7 +62,7 @@ public sealed class NodeCredentialServiceTests
 
         var service = CreateService(dbContext);
         var (node, isNewNode) = await service.FindOrEnrollAsync(
-            key, Cue, "fp-existing", JsonDocument.Parse("{}"), "1.0.0", CancellationToken.None);
+            key, "fp-existing", JsonDocument.Parse("{}"), "1.0.0", CancellationToken.None);
 
         Assert.False(isNewNode);
         Assert.Equal(existing.Id, node.Id);
@@ -80,17 +81,61 @@ public sealed class NodeCredentialServiceTests
 
         var service = CreateService(dbContext);
         var (node, isNewNode) = await service.FindOrEnrollAsync(
-            key, Cue, "fp-new", JsonDocument.Parse("{}"), "1.0.0", CancellationToken.None);
+            key, "fp-new", JsonDocument.Parse("{}"), "1.0.0", CancellationToken.None);
 
         Assert.True(isNewNode);
         Assert.Equal(key.Id, node.ActivationKeyId);
         Assert.Equal("Active", node.Status);
+        Assert.Equal(string.Empty, node.Cue);
 
         var reloaded = await dbContext.ActivationKeys.SingleAsync();
         Assert.Equal(1, reloaded.ActivationCount);
     }
 
-    private static ActivationKey CreateKey()
+    [Fact]
+    public async Task FindOrEnrollAsync_DoesNotUpgrade_existing_CUE_bound_node_for_universal_key()
+    {
+        using var dbContext = CreateDbContext();
+        var key = CreateKey();
+        var existing = CreateNode(key.Id, "fp-existing");
+        dbContext.ActivationKeys.Add(key);
+        dbContext.RegisteredNodes.Add(existing);
+        await dbContext.SaveChangesAsync();
+
+        var service = CreateService(dbContext);
+        var (node, isNewNode) = await service.FindOrEnrollAsync(
+            key, "fp-existing", JsonDocument.Parse("{}"), "1.0.0", CancellationToken.None);
+
+        Assert.False(isNewNode);
+        Assert.Equal(Cue, node.Cue);
+        Assert.Equal(Cue, (await dbContext.RegisteredNodes.SingleAsync()).Cue);
+    }
+
+    [Fact]
+    public async Task Refresh_token_allows_node_to_revalidate_after_twenty_days_offline()
+    {
+        using var dbContext = CreateDbContext();
+        var key = CreateKey();
+        var node = CreateNode(key.Id, "fp-lifetime");
+        dbContext.ActivationKeys.Add(key);
+        dbContext.RegisteredNodes.Add(node);
+        await dbContext.SaveChangesAsync();
+
+        var service = CreateService(dbContext, revalidationDays: 30, configuredRefreshDays: 7);
+        var issued = await service.IssueForNodeAsync(node, CancellationToken.None);
+        var simulatedNow = DateTimeOffset.UtcNow;
+        dbContext.Entry(issued.Credential).CurrentValues.SetValues(issued.Credential with
+        {
+            IssuedAt = simulatedNow.AddDays(-20),
+            ExpiresAt = simulatedNow.AddDays(10)
+        });
+        await dbContext.SaveChangesAsync();
+
+        Assert.True(issued.RefreshTokenExpiresAt >= simulatedNow.AddDays(16));
+        Assert.NotNull(await service.RotateAsync(issued.PlaintextRefreshToken, CancellationToken.None));
+    }
+
+    private static ActivationKey CreateKey(string? scopeCue = null)
     {
         var now = DateTimeOffset.UtcNow;
         return new ActivationKey(
@@ -104,7 +149,7 @@ public sealed class NodeCredentialServiceTests
             ActivationCount: 0,
             RevokedAt: null,
             RevokedReason: null,
-            ScopeCue: null,
+            ScopeCue: scopeCue,
             Note: "Clave de prueba");
     }
 
@@ -129,13 +174,18 @@ public sealed class NodeCredentialServiceTests
             AppVersion: "1.0.0");
     }
 
-    private static NodeCredentialService CreateService(PlanCopeDbContext dbContext)
+    private static NodeCredentialService CreateService(PlanCopeDbContext dbContext, int revalidationDays = 30, int configuredRefreshDays = 7)
     {
         var options = Options.Create(new AuthOptions
         {
             SigningKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         });
-        return new NodeCredentialService(dbContext, new TokenService(options));
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Activation:RevalidationIntervalDays"] = revalidationDays.ToString(),
+            ["Auth:RefreshTokenDays"] = configuredRefreshDays.ToString()
+        }).Build();
+        return new NodeCredentialService(dbContext, new TokenService(options), configuration);
     }
 
     private static PlanCopeDbContext CreateDbContext()
