@@ -101,9 +101,17 @@ public sealed class AsistenciasRosterSource(NpgsqlDataSource dataSource, IConfig
             ? configured
             : TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, ResolveTimeZone(configuration)).Year.ToString(CultureInfo.InvariantCulture);
 
+    public static string ResolveSource(IConfiguration configuration)
+    {
+        var configuredSource = configuration["Rosters:Source"]?.Trim();
+        if (!string.IsNullOrWhiteSpace(configuredSource)) return configuredSource;
+        return string.IsNullOrWhiteSpace(configuration.GetConnectionString("Asistencias")) ? "GeApi" : "Asistencias";
+    }
+
     internal static TimeZoneInfo ResolveTimeZone(IConfiguration configuration)
     {
-        var timeZoneId = configuration["Rosters:TimeZoneId"] ?? "America/Argentina/Buenos_Aires";
+        var timeZoneId = configuration["Rosters:TimeZoneId"]?.Trim();
+        if (string.IsNullOrWhiteSpace(timeZoneId)) timeZoneId = "America/Argentina/Buenos_Aires";
         try { return TimeZoneInfo.FindSystemTimeZoneById(timeZoneId); }
         catch (TimeZoneNotFoundException) { return TimeZoneInfo.CreateCustomTimeZone("Argentina Standard Time", TimeSpan.FromHours(-3), "Argentina Standard Time", "Argentina Standard Time"); }
         catch (InvalidTimeZoneException) { return TimeZoneInfo.CreateCustomTimeZone("Argentina Standard Time", TimeSpan.FromHours(-3), "Argentina Standard Time", "Argentina Standard Time"); }

@@ -10,12 +10,9 @@ namespace PlanCope.Central.Api.Tests;
 
 public sealed class AsistenciasRosterSourceTests
 {
-    [Fact]
+    [DockerFact]
     public async Task Reads_current_active_school_students_and_skips_invalid_nominal_rows()
     {
-        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DOCKER_HOST")) && !File.Exists("/var/run/docker.sock"))
-            return; // This fixture executes in CI where Testcontainers has a Docker daemon.
-
         await using var postgres = new PostgreSqlBuilder().WithImage("postgres:17-alpine").Build();
         await postgres.StartAsync();
         await using var dataSource = NpgsqlDataSource.Create(postgres.GetConnectionString());
@@ -71,5 +68,14 @@ public sealed class AsistenciasRosterSourceTests
         Assert.Equal(32, student.NroDocumento!.Length);
         var identity = await source.FindStudentByDocumentAsync("12.345.678.901.234.567.890.123.456.789.012.34");
         Assert.Equal(1001, identity?.PersonaId);
+    }
+}
+
+public sealed class DockerFactAttribute : FactAttribute
+{
+    public DockerFactAttribute()
+    {
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DOCKER_HOST")) && !File.Exists("/var/run/docker.sock"))
+            Skip = "Docker is not available; the Testcontainers PostgreSQL fixture requires a Docker daemon.";
     }
 }

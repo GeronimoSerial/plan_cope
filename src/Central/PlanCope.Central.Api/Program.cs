@@ -73,9 +73,8 @@ builder.Services.AddScoped<CentralStatsRollupService>();
 builder.Services.AddScoped<NodeCredentialService>();
 builder.Services.AddScoped<IReleaseGateService, ReleaseGateService>();
 builder.Services.AddMemoryCache();
-var asistenciasConnectionString = builder.Configuration.GetConnectionString("Asistencias");
-var rosterSource = builder.Configuration["Rosters:Source"] ??
-                   (string.IsNullOrWhiteSpace(asistenciasConnectionString) ? "GeApi" : "Asistencias");
+var asistenciasConnectionString = builder.Configuration.GetConnectionString("Asistencias")?.Trim();
+var rosterSource = AsistenciasRosterSource.ResolveSource(builder.Configuration);
 if (string.Equals(rosterSource, "Asistencias", StringComparison.OrdinalIgnoreCase))
 {
     if (string.IsNullOrWhiteSpace(asistenciasConnectionString))

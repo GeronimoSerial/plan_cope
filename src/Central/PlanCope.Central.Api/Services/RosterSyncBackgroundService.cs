@@ -11,16 +11,21 @@ public sealed class RosterSyncBackgroundService(
     {
         if (!coordinator.IsEnabled)
         {
-            logger.LogWarning("Daily roster sync is disabled because ConnectionStrings:Asistencias is not configured.");
+            logger.LogWarning("Daily roster sync is disabled because Asistencias is not the active source or ConnectionStrings:Asistencias is not configured.");
             return;
         }
 
         try
         {
-            if (!await coordinator.HasAnySnapshotAsync(stoppingToken))
+            if (await coordinator.SyncMissingAsync(stoppingToken) is { Enabled: true } initialResult)
             {
-                logger.LogInformation("No roster snapshots exist yet; starting the initial all-school roster sync.");
-                await coordinator.SyncAllAsync(stoppingToken);
+                logger.LogInformation("Startup catch-up roster sync processed {Count} CUEs with no current-year snapshot.", initialResult.TotalSchools);
+                if (initialResult.Failed > 0 || initialResult.Empty > 0)
+                {
+                    logger.LogWarning("Startup catch-up left {Failed} failed and {Empty} empty CUEs; retrying only schools still without a current-year snapshot.",
+                        initialResult.Failed, initialResult.Empty);
+                    await coordinator.SyncMissingAsync(stoppingToken);
+                }
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
@@ -30,7 +35,7 @@ public sealed class RosterSyncBackgroundService(
         }
 
         var timeZone = AsistenciasRosterSource.ResolveTimeZone(configuration);
-        var syncTime = TimeOnly.TryParse(configuration["Rosters:DailySyncTime"], out var configuredTime)
+        var syncTime = TimeOnly.TryParse(configuration["Rosters:DailySyncTime"]?.Trim(), out var configuredTime)
             ? configuredTime
             : new TimeOnly(4, 30);
         while (!stoppingToken.IsCancellationRequested)
@@ -40,7 +45,9 @@ public sealed class RosterSyncBackgroundService(
             try
             {
                 await Task.Delay(delay, stoppingToken);
-                await coordinator.SyncAllAsync(stoppingToken);
+                var result = await coordinator.SyncAllAsync(stoppingToken);
+                if (result.Failed > 0 || result.Empty > 0)
+                    await coordinator.SyncMissingAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception exception)

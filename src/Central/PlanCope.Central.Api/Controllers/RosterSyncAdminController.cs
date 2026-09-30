@@ -10,9 +10,13 @@ namespace PlanCope.Central.Api.Controllers;
 public sealed class RosterSyncAdminController(RosterSyncCoordinator coordinator) : ControllerBase
 {
     [HttpPost("sync-all")]
-    public async Task<ActionResult<RosterSyncAllResult>> SyncAll(CancellationToken cancellationToken = default)
+    public ActionResult<RosterSyncRunStatus> SyncAll()
     {
-        var result = await coordinator.SyncAllAsync(cancellationToken);
-        return result.Busy ? Conflict(result) : Ok(result);
+        var status = coordinator.StartBackgroundSync();
+        if (!status.Enabled) return StatusCode(StatusCodes.Status503ServiceUnavailable, status);
+        return AcceptedAtAction(nameof(GetStatus), status);
     }
+
+    [HttpGet("sync-all/status")]
+    public ActionResult<RosterSyncRunStatus> GetStatus() => Ok(coordinator.GetStatus());
 }
