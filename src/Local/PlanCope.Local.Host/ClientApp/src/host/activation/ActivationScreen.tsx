@@ -63,8 +63,9 @@ export function ActivationScreen({ apiBaseUrl, bridge = window.chrome?.webview }
       <input id="activation-key" name="activationKey" type="text" autoComplete="off" autoCapitalize="characters"
         value={activationKey} disabled={submitted} onChange={event => setActivationKey(event.target.value)} />
       <button type="submit" disabled={!isValidActivationKeyFormat(activationKey) || submitted || !bridge}>
-        {submitted ? "Activando…" : "Activar equipo"}
+        {submitted ? "Descargando datos…" : "Activar equipo"}
       </button>
+      {submitted && <p role="status" aria-live="polite">Validando la clave y descargando escuelas, listas y evaluaciones. No cierres la aplicación.</p>}
       {error && <p role="alert">{error}</p>}
       {!bridge && <p role="alert">La activación sólo está disponible dentro de la aplicación de escritorio.</p>}
     </form>

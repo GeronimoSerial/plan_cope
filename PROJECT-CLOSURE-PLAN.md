@@ -1,9 +1,11 @@
 # Plan Cope — Project Closure Plan
 
-> Activation update (2026-09): first-run activation now uses the universal PCOPE key and
-> Central's production API base URL is the Local default. Offline passphrase and bundle
-> seeding have been removed. Full initial data download and periodic revalidation remain
-> required follow-up work; see `IMPLEMENTATION-REPORT.md` in the activation worktree.
+> Activation update (2026-09): Local activation now uses the universal PCOPE key, downloads
+> all available schools/CUE rosters and published exams before opening the workspace, and
+> revalidates with Central every 30 days (warning from day 25). Expiry wipes cached school,
+> roster, exam, and credential data while preserving the result outbox. The offline bundle
+> path is retired; historical batch plans below may still describe it. See the activation
+> notes in `docs/activation-passphrase.md` for the current operator flow.
 
 **Status:** design locked, implementation pending
 **Date:** 2026-09-15

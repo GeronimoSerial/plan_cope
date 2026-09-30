@@ -97,31 +97,3 @@ public sealed class LegacyDatabaseMigratorTests : IDisposable
         if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
     }
 }
-
-public sealed class ActivationKeyStoreTests : IDisposable
-{
-    private readonly string tempRoot = Path.Combine(Path.GetTempPath(), $"plancope-activation-{Guid.NewGuid():N}");
-
-    [Fact]
-    public void ActivationKeyStore_ProtectsAndUnprotectsBytesForCurrentUser()
-    {
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
-        var store = new ActivationKeyStore(new DataDirectoryResolver(tempRoot));
-        var key = new byte[] { 2, 3, 5, 7, 11, 13 };
-
-        store.Store(key);
-
-        Assert.True(store.HasStoredKey);
-        Assert.Equal(key, store.Load());
-        Assert.NotEqual(key, File.ReadAllBytes(Path.Combine(tempRoot, "config", "activation.key")));
-    }
-
-    public void Dispose()
-    {
-        if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
-    }
-}

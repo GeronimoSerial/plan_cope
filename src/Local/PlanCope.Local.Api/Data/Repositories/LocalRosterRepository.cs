@@ -6,6 +6,21 @@ namespace PlanCope.Local.Api.Data.Repositories;
 
 public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connectionFactory) : ILocalRosterRepository
 {
+    public async Task UpsertSchoolsAsync(IReadOnlyCollection<LocalSchoolSummary> schools, CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateOpenConnection();
+        using var transaction = connection.BeginTransaction();
+        foreach (var school in schools)
+        {
+            if (!PlanCope.Shared.Domain.ValueObjects.CueCode.TryNormalize(school.Cue, out var cue))
+                throw new ArgumentException("Central returned an invalid CUE.", nameof(schools));
+            await connection.ExecuteAsync(new CommandDefinition(
+                "INSERT INTO schools (cue, name) VALUES (@Cue, @Name) ON CONFLICT(cue) DO UPDATE SET name=COALESCE(excluded.name, schools.name);",
+                new { Cue = cue, school.Name }, transaction, cancellationToken: cancellationToken));
+        }
+        transaction.Commit();
+    }
+
     public async Task<LocalRosterImportResult> ImportAsync(
         GeRosterPackageDto package,
         IDocumentHmacService documentHmacService,

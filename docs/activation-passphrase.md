@@ -1,4 +1,25 @@
-# Activation passphrase (PlanCope Local Host)
+# PlanCope Local activation
+
+> Superseded: the offline passphrase and encrypted roster bundle workflow described in the
+> historical sections below is no longer used by Local. Keep this page only as a record of
+> the retired format; current operators activate with a PCOPE key and an internet connection.
+
+## Current activation
+
+On first run, enter the PCOPE key issued by Central. The Local node redeems it against
+`https://api.plancope.sistemas.mec.gob.ar` (overridable with `Central:BaseUrl` for development),
+then downloads published exams, all available school records, and all available CUE/year rosters.
+The application opens when the initial download completes. If any step fails, use **Reintentar**;
+the downloaded exam cursor and roster imports make the operation safe to resume.
+
+Local revalidates its credentials with Central at least once every 30 days (configurable by
+Central's `Activation:RevalidationIntervalDays`). From day 25 it asks the operator to reconnect.
+If the deadline passes, Local removes cached school, roster, exam, and credential data and requires
+a new PCOPE key. Unsent results stay in the outbox; after reactivation Local sends those results
+before downloading current data.
+
+The old passphrase/bundle format below is retained for historical reference only. It is not part
+of the Local activation flow.
 
 Activation happens in **two separate phases with separate failure modes**. **Phase A** is
 offline — this document's existing subject: passphrase → Argon2id → DPAPI-protected local

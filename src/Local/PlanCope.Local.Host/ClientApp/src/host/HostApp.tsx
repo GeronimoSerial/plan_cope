@@ -12,6 +12,7 @@ export function HostApp() {
   const delivery = useDeliverySession(hostContext);
   const [isSchoolConfirmed, setIsSchoolConfirmed] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
+  const [revalidationDaysRemaining, setRevalidationDaysRemaining] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<"sessions" | "stats">("sessions");
 
   useEffect(() => {
@@ -22,6 +23,7 @@ export function HostApp() {
         .then(data => {
           if (!cancelled && data && typeof data.isLocked === "boolean") {
             setIsLocked(data.isLocked);
+            setRevalidationDaysRemaining(typeof data.revalidationDaysRemaining === "number" ? data.revalidationDaysRemaining : null);
           }
         })
         .catch(() => {
@@ -48,20 +50,32 @@ export function HostApp() {
 
   if (!isSchoolConfirmed) {
     return (
-      <SchoolGate
-        cue={delivery.sessionForm.form.cue}
-        schoolName={delivery.sessionForm.schoolName}
-        hasRoster={delivery.roster.snapshot?.status.toLowerCase() === "ready" && delivery.roster.sections.length > 0}
-        isLoadingRoster={delivery.roster.isLoading}
-        rosterError={delivery.roster.error}
-        onCueChange={value => delivery.sessionForm.updateForm("cue", value)}
-        onContinue={() => setIsSchoolConfirmed(true)}
-      />
+      <>
+        {revalidationDaysRemaining !== null && revalidationDaysRemaining <= 5 && (
+          <p className="sync-warning" role="status" aria-live="polite">
+            Conectate a internet para revalidar el equipo. Quedan {revalidationDaysRemaining} {revalidationDaysRemaining === 1 ? "día" : "días"}.
+          </p>
+        )}
+        <SchoolGate
+          cue={delivery.sessionForm.form.cue}
+          schoolName={delivery.sessionForm.schoolName}
+          hasRoster={delivery.roster.snapshot?.status.toLowerCase() === "ready" && delivery.roster.sections.length > 0}
+          isLoadingRoster={delivery.roster.isLoading}
+          rosterError={delivery.roster.error}
+          onCueChange={value => delivery.sessionForm.updateForm("cue", value)}
+          onContinue={() => setIsSchoolConfirmed(true)}
+        />
+      </>
     );
   }
 
   return (
     <AppShell status={delivery.status} apiBaseUrl={hostContext.apiBaseUrl} appVersion={hostContext.appVersion}>
+      {revalidationDaysRemaining !== null && revalidationDaysRemaining <= 5 && (
+        <p className="sync-warning" role="status" aria-live="polite">
+          Conectate a internet para revalidar el equipo. Quedan {revalidationDaysRemaining} {revalidationDaysRemaining === 1 ? "día" : "días"}.
+        </p>
+      )}
       <div className="mode-tabs">
         <button
           type="button"

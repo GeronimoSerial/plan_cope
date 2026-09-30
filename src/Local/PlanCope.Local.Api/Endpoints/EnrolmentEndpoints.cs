@@ -21,7 +21,8 @@ public static class EnrolmentEndpoints
             IHttpClientFactory httpClientFactory,
             ISyncStateRepository syncStateRepository,
             INodeIdentityRepository nodeIdentityRepository,
-            LocalExamPullService examPullService,
+            IInitialActivationDownloadService initialDownloadService,
+            ActivationRevalidationService revalidationService,
             HardwareFingerprintService fingerprintService,
             CancellationToken ct) =>
         {
@@ -68,11 +69,21 @@ public static class EnrolmentEndpoints
                 return Results.BadRequest(new { error = "Central devolvió una respuesta inválida." });
             }
 
+            var downloadWasInProgress = string.Equals(
+                await ReadStateStringAsync(syncStateRepository, "activation_in_progress", ct), "true", StringComparison.OrdinalIgnoreCase);
+            await revalidationService.SetActivationInProgressAsync(true, ct);
+            if (!downloadWasInProgress)
+                await UpsertStateStringAsync(syncStateRepository, "last_exam_pull_cursor", "0", ct);
+
             await UpsertStateStringAsync(syncStateRepository, "node_id", redeemed.NodeId, ct);
             await UpsertStateStringAsync(syncStateRepository, "central_access_token", redeemed.AccessToken, ct);
             await UpsertStateStringAsync(syncStateRepository, "central_refresh_token", redeemed.RefreshToken, ct);
             await UpsertStateStringAsync(syncStateRepository, "central_access_token_expires_at", redeemed.AccessTokenExpiresAt.ToString("O"), ct);
             await UpsertStateStringAsync(syncStateRepository, "central_refresh_token_expires_at", redeemed.RefreshTokenExpiresAt.ToString("O"), ct);
+            var serverTime = redeemed.ServerTime == default ? DateTimeOffset.UtcNow : redeemed.ServerTime;
+            await UpsertStateStringAsync(syncStateRepository, "last_server_time", serverTime.ToString("O"), ct);
+            await UpsertStateStringAsync(syncStateRepository, "last_revalidation_at", serverTime.ToString("O"), ct);
+            await UpsertStateStringAsync(syncStateRepository, "revalidation_interval_days", redeemed.RevalidationIntervalDays.ToString(System.Globalization.CultureInfo.InvariantCulture), ct);
 
             var enrolledIdentity = identity ?? new NodeIdentity(
                 Guid.NewGuid().ToString("N"), null, null, fingerprint.CompositeHash, fingerprint.ComponentsJson,
@@ -82,18 +93,18 @@ public static class EnrolmentEndpoints
                 NodeId = redeemed.NodeId,
                 Cue = null,
                 EnrolledAt = DateTimeOffset.UtcNow.ToString("O"),
-                CredentialState = "active"
+                CredentialState = "active",
+                RevocationDetectedAt = null,
+                RevocationStage = null
             }, ct);
 
-            // Establish the initial exam package cache before the host opens the workspace.
             // The persisted credentials make a retry safe if Central is temporarily unavailable.
-            var initialPull = await examPullService.PullAsync(ct);
-            if (!initialPull.Success)
+            var initialDownload = await initialDownloadService.DownloadAllAsync(ct);
+            if (!initialDownload.Success)
             {
-                return Results.Problem("La activación se guardó, pero no se pudieron descargar los datos iniciales. Reintentá cuando vuelva la conexión.",
+                return Results.Problem(initialDownload.Error ?? "No se pudieron descargar los datos iniciales. Reintentá cuando vuelva la conexión.",
                     statusCode: StatusCodes.Status502BadGateway);
             }
-
             return Results.Ok(new { nodeId = redeemed.NodeId });
         });
 
@@ -172,6 +183,8 @@ public static class EnrolmentEndpoints
             RefreshToken = refreshToken,
             AccessTokenExpiresAt = accessTokenExpiresAt,
             RefreshTokenExpiresAt = refreshTokenExpiresAt,
+            ServerTime = TryReadDateTimeOffset(element, "serverTime", out var serverTime) ? serverTime : default,
+            RevalidationIntervalDays = element.TryGetProperty("revalidationIntervalDays", out var interval) && interval.TryGetInt32(out var days) ? Math.Clamp(days, 1, 365) : 30,
         };
     }
 

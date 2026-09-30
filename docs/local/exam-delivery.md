@@ -5,9 +5,10 @@ the installer.
 
 ## Fresh install
 
-1. Activate/enrol the node (`/api/enrolment/redeem`) so `central_url`, `node_id` and the node
-   credentials exist in `sync_state`.
-2. The background sync (`SyncBackgroundService`) pulls published exam packages from Central on
+1. Enter a PCOPE key in the Local activation screen. Local redeems it at `/api/activation/redeem`,
+   then completes the initial download of schools, rosters, and published exams before opening
+   the workspace.
+2. After activation, background sync (`SyncBackgroundService`) pulls published exam packages from Central on
    its idle tick (about every 30 seconds, paused while a delivery session is active) and upserts
    them locally.
 3. An operator can also pull on demand with the **Buscar exámenes nuevos** button in the host UI,

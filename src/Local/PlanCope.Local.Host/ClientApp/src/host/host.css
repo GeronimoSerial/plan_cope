@@ -3,6 +3,14 @@
   min-height: 100vh;
 }
 
+.sync-warning {
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  color: #704900;
+  background: #fff4cc;
+  border: 1px solid #e8cf7a;
+}
+
 .school-gate {
   display: grid;
   place-items: center;

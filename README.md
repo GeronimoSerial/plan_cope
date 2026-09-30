@@ -218,7 +218,19 @@ offline-attack headroom is not worth giving up. Re-measure on a real school
 box only to confirm the operator experience; do not treat a slower field
 number as grounds to weaken parameters without owner sign-off.
 
-### Two-phase activation
+### Activation (current)
+
+Local uses one online PCOPE activation key. It redeems against Central, downloads published
+exams, all available schools and their CUE/year rosters, and opens only after the initial download
+completes. Reconnect by day 25 for the 30-day Central revalidation. If activation expires, cached
+data and credentials are wiped while unsent results remain in the outbox; reactivation sends
+those results before fetching fresh data. The shipped Central API base URL is
+`https://api.plancope.sistemas.mec.gob.ar`; developers can override `Central:BaseUrl`.
+
+The offline passphrase/bundle sections below are retained as historical implementation notes;
+they no longer describe the shipped activation flow. See [current activation notes](docs/activation-passphrase.md).
+
+### Retired two-phase activation
 
 Activation is split into two phases with separate failure modes. **Phase A** is offline: the
 operator's passphrase derives a key via Argon2id that unlocks the encrypted roster through a
@@ -514,7 +526,7 @@ The private-installer workflow:
 4. Refuses to build at all without `NOMINALIZATION_DOCUMENT_HMAC_KEY` set to at
    least 32 UTF-8 bytes.
 
-**The activation passphrase never enters CI in either repository.** The bundle
+**The retired activation passphrase never enters CI in either repository.** The bundle
 that reaches the private repo is already encrypted; the passphrase is typed by
 the field operator once per machine, at activation time — see
 [`docs/activation-passphrase.md`](docs/activation-passphrase.md).

@@ -17,3 +17,4 @@ INSERT INTO node_identity SELECT id, node_id, cue, fingerprint_hash, fingerprint
 FROM node_identity_legacy;
 DROP TABLE node_identity_legacy;
 PRAGMA foreign_keys=ON;
+CREATE UNIQUE INDEX ux_node_identity_cue ON node_identity (cue) WHERE cue IS NOT NULL;

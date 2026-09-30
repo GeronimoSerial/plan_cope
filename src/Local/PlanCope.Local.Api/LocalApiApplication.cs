@@ -60,9 +60,18 @@ public static class LocalApiApplication
 
             if (!isAllowlisted)
             {
+                if (!path.StartsWithSegments("/api"))
+                {
+                    await next(context);
+                    return;
+                }
                 var nodeIdentityRepository = context.RequestServices.GetRequiredService<INodeIdentityRepository>();
                 var identity = await nodeIdentityRepository.GetAsync(context.RequestAborted);
-                if (identity?.RevocationStage == "locked")
+                var expired = await context.RequestServices.GetRequiredService<ActivationRevalidationService>()
+                    .IsExpiredAsync(context.RequestAborted);
+                var activationInProgress = await context.RequestServices.GetRequiredService<ActivationRevalidationService>()
+                    .IsActivationInProgressAsync(context.RequestAborted);
+                if (identity?.RevocationStage == "locked" || expired || activationInProgress)
                 {
                     context.Response.StatusCode = StatusCodes.Status423Locked;
                     await context.Response.WriteAsJsonAsync(new { error = "Este equipo está bloqueado. Reactivalo con una clave nueva." });

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using PlanCope.Central.Api.Data;
 using PlanCope.Central.Api.Integrations.Ge;
+using PlanCope.Central.Api.Services;
 using PlanCope.Shared.Contracts.Sync;
 using PlanCope.Shared.Domain.ValueObjects;
 
@@ -16,6 +17,40 @@ public sealed class RosterSyncController(
     IGeRosterService rosterService,
     IAuthorizationService authorizationService) : ControllerBase
 {
+    [HttpGet("rosters/index")]
+    public async Task<ActionResult<object>> GetRosterIndex(CancellationToken cancellationToken = default)
+    {
+        if (!NodeAccessAuth.TryGetNodeId(User, out var nodeId) ||
+            !await dbContext.RegisteredNodes.AsNoTracking().AnyAsync(
+                node => node.Id == nodeId && node.Cue == string.Empty, cancellationToken))
+        {
+            return Forbid();
+        }
+
+        var schools = await dbContext.Schools.AsNoTracking()
+            .Select(static school => new { school.Cue, school.Annex, school.Name })
+            .ToListAsync(cancellationToken);
+        var rosterRows = await dbContext.GeRosterSnapshots.AsNoTracking()
+            .OrderByDescending(static snapshot => snapshot.FetchedAt)
+            .Select(static snapshot => new { snapshot.Cue, snapshot.SchoolYear, snapshot.FetchedAt })
+            .ToListAsync(cancellationToken);
+
+        var rosters = rosterRows
+            .GroupBy(static row => new { row.Cue, row.SchoolYear })
+            .Select(static group => group.First())
+            .OrderBy(static row => row.Cue, StringComparer.Ordinal)
+            .ThenBy(static row => row.SchoolYear, StringComparer.Ordinal)
+            .Select(static row => new { cue = row.Cue, schoolYear = row.SchoolYear })
+            .ToList();
+        var schoolList = schools.Select(static school => new
+        {
+            cue = $"{school.Cue:D7}{(school.Annex ?? 0):D2}",
+            name = school.Name
+        }).ToList();
+
+        return Ok(new { serverTime = DateTimeOffset.UtcNow, schools = schoolList, rosters });
+    }
+
     [HttpGet("roster/{cue}/{schoolYear}")]
     public async Task<ActionResult<GeRosterPackageDto>> GetRoster(
         string cue,

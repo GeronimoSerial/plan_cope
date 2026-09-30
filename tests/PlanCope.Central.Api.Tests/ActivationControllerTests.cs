@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using PlanCope.Central.Api.Auth;
 using PlanCope.Central.Api.Controllers;
@@ -271,7 +272,11 @@ public sealed class ActivationControllerTests
             SigningKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         });
         var credentialService = new NodeCredentialService(dbContext, new TokenService(options));
-        return new ActivationController(dbContext, new ActivationKeyService(), credentialService)
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Activation:RevalidationIntervalDays"] = "30"
+        }).Build();
+        return new ActivationController(dbContext, new ActivationKeyService(), credentialService, configuration)
         {
             ControllerContext = new ControllerContext
             {

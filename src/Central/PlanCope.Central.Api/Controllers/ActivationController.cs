@@ -20,7 +20,8 @@ namespace PlanCope.Central.Api.Controllers;
 public sealed class ActivationController(
     PlanCopeDbContext dbContext,
     ActivationKeyService keyService,
-    NodeCredentialService credentialService) : ControllerBase
+    NodeCredentialService credentialService,
+    IConfiguration configuration) : ControllerBase
 {
     [HttpPost("redeem")]
     [AllowAnonymous]
@@ -94,7 +95,9 @@ public sealed class ActivationController(
             AccessToken = credentials.AccessToken,
             RefreshToken = credentials.PlaintextRefreshToken,
             AccessTokenExpiresAt = credentials.AccessTokenExpiresAt,
-            RefreshTokenExpiresAt = credentials.RefreshTokenExpiresAt
+            RefreshTokenExpiresAt = credentials.RefreshTokenExpiresAt,
+            ServerTime = DateTimeOffset.UtcNow,
+            RevalidationIntervalDays = Math.Clamp(configuration.GetValue("Activation:RevalidationIntervalDays", 30), 1, 365)
         }));
     }
 
@@ -119,7 +122,9 @@ public sealed class ActivationController(
             RefreshToken = rotation.Credentials.PlaintextRefreshToken,
             AccessTokenExpiresAt = rotation.Credentials.AccessTokenExpiresAt,
             RefreshTokenExpiresAt = rotation.Credentials.RefreshTokenExpiresAt,
-            NodeRevoked = rotation.Node.RevokedAt is not null
+            NodeRevoked = rotation.Node.RevokedAt is not null,
+            ServerTime = DateTimeOffset.UtcNow,
+            RevalidationIntervalDays = Math.Clamp(configuration.GetValue("Activation:RevalidationIntervalDays", 30), 1, 365)
         });
     }
 }

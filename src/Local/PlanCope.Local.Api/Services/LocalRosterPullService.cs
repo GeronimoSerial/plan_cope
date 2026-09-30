@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text.Json;
 using PlanCope.Local.Api.Data.Repositories;
 using PlanCope.Shared.Contracts.Sync;
@@ -109,6 +110,56 @@ public sealed class LocalRosterPullService(
         }
     }
 
+    public async Task<LocalRosterBulkPullResult> PullAllAsync(CancellationToken cancellationToken = default)
+    {
+        var centralUrl = await ReadStateStringAsync("central_url", cancellationToken);
+        var nodeId = await ReadStateStringAsync("node_id", cancellationToken);
+        if (string.IsNullOrWhiteSpace(centralUrl) || string.IsNullOrWhiteSpace(nodeId))
+            return new(false, 0, 0, "Central credentials are not configured.");
+        if (!Uri.TryCreate(centralUrl.Trim().TrimEnd('/') + "/", UriKind.Absolute, out var baseAddress))
+            return new(false, 0, 0, "Central URL is invalid.");
+
+        try
+        {
+            var client = httpClientFactory.CreateClient(nameof(LocalRosterPullService));
+            client.BaseAddress = baseAddress;
+            using var response = await client.GetAsync("api/sync/rosters/index", cancellationToken);
+            if (!response.IsSuccessStatusCode)
+                return new(false, 0, 0, $"Central roster index failed: {(int)response.StatusCode}.");
+            var index = await response.Content.ReadFromJsonAsync<RosterIndex>(JsonOptions, cancellationToken);
+            if (index is null)
+                return new(false, 0, 0, "Central returned an empty roster index.");
+
+            await rosterRepository.UpsertSchoolsAsync(index.Schools
+                .Select(static school => new LocalSchoolSummary(school.Cue, school.Name)).ToArray(), cancellationToken);
+            var imported = 0;
+            foreach (var roster in index.Rosters)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var result = await PullAsync(roster.Cue, roster.SchoolYear, cancellationToken);
+                if (!result.Success)
+                    return new(false, imported, index.Rosters.Count, result.Error);
+                imported++;
+            }
+
+            await syncStateRepository.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"),
+                "last_full_roster_pull_at", JsonSerializer.Serialize(DateTimeOffset.UtcNow, JsonOptions),
+                DateTimeOffset.UtcNow.ToString("O")), cancellationToken);
+            await syncStateRepository.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"),
+                "last_server_time", JsonSerializer.Serialize(index.ServerTime, JsonOptions),
+                DateTimeOffset.UtcNow.ToString("O")), cancellationToken);
+            return new(true, imported, index.Rosters.Count, null);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or InvalidOperationException or ArgumentException)
+        {
+            return new(false, 0, 0, exception.Message);
+        }
+    }
+
     private async Task<string?> ReadStateStringAsync(string key, CancellationToken cancellationToken)
     {
         var state = await syncStateRepository.GetAsync(key, cancellationToken);
@@ -125,6 +176,10 @@ public sealed class LocalRosterPullService(
 
     private static LocalRosterPullResult Failure(string error) =>
         new(false, false, null, null, 0, 0, error);
+
+    private sealed record RosterIndex(DateTimeOffset ServerTime, List<SchoolEntry> Schools, List<RosterEntry> Rosters);
+    private sealed record SchoolEntry(string Cue, string? Name);
+    private sealed record RosterEntry(string Cue, string SchoolYear);
 }
 
 public sealed record LocalRosterPullResult(
@@ -135,3 +190,5 @@ public sealed record LocalRosterPullResult(
     int SectionCount,
     int StudentCount,
     string? Error);
+
+public sealed record LocalRosterBulkPullResult(bool Success, int Downloaded, int Total, string? Error);

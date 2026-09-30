@@ -7,4 +7,6 @@ public interface INodeIdentityRepository
     Task<NodeIdentity?> GetAsync(CancellationToken cancellationToken = default);
 
     Task UpsertAsync(NodeIdentity identity, CancellationToken cancellationToken = default);
+
+    Task DeleteAsync(CancellationToken cancellationToken = default);
 }

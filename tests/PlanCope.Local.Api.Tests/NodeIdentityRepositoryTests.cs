@@ -105,6 +105,17 @@ public sealed class NodeIdentityRepositoryTests : IDisposable
         Assert.Equal(1, Convert.ToInt64(count));
     }
 
+    [Fact]
+    public async Task UniversalIdentity_AllowsNullCueWithoutSchoolRow()
+    {
+        var identity = new NodeIdentity("universal-node", "central-node", null, "fp", "{}",
+            DateTimeOffset.UtcNow.ToString("O"), null, "active", null, null);
+
+        await repository.UpsertAsync(identity);
+
+        Assert.Equal(identity, await repository.GetAsync());
+    }
+
     private void SeedSchool(string cue)
     {
         using var connection = new SqliteConnection(connectionString);

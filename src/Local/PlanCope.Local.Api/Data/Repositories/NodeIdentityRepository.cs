@@ -5,6 +5,12 @@ namespace PlanCope.Local.Api.Data.Repositories;
 
 public sealed class NodeIdentityRepository(ILocalSqliteConnectionFactory connectionFactory) : INodeIdentityRepository
 {
+    public async Task DeleteAsync(CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateOpenConnection();
+        await connection.ExecuteAsync(new CommandDefinition("DELETE FROM node_identity;", cancellationToken: cancellationToken));
+    }
+
     public async Task<NodeIdentity?> GetAsync(CancellationToken cancellationToken = default)
     {
         const string sql = """
@@ -22,7 +28,7 @@ public sealed class NodeIdentityRepository(ILocalSqliteConnectionFactory connect
         const string sql = """
             INSERT INTO node_identity (id, node_id, cue, fingerprint_hash, fingerprint_components_json, enrolled_at, last_sync_at, credential_state, revocation_detected_at, revocation_stage)
             VALUES (@Id, @NodeId, @Cue, @FingerprintHash, @FingerprintComponentsJson, @EnrolledAt, @LastSyncAt, @CredentialState, @RevocationDetectedAt, @RevocationStage)
-            ON CONFLICT (id)
+            ON CONFLICT
             DO UPDATE SET node_id = excluded.node_id,
                           fingerprint_hash = excluded.fingerprint_hash,
                           fingerprint_components_json = excluded.fingerprint_components_json,

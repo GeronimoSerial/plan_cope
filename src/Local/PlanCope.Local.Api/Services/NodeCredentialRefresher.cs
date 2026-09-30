@@ -77,6 +77,11 @@ public sealed class NodeCredentialRefresher(
             await UpsertStateStringAsync("central_access_token_expires_at", refreshed.AccessTokenExpiresAt.ToString("O"), cancellationToken);
             await UpsertStateStringAsync("central_refresh_token_expires_at", refreshed.RefreshTokenExpiresAt.ToString("O"), cancellationToken);
 
+            var serverTime = refreshed.ServerTime == default ? DateTimeOffset.UtcNow : refreshed.ServerTime;
+            await UpsertStateStringAsync("last_server_time", serverTime.ToString("O"), cancellationToken);
+            await UpsertStateStringAsync("last_revalidation_at", serverTime.ToString("O"), cancellationToken);
+            await UpsertStateStringAsync("revalidation_interval_days", Math.Clamp(refreshed.RevalidationIntervalDays, 1, 365).ToString(System.Globalization.CultureInfo.InvariantCulture), cancellationToken);
+
             if (refreshed.NodeRevoked)
             {
                 await MarkRevokedAsync(cancellationToken);

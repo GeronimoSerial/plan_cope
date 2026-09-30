@@ -4,7 +4,7 @@ import { ActivationScreen, isValidActivationKeyFormat, shouldShowActivation } fr
 
 describe("activation", () => {
   it("validates the PCOPE checksum and accepts cosmetic separators", () => {
-    expect(isValidActivationKeyFormat("PCOPE-ABCDE-FGHJK-MNPQR-MZ")).toBe(false);
+    expect(isValidActivationKeyFormat("PCOPE-ABCDE-FGHJK-MNPQR-M1")).toBe(false);
     expect(isValidActivationKeyFormat("PCOPEABCDEFGHJKMNPQRMZ")).toBe(true);
     expect(isValidActivationKeyFormat("PCOPE-ABCDEFGHJKMNPQRMZ")).toBe(true);
   });
