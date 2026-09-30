@@ -38,6 +38,11 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__CentralDatabase: ${ConnectionStrings__CentralDatabase:-Server=postgres;Port=5432;Database=plan_cope_central;User Id=plancope;Password=devpassword;}
+      ConnectionStrings__Asistencias: ${ConnectionStrings__Asistencias:-}
+      Rosters__Source: ${Rosters__Source:-}
+      Rosters__SchoolYear: ${Rosters__SchoolYear:-}
+      Rosters__DailySyncTime: ${Rosters__DailySyncTime:-04:30}
+      Rosters__TimeZoneId: ${Rosters__TimeZoneId:-America/Argentina/Buenos_Aires}
       Auth__SigningKey: ${Auth__SigningKey:-dev-only-signing-key-0123456789abcdefghijklmnop}
       GeApi__Username: ${GeApi__Username:-devuser}
       GeApi__Password: ${GeApi__Password:-devpassword}
