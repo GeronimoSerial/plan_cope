@@ -76,6 +76,6 @@ public sealed class InitialActivationDownloadExceptionTests
     {
         public Task<LocalRosterBulkPullResult> PullAllAsync(CancellationToken cancellationToken = default) => shouldThrow
             ? throw new IOException("roster pull failed")
-            : Task.FromResult(new LocalRosterBulkPullResult(true, 0, 0, null));
+            : Task.FromResult(new LocalRosterBulkPullResult(true, 0, 0, 0, null));
     }
 }

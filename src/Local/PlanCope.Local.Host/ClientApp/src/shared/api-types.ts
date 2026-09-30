@@ -1,5 +1,6 @@
 export type ApiErrorPayload = {
   error?: string;
+  detail?: string;
   errors?: Record<string, string[]>;
 };
 

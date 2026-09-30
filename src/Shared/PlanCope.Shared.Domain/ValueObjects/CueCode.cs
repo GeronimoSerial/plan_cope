@@ -1,8 +1,31 @@
+using System.Globalization;
+
 namespace PlanCope.Shared.Domain.ValueObjects;
 
 public readonly record struct CueCode(string Value)
 {
     public const int Length = 9;
+
+    /// <summary>Converts Central's legacy seven-digit base CUE and newer full CUE storage to canonical form.</summary>
+    public static bool TryFromSchool(long storedCue, int? annex, out string normalized)
+    {
+        if (storedCue < 0 || annex is < 0 or > 99)
+        {
+            normalized = string.Empty;
+            return false;
+        }
+        var candidate = storedCue > 9_999_999
+            ? storedCue.ToString("D9", CultureInfo.InvariantCulture)
+            : $"{storedCue.ToString("D7", CultureInfo.InvariantCulture)}{(annex ?? 0).ToString("D2", CultureInfo.InvariantCulture)}";
+        return TryNormalize(candidate, out normalized);
+    }
+
+    public static string FromSchool(long storedCue, int? annex)
+    {
+        if (!TryFromSchool(storedCue, annex, out var normalized))
+            throw new ArgumentException("School row does not contain a valid CUE.", nameof(storedCue));
+        return normalized;
+    }
 
     public static bool IsValid(string? value) => TryNormalize(value, out _);
 

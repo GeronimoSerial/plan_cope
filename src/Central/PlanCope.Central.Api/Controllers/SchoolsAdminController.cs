@@ -280,8 +280,9 @@ public sealed class SchoolsAdminController(
     {
         // School.Cue is a long; everywhere else (claims, UserSchoolAssignment) a CUE is the
         // normalized digit string.
-        var cueText = school.Cue.ToString();
-        return CueCode.TryNormalize(cueText, out var normalized) ? normalized : cueText;
+        return CueCode.TryFromSchool(school.Cue, school.Annex, out var normalized)
+            ? normalized
+            : school.Cue.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private static SchoolSummaryDto ToSummary(School school, string normalizedCue)

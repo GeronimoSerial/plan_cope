@@ -2,7 +2,11 @@ import { FormEvent, useEffect, useState } from "react";
 import type { NativeBridge } from "../types";
 
 type ActivationScreenProps = { apiBaseUrl: string; bridge?: NativeBridge };
-type ErrorResponse = { error?: string };
+type ErrorResponse = { error?: string; detail?: string };
+
+export function activationErrorMessage(body: ErrorResponse, fallback: string): string {
+  return body.error ?? body.detail ?? fallback;
+}
 
 export function normalizeActivationKey(value: string): string {
   return value.toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -60,7 +64,7 @@ export function ActivationScreen({ apiBaseUrl, bridge = window.chrome?.webview }
       });
       if (!response.ok) {
         const body = await response.json().catch(() => ({})) as ErrorResponse;
-        setError(body.error || "No se pudo validar la clave. Verificá la conexión e intentá nuevamente.");
+        setError(activationErrorMessage(body, "No se pudo validar la clave. Verificá la conexión e intentá nuevamente."));
         setSubmitted(false);
         return;
       }
@@ -79,7 +83,7 @@ export function ActivationScreen({ apiBaseUrl, bridge = window.chrome?.webview }
       const response = await fetch(`${apiBaseUrl}/api/enrolment/retry-download`, { method: "POST" });
       if (!response.ok) {
         const body = await response.json().catch(() => ({})) as ErrorResponse;
-        setError(body.error || "No se pudieron descargar los datos. Verificá la conexión e intentá nuevamente.");
+        setError(activationErrorMessage(body, "No se pudieron descargar los datos. Verificá la conexión e intentá nuevamente."));
         setSubmitted(false);
         return;
       }

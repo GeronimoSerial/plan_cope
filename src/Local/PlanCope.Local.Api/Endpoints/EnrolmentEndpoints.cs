@@ -105,8 +105,10 @@ public static class EnrolmentEndpoints
             var initialDownload = await initialDownloadService.DownloadAllAsync(ct);
             if (!initialDownload.Success)
             {
-                return Results.Problem(initialDownload.Error ?? "No se pudieron descargar los datos iniciales. Reintentá cuando vuelva la conexión.",
-                    statusCode: StatusCodes.Status502BadGateway);
+                return Results.Json(new
+                {
+                    error = initialDownload.Error ?? "No se pudieron descargar los datos iniciales. Reintentá cuando vuelva la conexión."
+                }, statusCode: StatusCodes.Status502BadGateway);
             }
             return Results.Ok(new { nodeId = redeemed.NodeId });
         });
@@ -131,8 +133,10 @@ public static class EnrolmentEndpoints
             var result = await initialDownloadService.DownloadAllAsync(ct);
             return result.Success
                 ? Results.Ok(new { nodeId = identity.NodeId })
-                : Results.Problem(result.Error ?? "No se pudieron descargar los datos iniciales. Reintentá cuando vuelva la conexión.",
-                    statusCode: StatusCodes.Status502BadGateway);
+                : Results.Json(new
+                {
+                    error = result.Error ?? "No se pudieron descargar los datos iniciales. Reintentá cuando vuelva la conexión."
+                }, statusCode: StatusCodes.Status502BadGateway);
         });
 
         return endpoints;

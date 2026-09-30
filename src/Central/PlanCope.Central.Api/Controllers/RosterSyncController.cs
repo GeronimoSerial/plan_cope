@@ -45,11 +45,15 @@ public sealed class RosterSyncController(
             .ThenBy(static row => row.SchoolYear, StringComparer.Ordinal)
             .Select(static row => new { cue = row.Cue, schoolYear = row.SchoolYear })
             .ToList();
-        var schoolList = schools.Select(static school => new
-        {
-            cue = $"{school.Cue:D7}{(school.Annex ?? 0):D2}",
-            name = school.Name
-        }).ToList();
+        var schoolList = schools
+            .Select(static school => CueCode.TryFromSchool(school.Cue, school.Annex, out var cue)
+                ? new { cue, name = school.Name }
+                : null)
+            .Where(static school => school is not null)
+            .Select(static school => school!)
+            .GroupBy(static school => school.cue, StringComparer.Ordinal)
+            .Select(static group => group.First())
+            .ToList();
 
         if (!string.IsNullOrEmpty(node.Cue))
         {
@@ -109,9 +113,15 @@ public sealed class RosterSyncController(
             return Problem("The roster snapshot exceeds the transport limits.", statusCode: StatusCodes.Status413PayloadTooLarge);
         }
 
+        var canonicalCueNumber = long.Parse(snapshot.Cue, System.Globalization.CultureInfo.InvariantCulture);
         var cueNumber = long.Parse(snapshot.Cue[..7], System.Globalization.CultureInfo.InvariantCulture);
         var annex = int.Parse(snapshot.Cue[7..], System.Globalization.CultureInfo.InvariantCulture);
         var schoolName = await dbContext.Schools
+            .AsNoTracking()
+            .Where(school => school.Cue == canonicalCueNumber)
+            .Select(school => school.Name)
+            .FirstOrDefaultAsync(cancellationToken);
+        schoolName ??= await dbContext.Schools
             .AsNoTracking()
             .Where(school => school.Cue == cueNumber && (school.Annex ?? 0) == annex)
             .Select(school => school.Name)

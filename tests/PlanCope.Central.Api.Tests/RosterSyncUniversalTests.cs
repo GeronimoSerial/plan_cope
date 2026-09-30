@@ -7,7 +7,9 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using PlanCope.Central.Api.Controllers;
 using PlanCope.Central.Api.Data;
+using PlanCope.Central.Api.Integrations.Ge;
 using PlanCope.Central.Api.Services;
+using PlanCope.Shared.Contracts.Sync;
 using PlanCope.Shared.Domain.Central;
 using PlanCope.TestSupport;
 using Xunit;
@@ -88,12 +90,60 @@ public sealed class RosterSyncUniversalTests
         Assert.Equal("100000100", json.RootElement.GetProperty("rosters")[0].GetProperty("cue").GetString());
     }
 
+    [Theory]
+    [InlineData(180000001, 1)]
+    [InlineData(1800000, 1)]
+    public async Task Roster_index_normalizes_full_and_legacy_school_cue_storage(long storedCue, int annex)
+    {
+        using var db = CreateDatabase();
+        db.RegisteredNodes.Add(Node("universal", string.Empty));
+        db.Schools.Add(School("prod-shaped", storedCue, annex, "Escuela"));
+        await db.SaveChangesAsync();
+        var controller = Controller(db, isNode: true, "universal");
+
+        var ok = Assert.IsType<OkObjectResult>((await controller.GetRosterIndex()).Result);
+
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.Equal("180000001", json.RootElement.GetProperty("schools")[0].GetProperty("cue").GetString());
+    }
+
+    [Theory]
+    [InlineData(180000001, 1)]
+    [InlineData(1800000, 1)]
+    public async Task Roster_package_name_lookup_matches_full_and_legacy_school_rows(long storedCue, int annex)
+    {
+        using var db = CreateDatabase();
+        db.RegisteredNodes.Add(Node("universal", string.Empty));
+        db.Schools.Add(School("prod-shaped", storedCue, annex, "Escuela de prueba"));
+        await db.SaveChangesAsync();
+        const string cue = "180000001";
+        var package = new GeRosterPackageDto("snapshot-1", cue, "2026", DateTimeOffset.UtcNow,
+            string.Empty, 0, 0, "Synced", []);
+        package = package with { Checksum = GeRosterPackageChecksum.Calculate(package) };
+        var snapshot = new GeRosterSnapshot
+        {
+            Id = package.SnapshotId,
+            Cue = cue,
+            SchoolYear = package.SchoolYear,
+            FetchedAt = package.FetchedAt,
+            Checksum = package.Checksum,
+            SectionCount = 0,
+            StudentCount = 0,
+            Status = package.Status
+        };
+        var controller = Controller(db, isNode: true, "universal", new FakeRosterService(snapshot));
+
+        var ok = Assert.IsType<OkObjectResult>((await controller.GetRoster(cue, "2026")).Result);
+
+        Assert.Equal("Escuela de prueba", Assert.IsType<GeRosterPackageDto>(ok.Value).SchoolName);
+    }
+
     private static PlanCopeDbContext CreateDatabase() => new(new DbContextOptionsBuilder<PlanCopeDbContext>()
         .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
         .UseInternalServiceProvider(InMemoryServices).Options);
 
-    private static RosterSyncController Controller(PlanCopeDbContext db, bool isNode, string nodeId) =>
-        new(db, null!, null!)
+    private static RosterSyncController Controller(PlanCopeDbContext db, bool isNode, string nodeId, IGeRosterService? rosterService = null) =>
+        new(db, rosterService!, null!)
         {
             ControllerContext = new ControllerContext
             {
@@ -124,4 +174,16 @@ public sealed class RosterSyncUniversalTests
         Checksum = "checksum",
         Status = "ready"
     };
+
+    private sealed class FakeRosterService(GeRosterSnapshot snapshot) : IGeRosterService
+    {
+        public Task<GeRosterRefreshResult> RefreshAsync(string cue, string schoolYear, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<GeRosterSnapshot?> GetLatestAsync(string cue, string schoolYear, CancellationToken cancellationToken = default) =>
+            Task.FromResult<GeRosterSnapshot?>(snapshot);
+
+        public Task<IReadOnlyList<GeRosterSectionStatus>> GetSectionsAsync(string cue, string schoolYear, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<GeRosterSectionStatus>>([]);
+    }
 }

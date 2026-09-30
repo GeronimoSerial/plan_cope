@@ -11,6 +11,7 @@ using PlanCope.Shared.Contracts.Exams;
 using PlanCope.Shared.Contracts.Sync;
 using PlanCope.Shared.Domain.Central;
 using PlanCope.Shared.Domain.Local;
+using PlanCope.Shared.Domain.ValueObjects;
 using PlanCope.Shared.Grading;
 using GradingExamVersion = PlanCope.Shared.Grading.ExamVersion;
 
@@ -523,9 +524,15 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
         if (string.IsNullOrWhiteSpace(node.Cue))
         {
             var schools = await dbContext.Schools.AsNoTracking()
-                .Select(static school => new { school.Id, school.Cue }).ToListAsync(cancellationToken);
+                .Select(static school => new { school.Id, school.Cue, school.Annex }).ToListAsync(cancellationToken);
             return schools.SelectMany(static school => new[]
-                { school.Id, school.Cue.ToString(System.Globalization.CultureInfo.InvariantCulture) })
+                {
+                    school.Id,
+                    CueCode.TryFromSchool(school.Cue, school.Annex, out var canonicalCue)
+                        ? canonicalCue
+                        : school.Cue.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    school.Cue.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                })
                 .ToHashSet(StringComparer.Ordinal);
         }
 
@@ -540,17 +547,30 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
         }
 
         schoolIds.Add(node.Cue);
-        if (long.TryParse(node.Cue, out var cue))
+        if (CueCode.TryNormalize(node.Cue, out var normalizedNodeCue))
         {
-            var schoolId = await dbContext.Schools
+            var cue = long.Parse(normalizedNodeCue, System.Globalization.CultureInfo.InvariantCulture);
+            var baseCue = long.Parse(normalizedNodeCue[..7], System.Globalization.CultureInfo.InvariantCulture);
+            var annex = int.Parse(normalizedNodeCue[7..], System.Globalization.CultureInfo.InvariantCulture);
+            var schools = await dbContext.Schools
                 .AsNoTracking()
-                .Where(x => x.Cue == cue)
+                .Where(x => x.Cue == cue || (x.Cue == baseCue && (x.Annex ?? 0) == annex))
+                .Select(static school => new { school.Id, school.Cue, school.Annex })
+                .ToListAsync(cancellationToken);
+            foreach (var school in schools.Where(candidate =>
+                         CueCode.TryFromSchool(candidate.Cue, candidate.Annex, out var normalized) && normalized == normalizedNodeCue))
+            {
+                if (!string.IsNullOrWhiteSpace(school.Id)) schoolIds.Add(school.Id);
+            }
+        }
+        else if (long.TryParse(node.Cue, System.Globalization.NumberStyles.None,
+                     System.Globalization.CultureInfo.InvariantCulture, out var legacyCue))
+        {
+            var legacySchoolId = await dbContext.Schools.AsNoTracking()
+                .Where(school => school.Cue == legacyCue)
                 .Select(static school => school.Id)
                 .FirstOrDefaultAsync(cancellationToken);
-            if (!string.IsNullOrWhiteSpace(schoolId))
-            {
-                schoolIds.Add(schoolId);
-            }
+            if (!string.IsNullOrWhiteSpace(legacySchoolId)) schoolIds.Add(legacySchoolId);
         }
 
         return schoolIds;

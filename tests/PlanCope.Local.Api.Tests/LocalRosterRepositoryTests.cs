@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging.Abstractions;
 using PlanCope.Local.Api.Data;
 using PlanCope.Local.Api.Data.Repositories;
 using PlanCope.Local.Api.Services;
@@ -18,7 +19,8 @@ public sealed class LocalRosterRepositoryTests
         {
             var connectionString = $"Data Source={databasePath};Pooling=False";
             new LocalDatabaseInitializer(new LocalDatabaseOptions(connectionString)).Initialize();
-            var repository = new LocalRosterRepository(new LocalSqliteConnectionFactory(new LocalDatabaseOptions(connectionString)));
+            var repository = new LocalRosterRepository(new LocalSqliteConnectionFactory(new LocalDatabaseOptions(connectionString)),
+                NullLogger<LocalRosterRepository>.Instance);
             var hmac = new DocumentHmacService(Options.Create(new NominalizationOptions { DocumentHmacKey = "release-test-key-with-at-least-32-bytes" }));
             var package = CreatePackage();
 

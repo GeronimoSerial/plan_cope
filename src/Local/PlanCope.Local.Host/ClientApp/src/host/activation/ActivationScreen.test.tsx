@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { ActivationScreen, canRetryActivationDownload, isValidActivationKeyFormat, shouldShowActivation } from "./ActivationScreen";
+import { ActivationScreen, activationErrorMessage, canRetryActivationDownload, isValidActivationKeyFormat, shouldShowActivation } from "./ActivationScreen";
 
 describe("activation", () => {
   it("validates the PCOPE checksum and accepts cosmetic separators", () => {
@@ -26,5 +26,10 @@ describe("activation", () => {
     expect(canRetryActivationDownload({ activationInProgress: true })).toBe(true);
     expect(canRetryActivationDownload({ activationInProgress: false })).toBe(false);
     expect(canRetryActivationDownload(null)).toBe(false);
+  });
+
+  it("shows the server detail message returned by a 502 download failure", () => {
+    expect(activationErrorMessage({ detail: "Central devolvió un error específico." }, "fallback"))
+      .toBe("Central devolvió un error específico.");
   });
 });
