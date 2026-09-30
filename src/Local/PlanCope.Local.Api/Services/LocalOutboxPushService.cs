@@ -93,7 +93,8 @@ public sealed class LocalOutboxPushService(
                 }
 
                 return new(false, pending.Count, 0, pending.Count, $"Central push failed: {(int)response.StatusCode}.",
-                    response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden || (int)response.StatusCode >= 500);
+                    response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden
+                        or System.Net.HttpStatusCode.RequestTimeout or System.Net.HttpStatusCode.TooManyRequests || (int)response.StatusCode >= 500);
             }
 
             var result = await response.Content.ReadFromJsonAsync<PushResponse>(JsonOptions, cancellationToken);

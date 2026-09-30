@@ -85,6 +85,8 @@ public sealed class NodeCredentialRefresher(
                     : refreshed.ServerTime;
                 await UpsertStateStringAsync("last_server_time", trustedServerTime.ToString("O"), cancellationToken);
                 await UpsertStateStringAsync("last_revalidation_at", trustedServerTime.ToString("O"), cancellationToken);
+                await UpsertStateStringAsync("last_server_contact_time", refreshed.ServerTime.ToString("O"), cancellationToken);
+                await UpsertStateStringAsync("last_server_contact_local_time", DateTimeOffset.UtcNow.ToString("O"), cancellationToken);
             }
             await UpsertStateStringAsync("revalidation_interval_days", Math.Clamp(refreshed.RevalidationIntervalDays, 1, 365).ToString(System.Globalization.CultureInfo.InvariantCulture), cancellationToken);
 

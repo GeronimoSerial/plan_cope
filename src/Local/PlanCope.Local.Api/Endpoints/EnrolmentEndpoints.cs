@@ -300,6 +300,8 @@ public static class EnrolmentEndpoints
             : serverTime;
         await UpsertStateStringAsync(repository, "last_server_time", trusted.ToString("O"), ct);
         await UpsertStateStringAsync(repository, "last_revalidation_at", trusted.ToString("O"), ct);
+        await UpsertStateStringAsync(repository, "last_server_contact_time", serverTime.ToUniversalTime().ToString("O"), ct);
+        await UpsertStateStringAsync(repository, "last_server_contact_local_time", DateTimeOffset.UtcNow.ToString("O"), ct);
     }
 
     private readonly record struct RedeemBody(

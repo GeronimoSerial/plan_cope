@@ -25,7 +25,18 @@ public sealed class InitialActivationDownloadService(
         // row or a row in backoff must never block reactivation; the normal sync loop retries it.
         if (await outboxRepository.CountPendingAsync(cancellationToken) > 0)
         {
-            var pushed = await outboxPushService.PushAsync(200, cancellationToken);
+            LocalOutboxPushResult pushed;
+            var pushCompleted = false;
+            try
+            {
+                pushed = await outboxPushService.PushAsync(200, cancellationToken);
+                pushCompleted = true;
+            }
+            finally
+            {
+                if (!pushCompleted)
+                    await revalidationService.SetActivationInProgressAsync(false, CancellationToken.None);
+            }
             if (pushed.TransportOrAuthFailure)
             {
                 await revalidationService.SetActivationInProgressAsync(false, cancellationToken);

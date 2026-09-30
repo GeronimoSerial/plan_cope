@@ -20,6 +20,7 @@ public static class ActivationEndpoints
                 isLocked = identity?.RevocationStage == "locked" || expired || inProgress,
                 activationInProgress = inProgress,
                 expiryPending = await revalidation.IsExpiryPendingAsync(ct),
+                localClockWarning = await revalidation.IsLocalClockWarningAsync(ct),
                 revalidationDaysRemaining = daysRemaining,
                 revalidationWarning = daysRemaining is <= 5
             });
