@@ -33,6 +33,8 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
         CancellationToken cancellationToken = default)
     {
         LocalRosterPackageValidator.Validate(package);
+        // Key creation writes sync_state, so do it before opening the roster transaction.
+        documentHmacService.EnsureKey();
 
         using var connection = connectionFactory.CreateOpenConnection();
         using var transaction = connection.BeginTransaction();
