@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Dapper;
 using Microsoft.Data.Sqlite;
 using PlanCope.Local.Api.Data;
@@ -14,6 +15,27 @@ namespace PlanCope.Local.Api.Tests;
 
 public sealed class LocalOutboxPushTests
 {
+    [Fact]
+    public void Local_outbox_event_types_are_written_through_shared_constants()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "PlanCope.slnx"))) directory = directory.Parent;
+        Assert.NotNull(directory);
+        var sourceFiles = Directory.GetFiles(Path.Combine(directory!.FullName, "src/Local/PlanCope.Local.Api"), "*.cs", SearchOption.AllDirectories);
+        var creationSites = sourceFiles.Where(path => !path.EndsWith("OutboxRepository.cs", StringComparison.Ordinal))
+            .SelectMany(path => Regex.Matches(File.ReadAllText(path), "new\\s+SyncOutbox\\s*\\(")
+            .Select(match => (Path: path, Index: match.Index))).ToArray();
+        Assert.NotEmpty(creationSites);
+        foreach (var (path, index) in creationSites)
+        {
+            var source = File.ReadAllText(path);
+            Assert.Contains("SyncEventTypes.", source.Substring(index, Math.Min(700, source.Length - index)));
+        }
+
+        foreach (var path in sourceFiles.Where(path => File.ReadAllText(path).Contains("INSERT INTO sync_outbox", StringComparison.OrdinalIgnoreCase)))
+            Assert.Contains("@EventType", File.ReadAllText(path));
+    }
+
     [Fact]
     public async Task Manual_push_sends_nominal_identity_without_document_or_token_and_marks_accepted()
     {
@@ -134,6 +156,34 @@ public sealed class LocalOutboxPushTests
 
             Assert.False(result.Success);
             Assert.False(result.TransportOrAuthFailure);
+            using var connection = new SqliteConnection(connectionString);
+            connection.Open();
+            Assert.Equal("pending", connection.ExecuteScalar<string>("SELECT status FROM sync_outbox WHERE id='outbox-1';"));
+        }
+        finally { if (File.Exists(databasePath)) File.Delete(databasePath); }
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.RequestTimeout)]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    public async Task Timeout_and_rate_limit_responses_are_transient_transport_failures(HttpStatusCode statusCode)
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"plancope-outbox-{Guid.NewGuid():N}.db");
+        try
+        {
+            var connectionString = $"Data Source={databasePath};Pooling=False";
+            new LocalDatabaseInitializer(new LocalDatabaseOptions(connectionString)).Initialize();
+            var factory = new LocalSqliteConnectionFactory(new LocalDatabaseOptions(connectionString));
+            var state = new SyncStateRepository(factory);
+            var outbox = new OutboxRepository(factory);
+            await state.UpsertAsync(new SyncState("node", "central_url", JsonSerializer.Serialize("https://central.test"), DateTimeOffset.UtcNow.ToString("O")));
+            await state.UpsertAsync(new SyncState("node-id", "node_id", JsonSerializer.Serialize("node-1"), DateTimeOffset.UtcNow.ToString("O")));
+            await outbox.InsertAsync(new SyncOutbox("outbox-1", SyncEventTypes.AttemptSubmitted, "student_attempt", "attempt-1", "key-1", "{\"attempt\":{}}", "pending", 0, null, null, DateTimeOffset.UtcNow.ToString("O"), null));
+            var handler = new DelegateHandler((_, _) => Task.FromResult(new HttpResponseMessage(statusCode)));
+
+            var result = await new LocalOutboxPushService(new TestHttpClientFactory(handler), state, outbox).PushAsync(20);
+
+            Assert.True(result.TransportOrAuthFailure);
             using var connection = new SqliteConnection(connectionString);
             connection.Open();
             Assert.Equal("pending", connection.ExecuteScalar<string>("SELECT status FROM sync_outbox WHERE id='outbox-1';"));

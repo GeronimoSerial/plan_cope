@@ -93,6 +93,8 @@ public sealed class ActivationRevalidationServiceTests : IDisposable
         var validatedAt = DateTimeOffset.UtcNow.AddDays(-31);
         await SeedExpiredIdentityAsync(validatedAt);
         await SeedWipeGraphAsync(activeSession: true, unsubmittedAttempt: true);
+        using (var setup = connectionFactory.CreateOpenConnection())
+            await setup.ExecuteAsync("DELETE FROM attempt_results WHERE student_attempt_id='attempt-1';");
         var clock = new MutableTimeProvider(DateTimeOffset.UtcNow);
         var service = CreateService(clock);
 
@@ -109,6 +111,58 @@ public sealed class ActivationRevalidationServiceTests : IDisposable
         Assert.Contains("answers", payload);
         Assert.Contains("{}", payload);
         Assert.Equal(0, await verify.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM student_attempts;"));
+    }
+
+    [Fact]
+    public async Task Successful_revalidation_clears_old_deferral_and_active_work_gets_full_seven_days()
+    {
+        var validatedAt = DateTimeOffset.UtcNow.AddDays(-31);
+        await SeedExpiredIdentityAsync(validatedAt);
+        await SeedWipeGraphAsync(activeSession: true, unsubmittedAttempt: true);
+        var clock = new MutableTimeProvider(DateTimeOffset.UtcNow);
+        var service = CreateService(clock);
+        await service.CheckAsync();
+        Assert.True(await ReadPendingSinceAsync() is not null);
+
+        await service.SetExpiryPendingAsync(false); // Same cleanup used after successful Central refresh.
+        Assert.Null(await ReadPendingSinceAsync());
+        clock.UtcNow = clock.UtcNow.AddDays(2);
+        await service.CheckAsync();
+        var resetSince = await ReadPendingSinceAsync();
+        Assert.NotNull(resetSince);
+        Assert.InRange((clock.UtcNow - resetSince.Value).Duration(), TimeSpan.Zero, TimeSpan.FromMinutes(1));
+
+        clock.UtcNow = clock.UtcNow.AddDays(6);
+        await service.CheckAsync();
+        Assert.NotNull(await identities.GetAsync());
+        Assert.False(await service.IsExpiredAsync());
+    }
+
+    [Fact]
+    public async Task Reactivation_with_future_local_clock_warns_and_anchors_deadline_to_central_time()
+    {
+        var serverNow = DateTimeOffset.UtcNow;
+        var localNow = serverNow.AddDays(365);
+        await identities.UpsertAsync(new NodeIdentity("local-node", "node-1", null, "fp", "{}",
+            serverNow.ToString("O"), null, "active", null, null));
+        await state.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "last_server_time", System.Text.Json.JsonSerializer.Serialize(serverNow), serverNow.ToString("O")));
+        await state.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "last_revalidation_at", System.Text.Json.JsonSerializer.Serialize(serverNow), serverNow.ToString("O")));
+        await state.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "last_server_contact_time", System.Text.Json.JsonSerializer.Serialize(serverNow), serverNow.ToString("O")));
+        await state.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "last_server_contact_local_time", System.Text.Json.JsonSerializer.Serialize(localNow), serverNow.ToString("O")));
+        await state.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "revalidation_interval_days", "30", serverNow.ToString("O")));
+        var clock = new MutableTimeProvider(localNow);
+        var service = CreateService(clock);
+
+        await service.CheckAsync();
+
+        Assert.NotNull(await identities.GetAsync());
+        Assert.False(await service.IsExpiredAsync());
+        Assert.True(await service.IsLocalClockWarningAsync());
+        Assert.Equal(30, await service.GetDaysRemainingAsync());
+
+        clock.UtcNow = serverNow;
+        Assert.Equal(30, await service.GetDaysRemainingAsync());
+        Assert.False(await service.IsLocalClockWarningAsync());
     }
 
     [Fact]
@@ -236,7 +290,10 @@ public sealed class ActivationRevalidationServiceTests : IDisposable
             ["Local:AssetsPath"] = assetsPath
         }).Build();
         var assetService = new LocalAssetFileService(configuration, new LocalExamRepository(connectionFactory));
-        return new ActivationRevalidationService(identities, state, connectionFactory, refresher,
+        var exams = new LocalExamRepository(connectionFactory);
+        var submission = new AttemptSubmissionService(new AttemptRepository(connectionFactory), new SessionRepository(connectionFactory),
+            exams, new StatsRollupRepository(connectionFactory, NullLogger<StatsRollupRepository>.Instance), connectionFactory);
+        return new ActivationRevalidationService(identities, state, connectionFactory, refresher, submission,
             assetService, NullLogger<ActivationRevalidationService>.Instance, clock);
     }
 
@@ -245,6 +302,13 @@ public sealed class ActivationRevalidationServiceTests : IDisposable
         using var connection = connectionFactory.CreateOpenConnection();
         var value = await connection.ExecuteScalarAsync<string>("SELECT value_json FROM sync_state WHERE key='activation_assets_cleanup_pending';");
         return value == "true";
+    }
+
+    private async Task<DateTimeOffset?> ReadPendingSinceAsync()
+    {
+        using var connection = connectionFactory.CreateOpenConnection();
+        var value = await connection.ExecuteScalarAsync<string?>("SELECT value_json FROM sync_state WHERE key='activation_expiry_pending_since';");
+        return DateTimeOffset.TryParse(value?.Trim('"'), out var parsed) ? parsed : null;
     }
 
     private sealed class MutableTimeProvider(DateTimeOffset utcNow) : TimeProvider

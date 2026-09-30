@@ -87,6 +87,87 @@ public sealed class PublishPullRunPushTests
     }
 
     [Fact]
+    public async Task Expiry_auto_finalization_pushes_attempt_and_every_answer_to_central()
+    {
+        using var centralFactory = new CentralApiFactory();
+        using var centralClient = centralFactory.CreateClient();
+        centralClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", CreateAccessToken());
+        var exam = await CreateExamOnCentralAsync(centralClient);
+        var version = await CreateExamVersionOnCentralAsync(centralClient, exam.Id);
+        var block = await AddBlockOnCentralAsync(centralClient, version.Id);
+        await PublishVersionOnCentralAsync(centralClient, version.Id);
+
+        using var localFactory = new LocalApiFactory(centralFactory);
+        using var localClient = localFactory.CreateClient();
+        await SeedSyncStateAsync(localFactory, centralFactory.PlaceholderCentralUrl, CreateNodeAccessToken());
+        using (var scope = localFactory.Services.CreateScope())
+        {
+            var pull = scope.ServiceProvider.GetRequiredService<LocalExamPullService>();
+            Assert.True((await pull.PullAsync(CancellationToken.None)).Success);
+        }
+
+        var sessionResponse = await localClient.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
+            version.Id, "180055400", "6A", null, "Operador", 30, null));
+        Assert.Equal(HttpStatusCode.Created, sessionResponse.StatusCode);
+        var session = await sessionResponse.Content.ReadFromJsonAsync<LocalDeliverySession>();
+        var startResponse = await localClient.PostAsync($"/api/sessions/{session!.AccessCode}/attempts", null);
+        Assert.Equal(HttpStatusCode.Created, startResponse.StatusCode);
+        var started = await startResponse.Content.ReadFromJsonAsync<StartAttemptResponse>();
+        var attemptId = started!.Attempt.Id;
+        var saved = await localClient.PutAsJsonAsync($"/api/attempts/{attemptId}/answers", new
+        {
+            answers = new[] { new { blockId = block.Id, answer = "42" } }
+        });
+        Assert.Equal(HttpStatusCode.NoContent, saved.StatusCode);
+
+        using (var scope = localFactory.Services.CreateScope())
+        {
+            var identities = scope.ServiceProvider.GetRequiredService<INodeIdentityRepository>();
+            var state = scope.ServiceProvider.GetRequiredService<ISyncStateRepository>();
+            var localNow = DateTimeOffset.UtcNow;
+            await identities.UpsertAsync(new NodeIdentity("local-node", "e2e-node-1", "180055400", "fp", "{}",
+                localNow.AddDays(-40).ToString("O"), null, "active", null, null));
+            await state.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "last_server_time", JsonSerializer.Serialize(localNow.AddDays(-40)), localNow.ToString("O")));
+            await state.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "last_revalidation_at", JsonSerializer.Serialize(localNow.AddDays(-40)), localNow.ToString("O")));
+            await state.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "last_revalidation_attempt_at", JsonSerializer.Serialize(localNow.AddHours(-1)), localNow.ToString("O")));
+            await state.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "revalidation_interval_days", "30", localNow.ToString("O")));
+            await state.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "activation_expiry_pending_since", JsonSerializer.Serialize(localNow.AddDays(-8)), localNow.ToString("O")));
+            var factory = scope.ServiceProvider.GetRequiredService<ILocalSqliteConnectionFactory>();
+            using var connection = factory.CreateOpenConnection();
+            await connection.ExecuteAsync("""
+                UPDATE student_attempts SET student_code='GE:910001', ge_person_id=910001, roster_student_id='roster-student',
+                    student_first_name='Ada', student_last_name='Ejemplo', document_last4='0001',
+                    verification_source='ge_roster', verified_at=@VerifiedAt WHERE id=@Id;
+                """, new { VerifiedAt = localNow.ToString("O"), Id = attemptId });
+            await scope.ServiceProvider.GetRequiredService<ActivationRevalidationService>().CheckAsync();
+        }
+
+        using (var expiryScope = localFactory.Services.CreateScope())
+            Assert.True(await expiryScope.ServiceProvider.GetRequiredService<ActivationRevalidationService>().IsExpiredAsync());
+        await SeedSyncStateAsync(localFactory, centralFactory.PlaceholderCentralUrl, CreateNodeAccessToken());
+        using (var scope = localFactory.Services.CreateScope())
+        {
+            var push = scope.ServiceProvider.GetRequiredService<LocalOutboxPushService>();
+            var pushed = await push.PushAsync(50);
+            Assert.True(pushed.Success, pushed.Error);
+            Assert.Equal(1, pushed.Accepted);
+        }
+
+        using var centralScope = centralFactory.Services.CreateScope();
+        var db = centralScope.ServiceProvider.GetRequiredService<PlanCopeDbContext>();
+        var received = await db.ReceivedStudentAttempts.SingleAsync(x => x.RemoteLocalId == attemptId);
+        Assert.Equal(910001, received.GePersonId);
+        Assert.Equal("roster-student", received.RosterStudentId);
+        Assert.Equal("Ada", received.StudentFirstName);
+        Assert.Equal("Ejemplo", received.StudentLastName);
+        Assert.Equal("0001", received.DocumentLast4);
+        Assert.Equal("ge_roster", received.VerificationSource);
+        Assert.NotNull(received.VerifiedAt);
+        var receivedAnswer = await db.ReceivedSubmissionAnswers.SingleAsync(x => x.StudentAttemptId == attemptId);
+        Assert.Equal("42", receivedAnswer.Answer.RootElement.GetString());
+    }
+
+    [Fact]
     public async Task Create_exam_returns_initial_version_that_can_build_publish_and_sync()
     {
         using var centralFactory = new CentralApiFactory();

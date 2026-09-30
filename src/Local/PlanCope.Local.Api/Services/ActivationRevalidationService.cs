@@ -11,6 +11,7 @@ public sealed class ActivationRevalidationService(
     ISyncStateRepository syncStateRepository,
     ILocalSqliteConnectionFactory connectionFactory,
     NodeCredentialRefresher credentialRefresher,
+    AttemptSubmissionService attemptSubmissionService,
     LocalAssetFileService assetFileService,
     ILogger<ActivationRevalidationService> logger,
     TimeProvider timeProvider)
@@ -40,9 +41,9 @@ public sealed class ActivationRevalidationService(
         var intervalDays = await ReadIntAsync("revalidation_interval_days", cancellationToken) ?? 30;
         intervalDays = Math.Clamp(intervalDays, 1, 365);
 
-        // Only Central can advance the trusted clock. A local clock ahead of server time is
-        // ignored; a local clock behind the last server time cannot roll the deadline back.
-        var now = Max(timeProvider.GetUtcNow(), lastServerTime ?? lastSuccessful);
+        // Anchor elapsed time to the paired local/server timestamps recorded at successful
+        // contact. This prevents a pre-existing future local clock from expiring immediately.
+        var now = await GetTrustedNowAsync(lastServerTime ?? lastSuccessful, cancellationToken);
         var deadline = lastSuccessful.AddDays(intervalDays);
         var dueAt = deadline.AddDays(-WarningDays);
 
@@ -54,7 +55,7 @@ public sealed class ActivationRevalidationService(
                 await WriteStringAsync("last_revalidation_attempt_at", now.ToUniversalTime().ToString("O"), cancellationToken);
                 if (await credentialRefresher.TryRefreshAsync(cancellationToken))
                 {
-                    await WriteBoolAsync("activation_expiry_pending", false, cancellationToken);
+                    await SetExpiryPendingAsync(false, cancellationToken);
                     return;
                 }
             }
@@ -65,7 +66,7 @@ public sealed class ActivationRevalidationService(
         if (identity?.CredentialState == "revoked" || identity is null) return;
 
         lastServerTime = await ReadDateAsync("last_server_time", cancellationToken);
-        now = Max(timeProvider.GetUtcNow(), lastServerTime ?? lastSuccessful);
+        now = await GetTrustedNowAsync(lastServerTime ?? lastSuccessful, cancellationToken);
         lastSuccessful = await ReadDateAsync("last_revalidation_at", cancellationToken)
             ?? ParseDate(identity.EnrolledAt)
             ?? DateTimeOffset.UtcNow;
@@ -85,7 +86,7 @@ public sealed class ActivationRevalidationService(
             ?? ParseDate(identity.EnrolledAt)
             ?? DateTimeOffset.UtcNow;
         var interval = Math.Clamp(await ReadIntAsync("revalidation_interval_days", cancellationToken) ?? 30, 1, 365);
-        var now = Max(timeProvider.GetUtcNow(), await ReadDateAsync("last_server_time", cancellationToken) ?? lastSuccessful);
+        var now = await GetTrustedNowAsync(await ReadDateAsync("last_server_time", cancellationToken) ?? lastSuccessful, cancellationToken);
         return Math.Max(0, (int)Math.Ceiling((lastSuccessful.AddDays(interval) - now).TotalDays));
     }
 
@@ -98,8 +99,43 @@ public sealed class ActivationRevalidationService(
     public async Task<bool> IsExpiryPendingAsync(CancellationToken cancellationToken = default) =>
         await ReadBoolAsync("activation_expiry_pending", cancellationToken);
 
-    public Task SetExpiryPendingAsync(bool pending, CancellationToken cancellationToken = default) =>
-        WriteBoolAsync("activation_expiry_pending", pending, cancellationToken);
+    public async Task SetExpiryPendingAsync(bool pending, CancellationToken cancellationToken = default)
+    {
+        await WriteBoolAsync("activation_expiry_pending", pending, cancellationToken);
+        if (!pending)
+        {
+            using var connection = connectionFactory.CreateOpenConnection();
+            await connection.ExecuteAsync(new CommandDefinition("DELETE FROM sync_state WHERE key='activation_expiry_pending_since';", cancellationToken: cancellationToken));
+        }
+    }
+
+    public async Task<bool> IsLocalClockWarningAsync(CancellationToken cancellationToken = default)
+    {
+        var contactServer = await ReadDateAsync("last_server_contact_time", cancellationToken);
+        var contactLocal = await ReadDateAsync("last_server_contact_local_time", cancellationToken);
+        if (contactServer is null || contactLocal is null) return false;
+        var elapsed = timeProvider.GetUtcNow() - contactLocal.Value;
+        var expectedLocal = contactServer.Value + (elapsed > TimeSpan.Zero ? elapsed : TimeSpan.Zero);
+        return timeProvider.GetUtcNow() - expectedLocal > TimeSpan.FromHours(24);
+    }
+
+    private async Task<DateTimeOffset> GetTrustedNowAsync(DateTimeOffset fallback, CancellationToken cancellationToken)
+    {
+        var contactServer = await ReadDateAsync("last_server_contact_time", cancellationToken);
+        var contactLocal = await ReadDateAsync("last_server_contact_local_time", cancellationToken);
+        if (contactServer is null || contactLocal is null) return Max(timeProvider.GetUtcNow(), fallback);
+        var localNow = timeProvider.GetUtcNow();
+        // If the operator corrects a future clock back to Central time, establish a fresh local
+        // anchor so elapsed trusted time can advance again instead of waiting for the old date.
+        if (localNow < contactLocal.Value && localNow >= contactServer.Value.AddHours(-24))
+        {
+            await WriteStringAsync("last_server_contact_local_time", localNow.ToString("O"), cancellationToken);
+            contactLocal = localNow;
+        }
+        var elapsed = localNow - contactLocal.Value;
+        if (elapsed < TimeSpan.Zero) elapsed = TimeSpan.Zero;
+        return Max(fallback, contactServer.Value + elapsed);
+    }
 
     public Task SetActivationInProgressAsync(bool inProgress, CancellationToken cancellationToken = default) =>
         WriteBoolAsync("activation_in_progress", inProgress, cancellationToken);
@@ -139,31 +175,13 @@ public sealed class ActivationRevalidationService(
             }
             if (hasActiveWork)
             {
-                var unfinished = await connection.QueryAsync<ExpiryAttempt>(new CommandDefinition("""
-                    SELECT a.id, a.delivery_session_id, a.student_code, a.started_at, a.local_sequence,
-                           s.roster_snapshot_id, s.roster_section_id, e.remote_exam_version_id
-                    FROM student_attempts a JOIN delivery_sessions s ON s.id=a.delivery_session_id
-                    LEFT JOIN local_exam_versions e ON e.id=s.exam_version_id WHERE a.submitted_at IS NULL;
-                    """, transaction: transaction, cancellationToken: cancellationToken));
-                foreach (var attempt in unfinished)
-                {
-                    var submittedAt = timeProvider.GetUtcNow().ToString("O");
-                    var confirmationCode = Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
-                    var answers = (await connection.QueryAsync(new CommandDefinition(
-                        "SELECT id AS Id, student_attempt_id AS StudentAttemptId, block_id AS BlockId, answer_json AS AnswerJson, created_at AS CreatedAt FROM submission_answers WHERE student_attempt_id=@Id ORDER BY created_at;",
-                        new { attempt.Id }, transaction, cancellationToken: cancellationToken))).ToArray();
-                    var payload = JsonSerializer.Serialize(new { attempt = new { attempt.Id, deliverySessionId = attempt.DeliverySessionId,
-                        studentCode = attempt.StudentCode, status = "submitted", startedAt = attempt.StartedAt, submittedAt,
-                        localSequence = attempt.LocalSequence, confirmationCode }, answers, rosterSnapshotId = attempt.RosterSnapshotId,
-                        rosterSectionId = attempt.RosterSectionId, examVersionRemoteId = attempt.RemoteExamVersionId }, JsonOptions);
-                    await connection.ExecuteAsync(new CommandDefinition("""
-                        UPDATE student_attempts SET status='submitted', submitted_at=@SubmittedAt, confirmation_code=@Code WHERE id=@Id;
-                        INSERT INTO sync_outbox (id,event_type,aggregate_type,aggregate_id,idempotency_key,payload_json,status,retry_count,created_at)
-                        VALUES (@OutboxId,'attempt.submitted','student_attempt',@Id,@IdempotencyKey,@Payload,'pending',0,@SubmittedAt);
-                        """, new { attempt.Id, SubmittedAt = submittedAt, Code = confirmationCode, OutboxId = Guid.NewGuid().ToString(),
-                        IdempotencyKey = Guid.NewGuid().ToString(), Payload = payload }, transaction, cancellationToken: cancellationToken));
-                }
-                await connection.ExecuteAsync(new CommandDefinition("UPDATE delivery_sessions SET status='closed' WHERE lower(status) IN ('active','paused');", transaction: transaction, cancellationToken: cancellationToken));
+                await connection.ExecuteAsync(new CommandDefinition(
+                    "UPDATE delivery_sessions SET status='closed' WHERE lower(status) IN ('active','paused');",
+                    transaction: transaction, cancellationToken: cancellationToken));
+                transaction.Commit();
+                await attemptSubmissionService.FinalizeUnsubmittedAttemptsAsync(cancellationToken);
+                await ExpireAndWipeAsync(cancellationToken);
+                return;
             }
             await connection.ExecuteAsync(new CommandDefinition(
                 "INSERT INTO sync_state (id, key, value_json, updated_at) VALUES (@Id, 'activation_expired', @Value, @Now) " +
@@ -187,7 +205,7 @@ public sealed class ActivationRevalidationService(
             foreach (var key in new[]
             {
                 "node_id", "central_access_token", "central_refresh_token", "central_access_token_expires_at",
-                "central_refresh_token_expires_at", "last_revalidation_at", "last_server_time", "last_effective_time",
+                "central_refresh_token_expires_at", "last_revalidation_at", "last_server_time", "last_server_contact_time", "last_server_contact_local_time", "last_effective_time",
                 "last_revalidation_attempt_at", "revalidation_interval_days", "last_exam_pull_cursor", "activation_in_progress",
                 "activation_expiry_pending", "activation_expiry_pending_since", "central_url"
             })
@@ -203,9 +221,6 @@ public sealed class ActivationRevalidationService(
             throw;
         }
     }
-
-    private sealed record ExpiryAttempt(string Id, string DeliverySessionId, string StudentCode, string StartedAt,
-        long LocalSequence, string? RosterSnapshotId, string? RosterSectionId, string? RemoteExamVersionId);
 
     private async Task<DateTimeOffset?> ReadDateAsync(string key, CancellationToken ct)
     {

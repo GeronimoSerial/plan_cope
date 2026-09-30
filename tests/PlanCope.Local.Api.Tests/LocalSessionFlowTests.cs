@@ -70,7 +70,7 @@ public sealed class LocalSessionFlowTests
         Assert.Equal("pending", reader.GetString(4));
 
         using var payload = JsonDocument.Parse(reader.GetString(3));
-        Assert.Equal("submitted", payload.RootElement.GetProperty("attempt").GetProperty("Status").GetString());
+        Assert.Equal("submitted", payload.RootElement.GetProperty("attempt").GetProperty("status").GetString());
         Assert.Single(payload.RootElement.GetProperty("answers").EnumerateArray());
     }
 
