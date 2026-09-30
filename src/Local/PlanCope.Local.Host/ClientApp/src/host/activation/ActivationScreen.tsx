@@ -3,9 +3,22 @@ import type { NativeBridge } from "../types";
 
 type ActivationScreenProps = { apiBaseUrl: string; bridge?: NativeBridge };
 type ErrorResponse = { error?: string; detail?: string };
+type DownloadProgress = { phase: string; completed: number; total: number; skipped: number };
 
 export function activationErrorMessage(body: ErrorResponse, fallback: string): string {
   return body.error ?? body.detail ?? fallback;
+}
+
+export function activationProgressMessage(progress: DownloadProgress | null): string | null {
+  if (!progress) return null;
+  if (progress.phase === "exams") return "Descargando evaluaciones…";
+  if (progress.phase === "schools") return "Guardando escuelas…";
+  if (progress.phase === "rosters") {
+    const skipped = progress.skipped > 0 ? ` · ${progress.skipped} omitidas` : "";
+    return `Descargando listas: ${progress.completed} de ${progress.total}${skipped}.`;
+  }
+  if (progress.phase === "complete") return "Listas descargadas. Finalizando activación…";
+  return null;
 }
 
 export function normalizeActivationKey(value: string): string {
@@ -39,17 +52,30 @@ export function ActivationScreen({ apiBaseUrl, bridge = window.chrome?.webview }
   const [submitted, setSubmitted] = useState(false);
   const [retryAvailable, setRetryAvailable] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${apiBaseUrl}/api/activation/status`)
-      .then(response => response.ok ? response.json() : null)
-      .then(data => {
-        if (!cancelled && canRetryActivationDownload(data)) setRetryAvailable(true);
-      })
-      .catch(() => { /* The key form remains available if status cannot be read. */ });
-    return () => { cancelled = true; };
-  }, [apiBaseUrl]);
+    const refreshStatus = async () => {
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/activation/status`);
+        const data = response.ok ? await response.json() as {
+          activationInProgress?: unknown;
+          downloadProgress?: DownloadProgress | null;
+        } : null;
+        if (!cancelled && data) {
+          if (canRetryActivationDownload(data)) setRetryAvailable(true);
+          setDownloadProgress(data.downloadProgress ?? null);
+        }
+      } catch { /* The key form remains available if status cannot be read. */ }
+    };
+    void refreshStatus();
+    const interval = submitted ? window.setInterval(() => void refreshStatus(), 1000) : undefined;
+    return () => {
+      cancelled = true;
+      if (interval !== undefined) window.clearInterval(interval);
+    };
+  }, [apiBaseUrl, submitted]);
 
   const activate = async (event: FormEvent) => {
     event.preventDefault();
@@ -112,7 +138,7 @@ export function ActivationScreen({ apiBaseUrl, bridge = window.chrome?.webview }
           {submitted ? "Descargando datos…" : "Activar equipo"}
         </button>
       </>}
-      {submitted && <p role="status" aria-live="polite">Validando la clave y descargando escuelas, listas y evaluaciones. No cierres la aplicación.</p>}
+      {submitted && <p role="status" aria-live="polite">{activationProgressMessage(downloadProgress) ?? "Validando la clave y descargando escuelas, listas y evaluaciones. No cierres la aplicación."}</p>}
       {error && <p role="alert">{error}</p>}
       {!bridge && <p role="alert">La activación sólo está disponible dentro de la aplicación de escritorio.</p>}
     </form>

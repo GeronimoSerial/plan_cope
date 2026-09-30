@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Collections.Concurrent;
 using PlanCope.Local.Api.Data.Repositories;
 using PlanCope.Shared.Contracts.Sync;
 using PlanCope.Shared.Domain.Local;
@@ -138,21 +139,57 @@ public sealed class LocalRosterPullService(
 
             var skipped = await rosterRepository.UpsertSchoolsAsync((index.Schools ?? [])
                 .Select(static school => new LocalSchoolSummary(school.Cue, school.Name)).ToArray(), cancellationToken);
+            var rosters = index.Rosters ?? [];
+            var total = rosters.Count;
             var imported = 0;
-            var total = (index.Rosters ?? []).Count;
-            foreach (var roster in index.Rosters ?? [])
+            var completed = 0;
+            var failed = 0;
+            var skippedRosters = 0;
+            var errors = new ConcurrentQueue<string>();
+            using var progressLock = new SemaphoreSlim(1, 1);
+            await WriteProgressAsync("rosters", 0, total, skipped, cancellationToken);
+            await Parallel.ForEachAsync(rosters, new ParallelOptions
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                CancellationToken = cancellationToken,
+                MaxDegreeOfParallelism = 4
+            }, async (roster, ct) =>
+            {
                 if (!CueCode.TryNormalize(roster.Cue, out _))
                 {
-                    skipped++;
+                    Interlocked.Increment(ref skippedRosters);
                     logger.LogWarning("Skipping Central roster index entry with invalid CUE {Cue} for school year {SchoolYear}.", roster.Cue, roster.SchoolYear);
-                    continue;
                 }
-                var result = await PullAsync(roster.Cue, roster.SchoolYear, cancellationToken);
-                if (!result.Success)
-                    return new(false, imported, total, skipped, result.Error);
-                imported++;
+                else
+                {
+                    var result = await PullAsync(roster.Cue, roster.SchoolYear, ct);
+                    if (result.Success) Interlocked.Increment(ref imported);
+                    else
+                    {
+                        Interlocked.Increment(ref failed);
+                        errors.Enqueue($"{roster.Cue}/{roster.SchoolYear}: {result.Error}");
+                    }
+                }
+
+                var done = Interlocked.Increment(ref completed);
+                if (done % 10 == 0 || done == total)
+                {
+                    await progressLock.WaitAsync(ct);
+                    try
+                    {
+                        await WriteProgressAsync("rosters", Volatile.Read(ref completed), total,
+                            skipped + Volatile.Read(ref skippedRosters), ct);
+                    }
+                    finally { progressLock.Release(); }
+                }
+            });
+
+            skipped += skippedRosters;
+            if (failed > 0)
+            {
+                await WriteProgressAsync("rosters", completed, total, skipped, cancellationToken);
+                errors.TryPeek(out var firstError);
+                return new(false, imported, total, skipped,
+                    $"{failed} listas no se pudieron descargar. {firstError ?? "Reintentá la descarga para continuar."}");
             }
 
             await syncStateRepository.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"),
@@ -166,6 +203,7 @@ public sealed class LocalRosterPullService(
                     "last_server_time", JsonSerializer.Serialize(index.ServerTime, JsonOptions),
                     DateTimeOffset.UtcNow.ToString("O")), cancellationToken);
             }
+            await WriteProgressAsync("complete", completed, total, skipped, cancellationToken);
             return new(true, imported, total, skipped, null);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -192,6 +230,11 @@ public sealed class LocalRosterPullService(
             : document.RootElement.GetRawText();
     }
 
+    private Task WriteProgressAsync(string phase, int completed, int total, int skipped, CancellationToken cancellationToken) =>
+        syncStateRepository.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "activation_download_progress",
+            JsonSerializer.Serialize(new ActivationDownloadProgress(phase, completed, total, skipped), JsonOptions),
+            DateTimeOffset.UtcNow.ToString("O")), cancellationToken);
+
     private static LocalRosterPullResult Failure(string error) =>
         new(false, false, null, null, 0, 0, error);
 
@@ -210,3 +253,5 @@ public sealed record LocalRosterPullResult(
     string? Error);
 
 public sealed record LocalRosterBulkPullResult(bool Success, int Downloaded, int Total, int Skipped, string? Error);
+
+public sealed record ActivationDownloadProgress(string Phase, int Completed, int Total, int Skipped);
