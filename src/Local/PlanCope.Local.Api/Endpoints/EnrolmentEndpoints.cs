@@ -102,6 +102,7 @@ public static class EnrolmentEndpoints
             }, ct);
 
             // The persisted credentials make a retry safe if Central is temporarily unavailable.
+            await WriteDownloadProgressAsync(syncStateRepository, "exams", 0, 1, 0, ct);
             var initialDownload = await initialDownloadService.DownloadAllAsync(ct);
             if (!initialDownload.Success)
             {
@@ -130,6 +131,7 @@ public static class EnrolmentEndpoints
                 return Results.BadRequest(new { error = "No hay una activación pendiente de descarga para reintentar." });
             }
 
+            await WriteDownloadProgressAsync(syncStateRepository, "exams", 0, 1, 0, ct);
             var result = await initialDownloadService.DownloadAllAsync(ct);
             return result.Success
                 ? Results.Ok(new { nodeId = identity.NodeId })
@@ -307,6 +309,12 @@ public static class EnrolmentEndpoints
         await UpsertStateStringAsync(repository, "last_server_contact_time", serverTime.ToUniversalTime().ToString("O"), ct);
         await UpsertStateStringAsync(repository, "last_server_contact_local_time", DateTimeOffset.UtcNow.ToString("O"), ct);
     }
+
+    private static Task WriteDownloadProgressAsync(ISyncStateRepository repository, string phase, int completed,
+        int total, int skipped, CancellationToken ct) =>
+        repository.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "activation_download_progress",
+            JsonSerializer.Serialize(new ActivationDownloadProgress(phase, completed, total, skipped), JsonOptions),
+            DateTimeOffset.UtcNow.ToString("O")), ct);
 
     private readonly record struct RedeemBody(
         ActivationRedeemResponse? Response,

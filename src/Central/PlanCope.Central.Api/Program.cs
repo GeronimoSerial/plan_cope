@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Npgsql;
 using PlanCope.Central.Api.Auth;
 using PlanCope.Central.Api.Data;
 using PlanCope.Central.Api.Integrations.Ge;
@@ -65,23 +66,46 @@ builder.Services.Configure<GeApiOptions>(builder.Configuration.GetSection(GeApiO
 builder.Services.AddSingleton<GeTokenCache>();
 builder.Services.AddScoped<IGeRosterStore, EfGeRosterStore>();
 builder.Services.AddScoped<IGeRosterService, GeRosterService>();
+builder.Services.AddSingleton<RosterSyncCoordinator>();
+builder.Services.AddHostedService<RosterSyncBackgroundService>();
 builder.Services.AddScoped<ActivationKeyService>();
 builder.Services.AddScoped<CentralStatsRollupService>();
 builder.Services.AddScoped<NodeCredentialService>();
 builder.Services.AddScoped<IReleaseGateService, ReleaseGateService>();
 builder.Services.AddMemoryCache();
-builder.Services.AddHttpClient<IGeTokenProvider, GeTokenProvider>((serviceProvider, client) =>
+var asistenciasConnectionString = builder.Configuration.GetConnectionString("Asistencias")?.Trim();
+var rosterSource = AsistenciasRosterSource.ResolveSource(builder.Configuration);
+if (string.Equals(rosterSource, "Asistencias", StringComparison.OrdinalIgnoreCase))
 {
-    var options = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<GeApiOptions>>().Value;
-    client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/') + "/", UriKind.Absolute);
-    client.Timeout = TimeSpan.FromSeconds(Math.Clamp(options.TimeoutSeconds, 1, 300));
-});
-builder.Services.AddHttpClient<IGeApiClient, GeApiClient>((serviceProvider, client) =>
+    if (string.IsNullOrWhiteSpace(asistenciasConnectionString))
+    {
+        builder.Services.AddScoped<IGeApiClient, MissingAsistenciasRosterSource>();
+    }
+    else
+    {
+        builder.Services.AddSingleton(_ => new NpgsqlDataSourceBuilder(asistenciasConnectionString).Build());
+        builder.Services.AddScoped<IGeApiClient, AsistenciasRosterSource>();
+    }
+}
+else if (string.Equals(rosterSource, "GeApi", StringComparison.OrdinalIgnoreCase))
 {
-    var options = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<GeApiOptions>>().Value;
-    client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/') + "/", UriKind.Absolute);
-    client.Timeout = TimeSpan.FromSeconds(Math.Clamp(options.TimeoutSeconds, 1, 300));
-});
+    builder.Services.AddHttpClient<IGeTokenProvider, GeTokenProvider>((serviceProvider, client) =>
+    {
+        var options = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<GeApiOptions>>().Value;
+        client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/') + "/", UriKind.Absolute);
+        client.Timeout = TimeSpan.FromSeconds(Math.Clamp(options.TimeoutSeconds, 1, 300));
+    });
+    builder.Services.AddHttpClient<IGeApiClient, GeApiClient>((serviceProvider, client) =>
+    {
+        var options = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<GeApiOptions>>().Value;
+        client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/') + "/", UriKind.Absolute);
+        client.Timeout = TimeSpan.FromSeconds(Math.Clamp(options.TimeoutSeconds, 1, 300));
+    });
+}
+else
+{
+    throw new InvalidOperationException("Rosters:Source must be either 'Asistencias' or 'GeApi'.");
+}
 
 // Private installer storage (B7.T15): backed by the Releases API of the private GitHub repo
 // that scripts/publish-private-installer.ps1 uploads to. Configuration comes from the

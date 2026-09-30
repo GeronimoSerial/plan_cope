@@ -559,6 +559,11 @@ automático fallido no deja tag. Se recupera volviendo a correr el workflow, o d
 | `WINDOWS_SIGNING_PASSWORD` | GitHub Secrets | Idem |
 | `POSTGRES_PASSWORD` | Variable de entorno Coolify (no en GitHub) | Administradores de Coolify |
 | `ConnectionStrings__CentralDatabase` | Variable de entorno Coolify | Administradores de Coolify |
+| `ConnectionStrings__Asistencias` | Variable de entorno opcional de Coolify, cuenta PostgreSQL de sólo lectura; mantener fuera de Git y nunca usar credenciales nominales en Compose | Administradores de Coolify |
+| `Rosters__Source` | Variable de entorno Coolify opcional: `Asistencias` (predeterminado si existe la conexión) o `GeApi` | Administradores de Coolify |
+| `Rosters__SchoolYear` | Variable de entorno Coolify opcional; vacío usa el año actual de Argentina | Administradores de Coolify |
+| `Rosters__DailySyncTime` | Hora local opcional para la sincronización diaria; predeterminado `04:30` de Argentina | Administradores de Coolify |
+| `Rosters__TimeZoneId` | Zona horaria opcional; predeterminada `America/Argentina/Buenos_Aires` | Administradores de Coolify |
 | `Auth__SigningKey` | Variable de entorno Coolify | Administradores de Coolify |
 | `GeApi__Username` | Variable de entorno Coolify (nunca en build) | Administradores de Coolify |
 | `GeApi__Password` | Variable de entorno Coolify (nunca en build) | Administradores de Coolify |

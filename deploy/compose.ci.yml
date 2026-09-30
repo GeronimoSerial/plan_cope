@@ -36,6 +36,9 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__CentralDatabase: ${ConnectionStrings__CentralDatabase:?ConnectionStrings__CentralDatabase is required}
+      ConnectionStrings__Asistencias: ${ConnectionStrings__Asistencias:-}
+      Rosters__DailySyncTime: ${Rosters__DailySyncTime:-04:30}
+      Rosters__TimeZoneId: ${Rosters__TimeZoneId:-America/Argentina/Buenos_Aires}
       Auth__SigningKey: ${Auth__SigningKey:?Auth__SigningKey is required}
       GeApi__Username: ${GeApi__Username:?GeApi__Username is required}
       GeApi__Password: ${GeApi__Password:?GeApi__Password is required}
