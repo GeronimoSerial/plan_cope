@@ -55,7 +55,12 @@ public sealed class InitialActivationDownloadService(
 
         var rosters = await rosterPullService.PullAllAsync(cancellationToken);
         if (!rosters.Success)
-            return new(false, "La activación se guardó, pero no se pudieron descargar todas las escuelas y listas. Reintentá cuando vuelva la conexión.");
+        {
+            var reason = string.IsNullOrWhiteSpace(rosters.Error)
+                ? "Reintentá la descarga cuando vuelva la conexión."
+                : rosters.Error;
+            return new(false, $"La activación se guardó, pero no se pudieron descargar todas las escuelas y listas. {reason}");
+        }
 
         await revalidationService.ClearExpiredFlagAsync(cancellationToken);
         await revalidationService.SetExpiryPendingAsync(false, cancellationToken);

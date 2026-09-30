@@ -72,7 +72,9 @@ public sealed class LocalRosterPullService(
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync(cancellationToken);
-                return Failure($"Central roster pull failed: {(int)response.StatusCode} {error}");
+                logger.LogError("Central roster pull returned HTTP {StatusCode} for CUE {Cue} and school year {SchoolYear}: {ResponseBody}",
+                    (int)response.StatusCode, cue, schoolYear, error);
+                return Failure($"Central roster pull failed with HTTP {(int)response.StatusCode}.");
             }
 
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -111,8 +113,9 @@ public sealed class LocalRosterPullService(
         {
             throw;
         }
-        catch (Exception exception) when (exception is HttpRequestException or JsonException or InvalidOperationException or ArgumentException)
+        catch (Exception exception)
         {
+            logger.LogError(exception, "Roster pull failed for CUE {Cue} and school year {SchoolYear}.", cue, schoolYear);
             return Failure(exception.Message);
         }
     }
@@ -145,7 +148,7 @@ public sealed class LocalRosterPullService(
             var completed = 0;
             var failed = 0;
             var skippedRosters = 0;
-            var errors = new ConcurrentQueue<string>();
+            var errors = new ConcurrentQueue<RosterPullFailure>();
             using var progressLock = new SemaphoreSlim(1, 1);
             await WriteProgressAsync("rosters", 0, total, skipped, cancellationToken);
             await Parallel.ForEachAsync(rosters, new ParallelOptions
@@ -166,7 +169,7 @@ public sealed class LocalRosterPullService(
                     else
                     {
                         Interlocked.Increment(ref failed);
-                        errors.Enqueue($"{roster.Cue}/{roster.SchoolYear}: {result.Error}");
+                        errors.Enqueue(new RosterPullFailure(roster.Cue, roster.SchoolYear, result.Error ?? "Unknown roster pull failure."));
                     }
                 }
 
@@ -187,9 +190,13 @@ public sealed class LocalRosterPullService(
             if (failed > 0)
             {
                 await WriteProgressAsync("rosters", completed, total, skipped, cancellationToken);
-                errors.TryPeek(out var firstError);
+                var firstErrors = errors.Take(5).ToArray();
+                foreach (var failure in firstErrors)
+                    logger.LogError("Roster pull failed for CUE {Cue}, school year {SchoolYear}: {Error}",
+                        failure.Cue, failure.SchoolYear, failure.Error);
+                var reason = firstErrors.Length == 0 ? "Hubo un problema de conexión o almacenamiento local." : SummarizeFailure(firstErrors[0].Error);
                 return new(false, imported, total, skipped,
-                    $"{failed} listas no se pudieron descargar. {firstError ?? "Reintentá la descarga para continuar."}");
+                    $"{failed} listas no se pudieron descargar. {reason} Reintentá la descarga.");
             }
 
             await syncStateRepository.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"),
@@ -210,9 +217,11 @@ public sealed class LocalRosterPullService(
         {
             throw;
         }
-        catch (Exception exception) when (exception is HttpRequestException or JsonException or InvalidOperationException or ArgumentException)
+        catch (Exception exception)
         {
-            return new(false, 0, 0, 0, exception.Message);
+            logger.LogError(exception, "Full roster import failed before all CUEs completed.");
+            return new(false, 0, 0, 0,
+                $"No se pudo completar la descarga. {SummarizeFailure(exception.Message)} Reintentá la descarga.");
         }
     }
 
@@ -238,9 +247,33 @@ public sealed class LocalRosterPullService(
     private static LocalRosterPullResult Failure(string error) =>
         new(false, false, null, null, 0, 0, error);
 
+    private static string SummarizeFailure(string error)
+    {
+        if (error.Contains("DocumentHmacKey", StringComparison.OrdinalIgnoreCase) ||
+            error.Contains("document key", StringComparison.OrdinalIgnoreCase))
+            return "No se pudo preparar la clave local de privacidad.";
+        if (error.Contains("checksum", StringComparison.OrdinalIgnoreCase) ||
+            error.Contains("different CUE", StringComparison.OrdinalIgnoreCase))
+            return "La lista recibida no superó la validación.";
+        if (error.Contains("SQLite", StringComparison.OrdinalIgnoreCase) ||
+            error.Contains("database", StringComparison.OrdinalIgnoreCase) ||
+            error.Contains("storage", StringComparison.OrdinalIgnoreCase))
+            return "No se pudo guardar una lista en este equipo.";
+        if (error.Contains("HTTP", StringComparison.OrdinalIgnoreCase))
+        {
+            var marker = error.IndexOf("HTTP", StringComparison.OrdinalIgnoreCase);
+            var status = new string(error[(marker + 4)..].TrimStart().TakeWhile(char.IsDigit).Take(3).ToArray());
+            return status.Length > 0
+                ? $"Central no pudo entregar una lista (HTTP {status})."
+                : "Central no pudo entregar una lista.";
+        }
+        return "Hubo un problema de conexión o almacenamiento local.";
+    }
+
     private sealed record RosterIndex(DateTimeOffset ServerTime, List<SchoolEntry> Schools, List<RosterEntry> Rosters);
     private sealed record SchoolEntry(string Cue, string? Name);
     private sealed record RosterEntry(string Cue, string SchoolYear);
+    private sealed record RosterPullFailure(string Cue, string SchoolYear, string Error);
 }
 
 public sealed record LocalRosterPullResult(

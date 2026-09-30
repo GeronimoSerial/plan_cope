@@ -2,9 +2,11 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Diagnostics;
 using System.Text.Json;
+using System.Collections.Concurrent;
 using Dapper;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PlanCope.Local.Api.Data;
 using PlanCope.Local.Api.Data.Repositories;
@@ -17,6 +19,48 @@ namespace PlanCope.Local.Api.Tests;
 
 public sealed class LocalRosterPullServiceTests
 {
+    [Fact]
+    public async Task Bulk_pull_logs_the_underlying_import_failure_and_returns_a_safe_spanish_reason()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"plancope-roster-log-{Guid.NewGuid():N}.db");
+        try
+        {
+            var options = new LocalDatabaseOptions(new SqliteConnectionStringBuilder { DataSource = databasePath, Pooling = false }.ToString());
+            new LocalDatabaseInitializer(options).Initialize();
+            var connections = new LocalSqliteConnectionFactory(options);
+            var state = new SyncStateRepository(connections);
+            await state.UpsertAsync(State("central_url", "https://central.example"));
+            await state.UpsertAsync(State("node_id", "node-1"));
+            var index = new
+            {
+                serverTime = DateTimeOffset.UtcNow,
+                schools = new[] { new { cue = "180000001", name = "Escuela" } },
+                rosters = new[] { new { cue = "180000001", schoolYear = "2026" } }
+            };
+            var package = MakeStudentPackage();
+            var factory = new StubHttpClientFactory(request => request.RequestUri!.AbsolutePath.EndsWith("rosters/index", StringComparison.Ordinal)
+                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(index) }
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(package) });
+            var logger = new CapturingLogger<LocalRosterPullService>();
+            var service = new LocalRosterPullService(factory, state,
+                new LocalRosterRepository(connections, NullLogger<LocalRosterRepository>.Instance),
+                new DocumentHmacService(Options.Create(new NominalizationOptions { DocumentHmacKey = "short" }), connections), logger);
+
+            var result = await service.PullAllAsync();
+
+            Assert.False(result.Success);
+            Assert.Contains("clave local de privacidad", result.Error, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("DocumentHmacKey", result.Error, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(logger.Messages, message => message.Contains("at least 32 UTF-8 bytes", StringComparison.Ordinal));
+            Assert.Contains(logger.Messages, message => message.Contains("CUE 180000001", StringComparison.Ordinal));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (File.Exists(databasePath)) File.Delete(databasePath);
+        }
+    }
+
     [Fact]
     public async Task Full_pull_processes_about_two_thousand_rosters_with_bounded_parallelism()
     {
@@ -148,6 +192,14 @@ public sealed class LocalRosterPullServiceTests
         return package with { Checksum = GeRosterPackageChecksum.Calculate(package) };
     }
 
+    private static GeRosterPackageDto MakeStudentPackage()
+    {
+        var package = new GeRosterPackageDto("student-snapshot", "180000001", "2026", DateTimeOffset.UtcNow,
+            string.Empty, 1, 1, "Ready", [new GeRosterSectionPackageDto("section-1", 1, "6", "A", "Primario", "Mañana",
+                [new GeRosterStudentPackageDto("student-1", "section-1", 1, "12.345.678", "Ana", "Pérez")])]);
+        return package with { Checksum = GeRosterPackageChecksum.Calculate(package) };
+    }
+
     private sealed class StubHttpClientFactory(Func<HttpRequestMessage, HttpResponseMessage> responseFactory) : IHttpClientFactory
     {
         public HttpClient CreateClient(string name) => new(new StubHandler(responseFactory));
@@ -157,6 +209,15 @@ public sealed class LocalRosterPullServiceTests
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
             Task.FromResult(responseFactory(request));
+    }
+
+    private sealed class CapturingLogger<T> : ILogger<T>
+    {
+        public ConcurrentQueue<string> Messages { get; } = new();
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) => Messages.Enqueue(formatter(state, exception));
     }
 
     private sealed class LoadHttpClientFactory(object index) : IHttpClientFactory
