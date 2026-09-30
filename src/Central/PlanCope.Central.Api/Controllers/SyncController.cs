@@ -509,6 +509,17 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
             return schoolIds;
         }
 
+        // Universal PCOPE keys are not attached to an individual school. Empty CUE is
+        // the persisted marker for that scope and lets the node receive every publication.
+        if (string.IsNullOrWhiteSpace(node.Cue))
+        {
+            var schools = await dbContext.Schools.AsNoTracking()
+                .Select(static school => new { school.Id, school.Cue }).ToListAsync(cancellationToken);
+            return schools.SelectMany(static school => new[]
+                { school.Id, school.Cue.ToString(System.Globalization.CultureInfo.InvariantCulture) })
+                .ToHashSet(StringComparer.Ordinal);
+        }
+
         if (!string.IsNullOrWhiteSpace(node.SchoolId))
         {
             schoolIds.Add(node.SchoolId);

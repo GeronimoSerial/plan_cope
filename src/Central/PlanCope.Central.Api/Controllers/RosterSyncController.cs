@@ -32,7 +32,10 @@ public sealed class RosterSyncController(
             return BadRequest("cue and schoolYear are required and must be within the supported limits.");
         }
 
-        if (!(await authorizationService.AuthorizeAsync(User, cue, "RosterCueAccess")).Succeeded)
+        var nodeId = NodeAccessAuth.TryGetNodeId(User, out var tokenNodeId) ? tokenNodeId : null;
+        var universalNode = nodeId is not null && await dbContext.RegisteredNodes.AsNoTracking()
+            .AnyAsync(node => node.Id == nodeId && node.Cue == string.Empty, cancellationToken);
+        if (!universalNode && !(await authorizationService.AuthorizeAsync(User, cue, "RosterCueAccess")).Succeeded)
         {
             return Forbid();
         }

@@ -25,10 +25,6 @@ public static class EnrolmentEndpoints
             CancellationToken ct) =>
         {
             var identity = await nodeIdentityRepository.GetAsync(ct);
-            if (identity is null)
-            {
-                return Results.BadRequest(new { error = "Activá el equipo antes de inscribirlo." });
-            }
 
             var centralUrl = await ReadStateStringAsync(syncStateRepository, "central_url", ct)
                 ?? configuration["Central:BaseUrl"];
@@ -45,7 +41,7 @@ public static class EnrolmentEndpoints
                 request.ActivationKey,
                 fingerprint.CompositeHash,
                 JsonDocument.Parse(fingerprint.ComponentsJson),
-                identity.Cue,
+                string.Empty,
                 AppVersion: null);
 
             var response = await client.PostAsJsonAsync("api/activation/redeem", redeemRequest, ct);
@@ -77,9 +73,13 @@ public static class EnrolmentEndpoints
             await UpsertStateStringAsync(syncStateRepository, "central_access_token_expires_at", redeemed.AccessTokenExpiresAt.ToString("O"), ct);
             await UpsertStateStringAsync(syncStateRepository, "central_refresh_token_expires_at", redeemed.RefreshTokenExpiresAt.ToString("O"), ct);
 
-            await nodeIdentityRepository.UpsertAsync(identity with
+            var enrolledIdentity = identity ?? new NodeIdentity(
+                Guid.NewGuid().ToString("N"), null, null, fingerprint.CompositeHash, fingerprint.ComponentsJson,
+                null, null, "active", null, null);
+            await nodeIdentityRepository.UpsertAsync(enrolledIdentity with
             {
                 NodeId = redeemed.NodeId,
+                Cue = null,
                 EnrolledAt = DateTimeOffset.UtcNow.ToString("O"),
                 CredentialState = "active"
             }, ct);

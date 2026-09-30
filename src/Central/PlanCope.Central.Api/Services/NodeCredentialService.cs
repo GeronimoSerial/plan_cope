@@ -109,11 +109,18 @@ public sealed class NodeCredentialService
         CancellationToken cancellationToken)
     {
         var existing = await _dbContext.RegisteredNodes
-            .Where(node => node.Cue == cue && node.FingerprintHash == fingerprintHash)
+            .Where(node => node.FingerprintHash == fingerprintHash && (string.IsNullOrEmpty(cue) || node.Cue == cue))
             .SingleOrDefaultAsync(cancellationToken);
 
         if (existing is not null)
         {
+            if (string.IsNullOrEmpty(cue) && !string.IsNullOrEmpty(existing.Cue))
+            {
+                var universal = existing with { Cue = string.Empty, SchoolId = null };
+                _dbContext.Entry(existing).CurrentValues.SetValues(universal);
+                existing = universal;
+                await _dbContext.SaveChangesAsync(cancellationToken);
+            }
             return (existing, IsNewNode: false);
         }
 

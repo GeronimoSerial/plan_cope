@@ -18,7 +18,7 @@ internal static class Program
         var healthTracker = new UpdateHealthTracker(healthMarkerPath);
         TryAutomaticRollback(healthTracker);
 
-        Application.Run(new MainForm(directories, new ActivationKeyStore(directories), healthTracker));
+        Application.Run(new MainForm(directories, healthTracker));
     }
 
     // A machine that fails to start twice in a row after an update reverts to the last

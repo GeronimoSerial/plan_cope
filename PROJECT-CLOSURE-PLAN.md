@@ -1,5 +1,10 @@
 # Plan Cope — Project Closure Plan
 
+> Activation update (2026-09): first-run activation now uses the universal PCOPE key and
+> Central's production API base URL is the Local default. Offline passphrase and bundle
+> seeding have been removed. Full initial data download and periodic revalidation remain
+> required follow-up work; see `IMPLEMENTATION-REPORT.md` in the activation worktree.
+
 **Status:** design locked, implementation pending
 **Date:** 2026-09-15
 **Owner:** Opus (architecture + coordination), Sonnet (batch leads), DeepSeek V4 Flash (implementers)
