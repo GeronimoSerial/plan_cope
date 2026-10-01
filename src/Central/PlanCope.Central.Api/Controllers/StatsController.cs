@@ -57,6 +57,34 @@ public sealed class StatsController(PlanCopeDbContext dbContext, IAuthorizationS
         return Ok(rows);
     }
 
+    [HttpGet("courses")]
+    public async Task<ActionResult> GetCourses(CancellationToken cancellationToken)
+    {
+        var rosterScope = User.FindFirstValue("roster_scope");
+        IQueryable<PlanCope.Shared.Domain.Central.ExamRollup> query = dbContext.ExamRollups.AsNoTracking();
+        if (rosterScope == "school")
+        {
+            var candidates = User.FindAll("roster_cue").Select(claim => claim.Value).Distinct().ToList();
+            var authorized = new List<string>();
+            foreach (var cue in candidates)
+            {
+                if ((await authorizationService.AuthorizeAsync(User, cue, new RosterScopeRequirement())).Succeeded)
+                {
+                    authorized.Add(cue);
+                }
+            }
+
+            query = query.Where(row => authorized.Contains(row.Cue));
+        }
+        else if (rosterScope != "province")
+        {
+            return Forbid();
+        }
+
+        var courses = await query.Select(row => row.Course).Distinct().ToListAsync(cancellationToken);
+        return Ok(courses.Select(course => new { value = course, label = course }).OrderBy(course => course.label, StringComparer.Ordinal).ToList());
+    }
+
     [HttpGet("school")]
     public async Task<ActionResult> GetSchool(string cue, string? schoolYear, string? course, CancellationToken cancellationToken)
     {

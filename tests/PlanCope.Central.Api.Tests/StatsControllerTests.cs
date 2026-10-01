@@ -26,6 +26,47 @@ public sealed class StatsControllerTests
         .BuildServiceProvider();
 
     [Fact]
+    public async Task GetCourses_ReturnsDistinctStructuredCourseOptionsForProvinceScope()
+    {
+        var options = CreateOptions();
+        using var dbContext = new PlanCopeDbContext(options);
+        await SeedRollupAsync(dbContext, "180000100", "2026", "4° grado", "ev-1", attemptCount: 10, scoreSum: 8, scoreMaxSum: 10);
+        await SeedRollupAsync(dbContext, "180000200", "2026", "1° grado", "ev-2", attemptCount: 10, scoreSum: 8, scoreMaxSum: 10);
+        await SeedRollupAsync(dbContext, "180000100", "2025", "4° grado", "ev-3", attemptCount: 10, scoreSum: 8, scoreMaxSum: 10);
+
+        using var scope = CreateAuthScope();
+        var controller = CreateController(
+            dbContext,
+            scope.ServiceProvider.GetRequiredService<IAuthorizationService>(),
+            Principal(new Claim("roster_scope", "province")));
+
+        var result = Assert.IsType<OkObjectResult>(await controller.GetCourses(CancellationToken.None));
+        using var json = ToJson(result.Value);
+        var items = json.RootElement.EnumerateArray().ToList();
+        Assert.Equal(new[] { "1° grado", "4° grado" }, items.Select(item => item.GetProperty("value").GetString()).OrderBy(value => value, StringComparer.Ordinal));
+        Assert.All(items, item => Assert.Equal(item.GetProperty("value").GetString(), item.GetProperty("label").GetString()));
+    }
+
+    [Fact]
+    public async Task GetCourses_SchoolScopeOnlyReturnsAuthorizedCues()
+    {
+        var options = CreateOptions();
+        using var dbContext = new PlanCopeDbContext(options);
+        await SeedRollupAsync(dbContext, "180000100", "2026", "4° grado", "ev-1", attemptCount: 10, scoreSum: 8, scoreMaxSum: 10);
+        await SeedRollupAsync(dbContext, "180000200", "2026", "6° grado", "ev-2", attemptCount: 10, scoreSum: 8, scoreMaxSum: 10);
+
+        using var scope = CreateAuthScope();
+        var controller = CreateController(
+            dbContext,
+            scope.ServiceProvider.GetRequiredService<IAuthorizationService>(),
+            SchoolPrincipal("180000100"));
+
+        var result = Assert.IsType<OkObjectResult>(await controller.GetCourses(CancellationToken.None));
+        using var json = ToJson(result.Value);
+        Assert.Equal("4° grado", json.RootElement[0].GetProperty("value").GetString());
+    }
+
+    [Fact]
     public async Task GetSchools_WithoutRosterScopeClaim_IsForbidden()
     {
         var options = CreateOptions();
