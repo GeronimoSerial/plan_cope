@@ -2,7 +2,7 @@ namespace PlanCope.Shared.Contracts.Activation;
 
 /// <summary>Issues a new activation key. Keys are universal: ScopeCue is always null and any key
 /// can enrol a node at any CUE.</summary>
-public sealed record IssueActivationKeyRequest(int MaxActivations, DateTimeOffset? ExpiresAt, string? Note);
+public sealed record IssueActivationKeyRequest(int MaxActivations, DateTimeOffset? ExpiresAt, string? Note, string? HolderName = null);
 
 /// <summary>Response of the issue endpoint. The plaintext key appears here and only here — this
 /// is the one-time display of the key material.</summary>
@@ -25,7 +25,19 @@ public sealed record ActivationKeySummaryDto(
     int ActivationCount,
     DateTimeOffset? RevokedAt,
     string? RevokedReason,
-    string? Note);
+    string? Note,
+    string? HolderName);
+
+/// <summary>Device enrolled through one activation key.</summary>
+public sealed record ActivationKeyNodeDto(
+    string Id,
+    string NodeCode,
+    string? DeviceName,
+    DateTimeOffset EnrolledAt,
+    DateTimeOffset? LastSeenAt,
+    string? AppVersion,
+    string Status,
+    DateTimeOffset? RevokedAt);
 
 /// <summary>Body of the revoke-key endpoint. Stops future enrolments through the key; nodes
 /// already enrolled by it keep working.</summary>
