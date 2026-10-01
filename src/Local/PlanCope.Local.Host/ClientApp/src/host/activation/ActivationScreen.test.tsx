@@ -17,9 +17,19 @@ describe("activation", () => {
     expect(html).not.toContain("CUE");
   });
 
+  it("opens the download retry action immediately when activation is pending", () => {
+    const html = renderToStaticMarkup(
+      <ActivationScreen apiBaseUrl="http://127.0.0.1:5055" activationInProgress />
+    );
+
+    expect(html).toContain("La clave ya fue validada. Reintentá la descarga");
+    expect(html).toMatch(/<button type="button">Reintentar descarga<\/button>/);
+  });
+
   it("shows activation only when the node is not enrolled", () => {
     expect(shouldShowActivation(false)).toBe(true);
     expect(shouldShowActivation(true)).toBe(false);
+    expect(shouldShowActivation(true, true)).toBe(true);
   });
 
   it("offers download retry only for a redeem that already stored credentials", () => {

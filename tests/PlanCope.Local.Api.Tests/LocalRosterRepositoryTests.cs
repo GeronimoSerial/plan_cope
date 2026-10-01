@@ -146,6 +146,37 @@ public sealed class LocalRosterRepositoryTests
         }
     }
 
+    [Fact]
+    public async Task Import_repairs_rows_missing_from_an_existing_snapshot()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"plancope-roster-repair-{Guid.NewGuid():N}.db");
+        try
+        {
+            var connectionString = $"Data Source={databasePath};Pooling=False";
+            new LocalDatabaseInitializer(new LocalDatabaseOptions(connectionString)).Initialize();
+            var connections = new LocalSqliteConnectionFactory(new LocalDatabaseOptions(connectionString));
+            var repository = new LocalRosterRepository(connections, NullLogger<LocalRosterRepository>.Instance);
+            var hmac = new DocumentHmacService(Options.Create(new NominalizationOptions { DocumentHmacKey = "release-test-key-with-at-least-32-bytes" }));
+            var package = CreatePackage();
+
+            Assert.True((await repository.ImportAsync(package, hmac)).Imported);
+            using (var connection = connections.CreateOpenConnection())
+                await connection.ExecuteAsync("DELETE FROM local_roster_students WHERE id = 'student-b';");
+
+            var repaired = await repository.ImportAsync(package, hmac);
+            var sections = await repository.GetSectionsAsync(package.Cue, package.SchoolYear);
+
+            Assert.True(repaired.Imported);
+            Assert.Equal(2, repaired.StudentCount);
+            Assert.Equal(2, sections.Sum(section => section.StudentCount));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (File.Exists(databasePath)) File.Delete(databasePath);
+        }
+    }
+
     private static GeRosterPackageDto CreatePackage()
     {
         var sections = new[]

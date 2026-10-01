@@ -26,7 +26,7 @@ public static class ActivationEndpoints
             {
                 phaseAComplete = identity?.CredentialState == "active" && !expired && !inProgress,
                 cue = identity?.Cue,
-                isLocked = identity?.RevocationStage == "locked" || expired || inProgress,
+                isLocked = identity?.RevocationStage == "locked" || expired,
                 activationInProgress = inProgress,
                 expiryPending = await revalidation.IsExpiryPendingAsync(ct),
                 localClockWarning = await revalidation.IsLocalClockWarningAsync(ct),

@@ -93,10 +93,46 @@ public sealed class EnrolmentEndpointsTests
         using (var failureBody = JsonDocument.Parse(await failedDownload.Content.ReadAsStringAsync()))
             Assert.Equal("download failed", failureBody.RootElement.GetProperty("error").GetString());
 
+        var pendingStatus = await client.GetFromJsonAsync<JsonElement>("/api/activation/status");
+        Assert.True(pendingStatus.GetProperty("activationInProgress").GetBoolean());
+        Assert.False(pendingStatus.GetProperty("isLocked").GetBoolean());
+        var blockedApiResponse = await client.GetAsync("/api/exams/");
+        Assert.Equal(HttpStatusCode.Locked, blockedApiResponse.StatusCode);
+        using (var blockedBody = JsonDocument.Parse(await blockedApiResponse.Content.ReadAsStringAsync()))
+            Assert.Equal("activation_in_progress", blockedBody.RootElement.GetProperty("errorCode").GetString());
+
         var retry = await client.PostAsync("/api/enrolment/retry-download", null);
 
         Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
         Assert.Equal(1, handler.CallCount);
+        Assert.Equal(2, download.CallCount);
+    }
+
+    [Fact]
+    public async Task Redeeming_the_same_validated_key_again_retries_the_initial_download()
+    {
+        var download = new RetryableInitialDownloadService();
+        var handler = new StubCentralHandler(() => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(ActivationRedeemResult.Succeeded(new ActivationRedeemResponse
+            {
+                NodeId = RedeemedNodeId,
+                AccessToken = "central-access-token",
+                RefreshToken = "central-refresh-token",
+                AccessTokenExpiresAt = DateTimeOffset.UtcNow.AddMinutes(15),
+                RefreshTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(30),
+            }))
+        });
+        using var factory = new EnrolmentApiFactory(handler, download);
+        using var client = factory.CreateClient();
+        factory.SeedNodeIdentity();
+
+        var firstAttempt = await client.PostAsJsonAsync("/api/enrolment/redeem", new EnrolmentRedeemRequest(ActivationKey));
+        var secondAttempt = await client.PostAsJsonAsync("/api/enrolment/redeem", new EnrolmentRedeemRequest(ActivationKey));
+
+        Assert.Equal(HttpStatusCode.BadGateway, firstAttempt.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, secondAttempt.StatusCode);
+        Assert.Equal(2, handler.CallCount);
         Assert.Equal(2, download.CallCount);
     }
 

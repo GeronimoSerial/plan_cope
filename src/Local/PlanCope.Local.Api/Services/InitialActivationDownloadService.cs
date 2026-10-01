@@ -12,21 +12,24 @@ public sealed class InitialActivationDownloadService(
     ILocalOutboxPushService outboxPushService,
     ILocalExamPullService examPullService,
     ILocalRosterPullService rosterPullService,
-    ActivationRevalidationService revalidationService) : IInitialActivationDownloadService
+    ActivationRevalidationService revalidationService,
+    ILogger<InitialActivationDownloadService> logger) : IInitialActivationDownloadService
 {
     public async Task<InitialActivationDownloadResult> DownloadAllAsync(CancellationToken cancellationToken = default)
     {
-        var returnedNormally = false;
         try
         {
-            var result = await DownloadCoreAsync(cancellationToken);
-            returnedNormally = true;
-            return result;
+            return await DownloadCoreAsync(cancellationToken);
         }
-        finally
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            if (!returnedNormally)
-                await revalidationService.SetActivationInProgressAsync(false, CancellationToken.None);
+            throw;
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Initial activation download failed unexpectedly.");
+            var reason = LocalRosterPullService.SummarizeFailure(exception.Message);
+            return new(false, $"No se pudo completar la descarga inicial. {reason} Reintentá la descarga.");
         }
     }
 
@@ -44,14 +47,18 @@ public sealed class InitialActivationDownloadService(
             var pushed = await outboxPushService.PushAsync(200, cancellationToken);
             if (pushed.TransportOrAuthFailure)
             {
-                await revalidationService.SetActivationInProgressAsync(false, cancellationToken);
+                logger.LogError("Initial activation download could not push pending results: {Error}", pushed.Error);
                 return new(false, "La clave se validó, pero hay resultados pendientes que no se pudieron enviar. Reintentá cuando vuelva la conexión.");
             }
         }
 
         var exams = await examPullService.PullAsync(cancellationToken);
         if (!exams.Success)
-            return new(false, "La activación se guardó, pero no se pudieron descargar las evaluaciones. Reintentá cuando vuelva la conexión.");
+        {
+            var reason = exams.Error ?? ExamPullMessages.ForError(exams.ErrorCode);
+            logger.LogError("Initial activation exam pull failed with {ErrorCode}: {Error}", exams.ErrorCode, reason);
+            return new(false, $"La activación se guardó, pero no se pudieron descargar las evaluaciones. {reason} Reintentá la descarga.");
+        }
 
         var rosters = await rosterPullService.PullAllAsync(cancellationToken);
         if (!rosters.Success)
@@ -59,6 +66,7 @@ public sealed class InitialActivationDownloadService(
             var reason = string.IsNullOrWhiteSpace(rosters.Error)
                 ? "Reintentá la descarga cuando vuelva la conexión."
                 : rosters.Error;
+            logger.LogError("Initial activation roster pull failed: {Error}", reason);
             return new(false, $"La activación se guardó, pero no se pudieron descargar todas las escuelas y listas. {reason}");
         }
 
