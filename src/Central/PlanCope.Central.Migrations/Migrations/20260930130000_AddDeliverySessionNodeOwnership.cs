@@ -1,14 +1,10 @@
-using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
-using PlanCope.Central.Api.Data;
 
 #nullable disable
 
 namespace PlanCope.Central.Migrations.Migrations;
 
-[DbContext(typeof(PlanCopeDbContext))]
-[Migration("20260930120000_AddDeliverySessionNodeOwnership")]
-public sealed class AddDeliverySessionNodeOwnership : Migration
+public partial class AddDeliverySessionNodeOwnership : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)
     {
