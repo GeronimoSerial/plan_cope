@@ -7,11 +7,12 @@ import { useStudentExam } from "./hooks/useStudentExam";
 
 export function StudentApp() {
   const exam = useStudentExam();
+  const isSubmitted = Boolean(exam.confirmationCode);
 
   return (
     <StudentShell>
-      {exam.confirmationCode ? (
-        <ExamConfirmationPanel code={exam.confirmationCode} submittedAt={exam.submittedAt} />
+      {isSubmitted ? (
+        <ExamConfirmationPanel submittedAt={exam.submittedAt} />
       ) : !exam.attemptId && !exam.resolution ? (
         <SessionEntryPanel
           sessionCode={exam.sessionCode}

@@ -235,14 +235,7 @@
 
 .student-success-icon { display: inline-grid; width: 3.75rem; height: 3.75rem; place-items: center; margin-bottom: var(--s-3); border-radius: var(--r-sm); background: var(--ok-tint); color: var(--ok); font-size: 1.875rem; font-weight: 700; }
 .student-confirmation-copy { margin: 0 0 var(--s-4); color: var(--ink-soft); line-height: 1.5; }
-.student-confirmation-code-box { display: grid; justify-items: center; gap: var(--s-2); margin-bottom: var(--s-3); border: 1px solid var(--line); border-radius: var(--r-sm); padding: var(--s-4); background: var(--fill); }
-.student-confirmation-label { color: var(--ink-soft); font-size: var(--t-micro); font-weight: 600; }
-.confirmation-code { display: block; color: var(--accent); font-size: clamp(1.75rem, 5vw, 2.25rem); font-weight: 700; letter-spacing: .16em; line-height: 1.1; overflow-wrap: anywhere; }
-.student-copy-button { min-height: 44px; border: 1px solid var(--ink); border-radius: var(--r-sm); padding: 0 var(--s-4); background: var(--card); color: var(--ink); font: inherit; font-weight: 600; cursor: pointer; }
-.student-copy-button:hover { background: var(--fill); }
 .student-confirmation-time { margin: 0 0 var(--s-4); color: var(--ink-soft); font-size: var(--t-small); }
-.student-alert { display: grid; grid-template-columns: auto 1fr; gap: var(--s-2); align-items: center; border-left: 4px solid var(--warn); border-radius: var(--r-sm); padding: var(--s-3) var(--s-4); background: var(--warn-tint); color: var(--ink); font-weight: 600; text-align: left; }
-.student-alert-icon { color: var(--warn); font-size: 1.125rem; }
 
 .student-modal-backdrop { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; overflow-y: auto; padding: var(--s-4); background: rgb(46 45 44 / 55%); }
 .student-modal { width: min(34rem, 100%); max-height: min(90vh, 48rem); overflow: auto; border: 1px solid var(--line); border-radius: var(--r-sm); padding: var(--s-5); background: var(--card); box-shadow: var(--e-modal); }
