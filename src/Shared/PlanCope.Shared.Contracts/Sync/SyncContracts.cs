@@ -42,7 +42,8 @@ public sealed record SessionHeartbeatRequest(
     int ClosedOrForcedCount,
     DateTimeOffset StartedAt,
     DateTimeOffset? LastActivityAt,
-    string? AppVersion);
+    string? AppVersion,
+    DateTimeOffset SentAt);
 
 public sealed record LiveSessionSummary(
     string SessionId,

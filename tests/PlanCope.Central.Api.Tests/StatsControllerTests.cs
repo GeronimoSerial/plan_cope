@@ -142,7 +142,7 @@ public sealed class StatsControllerTests
         var now = DateTimeOffset.UtcNow;
         dbContext.DeliverySessions.Add(new CentralDeliverySession(
             "central-session-1", "local-session-1", "180000300", "exam-1", null, null, "active",
-            now.AddMinutes(-15), null, now, now, "node-1", "2026", "section-1", 12, 5, 7, 0, now, now, "1.0.0"));
+            now.AddMinutes(-15), null, now, now, "node-1", "2026", null, "section-1", 12, 5, 7, 0, now, now, "1.0.0"));
         await dbContext.SaveChangesAsync();
 
         using var scope = CreateAuthScope();

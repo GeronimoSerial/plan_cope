@@ -14,7 +14,6 @@ public partial class AddLiveSessionHeartbeats : Migration
         migrationBuilder.AddColumn<DateTimeOffset>(name: "LastActivityAt", schema: "sync", table: "delivery_sessions", type: "timestamp with time zone", nullable: true);
         migrationBuilder.AddColumn<DateTimeOffset>(name: "LastHeartbeatAt", schema: "sync", table: "delivery_sessions", type: "timestamp with time zone", nullable: true);
         migrationBuilder.AddColumn<string>(name: "LocalAppVersion", schema: "sync", table: "delivery_sessions", type: "character varying(64)", maxLength: 64, nullable: true);
-        migrationBuilder.AddColumn<string>(name: "SchoolYear", schema: "sync", table: "delivery_sessions", type: "character varying(32)", maxLength: 32, nullable: true);
         migrationBuilder.AddColumn<string>(name: "RosterSectionId", schema: "sync", table: "delivery_sessions", type: "character varying(128)", maxLength: 128, nullable: true);
         migrationBuilder.AddColumn<int>(name: "SubmittedCount", schema: "sync", table: "delivery_sessions", type: "integer", nullable: false, defaultValue: 0);
     }
@@ -27,7 +26,6 @@ public partial class AddLiveSessionHeartbeats : Migration
         migrationBuilder.DropColumn(name: "LastActivityAt", schema: "sync", table: "delivery_sessions");
         migrationBuilder.DropColumn(name: "LastHeartbeatAt", schema: "sync", table: "delivery_sessions");
         migrationBuilder.DropColumn(name: "LocalAppVersion", schema: "sync", table: "delivery_sessions");
-        migrationBuilder.DropColumn(name: "SchoolYear", schema: "sync", table: "delivery_sessions");
         migrationBuilder.DropColumn(name: "RosterSectionId", schema: "sync", table: "delivery_sessions");
         migrationBuilder.DropColumn(name: "SubmittedCount", schema: "sync", table: "delivery_sessions");
     }

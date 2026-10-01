@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using PlanCope.Central.Api.Auth;
 using PlanCope.Central.Api.Data;
+using PlanCope.Central.Api.Services;
 using PlanCope.Shared.Domain;
 using PlanCope.Shared.Domain.Central;
 using PlanCope.Shared.Domain.ValueObjects;
@@ -43,7 +44,7 @@ public sealed class StatsController(PlanCopeDbContext dbContext, IAuthorizationS
             return Forbid();
         }
 
-        var freshHeartbeatCutoff = DateTimeOffset.UtcNow.AddMinutes(-10);
+        var freshHeartbeatCutoff = DateTimeOffset.UtcNow - SessionHeartbeatPolicy.StaleAfter;
         if (rosterScope == "province")
         {
             var liveCues = await dbContext.DeliverySessions.AsNoTracking()

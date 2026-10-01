@@ -251,38 +251,11 @@ namespace PlanCope.Central.Migrations.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
-                    b.Property<int>("ClosedOrForcedCount")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("InProgressCount")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("JoinedCount")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTimeOffset?>("LastActivityAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset?>("LastHeartbeatAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("LocalAppVersion")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("SchoolYear")
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("RosterSectionId")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<int>("SubmittedCount")
-                        .HasColumnType("integer");
-
                     b.Property<string>("ClassroomCode")
                         .HasColumnType("text");
+
+                    b.Property<int>("ClosedOrForcedCount")
+                        .HasColumnType("integer");
 
                     b.Property<string>("CommissionCode")
                         .HasColumnType("text");
@@ -300,8 +273,28 @@ namespace PlanCope.Central.Migrations.Migrations
                     b.Property<string>("ExamVersionId")
                         .HasColumnType("text");
 
+                    b.Property<int>("InProgressCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("JoinedCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("LastActivityAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("LastHeartbeatAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LocalAppVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<string>("RemoteLocalId")
                         .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("RosterSectionId")
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
@@ -323,6 +316,9 @@ namespace PlanCope.Central.Migrations.Migrations
                         .IsRequired()
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
+
+                    b.Property<int>("SubmittedCount")
+                        .HasColumnType("integer");
 
                     b.Property<DateTimeOffset?>("SyncedAt")
                         .HasColumnType("timestamp with time zone");
@@ -1061,10 +1057,11 @@ namespace PlanCope.Central.Migrations.Migrations
                         .HasColumnType("character varying(2000)");
 
                     b.Property<string>("AttributionStatus")
-                        .HasDefaultValue("pending")
                         .IsRequired()
+                        .ValueGeneratedOnAdd()
                         .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
+                        .HasColumnType("character varying(32)")
+                        .HasDefaultValue("pending");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");

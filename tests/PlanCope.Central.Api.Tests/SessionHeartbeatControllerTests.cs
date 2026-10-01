@@ -57,6 +57,50 @@ public sealed class SessionHeartbeatControllerTests
     }
 
     [Fact]
+    public async Task Heartbeat_rejects_revoked_nodes()
+    {
+        using var db = CreateDbContext();
+        await SeedNodeAsync(db, "node-A", "180055400", DateTimeOffset.UtcNow);
+        var controller = new SessionHeartbeatController(db);
+        Bind(controller, "node_access", "node-A");
+
+        var result = await controller.Receive(Request("session-1", "180055400"), "node-A", CancellationToken.None);
+
+        Assert.IsType<ForbidResult>(result);
+        Assert.Empty(await db.DeliverySessions.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Older_heartbeat_does_not_regress_counts_or_timestamp()
+    {
+        using var db = CreateDbContext();
+        await SeedNodeAsync(db, "node-A", "180055400");
+        var controller = new SessionHeartbeatController(db);
+        Bind(controller, "node_access", "node-A");
+        var newer = Request("session-1", "180055400") with
+        {
+            SentAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+            JoinedCount = 9,
+            InProgressCount = 8
+        };
+        await controller.Receive(newer, "node-A", CancellationToken.None);
+        var previousHeartbeat = (await db.DeliverySessions.SingleAsync()).LastHeartbeatAt;
+
+        var result = await controller.Receive(Request("session-1", "180055400") with
+        {
+            SentAt = newer.SentAt.AddSeconds(-1),
+            JoinedCount = 2,
+            InProgressCount = 1
+        }, "node-A", CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        var session = await db.DeliverySessions.SingleAsync();
+        Assert.Equal(9, session.JoinedCount);
+        Assert.Equal(8, session.InProgressCount);
+        Assert.Equal(previousHeartbeat, session.LastHeartbeatAt);
+    }
+
+    [Fact]
     public async Task Admin_list_marks_old_nonclosed_heartbeats_as_sin_senal()
     {
         using var db = CreateDbContext();
@@ -80,18 +124,18 @@ public sealed class SessionHeartbeatControllerTests
 
     private static SessionHeartbeatRequest Request(string sessionId, string cue) => new(
         sessionId, cue, "2026", "section-1", "exam-1", "active", 4, 2, 1, 1,
-        DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow, "1.0.0");
+        DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow, "1.0.0", DateTimeOffset.UtcNow);
 
     private static CentralDeliverySession Session(string id, string nodeId, DateTimeOffset? heartbeat) => new(
         id, id, "180055400", "exam-1", null, null, "active", DateTimeOffset.UtcNow.AddHours(-1), null,
-        heartbeat, DateTimeOffset.UtcNow.AddHours(-1), nodeId, "2026", "section-1", 5, 2, 3, 0,
+        heartbeat, DateTimeOffset.UtcNow.AddHours(-1), nodeId, "2026", null, "section-1", 5, 2, 3, 0,
         DateTimeOffset.UtcNow, heartbeat, "1.0.0");
 
-    private static async Task SeedNodeAsync(PlanCopeDbContext db, string nodeId, string cue)
+    private static async Task SeedNodeAsync(PlanCopeDbContext db, string nodeId, string cue, DateTimeOffset? revokedAt = null)
     {
         db.RegisteredNodes.Add(new RegisteredNode(nodeId, null, nodeId, null, "Active", null,
             DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, $"fp-{nodeId}", JsonDocument.Parse("{}"), cue,
-            null, DateTimeOffset.UtcNow, null, null));
+            null, DateTimeOffset.UtcNow, revokedAt, null));
         await db.SaveChangesAsync();
     }
 
