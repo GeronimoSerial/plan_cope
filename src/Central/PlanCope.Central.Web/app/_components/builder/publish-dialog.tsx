@@ -89,7 +89,7 @@ export function PublishDialog({
     if (nextOpen) {
       setSubject(document.subject ?? "");
       setDivision("");
-        setPublishError(null);
+      setPublishError(null);
       setDone(false);
     }
     onOpenChange(nextOpen);
