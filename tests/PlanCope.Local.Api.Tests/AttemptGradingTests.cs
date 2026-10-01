@@ -15,7 +15,7 @@ namespace PlanCope.Local.Api.Tests;
 public sealed class AttemptGradingTests
 {
     [Fact]
-    public async Task Graded_attempt_persists_score_and_excludes_ungradable_blocks()
+    public async Task Graded_attempt_persists_score_for_supported_question_types()
     {
         using var factory = new LocalApiFactory();
         using var client = factory.CreateClient();
@@ -31,7 +31,6 @@ public sealed class AttemptGradingTests
             {
                 new { blockId = factory.MultipleChoiceBlockId, answer = (object)new[] { "b" } },
                 new { blockId = factory.TrueFalseBlockId, answer = (object)true },
-                new { blockId = factory.ShortAnswerBlockId, answer = (object)"hola" }
             }
         });
         Assert.Equal(HttpStatusCode.NoContent, answerResponse.StatusCode);
@@ -51,8 +50,8 @@ public sealed class AttemptGradingTests
         using var reader = command.ExecuteReader();
         Assert.True(reader.Read());
         Assert.Equal("graded", reader.GetString(0));
-        Assert.Equal(3.0, reader.GetDouble(1));
-        Assert.Equal(3.0, reader.GetDouble(2));
+        Assert.Equal(2.0, reader.GetDouble(1));
+        Assert.Equal(2.0, reader.GetDouble(2));
     }
 
     [Fact]
@@ -253,8 +252,6 @@ public sealed class AttemptGradingTests
         public string RemoteExamVersionId { get; } = "remote-gradable-exam-v1";
         public string MultipleChoiceBlockId { get; } = "blk-local-1";
         public string TrueFalseBlockId { get; } = "blk-local-2";
-        public string ShortAnswerBlockId { get; } = "blk-local-3";
-        public string TextBlockId { get; } = "blk-local-4";
         private readonly string databasePath = Path.Combine(Path.GetTempPath(), $"plancope-grading-{Guid.NewGuid():N}.db");
         private readonly string? previousConnectionString;
         private readonly string? previousSeedDemoExam;
@@ -324,30 +321,6 @@ public sealed class AttemptGradingTests
                     ("$id", "ak-blk-2"),
                     ("$examId", ExamVersionId),
                     ("$remoteBlockId", "remote-blk-2"));
-
-                Execute(connection, transaction, """
-                    INSERT INTO local_exam_blocks (id, local_exam_version_id, remote_block_id, order_index, block_type, config_json, validation_json)
-                    VALUES ($id, $examId, $remoteBlockId, 2, 'short_answer', '{"question":"Saluda"}', NULL);
-                    """,
-                    ("$id", ShortAnswerBlockId),
-                    ("$examId", ExamVersionId),
-                    ("$remoteBlockId", "remote-blk-3"));
-
-                Execute(connection, transaction, """
-                    INSERT INTO local_answer_keys (id, local_exam_version_id, remote_block_id, correct_answer_json, score_value)
-                    VALUES ($id, $examId, $remoteBlockId, '{"accepted":["hola"]}', 1);
-                    """,
-                    ("$id", "ak-blk-3"),
-                    ("$examId", ExamVersionId),
-                    ("$remoteBlockId", "remote-blk-3"));
-
-                Execute(connection, transaction, """
-                    INSERT INTO local_exam_blocks (id, local_exam_version_id, remote_block_id, order_index, block_type, config_json, validation_json)
-                    VALUES ($id, $examId, $remoteBlockId, 3, 'text', '{"text":"Lee"}', NULL);
-                    """,
-                    ("$id", TextBlockId),
-                    ("$examId", ExamVersionId),
-                    ("$remoteBlockId", "remote-blk-4"));
             }
 
             transaction.Commit();

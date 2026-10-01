@@ -613,18 +613,6 @@ public sealed class ExamsController(
             .OrderBy(x => x.FileName)
             .ToListAsync(cancellationToken);
 
-        var missingAssetReferences = blocks
-            .Where(static block => block.BlockType is PlanCope.Shared.Domain.BlockType.Image)
-            .Select(block => block.Config.RootElement.TryGetProperty("assetId", out var assetId) ? assetId.GetString() : null)
-            .Where(assetId => !string.IsNullOrWhiteSpace(assetId) && assets.All(asset => asset.Id != assetId))
-            .ToList();
-
-        if (missingAssetReferences.Count > 0)
-        {
-            ModelState.AddModelError("assets", "One or more image blocks reference assets that do not exist.");
-            return ValidationProblem(ModelState);
-        }
-
         var targets = BuildTargets(request, exam);
         var publishedAssets = assets.Select(ToPublishedDto).ToList();
         var checksum = ExamPackageChecksum.Compute(

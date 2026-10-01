@@ -29,7 +29,6 @@ interface QuestionEditorProps {
 
 export function QuestionEditor({ question, errors, disabled = false, onChange }: QuestionEditorProps) {
   const uid = useId();
-  const isContentBlock = question.type === "text_block" || question.type === "image_block";
 
   function patchCommon(patch: Partial<{ prompt: string; help: string | undefined; required: boolean; score: number }>) {
     onChange({ ...question, ...patch } as Question);
@@ -39,7 +38,7 @@ export function QuestionEditor({ question, errors, disabled = false, onChange }:
     if (type === question.type) {
       return;
     }
-    // Conserva enunciado/ayuda/puntaje/obligatorio; reinicia lo especifico del tipo.
+    // Keep the prompt, help, score, and required setting; reset fields specific to the type.
     const fresh = blankQuestion(type);
     onChange({
       ...fresh,
@@ -51,12 +50,7 @@ export function QuestionEditor({ question, errors, disabled = false, onChange }:
     } as Question);
   }
 
-  const promptLabel =
-    question.type === "text_block"
-      ? "Texto del bloque"
-      : question.type === "image_block"
-        ? "Pie de imagen (opcional)"
-        : "Enunciado";
+  const promptLabel = "Enunciado";
 
   return (
     <div className="grid gap-4">
@@ -89,13 +83,7 @@ export function QuestionEditor({ question, errors, disabled = false, onChange }:
           disabled={disabled}
           onChange={event => patchCommon({ prompt: event.target.value })}
           aria-invalid={errors.prompt ? true : undefined}
-          placeholder={
-            question.type === "text_block"
-              ? "Escribí el contenido que verá el estudiante."
-              : question.type === "image_block"
-                ? "Pie de imagen opcional."
-                : "Escribí la pregunta tal como la verá el estudiante."
-          }
+          placeholder="Escribí la pregunta tal como la verá el estudiante."
         />
         {errors.prompt && <FieldError>{errors.prompt}</FieldError>}
       </Field>
@@ -111,43 +99,38 @@ export function QuestionEditor({ question, errors, disabled = false, onChange }:
             placeholder="Aclaración opcional."
           />
         </Field>
-        {!isContentBlock && (
-          <Field>
-            <div className="flex items-center gap-1.5">
-              <FieldLabel htmlFor={`${uid}-score`}>Puntos de esta pregunta</FieldLabel>
-              <TermHint term="puntos" />
-            </div>
-            <Input
-              id={`${uid}-score`}
-              type="number"
-              min={0}
-              step={1}
-              value={question.score}
-              disabled={disabled}
-              onChange={event => patchCommon({ score: Number(event.target.value) })}
-            />
-          </Field>
-        )}
+        <Field>
+          <div className="flex items-center gap-1.5">
+            <FieldLabel htmlFor={`${uid}-score`}>Puntos de esta pregunta</FieldLabel>
+            <TermHint term="puntos" />
+          </div>
+          <Input
+            id={`${uid}-score`}
+            type="number"
+            min={0}
+            step={1}
+            value={question.score}
+            disabled={disabled}
+            onChange={event => patchCommon({ score: Number(event.target.value) })}
+          />
+        </Field>
       </div>
 
-      {!isContentBlock && (
-        <div className="flex items-center gap-2">
-          <Checkbox
-            id={`${uid}-required`}
-            checked={question.required}
-            disabled={disabled}
-            onCheckedChange={checked => patchCommon({ required: checked === true })}
-          />
-          <Label htmlFor={`${uid}-required`} className="font-normal">
-            Respuesta obligatoria
-          </Label>
-        </div>
-      )}
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id={`${uid}-required`}
+          checked={question.required}
+          disabled={disabled}
+          onCheckedChange={checked => patchCommon({ required: checked === true })}
+        />
+        <Label htmlFor={`${uid}-required`} className="font-normal">
+          Respuesta obligatoria
+        </Label>
+      </div>
 
       {(question.type === "single_choice" || question.type === "multiple_choice") && (
         <ChoiceEditor question={question} errors={errors} disabled={disabled} onChange={onChange} />
       )}
-
       {question.type === "true_false" && (
         <Field>
           <FieldLabel>Respuesta correcta</FieldLabel>
@@ -173,56 +156,6 @@ export function QuestionEditor({ question, errors, disabled = false, onChange }:
         </Field>
       )}
 
-      {question.type === "free_text" && (
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field>
-            <FieldLabel htmlFor={`${uid}-sample`}>Respuesta modelo (opcional)</FieldLabel>
-            <Input
-              id={`${uid}-sample`}
-              value={question.sampleAnswer ?? ""}
-              disabled={disabled}
-              onChange={event => onChange({ ...question, sampleAnswer: event.target.value || undefined })}
-              placeholder="Referencia para corregir."
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor={`${uid}-max`}>Largo máximo (caracteres)</FieldLabel>
-            <Input
-              id={`${uid}-max`}
-              type="number"
-              min={1}
-              value={question.maxLength ?? ""}
-              disabled={disabled}
-              onChange={event =>
-                onChange({ ...question, maxLength: event.target.value ? Number(event.target.value) : undefined })
-              }
-            />
-          </Field>
-        </div>
-      )}
-
-      {question.type === "text_block" && (
-        <p className="text-xs text-muted-foreground">
-          Es contenido de lectura: no se puntúa ni se responde. El texto de arriba es el cuerpo del bloque.
-        </p>
-      )}
-
-      {question.type === "image_block" && (
-        <Field data-invalid={errors.assetId ? true : undefined}>
-          <FieldLabel htmlFor={`${uid}-asset`}>ID del recurso</FieldLabel>
-          <Input
-            id={`${uid}-asset`}
-            value={question.assetId}
-            disabled={disabled}
-            onChange={event => onChange({ ...question, assetId: event.target.value })}
-            aria-invalid={errors.assetId ? true : undefined}
-          />
-          <p className="text-xs text-muted-foreground">
-            Pegá el ID del recurso que devolvió el servidor. La carga directa de imágenes todavía no está disponible.
-          </p>
-          {errors.assetId && <FieldError>{errors.assetId}</FieldError>}
-        </Field>
-      )}
     </div>
   );
 }

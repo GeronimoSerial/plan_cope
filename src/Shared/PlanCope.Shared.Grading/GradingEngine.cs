@@ -67,18 +67,6 @@ public sealed class GradingEngine
         IReadOnlyDictionary<string, SubmittedAnswer>? answers,
         ScoringPolicy? policy)
     {
-        if (block.Type is BlockType.Text or BlockType.Image)
-        {
-            return new BlockResult
-            {
-                BlockId = block.BlockId,
-                BlockType = block.Type,
-                Outcome = BlockOutcome.Ungradable,
-                Score = 0m,
-                ScoreMax = block.ScoreMax
-            };
-        }
-
         if (!_graders.TryGetValue(block.Type, out var grader))
         {
             throw new UngradableExamException($"No grader registered for block type '{block.Type}'.");
@@ -98,8 +86,7 @@ public sealed class GradingEngine
         return new IBlockGrader[]
         {
             new MultipleChoiceBlockGrader(),
-            new TrueFalseBlockGrader(),
-            new ShortAnswerBlockGrader()
+            new TrueFalseBlockGrader()
         };
     }
 }

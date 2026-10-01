@@ -40,8 +40,6 @@ public static class GradingJsonMapper
                 return new SubmittedAnswer { SelectedOptionIds = ReadStringArray(answer.Value) };
             case BlockType.TrueFalse:
                 return new SubmittedAnswer { SelectedBoolean = ReadBoolean(answer.Value) };
-            case BlockType.ShortAnswer:
-                return new SubmittedAnswer { Text = ReadString(answer.Value) };
             default:
                 return null;
         }
@@ -60,8 +58,6 @@ public static class GradingJsonMapper
                 return new GradingAnswerKey { CorrectOptionIds = ReadStringArray(correctAnswer.Value) };
             case BlockType.TrueFalse:
                 return new GradingAnswerKey { CorrectBoolean = ReadBoolean(correctAnswer.Value) };
-            case BlockType.ShortAnswer:
-                return new GradingAnswerKey { AcceptedAnswers = ReadAcceptedAnswers(correctAnswer.Value) };
             default:
                 return new GradingAnswerKey();
         }
@@ -99,16 +95,4 @@ public static class GradingJsonMapper
             : null;
     }
 
-    private static string? ReadString(JsonElement element)
-    {
-        return element.ValueKind == JsonValueKind.String ? element.GetString() : null;
-    }
-
-    private static IReadOnlyList<string> ReadAcceptedAnswers(JsonElement element)
-    {
-        return element.ValueKind == JsonValueKind.Object &&
-               element.TryGetProperty("accepted", out var accepted)
-            ? ReadStringArray(accepted)
-            : Array.Empty<string>();
-    }
 }

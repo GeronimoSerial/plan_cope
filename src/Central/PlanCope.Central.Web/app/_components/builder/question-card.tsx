@@ -46,12 +46,6 @@ function questionHasContent(question: Question): boolean {
     question.options.some(option => option.label.trim().length > 0)) {
     return true;
   }
-  if (question.type === "free_text" && (question.sampleAnswer ?? "").trim().length > 0) {
-    return true;
-  }
-  if (question.type === "image_block" && question.assetId.trim().length > 0) {
-    return true;
-  }
   return false;
 }
 

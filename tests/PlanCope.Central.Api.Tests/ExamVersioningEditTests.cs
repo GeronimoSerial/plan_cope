@@ -45,7 +45,7 @@ public sealed class ExamVersioningEditTests
         var versionId = exam.InitialVersionId!;
         var assetId = await AddImageAssetAsync(controller, versionId);
 
-        await SeedFullDocumentAsync(dbContext, controller, versionId, assetId);
+        await SeedQuestionDocumentAsync(dbContext, controller, versionId);
 
         var sourceBlocks = await dbContext.ExamBlocks
             .Where(x => x.ExamVersionId == versionId)
@@ -55,11 +55,9 @@ public sealed class ExamVersioningEditTests
             .Where(x => sourceBlocks.Select(block => block.Id).Contains(x.ExamBlockId))
             .ToListAsync();
         var mcq = sourceBlocks.Single(block => block.BlockType == BlockType.MultipleChoice);
-        var image = sourceBlocks.Single(block => block.BlockType == BlockType.Image);
 
-        // A separate block-option row and an asset-usage row: both entities must travel with the copy.
+        // A separate block-option row and an uploaded asset must travel with the copy.
         dbContext.ExamBlockOptions.Add(new ExamBlockOption("opt-1", mcq.Id, "4", "Cuatro", 0, JsonDocument.Parse("""{"feedback":"ok"}"""), now, now));
-        dbContext.AssetUsages.Add(new AssetUsage("au-1", image.Id, assetId, "image", now, now));
         await dbContext.SaveChangesAsync();
 
         // force: true because the source version is still a draft (the default source would
@@ -71,7 +69,7 @@ public sealed class ExamVersioningEditTests
         Assert.Equal(2, dto.VersionNumber);
         Assert.Equal("Draft", dto.Status);
         Assert.Equal(1, dto.BasedOnVersionNumber);
-        Assert.Equal(5, dto.BlockCount);
+        Assert.Equal(2, dto.BlockCount);
         Assert.True(dto.CanPublish);
         Assert.Null(dto.PublishedAt);
 
@@ -80,7 +78,7 @@ public sealed class ExamVersioningEditTests
             .OrderBy(x => x.OrderIndex)
             .ToListAsync();
 
-        Assert.Equal(5, copiedBlocks.Count);
+        Assert.Equal(2, copiedBlocks.Count);
         Assert.Empty(copiedBlocks.Select(block => block.Id).Intersect(sourceBlocks.Select(block => block.Id)));
         Assert.Equal(sourceBlocks.Select(block => block.OrderIndex), copiedBlocks.Select(block => block.OrderIndex));
         Assert.Equal(sourceBlocks.Select(block => block.BlockType), copiedBlocks.Select(block => block.BlockType));
@@ -88,11 +86,7 @@ public sealed class ExamVersioningEditTests
 
         foreach (var (source, copy) in sourceBlocks.Zip(copiedBlocks))
         {
-            // Image configs legitimately differ: assetId is remapped to the copied asset.
-            if (source.BlockType != BlockType.Image)
-            {
-                Assert.True(JsonEquals(source.Config.RootElement, copy.Config.RootElement));
-            }
+            Assert.True(JsonEquals(source.Config.RootElement, copy.Config.RootElement));
 
             Assert.Equal(source.Validation is null, copy.Validation is null);
             if (source.Validation is not null && copy.Validation is not null)
@@ -123,15 +117,6 @@ public sealed class ExamVersioningEditTests
         Assert.Equal("diagrama.png", copiedAsset.FileName);
         Assert.Equal("image/png", copiedAsset.MimeType);
         Assert.StartsWith("base64:", copiedAsset.StoragePath);
-        var copiedImage = copiedBlocks.Single(block => block.BlockType == BlockType.Image);
-        Assert.Equal(copiedAsset.Id, copiedImage.Config.RootElement.GetProperty("assetId").GetString());
-        Assert.True(JsonEquals(
-            image.Config.RootElement.GetProperty("width"),
-            copiedImage.Config.RootElement.GetProperty("width")));
-
-        var copiedUsage = await dbContext.AssetUsages.SingleAsync(x => x.ExamBlockId == copiedBlockIdMap[image.Id]);
-        Assert.Equal(copiedBlockIdMap[image.Id], copiedUsage.ExamBlockId);
-        Assert.Equal(copiedAsset.Id, copiedUsage.ExamAssetId);
 
         var sourceVersion = await dbContext.ExamVersions.SingleAsync(x => x.Id == versionId);
         var copiedVersion = await dbContext.ExamVersions.SingleAsync(x => x.Id == dto.Id);
@@ -407,12 +392,13 @@ public sealed class ExamVersioningEditTests
 
         var exam = await CreateExamAsync(controller, "EXA-IMMUT-01");
         var v1 = exam.InitialVersionId!;
-        await SeedFullDocumentAsync(dbContext, controller, v1, await AddImageAssetAsync(controller, v1));
+        await AddImageAssetAsync(controller, v1);
+        await SeedQuestionDocumentAsync(dbContext, controller, v1);
         Assert.IsType<OkObjectResult>((await controller.PublishVersion(v1, new PublishExamVersionRequest(null, "6", null), CancellationToken.None)).Result);
 
         var documentEdit = await controller.ReplaceDocument(
             v1,
-            new ReplaceExamDocumentRequest(null, [new DocumentBlockDto(0, BlockType.Text, "T", null, Json("""{"content":"x"}"""), null, null, null)], null),
+            new ReplaceExamDocumentRequest(null, [new DocumentBlockDto(0, BlockType.MultipleChoice, "T", null, Json("""{"question":"x","options":["a","b"]}"""), null, null, null)], null),
             CancellationToken.None);
         var documentConflict = Assert.IsAssignableFrom<ObjectResult>(documentEdit.Result);
         Assert.Equal(StatusCodes.Status409Conflict, documentConflict.StatusCode);
@@ -420,7 +406,7 @@ public sealed class ExamVersioningEditTests
         var blockEdit = await controller.UpsertBlock(
             v1,
             0,
-            new UpsertBlockRequest(0, BlockType.Text, "T", null, Json("""{"content":"x"}"""), null),
+            new UpsertBlockRequest(0, BlockType.MultipleChoice, "T", null, Json("""{"question":"x","options":["a","b"]}"""), null),
             CancellationToken.None);
         var blockConflict = Assert.IsAssignableFrom<ObjectResult>(blockEdit.Result);
         Assert.Equal(StatusCodes.Status409Conflict, blockConflict.StatusCode);
@@ -431,7 +417,7 @@ public sealed class ExamVersioningEditTests
         var editable = await controller.UpsertBlock(
             v2.Id,
             5,
-            new UpsertBlockRequest(5, BlockType.Text, "Nuevo", null, Json("""{"content":"editado"}"""), null),
+            new UpsertBlockRequest(5, BlockType.TrueFalse, "Nuevo", null, Json("""{"question":"editado"}"""), null),
             CancellationToken.None);
         Assert.IsType<OkObjectResult>(editable.Result);
     }
@@ -484,17 +470,14 @@ public sealed class ExamVersioningEditTests
         return Assert.IsType<AssetDto>(Assert.IsType<CreatedAtActionResult>(result.Result).Value).Id;
     }
 
-    // Builds a source version with one block of every type plus answer keys, metadata and a scoring
-    // policy. Uses UpsertBlock (no transaction) because EF's InMemory provider rejects the
-    // transaction ReplaceDocument opens; the behavior under test is the copy, not the write path.
-    private static async Task SeedFullDocumentAsync(PlanCopeDbContext dbContext, ExamsController controller, string versionId, string assetId)
+    // Builds a source version with the supported question types, answer keys, metadata and a
+    // scoring policy. Uses UpsertBlock because EF's InMemory provider rejects ReplaceDocument's
+    // transaction; the behavior under test is version copying, not the write path.
+    private static async Task SeedQuestionDocumentAsync(PlanCopeDbContext dbContext, ExamsController controller, string versionId)
     {
         var now = DateTimeOffset.UtcNow;
-        await controller.UpsertBlock(versionId, 0, new UpsertBlockRequest(0, BlockType.Text, "Texto", null, Json("""{"content":"Lea con atención"}"""), Json("""{"required":true}""")), CancellationToken.None);
-        await controller.UpsertBlock(versionId, 1, new UpsertBlockRequest(1, BlockType.Image, "Imagen", null, Json($$"""{"assetId":"{{assetId}}","width":640}"""), null), CancellationToken.None);
-        await controller.UpsertBlock(versionId, 2, new UpsertBlockRequest(2, BlockType.MultipleChoice, "MCQ", null, Json("""{"question":"¿Cuánto es 2 + 2?","options":[{"value":"3","label":"3"},{"value":"4","label":"4"}]}"""), Json("""{"required":true}""")), CancellationToken.None);
-        await controller.UpsertBlock(versionId, 3, new UpsertBlockRequest(3, BlockType.TrueFalse, "Verdadero/Falso", null, Json("""{"question":"La Tierra es redonda"}"""), null), CancellationToken.None);
-        await controller.UpsertBlock(versionId, 4, new UpsertBlockRequest(4, BlockType.ShortAnswer, "Respuesta corta", null, Json("""{"prompt":"Capital de Francia"}"""), null), CancellationToken.None);
+        await controller.UpsertBlock(versionId, 0, new UpsertBlockRequest(0, BlockType.MultipleChoice, "MCQ", null, Json("""{"question":"¿Cuánto es 2 + 2?","options":[{"value":"3","label":"3"},{"value":"4","label":"4"}]}"""), Json("""{"required":true}""")), CancellationToken.None);
+        await controller.UpsertBlock(versionId, 1, new UpsertBlockRequest(1, BlockType.TrueFalse, "Verdadero/Falso", null, Json("""{"question":"La Tierra es redonda"}"""), null), CancellationToken.None);
 
         var blocks = await dbContext.ExamBlocks
             .Where(x => x.ExamVersionId == versionId)
@@ -502,7 +485,6 @@ public sealed class ExamVersioningEditTests
         var byType = blocks.ToDictionary(block => block.BlockType);
         dbContext.AnswerKeys.Add(new AnswerKey("ak-mcq", byType[BlockType.MultipleChoice].Id, JsonDocument.Parse("""{"value":"4"}"""), 1m, null, now, now));
         dbContext.AnswerKeys.Add(new AnswerKey("ak-tf", byType[BlockType.TrueFalse].Id, JsonDocument.Parse("""{"boolean":true}"""), 0.5m, null, now, now));
-        dbContext.AnswerKeys.Add(new AnswerKey("ak-sa", byType[BlockType.ShortAnswer].Id, JsonDocument.Parse("""{"keywords":["Paris"]}"""), 2m, null, now, now));
 
         var version = await dbContext.ExamVersions.SingleAsync(x => x.Id == versionId);
         dbContext.Entry(version).CurrentValues.SetValues(version with

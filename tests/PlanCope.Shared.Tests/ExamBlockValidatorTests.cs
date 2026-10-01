@@ -15,8 +15,8 @@ public sealed class ExamBlockValidatorTests
         string id = "block-1",
         string examVersionId = "version-1",
         int orderIndex = 0,
-        BlockType blockType = BlockType.Text,
-        string config = "{\"content\":\"hello\"}")
+        BlockType blockType = BlockType.MultipleChoice,
+        string config = "{\"question\":\"q\",\"options\":[\"a\",\"b\"]}")
         => new(
             id,
             examVersionId,
@@ -72,6 +72,17 @@ public sealed class ExamBlockValidatorTests
     }
 
     [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(4)]
+    public void Removed_block_types_fail_validation(int value)
+    {
+        var result = _validator.TestValidate(CreateBlock(blockType: (BlockType)value, config: "{}"));
+
+        result.ShouldHaveValidationErrorFor(x => x.BlockType);
+    }
+
+    [Theory]
     [InlineData("[]")]
     [InlineData("\"x\"")]
     public void Config_root_that_is_not_a_json_object_fails(string config)
@@ -81,24 +92,6 @@ public sealed class ExamBlockValidatorTests
         var result = _validator.TestValidate(CreateBlock(blockType: (BlockType)999, config: config));
 
         result.ShouldHaveValidationErrorFor(x => x.Config.RootElement.ValueKind);
-    }
-
-    [Theory]
-    [InlineData("{}")]
-    [InlineData("{\"content\":123}")]
-    public void Text_without_a_content_string_fails_on_content(string config)
-    {
-        var result = _validator.TestValidate(CreateBlock(blockType: BlockType.Text, config: config));
-
-        result.ShouldHaveValidationErrorFor("config.content");
-    }
-
-    [Fact]
-    public void Text_with_a_content_string_passes()
-    {
-        var result = _validator.TestValidate(CreateBlock(blockType: BlockType.Text, config: "{\"content\":\"hello\"}"));
-
-        result.ShouldNotHaveAnyValidationErrors();
     }
 
     [Fact]
@@ -145,35 +138,4 @@ public sealed class ExamBlockValidatorTests
         result.ShouldNotHaveAnyValidationErrors();
     }
 
-    [Fact]
-    public void ShortAnswer_without_a_prompt_fails_on_prompt()
-    {
-        var result = _validator.TestValidate(CreateBlock(blockType: BlockType.ShortAnswer, config: "{}"));
-
-        result.ShouldHaveValidationErrorFor("config.prompt");
-    }
-
-    [Fact]
-    public void ShortAnswer_with_a_prompt_passes()
-    {
-        var result = _validator.TestValidate(CreateBlock(blockType: BlockType.ShortAnswer, config: "{\"prompt\":\"p\"}"));
-
-        result.ShouldNotHaveAnyValidationErrors();
-    }
-
-    [Fact]
-    public void Image_without_an_asset_id_fails_on_asset_id()
-    {
-        var result = _validator.TestValidate(CreateBlock(blockType: BlockType.Image, config: "{}"));
-
-        result.ShouldHaveValidationErrorFor("config.assetId");
-    }
-
-    [Fact]
-    public void Image_with_an_asset_id_passes()
-    {
-        var result = _validator.TestValidate(CreateBlock(blockType: BlockType.Image, config: "{\"assetId\":\"a\"}"));
-
-        result.ShouldNotHaveAnyValidationErrors();
-    }
 }

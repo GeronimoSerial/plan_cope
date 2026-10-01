@@ -5,13 +5,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Textarea } from "@/components/ui/textarea";
 
 interface ExamPreviewProps {
   document: ExamDocument;
 }
 
-// Vista previa de solo lectura: muestra el examen como lo veria el estudiante.
+// Read-only preview showing the exam as a student will see it.
 export function ExamPreview({ document }: ExamPreviewProps) {
   const meta = [document.subject, document.level, document.area].filter(Boolean).join(" · ");
 
@@ -68,15 +67,6 @@ export function ExamPreview({ document }: ExamPreviewProps) {
                 </RadioGroup>
               )}
 
-              {question.type === "free_text" && (
-                <Textarea disabled placeholder="Respuesta del estudiante" maxLength={question.maxLength} />
-              )}
-
-              {question.type === "image_block" && (
-                <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-                  Imagen: {question.assetId || "(sin recurso)"}
-                </p>
-              )}
             </li>
           ))}
         </ol>

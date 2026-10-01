@@ -21,12 +21,6 @@ public sealed class ExamBlockValidator : AbstractValidator<ExamBlock>
     {
         var config = block.Config.RootElement;
 
-        if (block.BlockType is BlockType.Text &&
-            (!config.TryGetProperty("content", out var content) || content.ValueKind is not JsonValueKind.String))
-        {
-            context.AddFailure("config.content", "text requires a content string.");
-        }
-
         if (block.BlockType is BlockType.MultipleChoice)
         {
             if (!config.TryGetProperty("question", out var question) || question.ValueKind is not JsonValueKind.String)
@@ -46,16 +40,5 @@ public sealed class ExamBlockValidator : AbstractValidator<ExamBlock>
             context.AddFailure("config.question", "true_false requires a question string.");
         }
 
-        if (block.BlockType is BlockType.ShortAnswer &&
-            (!config.TryGetProperty("prompt", out var prompt) || prompt.ValueKind is not JsonValueKind.String))
-        {
-            context.AddFailure("config.prompt", "short_answer requires a prompt string.");
-        }
-
-        if (block.BlockType is BlockType.Image &&
-            (!config.TryGetProperty("assetId", out var assetId) || assetId.ValueKind is not JsonValueKind.String))
-        {
-            context.AddFailure("config.assetId", "image requires an assetId string.");
-        }
     }
 }

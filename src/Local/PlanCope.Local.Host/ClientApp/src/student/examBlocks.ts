@@ -1,17 +1,15 @@
 import type { LocalExamBlock } from "../shared/api-types";
 
-export type BlockKind = "text" | "image" | "multiple_choice" | "true_false" | "short_answer";
+export type BlockKind = "multiple_choice" | "true_false";
 
 export type BlockValidation = {
   required?: boolean;
 };
 
 export function getBlockKind(block: LocalExamBlock): BlockKind {
-  if (block.blockType === 0 || block.blockType === "Text") return "text";
-  if (block.blockType === 1 || block.blockType === "Image") return "image";
   if (block.blockType === 2 || block.blockType === "MultipleChoice") return "multiple_choice";
   if (block.blockType === 3 || block.blockType === "TrueFalse") return "true_false";
-  return "short_answer";
+  throw new Error(`Unsupported exam block type: ${String(block.blockType)}`);
 }
 
 export function parseConfig<T extends object>(block: LocalExamBlock): T {
@@ -35,7 +33,8 @@ export function parseValidation(block: LocalExamBlock): BlockValidation {
 }
 
 export function isAnswerBlock(block: LocalExamBlock): boolean {
-  return !["text", "image"].includes(getBlockKind(block));
+  getBlockKind(block);
+  return true;
 }
 
 export function hasAnswer(value: string | null | undefined): boolean {

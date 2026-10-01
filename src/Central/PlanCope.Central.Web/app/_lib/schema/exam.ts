@@ -2,28 +2,22 @@ import { z } from "zod";
 import type { GlossaryTerm } from "../glossary";
 
 // ============================================================
-// Schema canonico del examen — FUENTE DE VERDAD.
-// El builder trabaja con este modelo; los mappers lo traducen
-// a los contratos del Central API y al JSON exportable.
+// Canonical exam schema — the source of truth.
+// The builder uses this model; the mappers translate it
+// into Central API contracts and exportable JSON.
 // ============================================================
 
 export const questionTypes = [
   "single_choice",
   "multiple_choice",
-  "true_false",
-  "free_text",
-  "text_block",
-  "image_block"
+  "true_false"
 ] as const;
 export type QuestionType = (typeof questionTypes)[number];
 
 export const questionTypeLabels: Record<QuestionType, string> = {
   single_choice: "Opción única",
   multiple_choice: "Opción múltiple",
-  true_false: "Verdadero / Falso",
-  free_text: "Texto libre",
-  text_block: "Bloque de texto",
-  image_block: "Bloque de imagen"
+  true_false: "Verdadero / Falso"
 };
 
 export const scoringPolicies = ["AllOrNothing", "ProportionalPenalised", "ProportionalPlain"] as const;
@@ -35,7 +29,7 @@ export const scoringPolicyLabels: Record<ScoringPolicy, string> = {
   ProportionalPlain: "Proporcional simple"
 };
 
-// Término del glosario que explica cada política de puntaje.
+// Glossary term that explains each scoring policy.
 export const scoringPolicyTerms: Record<ScoringPolicy, GlossaryTerm> = {
   AllOrNothing: "politica-all-or-nothing",
   ProportionalPenalised: "politica-proportional-penalised",
@@ -94,35 +88,9 @@ const trueFalseQuestion = baseQuestion.extend({
   correctAnswer: z.boolean()
 });
 
-const freeTextQuestion = baseQuestion.extend({
-  type: z.literal("free_text"),
-  sampleAnswer: z.string().trim().optional(),
-  maxLength: z.number().int().positive().optional()
-});
-
-// Bloques de contenido: no se puntúan ni se responden, por eso no extienden
-// baseQuestion (no llevan required/score).
-const textBlockQuestion = z.object({
-  id: z.string().min(1),
-  type: z.literal("text_block"),
-  prompt: z.string().trim().min(1, "El texto no puede estar vacío."),
-  help: z.string().trim().optional()
-});
-
-const imageBlockQuestion = z.object({
-  id: z.string().min(1),
-  type: z.literal("image_block"),
-  prompt: z.string().trim().optional(),
-  assetId: z.string().trim().min(1, "El ID del recurso es requerido."),
-  help: z.string().trim().optional()
-});
-
 export const questionSchema = z.discriminatedUnion("type", [
   choiceQuestion,
-  trueFalseQuestion,
-  freeTextQuestion,
-  textBlockQuestion,
-  imageBlockQuestion
+  trueFalseQuestion
 ]);
 
 export const examDocumentSchema = z.object({
@@ -141,7 +109,7 @@ export type ExamOption = z.infer<typeof optionSchema>;
 export type Question = z.infer<typeof questionSchema>;
 export type ExamDocument = z.infer<typeof examDocumentSchema>;
 
-// ---- Alta de examen (metadata inicial) ----
+// ---- Create exam (initial metadata) ----
 export const createExamSchema = z.object({
   code: z.string().trim().min(1, "El código es requerido.").max(64),
   title: z.string().trim().min(1, "El título es requerido.").max(256),
@@ -153,7 +121,7 @@ export const createExamSchema = z.object({
 
 export type CreateExamValues = z.infer<typeof createExamSchema>;
 
-// ---- Publicación ----
+// ---- Publication ----
 export const publishSchema = z.object({
   subject: z.string().trim().optional(),
   grade: z.string().trim().min(1, "El curso/grado es requerido."),

@@ -11,7 +11,6 @@ public sealed class GoldenFixtureTests
     {
         { "multiple-choice.json" },
         { "true-false.json" },
-        { "short-answer.json" },
         { "policy-all-or-nothing.json" },
         { "policy-proportional-penalised.json" },
         { "policy-proportional-plain.json" }

@@ -11,7 +11,7 @@ function makeBlock(overrides: Partial<LocalExamBlock> = {}): LocalExamBlock {
     localExamVersionId: "local-version-1",
     remoteBlockId: `remote-${id}`,
     orderIndex: 0,
-    blockType: "Text",
+    blockType: "MultipleChoice",
     configJson: "{}",
     validationJson: undefined,
     ...overrides
@@ -20,10 +20,6 @@ function makeBlock(overrides: Partial<LocalExamBlock> = {}): LocalExamBlock {
 
 describe("getBlockKind", () => {
   it.each([
-    [0, "text"],
-    ["Text", "text"],
-    [1, "image"],
-    ["Image", "image"],
     [2, "multiple_choice"],
     ["MultipleChoice", "multiple_choice"],
     [3, "true_false"],
@@ -32,9 +28,9 @@ describe("getBlockKind", () => {
     expect(getBlockKind(makeBlock({ blockType }))).toBe(kind);
   });
 
-  it("falls through to short_answer for unrecognized block types", () => {
-    expect(getBlockKind(makeBlock({ blockType: 99 }))).toBe("short_answer");
-    expect(getBlockKind(makeBlock({ blockType: "Essay" }))).toBe("short_answer");
+  it("rejects unrecognized block types", () => {
+    expect(() => getBlockKind(makeBlock({ blockType: 99 }))).toThrow("Unsupported exam block type");
+    expect(() => getBlockKind(makeBlock({ blockType: "Essay" }))).toThrow("Unsupported exam block type");
   });
 });
 
@@ -69,16 +65,13 @@ describe("parseValidation", () => {
 });
 
 describe("isAnswerBlock", () => {
-  it.each(["MultipleChoice", "TrueFalse", "Essay"])(
+  it.each(["MultipleChoice", "TrueFalse"])(
     "returns true for answer kinds (%s)",
     blockType => {
       expect(isAnswerBlock(makeBlock({ blockType }))).toBe(true);
     }
   );
 
-  it.each(["Text", "Image"])("returns false for non-answer kinds (%s)", blockType => {
-    expect(isAnswerBlock(makeBlock({ blockType }))).toBe(false);
-  });
 });
 
 describe("hasAnswer", () => {

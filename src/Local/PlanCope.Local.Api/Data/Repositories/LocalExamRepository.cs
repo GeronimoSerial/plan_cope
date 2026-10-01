@@ -252,11 +252,8 @@ public sealed class LocalExamRepository(ILocalSqliteConnectionFactory connection
     {
         return blockType switch
         {
-            Shared.Domain.BlockType.Text => "text",
-            Shared.Domain.BlockType.Image => "image",
             Shared.Domain.BlockType.MultipleChoice => "multiple_choice",
             Shared.Domain.BlockType.TrueFalse => "true_false",
-            Shared.Domain.BlockType.ShortAnswer => "short_answer",
             _ => blockType.ToString()
         };
     }
@@ -298,11 +295,8 @@ public sealed class LocalExamRepository(ILocalSqliteConnectionFactory connection
         {
             return blockType switch
             {
-                "text" => Shared.Domain.BlockType.Text,
-                "image" => Shared.Domain.BlockType.Image,
                 "multiple_choice" => Shared.Domain.BlockType.MultipleChoice,
                 "true_false" => Shared.Domain.BlockType.TrueFalse,
-                "short_answer" => Shared.Domain.BlockType.ShortAnswer,
                 _ => Enum.Parse<Shared.Domain.BlockType>(blockType, ignoreCase: true)
             };
         }

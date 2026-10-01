@@ -96,10 +96,10 @@ public sealed class ExamsContractTests
                     "blk-2",
                     "ev-101",
                     1,
-                    BlockType.ShortAnswer,
+                    BlockType.TrueFalse,
                     "Pregunta 2",
-                    "Escriba la capital de Francia",
-                    JsonElementOf("""{"maxLength":120}"""),
+                    "La capital de Francia es París.",
+                    JsonElementOf("""{"question":"La capital de Francia es París."}"""),
                     null),
             },
             new[]
@@ -113,7 +113,7 @@ public sealed class ExamsContractTests
                 new AnswerKeyDto(
                     "ak-2",
                     "blk-2",
-                    JsonElementOf("""{"keywords":["París","Paris"]}"""),
+                    JsonElementOf("""{"boolean":true}"""),
                     2m,
                     null),
             },
@@ -261,10 +261,10 @@ public sealed class ExamsContractTests
                     "blk-1",
                     "ev-101",
                     0,
-                    BlockType.Text,
+                    BlockType.MultipleChoice,
                     "Consigna",
                     "Lea con atención",
-                    JsonElementOf("""{"minWords":10}"""),
+                    JsonElementOf("""{"question":"Lea con atención"}"""),
                     null),
             },
             new[]
@@ -272,7 +272,7 @@ public sealed class ExamsContractTests
                 new AnswerKeyDto(
                     "ak-1",
                     "blk-1",
-                    JsonElementOf("""{"text":"respuesta libre"}"""),
+                    JsonElementOf("""["B"]"""),
                     3m,
                     null),
             },
@@ -434,10 +434,10 @@ public sealed class ExamsContractTests
     {
         var sample = new UpsertBlockRequest(
             4,
-            BlockType.ShortAnswer,
+            BlockType.TrueFalse,
             "Pregunta 5",
-            "Desarrolle la respuesta",
-            JsonElementOf("""{"maxLength":200}"""),
+            "Marque verdadero o falso",
+            JsonElementOf("""{"question":"La Tierra es redonda."}"""),
             JsonElementOf("""{"allowBlank":false}"""));
 
         var json = Serialize(sample, PlanCopeJsonSerializerContext.Default.UpsertBlockRequest);
@@ -533,10 +533,10 @@ public sealed class ExamsContractTests
                     1m),
                 new DocumentBlockDto(
                     1,
-                    BlockType.Image,
-                    "Imagen 1",
-                    null,
-                    JsonElementOf("""{"assetId":"as-1","width":640}"""),
+                    BlockType.TrueFalse,
+                    "Pregunta 2",
+                    "La Tierra es redonda.",
+                    JsonElementOf("""{"question":"La Tierra es redonda."}"""),
                     null,
                     null,
                     null),

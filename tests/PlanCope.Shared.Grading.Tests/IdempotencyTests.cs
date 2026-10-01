@@ -29,14 +29,6 @@ public sealed class IdempotencyTests
                     ScoreMax = 5,
                     AnswerKey = new GradingAnswerKey { CorrectBoolean = true }
                 },
-                new GradableBlock
-                {
-                    BlockId = "sa",
-                    Type = BlockType.ShortAnswer,
-                    ScoreMax = 7,
-                    AnswerKey = new GradingAnswerKey { AcceptedAnswers = new[] { "París" } }
-                },
-                new GradableBlock { BlockId = "txt", Type = BlockType.Text, ScoreMax = 3 }
             }
         };
 
@@ -44,7 +36,6 @@ public sealed class IdempotencyTests
         {
             ["mc"] = new() { SelectedOptionIds = new[] { "a", "z" } },
             ["tf"] = new() { SelectedBoolean = true },
-            ["sa"] = new() { Text = "  parís " }
         };
 
         var engine = new GradingEngine();
