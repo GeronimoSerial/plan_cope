@@ -115,21 +115,6 @@ export function listActivationKeys(): Promise<ActivationKeySummary[]> {
   return serverGet<ActivationKeySummary[]>("/api/admin/activation/keys");
 }
 
-export interface RegisteredNodeSummary {
-  id: string;
-  nodeCode: string;
-  cue: string;
-  deviceName?: string | null;
-  enrolledAt: string;
-  lastSeenAt?: string | null;
-  revokedAt?: string | null;
-  schoolName?: string | null;
-}
-
-export function listRegisteredNodes(): Promise<RegisteredNodeSummary[]> {
-  return serverGet<RegisteredNodeSummary[]>("/api/admin/activation/nodes");
-}
-
 export interface SchoolSummary {
   id: string;
   cue: string;

@@ -66,7 +66,7 @@ export function ActivationKeysTable({ keys, onRevoke, onReissue, onCreate }: Act
               <TableHead>Emitida</TableHead>
               <TableHead>Vencimiento</TableHead>
               <TableHead>
-                <TermLabel term="nodo">Activaciones</TermLabel>
+                <TermLabel term="clave-activacion">Activaciones</TermLabel>
               </TableHead>
               <TableHead>Estado</TableHead>
               <TableHead className="text-right">Acciones</TableHead>

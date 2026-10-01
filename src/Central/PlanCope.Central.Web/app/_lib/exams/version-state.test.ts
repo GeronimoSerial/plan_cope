@@ -183,7 +183,7 @@ describe("draftExistsConflict", () => {
 describe("publishSupersedeMessage", () => {
   it("avisa cuando reemplaza a una publicada anterior", () => {
     expect(publishSupersedeMessage({ currentPublishedNumber: 1, versionNumber: 2 })).toBe(
-      "Reemplaza a la versión 1 en los nodos."
+      "Reemplaza a la versión 1 en todos los equipos."
     );
   });
 

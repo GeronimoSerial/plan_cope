@@ -148,7 +148,7 @@ export function IssueKeyDialog({ open, issued, onOpenChange, onCreated }: IssueK
               <Field data-invalid={errors.maxActivations ? true : undefined}>
                 <div className="flex items-center gap-1.5">
                   <FieldLabel htmlFor="max-activations">Activaciones máximas</FieldLabel>
-                  <TermHint term="nodo" />
+                  <TermHint term="clave-activacion" />
                 </div>
                 <Input
                   id="max-activations"

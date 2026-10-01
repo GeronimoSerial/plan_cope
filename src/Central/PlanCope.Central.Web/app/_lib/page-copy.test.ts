@@ -12,7 +12,7 @@ describe("copy de páginas", () => {
       'description="Después de instalar, activá cada equipo con una clave de activación."'
     );
     expect(source("(app)/estadisticas/page.tsx")).toContain(
-      'description="Los datos los envían los nodos al sincronizar."'
+      'description="Los datos llegan al sincronizar los equipos."'
     );
     expect(source("_components/keys/activation-keys-panel.tsx")).toContain(
       'description="Una por equipo. Revocala si el equipo se pierde."'
@@ -23,7 +23,6 @@ describe("copy de páginas", () => {
       ["(app)/exams/page.tsx", "Exámenes del sistema."],
       ["(app)/usuarios/page.tsx", "Usuarios de Central y sus roles."],
       ["(app)/escuelas/page.tsx", "La lista se arma con el padrón."],
-      ["(app)/nodos/page.tsx", "Computadoras de las escuelas con PlanCope instalado."]
     ]) {
       expect(source(path)).not.toContain(oldCopy);
     }
