@@ -20,6 +20,7 @@ type ExamTakingPanelProps = {
   missingRequired: Set<string>;
   isBusy: boolean;
   status: string;
+  sessionStatus?: string;
   error: string;
   studentName?: string | null;
   onAnswerChange: (blockId: string, value: string) => void;
@@ -61,6 +62,7 @@ export function ExamTakingPanel({
   missingRequired,
   isBusy,
   status,
+  sessionStatus = "active",
   error,
   studentName,
   onAnswerChange,
@@ -96,6 +98,8 @@ export function ExamTakingPanel({
   }, [blocks, answers]);
 
   const completion = total === 0 ? 0 : Math.round((answered / total) * 100);
+  const paused = sessionStatus === "paused";
+  const closed = sessionStatus === "closed";
 
   const handleConfirmSubmit = () => {
     setIsSubmitOpen(false);
@@ -104,6 +108,8 @@ export function ExamTakingPanel({
 
   return (
     <section className="student-exam">
+      {paused && <p className="student-session-notice" role="status">La sesión está pausada por el docente. Tus respuestas están guardadas.</p>}
+      {closed && <p className="student-session-notice" role="status">El docente cerró la sesión. Tu examen fue entregado.</p>}
       <header className="student-exam-header">
         <h2>Respondé el examen</h2>
         {studentName && <p className="student-exam-identity">Estudiante: <strong>{studentName}</strong></p>}
@@ -136,6 +142,7 @@ export function ExamTakingPanel({
 
       <div className="student-exam-body">
         <QuestionNav blocks={blocks} answers={answers} />
+        <fieldset className="student-question-lock" disabled={paused || closed}>
         <div className="student-questions">
           {blocks.map((block, index) => {
             const isRendered = index >= start && index <= end;
@@ -166,14 +173,15 @@ export function ExamTakingPanel({
             );
           })}
         </div>
+        </fieldset>
       </div>
 
       <div className="student-actions-bar">
         <div className="student-actions">
-          <ActionButton variant="secondary" disabled={isBusy} onClick={onSave}>
+          <ActionButton variant="secondary" disabled={isBusy || paused || closed} onClick={onSave}>
             {isBusy ? "Guardando…" : "Guardar respuestas"}
           </ActionButton>
-          <ActionButton disabled={isBusy} onClick={() => setIsSubmitOpen(true)}>
+          <ActionButton disabled={isBusy || paused || closed} onClick={() => setIsSubmitOpen(true)}>
             Enviar examen
           </ActionButton>
         </div>

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LocalSession, SessionProgress, SessionStudentProgress } from "../types";
 import { ActiveSessionPanel } from "./ActiveSessionPanel";
 
@@ -37,11 +37,11 @@ describe("ActiveSessionPanel", () => {
     container = undefined;
   });
 
-  function render(progressData: SessionProgress | null, sessionData = session) {
+  function render(progressData: SessionProgress | null, sessionData = session, callbacks: { onStatusChange?: (status: "active" | "paused" | "closed") => Promise<{ submitted: number; failed: number } | void | null>; onDiscard?: () => Promise<boolean> } = {}) {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
-    act(() => root?.render(<ActiveSessionPanel progress={progressData} session={sessionData} sessionLink="http://local/ABC-123" />));
+    act(() => root?.render(<ActiveSessionPanel progress={progressData} session={sessionData} sessionLink="http://local/ABC-123" {...callbacks} />));
     return container;
   }
 
@@ -94,5 +94,40 @@ describe("ActiveSessionPanel", () => {
     rerender(progress({ inProgressCount: 1, submittedCount: 0, students: [student({ id: "done", displayName: "Cecilia Done", status: "in_progress" })] }));
     rerender(progress({ submittedCount: 1, inProgressCount: 0, students: [alreadySubmitted] }));
     expect(view.querySelector(".student-row-submitted")?.textContent).toContain("Cecilia Done");
+  });
+
+  it("exposes pause, resume, close confirmation and discard confirmation", () => {
+    const changeStatus = vi.fn(async () => ({ submitted: 1, failed: 0 }));
+    const discard = vi.fn(async () => true);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const view = render(progress(), session, { onStatusChange: changeStatus, onDiscard: discard });
+    const buttons = [...view.querySelectorAll("button")];
+    act(() => buttons.find(button => button.textContent === "Pausar")?.click());
+    act(() => buttons.find(button => button.textContent === "Cerrar sesión")?.click());
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("Hay 1 estudiantes rindiendo"));
+    expect(changeStatus).toHaveBeenNthCalledWith(1, "paused");
+    expect(changeStatus).toHaveBeenNthCalledWith(2, "closed");
+
+    const paused = render(progress(), { ...session, status: "paused" }, { onStatusChange: changeStatus });
+    act(() => [...paused.querySelectorAll("button")].find(button => button.textContent === "Reanudar")?.click());
+    expect(changeStatus).toHaveBeenLastCalledWith("active");
+
+    const empty = render(progress({ startedCount: 0, inProgressCount: 0, students: [] }), session, { onDiscard: discard });
+    act(() => [...empty.querySelectorAll("button")].find(button => button.textContent === "Descartar sesión")?.click());
+    expect(confirm).toHaveBeenLastCalledWith("Se va a borrar la sesión y no quedará en el historial.");
+    expect(discard).toHaveBeenCalledOnce();
+  });
+
+  it("shows a read-only close summary with nominal missing and teacher-submitted students", () => {
+    const closed = { ...session, status: "closed" };
+    const view = render(progress({ submittedCount: 1, inProgressCount: 0, startedCount: 1, students: [
+      student({ id: "done", displayName: "Ana Entregada", status: "submitted", submissionReason: "closed_by_teacher" }),
+      student({ id: "missing", displayName: "Brenda Ausente", status: "not_started" })
+    ] }), closed);
+    expect(view.textContent).toContain("Entregaron 1 de 2.");
+    expect(view.textContent).toContain("No rindieron: Brenda Ausente.");
+    expect(view.textContent).toContain("Entregados por cierre: Ana Entregada.");
+    expect(view.textContent).not.toContain("Pausar");
+    expect(view.textContent).toContain("Volver al espacio de sesiones");
   });
 });

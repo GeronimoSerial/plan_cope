@@ -42,6 +42,10 @@ export function SessionsWorkspace({ delivery }: SessionsWorkspaceProps) {
       progress={activeSession.progress}
       session={activeSession.session}
       sessionLink={activeSession.sessionLink}
+      onStatusChange={activeSession.updateSessionStatus}
+      onDiscard={activeSession.discardSession}
+      onReturn={activeSession.returnToSessions}
+      isBusy={delivery.isBusy}
     />
   );
 

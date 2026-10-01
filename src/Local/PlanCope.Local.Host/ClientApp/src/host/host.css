@@ -379,6 +379,20 @@
   flex-direction: column;
 }
 
+.session-control-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 1rem;
+}
+
+.session-close-summary {
+  margin: 1rem 0;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  background: var(--surface-muted, #f4f6f8);
+}
+
 .session-heading {
   display: flex;
   align-items: start;

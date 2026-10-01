@@ -96,7 +96,10 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
                     section.level,
                     (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id) AS started_count,
                     (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'submitted') AS submitted_count,
-                    (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'in_progress') AS in_progress_count
+                    (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'in_progress') AS in_progress_count,
+                    (SELECT AVG(100.0 * r.score / r.score_max)
+                     FROM student_attempts a JOIN attempt_results r ON r.student_attempt_id = a.id
+                     WHERE a.delivery_session_id = s.id AND r.status = 'graded' AND r.score_max > 0) AS average_score_percent
                 FROM delivery_sessions s
                 LEFT JOIN local_exam_versions ev ON ev.id = s.exam_version_id
                 LEFT JOIN local_roster_sections section
@@ -113,7 +116,8 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
                     a.id AS attempt_id,
                     a.status AS attempt_status,
                     a.started_at,
-                    a.submitted_at
+                    a.submitted_at,
+                    a.submission_reason
                 FROM session_context c
                 LEFT JOIN local_roster_students rs
                     ON c.roster_snapshot_id IS NOT NULL
@@ -136,7 +140,8 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
                     a.id AS attempt_id,
                     a.status AS attempt_status,
                     a.started_at,
-                    a.submitted_at
+                    a.submitted_at,
+                    a.submission_reason
                 FROM session_context c
                 JOIN student_attempts a ON a.delivery_session_id = c.session_id
                 WHERE c.roster_snapshot_id IS NOT NULL AND c.roster_section_id IS NOT NULL
@@ -169,7 +174,7 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
                 row.StartedAt,
                 row.SubmittedAt,
                 row.AttemptId,
-                null,
+                row.SubmissionReason,
                 false))
             .ToList();
 
@@ -192,7 +197,8 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
             course,
             division,
             first.Shift,
-            first.Level);
+            first.Level,
+            first.AverageScorePercent);
     }
 
     public async Task UpdateStatusAsync(string id, string status, string? endAt = null, CancellationToken cancellationToken = default)
@@ -206,6 +212,32 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
 
         using var connection = connectionFactory.CreateOpenConnection();
         await connection.ExecuteAsync(new CommandDefinition(sql, new { Id = id, Status = status, EndAt = endAt }, cancellationToken: cancellationToken));
+    }
+
+    public async Task<IReadOnlyList<string>> GetInProgressAttemptIdsAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateOpenConnection();
+        var ids = await connection.QueryAsync<string>(new CommandDefinition(
+            "SELECT id FROM student_attempts WHERE delivery_session_id = @SessionId AND status = 'in_progress' ORDER BY started_at;",
+            new { SessionId = sessionId }, cancellationToken: cancellationToken));
+        return ids.AsList();
+    }
+
+    public async Task<bool> DeleteIfNoAttemptsAsync(string id, CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateOpenConnection();
+        using var transaction = connection.BeginTransaction();
+        var hasAttempts = await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+            "SELECT EXISTS (SELECT 1 FROM student_attempts WHERE delivery_session_id = @Id);",
+            new { Id = id }, transaction, cancellationToken: cancellationToken));
+        if (hasAttempts)
+        {
+            transaction.Rollback();
+            return false;
+        }
+        var deleted = await connection.ExecuteAsync(new CommandDefinition("DELETE FROM delivery_sessions WHERE id = @Id;", new { Id = id }, transaction, cancellationToken: cancellationToken));
+        transaction.Commit();
+        return deleted == 1;
     }
 
     private sealed class LocalDeliverySessionRow
@@ -270,6 +302,7 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         public long StartedCount { get; init; }
         public long SubmittedCount { get; init; }
         public long InProgressCount { get; init; }
+        public double? AverageScorePercent { get; init; }
         public string? StudentId { get; init; }
         public string? LastName { get; init; }
         public string? FirstName { get; init; }
@@ -278,5 +311,6 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         public string? AttemptStatus { get; init; }
         public string? StartedAt { get; init; }
         public string? SubmittedAt { get; init; }
+        public string? SubmissionReason { get; init; }
     }
 }

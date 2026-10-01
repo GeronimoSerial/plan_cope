@@ -91,6 +91,8 @@ export type LocalSession = {
   rosterSectionId?: string | null;
 };
 
+export type SessionCloseSummary = { submitted: number; failed: number };
+
 export type RosterSnapshot = {
   id: string;
   cue: string;
@@ -133,6 +135,7 @@ export type SessionProgress = {
   division: string | null;
   shift: string | null;
   level: string | null;
+  averageScorePercent?: number | null;
 };
 
 export type SessionStudentProgress = {

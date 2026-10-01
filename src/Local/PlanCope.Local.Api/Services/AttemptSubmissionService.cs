@@ -19,7 +19,7 @@ public sealed class AttemptSubmissionService(
 {
     private static readonly JsonSerializerOptions SyncJsonOptions = new(JsonSerializerDefaults.Web);
 
-    public async Task<AttemptSubmitResult> SubmitAsync(string attemptId, bool allowInactiveSession = false, CancellationToken cancellationToken = default)
+    public async Task<AttemptSubmitResult> SubmitAsync(string attemptId, bool allowInactiveSession = false, CancellationToken cancellationToken = default, string? submissionReason = null)
     {
         var attempt = await attemptRepository.GetByIdAsync(attemptId, cancellationToken);
         if (attempt is null) return new(false, null, "Attempt not found.");
@@ -46,7 +46,7 @@ public sealed class AttemptSubmissionService(
         }, SyncJsonOptions);
         var submitted = await attemptRepository.SubmitWithOutboxAsync(attemptId, submittedAt, confirmationCode, new SyncOutbox(
             Guid.NewGuid().ToString(), SyncEventTypes.AttemptSubmitted, "student_attempt", attemptId, Guid.NewGuid().ToString(),
-            payload, "pending", 0, null, null, submittedAt, null), grading, cancellationToken);
+            payload, "pending", 0, null, null, submittedAt, null), grading, cancellationToken, submissionReason);
         if (!submitted) return new(false, null, "Attempt was submitted concurrently.");
         await statsRollupRepository.UpsertForAttemptAsync(attemptId, cancellationToken);
         return new(true, new SubmitAttemptResponse(attemptId, confirmationCode, submittedAt), null);

@@ -23,6 +23,10 @@ export class StudentApi {
     );
   }
 
+  getSessionStatus(sessionIdOrAccessCode: string): Promise<{ status: string }> {
+    return this.request<{ status: string }>(`/api/sessions/${encodeURIComponent(sessionIdOrAccessCode)}`, { method: "GET" });
+  }
+
   startAttempt(sessionIdOrAccessCode: string, resolutionToken?: string): Promise<StartAttemptResponse> {
     return this.request<StartAttemptResponse>(`/api/sessions/${encodeURIComponent(sessionIdOrAccessCode)}/attempts`, {
       method: "POST",

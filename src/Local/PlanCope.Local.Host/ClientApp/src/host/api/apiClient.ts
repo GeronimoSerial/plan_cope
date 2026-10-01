@@ -76,6 +76,17 @@ export class ApiClient {
     return this.get<SessionProgress>(`/api/sessions/${encodeURIComponent(accessCode)}/progress`, signal);
   }
 
+  updateSessionStatus(id: string, status: "active" | "paused" | "closed"): Promise<{ submitted: number; failed: number } | void> {
+    return this.request(`/api/sessions/${encodeURIComponent(id)}/status`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status })
+    });
+  }
+
+  async discardSession(id: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/api/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!response.ok) throw new Error(await readApiError(response));
+  }
+
   getCourseStats(cue: string, schoolYear: string | undefined, signal?: AbortSignal): Promise<CourseStatDto[]> {
     const query = new URLSearchParams({ cue });
     if (schoolYear) query.set("schoolYear", schoolYear);
@@ -140,6 +151,7 @@ export class ApiClient {
       throw new Error(await readApiError(response));
     }
 
+    if (response.status === 204) return undefined as T;
     return response.json() as Promise<T>;
   }
 }

@@ -718,3 +718,19 @@
   }
 
 }
+.student-session-notice {
+  margin: 0 0 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid #d49a35;
+  border-radius: 0.5rem;
+  background: #fff7e6;
+  color: #3a2b10;
+  font-weight: 600;
+}
+
+.student-question-lock {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}

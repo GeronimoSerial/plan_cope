@@ -7,6 +7,10 @@ type ActiveSessionPanelProps = {
   progress: SessionProgress | null;
   session: LocalSession | null;
   sessionLink: string;
+  onStatusChange?: (status: "active" | "paused" | "closed") => Promise<{ submitted: number; failed: number } | void | null>;
+  onDiscard?: () => Promise<boolean>;
+  onReturn?: () => void;
+  isBusy?: boolean;
 };
 
 type StudentFilter = "all" | "missing" | "inProgress" | "submitted";
@@ -23,8 +27,9 @@ function formatSubmissionTime(value: string | null): string {
   return Number.isNaN(date.getTime()) ? "—" : new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit" }).format(date);
 }
 
-function ActiveSessionContent({ progress, session, sessionLink }: ActiveSessionPanelProps & { session: LocalSession }) {
+function ActiveSessionContent({ progress, session, sessionLink, onStatusChange, onDiscard, onReturn, isBusy = false }: ActiveSessionPanelProps & { session: LocalSession }) {
   const [filter, setFilter] = useState<StudentFilter>("all");
+  const [closeResult, setCloseResult] = useState<{ submitted: number; failed: number } | null>(null);
   const [highlightedIds, setHighlightedIds] = useState<string[]>([]);
   const previousStatuses = useRef<Map<string, string> | null>(null);
   const previousSessionId = useRef<string | null>(null);
@@ -35,6 +40,8 @@ function ActiveSessionContent({ progress, session, sessionLink }: ActiveSessionP
   const inProgress = progress?.inProgressCount ?? students.filter(student => student.status === "in_progress").length;
   const missing = nominal ? students.filter(student => student.status === "not_started").length : 0;
   const completion = progress?.completionPercentage ?? 0;
+  const isClosed = session.status === "closed";
+  const hasEntered = (progress?.startedCount ?? 0) > 0;
 
   useEffect(() => {
     if (previousSessionId.current !== session.id) {
@@ -83,7 +90,7 @@ function ActiveSessionContent({ progress, session, sessionLink }: ActiveSessionP
   return (
     <aside className="panel session-panel">
       <div className="session-heading">
-        <SectionTitle title="Sesión activa" description="Compartí el código o el enlace con los estudiantes." />
+        <SectionTitle title={isClosed ? "Resumen de la sesión" : "Sesión activa"} description={isClosed ? "La sesión está cerrada y ya no admite cambios." : "Compartí el código o el enlace con los estudiantes."} />
         {progress?.gradeLabel && <p className="session-grade-label">{progress.gradeLabel}</p>}
       </div>
 
@@ -127,7 +134,7 @@ function ActiveSessionContent({ progress, session, sessionLink }: ActiveSessionP
                     <td data-label="Nombre">{student.displayName}</td>
                     <td data-label="DNI">{student.maskedDocument ?? "—"}</td>
                     <td data-label="Estado"><span className={`student-status student-status-${student.status}`}>{STATUS_LABELS[student.status]}</span></td>
-                    <td data-label="Entregó">{student.status === "submitted" ? formatSubmissionTime(student.submittedAt) : "—"}</td>
+                    <td data-label="Entregó">{student.submissionReason === "closed_by_teacher" ? "Entregado por cierre" : student.status === "submitted" ? formatSubmissionTime(student.submittedAt) : "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -136,9 +143,36 @@ function ActiveSessionContent({ progress, session, sessionLink }: ActiveSessionP
         ) : <p className="student-empty">No hay estudiantes para este filtro.</p>}
       </section>
 
-      <ActionButton variant="secondary" onClick={() => postHostMessage({ type: "host:openStudentView", accessCode: session.accessCode })}>
+      {isClosed && <section className="session-close-summary" aria-label="Resumen de cierre">
+        <h3>Resumen</h3>
+        <p>Entregaron {submitted} de {expected}.</p>
+        {nominal && <p>No rindieron: {students.filter(student => student.status === "not_started").map(student => student.displayName).join(", ") || "Ningún estudiante"}.</p>}
+        <p>Entregados por cierre: {students.filter(student => student.submissionReason === "closed_by_teacher").map(student => student.displayName).join(", ") || "Ningún estudiante"}.</p>
+        {progress?.averageScorePercent != null && <p>Promedio de puntaje: {progress.averageScorePercent.toFixed(1)}%.</p>}
+        {isClosed && inProgress > 0 && <p role="alert">Quedaron {inProgress} exámenes sin entregar. Revisá los intentos pendientes.</p>}
+        {closeResult?.failed ? <p role="alert">No se pudieron entregar {closeResult.failed} exámenes. Revisá los intentos pendientes.</p> : null}
+      </section>}
+
+      {!isClosed && <div className="session-control-actions">
+        {onStatusChange && <>
+          {session.status === "paused"
+            ? <ActionButton variant="secondary" disabled={isBusy} onClick={() => void onStatusChange("active")}>Reanudar</ActionButton>
+            : <ActionButton variant="secondary" disabled={isBusy} onClick={() => void onStatusChange("paused")}>Pausar</ActionButton>}
+          <ActionButton disabled={isBusy} onClick={() => {
+            if (window.confirm(`¿Cerrar sesión? Hay ${inProgress} estudiantes rindiendo. Sus exámenes se entregarán con las respuestas guardadas hasta el momento.`)) {
+              void onStatusChange("closed").then(result => { if (result && typeof result === "object") setCloseResult(result); });
+            }
+          }}>Cerrar sesión</ActionButton>
+        </>}
+        {!hasEntered && onDiscard && <ActionButton variant="secondary" disabled={isBusy} onClick={() => {
+          if (window.confirm("Se va a borrar la sesión y no quedará en el historial.")) void onDiscard();
+        }}>Descartar sesión</ActionButton>}
+      </div>}
+
+      {!isClosed && <ActionButton variant="secondary" onClick={() => postHostMessage({ type: "host:openStudentView", accessCode: session.accessCode })}>
         Abrir vista del estudiante
-      </ActionButton>
+      </ActionButton>}
+      {isClosed && <ActionButton variant="secondary" onClick={() => onReturn?.()}>Volver al espacio de sesiones</ActionButton>}
     </aside>
   );
 }

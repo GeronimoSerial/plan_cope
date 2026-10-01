@@ -102,6 +102,8 @@ public static class SessionEndpoints
             string id,
             UpdateSessionStatusRequest request,
             ISessionRepository repository,
+            AttemptSubmissionService submissionService,
+            ILoggerFactory loggerFactory,
             CancellationToken cancellationToken) =>
         {
             var session = await repository.GetByIdAsync(id, cancellationToken);
@@ -121,9 +123,48 @@ public static class SessionEndpoints
                 return Results.BadRequest(new { error = $"No se puede pasar la sesión de \"{session.Status}\" a \"{request.Status}\"." });
             }
 
-            var endAt = request.Status is "closed" ? DateTimeOffset.UtcNow.ToString("O") : null;
-            await repository.UpdateStatusAsync(id, request.Status, endAt, cancellationToken);
+            if (request.Status is "closed")
+            {
+                var logger = loggerFactory.CreateLogger("SessionClose");
+                var submitted = 0;
+                var failed = 0;
+                var attempts = await repository.GetInProgressAttemptIdsAsync(id, cancellationToken);
+                foreach (var attemptId in attempts)
+                {
+                    try
+                    {
+                        var result = await submissionService.SubmitAsync(attemptId, allowInactiveSession: true,
+                            cancellationToken: cancellationToken, submissionReason: "closed_by_teacher");
+                        if (result.Success) submitted++;
+                        else
+                        {
+                            failed++;
+                            logger.LogError("Could not submit attempt {AttemptId} while closing session {SessionId}: {Error}", attemptId, id, result.Error);
+                        }
+                    }
+                    catch (Exception exception) when (exception is not OperationCanceledException)
+                    {
+                        failed++;
+                        logger.LogError(exception, "Could not submit attempt {AttemptId} while closing session {SessionId}.", attemptId, id);
+                    }
+                }
 
+                var closedAt = DateTimeOffset.UtcNow.ToString("O");
+                await repository.UpdateStatusAsync(id, "closed", closedAt, cancellationToken);
+                return Results.Ok(new { submitted, failed });
+            }
+
+            await repository.UpdateStatusAsync(id, request.Status, cancellationToken: cancellationToken);
+
+            return Results.NoContent();
+        });
+
+        group.MapDelete("/{id}", async (string id, ISessionRepository repository, CancellationToken cancellationToken) =>
+        {
+            var session = await repository.GetByIdAsync(id, cancellationToken);
+            if (session is null) return Results.NotFound();
+            if (!await repository.DeleteIfNoAttemptsAsync(id, cancellationToken))
+                return Results.Conflict(new { error = "No se puede descartar: ya ingresaron alumnos. Cerrala en su lugar." });
             return Results.NoContent();
         });
 
@@ -135,7 +176,8 @@ public static class SessionEndpoints
         return (current, next) is
             ("active", "paused") or
             ("paused", "active") or
-            ("active", "closed");
+            ("active", "closed") or
+            ("paused", "closed");
     }
 
     private static async Task<string> GenerateAccessCodeAsync(ISessionRepository repository, CancellationToken cancellationToken)

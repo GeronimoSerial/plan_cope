@@ -17,4 +17,8 @@ public interface ISessionRepository
     Task<LocalSessionProgress?> GetProgressAsync(string idOrAccessCode, CancellationToken cancellationToken = default);
 
     Task UpdateStatusAsync(string id, string status, string? endAt = null, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<string>> GetInProgressAttemptIdsAsync(string sessionId, CancellationToken cancellationToken = default);
+
+    Task<bool> DeleteIfNoAttemptsAsync(string id, CancellationToken cancellationToken = default);
 }

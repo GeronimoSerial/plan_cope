@@ -371,6 +371,43 @@ export function useDeliverySession(hostContext: HostContext) {
     }
   }, [api, resumeAccessCode]);
 
+  const updateSessionStatus = useCallback(async (nextStatus: "active" | "paused" | "closed") => {
+    if (!session) return null;
+    setIsBusy(true);
+    setError(null);
+    try {
+      const result = await api.updateSessionStatus(session.id, nextStatus);
+      const updated = { ...session, status: nextStatus, ...(nextStatus === "closed" ? { endAt: new Date().toISOString() } : {}) };
+      setSession(updated);
+      if (nextStatus === "closed") setActiveSessions(current => current.filter(item => item.id !== session.id));
+      return result;
+    } catch (exception) {
+      setError(exception instanceof Error ? exception.message : "No se pudo actualizar la sesión.");
+      return null;
+    } finally { setIsBusy(false); }
+  }, [api, session]);
+
+  const discardSession = useCallback(async () => {
+    if (!session) return false;
+    setIsBusy(true);
+    setError(null);
+    try {
+      await api.discardSession(session.id);
+      setSession(null);
+      setProgress(null);
+      setActiveSessions(current => current.filter(item => item.id !== session.id));
+      return true;
+    } catch (exception) {
+      setError(exception instanceof Error ? exception.message : "No se pudo descartar la sesión.");
+      return false;
+    } finally { setIsBusy(false); }
+  }, [api, session]);
+
+  const returnToSessions = useCallback(() => {
+    setSession(null);
+    setProgress(null);
+  }, []);
+
   useEffect(() => {
     if (!session?.accessCode) {
       return;
@@ -422,7 +459,10 @@ export function useDeliverySession(hostContext: HostContext) {
       activeSessions,
       resumeAccessCode,
       setResumeAccessCode,
-      resumeSession
+      resumeSession,
+      updateSessionStatus,
+      discardSession,
+      returnToSessions
     },
     status,
     error,

@@ -256,7 +256,8 @@ public sealed class AttemptRepository(ILocalSqliteConnectionFactory connectionFa
         string confirmationCode,
         SyncOutbox outbox,
         GradingOutcome gradingOutcome,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? submissionReason = null)
     {
         using var connection = connectionFactory.CreateOpenConnection();
         using var transaction = connection.BeginTransaction();
@@ -266,11 +267,12 @@ public sealed class AttemptRepository(ILocalSqliteConnectionFactory connectionFa
             UPDATE student_attempts
             SET status = 'submitted',
                 submitted_at = @SubmittedAt,
-                confirmation_code = @ConfirmationCode
+                confirmation_code = @ConfirmationCode,
+                submission_reason = @SubmissionReason
             WHERE id = @Id
               AND status = 'in_progress';
             """,
-            new { Id = id, SubmittedAt = submittedAt, ConfirmationCode = confirmationCode },
+            new { Id = id, SubmittedAt = submittedAt, ConfirmationCode = confirmationCode, SubmissionReason = submissionReason },
             transaction,
             cancellationToken: cancellationToken));
         if (updated != 1)

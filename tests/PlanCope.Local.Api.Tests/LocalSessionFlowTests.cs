@@ -292,7 +292,7 @@ public sealed class LocalSessionFlowTests
     }
 
     [Fact]
-    public async Task Saving_answers_and_submitting_on_closed_session_are_rejected()
+    public async Task Closing_session_submits_attempt_and_rejects_later_changes()
     {
         using var factory = new LocalApiFactory();
         using var client = factory.CreateClient();
@@ -303,18 +303,20 @@ public sealed class LocalSessionFlowTests
         var started = await StartAttemptAsync(client, session.AccessCode);
 
         var closeResponse = await client.PutAsJsonAsync($"/api/sessions/{session.Id}/status", new UpdateSessionStatusRequest("closed"));
-        Assert.Equal(HttpStatusCode.NoContent, closeResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, closeResponse.StatusCode);
+        using var closeSummary = JsonDocument.Parse(await closeResponse.Content.ReadAsStringAsync());
+        Assert.Equal(1, closeSummary.RootElement.GetProperty("submitted").GetInt32());
+        Assert.Equal(0, closeSummary.RootElement.GetProperty("failed").GetInt32());
 
         var answerResponse = await SaveAnswersAsync(client, started.Attempt.Id, factory.QuestionBlockId, "42");
         Assert.Equal(HttpStatusCode.BadRequest, answerResponse.StatusCode);
         var answerBody = await answerResponse.Content.ReadAsStringAsync();
-        Assert.Contains("cerrada", answerBody, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("pausada", answerBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("intento ya no admite cambios", answerBody, StringComparison.OrdinalIgnoreCase);
 
         var submitResponse = await client.PostAsync($"/api/attempts/{started.Attempt.Id}/submit", null);
         Assert.Equal(HttpStatusCode.BadRequest, submitResponse.StatusCode);
         var submitBody = await submitResponse.Content.ReadAsStringAsync();
-        Assert.Contains("cerrada", submitBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ya fue enviado", submitBody, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("pausada", submitBody, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -617,6 +619,68 @@ public sealed class LocalSessionFlowTests
 
         Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Created);
         Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task Closing_active_or_paused_session_submits_each_in_progress_attempt_once_with_reason()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        var session = await CreateSessionAsync(client);
+        var attempt = await StartAttemptAsync(client, session.AccessCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await SaveAnswersAsync(client, attempt.Attempt.Id, factory.QuestionBlockId, "42")).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PutAsJsonAsync($"/api/sessions/{session.Id}/status", new UpdateSessionStatusRequest("paused"))).StatusCode);
+
+        var close = await client.PutAsJsonAsync($"/api/sessions/{session.Id}/status", new UpdateSessionStatusRequest("closed"));
+        Assert.Equal(HttpStatusCode.OK, close.StatusCode);
+        using var result = JsonDocument.Parse(await close.Content.ReadAsStringAsync());
+        Assert.Equal(1, result.RootElement.GetProperty("submitted").GetInt32());
+        Assert.Equal(0, result.RootElement.GetProperty("failed").GetInt32());
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PutAsJsonAsync($"/api/sessions/{session.Id}/status", new UpdateSessionStatusRequest("closed"))).StatusCode);
+
+        using var connection = factory.CreateConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT status, submission_reason FROM student_attempts WHERE id = $id;";
+        command.Parameters.AddWithValue("$id", attempt.Attempt.Id);
+        using var reader = command.ExecuteReader();
+        Assert.True(reader.Read());
+        Assert.Equal("submitted", reader.GetString(0));
+        Assert.Equal("closed_by_teacher", reader.GetString(1));
+        reader.Close();
+        command.CommandText = "SELECT payload_json FROM sync_outbox WHERE aggregate_id = $id;";
+        using (var payload = JsonDocument.Parse((string)command.ExecuteScalar()!))
+        {
+            var syncedAnswers = payload.RootElement.GetProperty("answers").EnumerateArray().ToArray();
+            Assert.Single(syncedAnswers);
+            Assert.Equal("\"42\"", syncedAnswers[0].GetProperty("answerJson").GetString());
+        }
+        command.CommandText = "SELECT COUNT(*) FROM sync_outbox WHERE aggregate_id = $id;";
+        Assert.Equal(1L, (long)command.ExecuteScalar()!);
+        command.CommandText = "SELECT COUNT(*) FROM attempt_results WHERE student_attempt_id = $id;";
+        Assert.Equal(1L, (long)command.ExecuteScalar()!);
+        var progress = await client.GetFromJsonAsync<LocalSessionProgress>($"/api/sessions/{session.AccessCode}/progress");
+        Assert.Equal("closed_by_teacher", Assert.Single(progress!.Students).SubmissionReason);
+        Assert.Null(progress.AverageScorePercent);
+    }
+
+    [Fact]
+    public async Task Session_discard_is_allowed_only_before_first_attempt()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        var empty = await CreateSessionAsync(client);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/api/sessions/{empty.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/sessions/{empty.Id}")).StatusCode);
+
+        var used = await CreateSessionAsync(client);
+        await StartAttemptAsync(client, used.AccessCode);
+        var response = await client.DeleteAsync($"/api/sessions/{used.Id}");
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Contains("ya ingresaron alumnos", await response.Content.ReadAsStringAsync());
     }
 
     private static async Task<LocalDeliverySession> CreateSessionAsync(HttpClient client)

@@ -67,7 +67,8 @@ public interface IAttemptRepository
         string confirmationCode,
         SyncOutbox outbox,
         GradingOutcome gradingOutcome,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? submissionReason = null);
 
     Task<bool> PreserveUnsubmittedWithOutboxAsync(
         string id,
