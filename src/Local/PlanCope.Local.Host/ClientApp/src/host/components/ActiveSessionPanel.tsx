@@ -10,6 +10,9 @@ type ActiveSessionPanelProps = {
   onStatusChange?: (status: "active" | "paused" | "closed") => Promise<{ submitted: number; failed: number } | void | null>;
   onDiscard?: () => Promise<boolean>;
   onReturn?: () => void;
+  onAddExtraStudent?: (request: { document: string; firstName: string; lastName: string }) => Promise<void>;
+  onRemoveExtraStudent?: (studentId: string) => Promise<void>;
+  extraStudentError?: string | null;
   isBusy?: boolean;
 };
 
@@ -27,8 +30,12 @@ function formatSubmissionTime(value: string | null): string {
   return Number.isNaN(date.getTime()) ? "—" : new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit" }).format(date);
 }
 
-function ActiveSessionContent({ progress, session, sessionLink, onStatusChange, onDiscard, onReturn, isBusy = false }: ActiveSessionPanelProps & { session: LocalSession }) {
+function ActiveSessionContent({ progress, session, sessionLink, onStatusChange, onDiscard, onReturn, onAddExtraStudent, onRemoveExtraStudent, extraStudentError, isBusy = false }: ActiveSessionPanelProps & { session: LocalSession }) {
   const [filter, setFilter] = useState<StudentFilter>("all");
+  const [showExtraStudentForm, setShowExtraStudentForm] = useState(false);
+  const [extraDocument, setExtraDocument] = useState("");
+  const [extraFirstName, setExtraFirstName] = useState("");
+  const [extraLastName, setExtraLastName] = useState("");
   const [closeResult, setCloseResult] = useState<{ submitted: number; failed: number } | null>(null);
   const [highlightedIds, setHighlightedIds] = useState<string[]>([]);
   const previousStatuses = useRef<Map<string, string> | null>(null);
@@ -127,20 +134,35 @@ function ActiveSessionContent({ progress, session, sessionLink, onStatusChange, 
         {visibleStudents.length ? (
           <div className="student-table-wrap">
             <table className="student-table">
-              <thead><tr><th scope="col">Nombre</th><th scope="col">DNI</th><th scope="col">Estado</th><th scope="col">Entregó</th></tr></thead>
+              <thead><tr><th scope="col">Nombre</th><th scope="col">DNI</th><th scope="col">Estado</th><th scope="col">Entregó</th>{onRemoveExtraStudent && <th scope="col">Acciones</th>}</tr></thead>
               <tbody>
                 {visibleStudents.map(student => (
                   <tr key={student.id} className={highlightedIds.includes(student.id) ? "student-row-submitted" : undefined}>
-                    <td data-label="Nombre">{student.displayName}</td>
+                    <td data-label="Nombre">{student.displayName} {student.offRoster && <span className="student-off-roster-badge">Fuera de padrón</span>}</td>
                     <td data-label="DNI">{student.maskedDocument ?? "—"}</td>
                     <td data-label="Estado"><span className={`student-status student-status-${student.status}`}>{STATUS_LABELS[student.status]}</span></td>
                     <td data-label="Entregó">{student.submissionReason === "closed_by_teacher" ? "Entregado por cierre" : student.status === "submitted" ? formatSubmissionTime(student.submittedAt) : "—"}</td>
+                    {onRemoveExtraStudent && <td data-label="Acciones">{student.offRoster && !student.attemptId && !isClosed && <button type="button" className="button button-secondary" disabled={isBusy} onClick={() => void onRemoveExtraStudent(student.id).catch(() => undefined)}>Quitar</button>}</td>}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         ) : <p className="student-empty">No hay estudiantes para este filtro.</p>}
+        {nominal && !isClosed && onAddExtraStudent && <div className="extra-student-entry">
+          {extraStudentError && <p className="error-banner" role="alert">{extraStudentError}</p>}
+          {!showExtraStudentForm ? <ActionButton variant="secondary" disabled={isBusy} onClick={() => setShowExtraStudentForm(true)}>Agregar alumno fuera de padrón</ActionButton> : <form onSubmit={event => {
+            event.preventDefault();
+            void onAddExtraStudent({ document: extraDocument, firstName: extraFirstName, lastName: extraLastName }).then(() => {
+              setExtraDocument(""); setExtraFirstName(""); setExtraLastName(""); setShowExtraStudentForm(false);
+            }).catch(() => undefined);
+          }}>
+            <Field label="DNI"><TextInput value={extraDocument} inputMode="numeric" onChange={setExtraDocument} /></Field>
+            <Field label="Nombre"><TextInput value={extraFirstName} onChange={setExtraFirstName} /></Field>
+            <Field label="Apellido"><TextInput value={extraLastName} onChange={setExtraLastName} /></Field>
+            <div className="session-control-actions"><button className="button button-primary" type="submit" disabled={isBusy || !extraDocument.trim() || !extraFirstName.trim() || !extraLastName.trim()}>Agregar</button><button className="button button-secondary" type="button" disabled={isBusy} onClick={() => setShowExtraStudentForm(false)}>Cancelar</button></div>
+          </form>}
+        </div>}
       </section>
 
       {isClosed && <section className="session-close-summary" aria-label="Resumen de cierre">

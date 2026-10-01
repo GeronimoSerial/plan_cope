@@ -549,6 +549,88 @@ public sealed class LocalSessionFlowTests
     }
 
     [Fact]
+    public async Task Teacher_added_off_roster_student_can_resolve_start_and_sync_without_plain_document()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "roster-student-a", 501, "12.345.678", "Ana", "Pérez");
+        var session = await CreateRosterSessionAsync(client);
+
+        var rosterDni = await client.PostAsJsonAsync($"/api/sessions/{session.Id}/extra-students",
+            new AddSessionExtraStudentRequest("12.345.678", "Otra", "Persona"));
+        Assert.Equal(HttpStatusCode.Conflict, rosterDni.StatusCode);
+        Assert.Contains("Ese DNI ya figura en el padrón de la sección.", await rosterDni.Content.ReadAsStringAsync());
+
+        var addedResponse = await client.PostAsJsonAsync($"/api/sessions/{session.Id}/extra-students",
+            new AddSessionExtraStudentRequest("98.765.432", "  Bruno ", "  Díaz  "));
+        Assert.Equal(HttpStatusCode.Created, addedResponse.StatusCode);
+        var added = await addedResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var extraId = added.GetProperty("id").GetString()!;
+        Assert.Equal("Bruno", added.GetProperty("firstName").GetString());
+        Assert.Equal("Díaz", added.GetProperty("lastName").GetString());
+        Assert.True(added.GetProperty("offRoster").GetBoolean());
+        Assert.DoesNotContain("98765432", await addedResponse.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        var duplicateExtra = await client.PostAsJsonAsync($"/api/sessions/{session.Id}/extra-students",
+            new AddSessionExtraStudentRequest("98765432", "Otro", "Nombre"));
+        Assert.Equal(HttpStatusCode.Conflict, duplicateExtra.StatusCode);
+
+        var removableResponse = await client.PostAsJsonAsync($"/api/sessions/{session.Id}/extra-students",
+            new AddSessionExtraStudentRequest("87.654.321", "Carla", "Rojas"));
+        var removable = await removableResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var removableId = removable.GetProperty("id").GetString();
+        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/api/sessions/{session.Id}/extra-students/{removableId}")).StatusCode);
+
+        var unknown = await client.PostAsJsonAsync($"/api/sessions/{session.AccessCode}/student-resolution", new ResolveStudentRequest("87.654.321"));
+        Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
+        Assert.Contains("¿Revisaste bien el DNI?", await unknown.Content.ReadAsStringAsync());
+
+        var resolutionResponse = await client.PostAsJsonAsync($"/api/sessions/{session.AccessCode}/student-resolution", new ResolveStudentRequest("98.765.432"));
+        Assert.Equal(HttpStatusCode.OK, resolutionResponse.StatusCode);
+        var resolution = await resolutionResponse.Content.ReadFromJsonAsync<ResolveStudentResponse>();
+        Assert.NotNull(resolution);
+        Assert.Equal("Díaz, Bruno", resolution!.Student.DisplayName);
+        Assert.Equal("**.***.5432", resolution.Student.MaskedDocument);
+
+        var progress = await client.GetFromJsonAsync<LocalSessionProgress>($"/api/sessions/{session.AccessCode}/progress");
+        var extraRow = Assert.Single(progress!.Students, student => student.Id == extraId);
+        Assert.Equal("not_started", extraRow.Status);
+        Assert.True(extraRow.OffRoster);
+
+        var start = await client.PostAsJsonAsync($"/api/sessions/{session.AccessCode}/attempts", new StartAttemptRequest(ResolutionToken: resolution.ResolutionToken));
+        Assert.Equal(HttpStatusCode.Created, start.StatusCode);
+        var started = await start.Content.ReadFromJsonAsync<StartAttemptResponse>();
+        Assert.NotNull(started);
+        Assert.True(started!.Attempt.OffRoster);
+        Assert.Null(started.Attempt.RosterStudentId);
+
+        var secondResolution = await client.PostAsJsonAsync($"/api/sessions/{session.AccessCode}/student-resolution", new ResolveStudentRequest("98765432"));
+        var secondToken = (await secondResolution.Content.ReadFromJsonAsync<ResolveStudentResponse>())!.ResolutionToken;
+        var duplicateStart = await client.PostAsJsonAsync($"/api/sessions/{session.AccessCode}/attempts", new StartAttemptRequest(ResolutionToken: secondToken));
+        Assert.Equal(HttpStatusCode.Conflict, duplicateStart.StatusCode);
+
+        var submit = await client.PostAsync($"/api/attempts/{started.Attempt.Id}/submit", null);
+        Assert.Equal(HttpStatusCode.OK, submit.StatusCode);
+        using var connection = factory.CreateConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT payload_json FROM sync_outbox WHERE aggregate_id = $attemptId;";
+        command.Parameters.AddWithValue("$attemptId", started.Attempt.Id);
+        using var reader = command.ExecuteReader();
+        Assert.True(reader.Read());
+        using var payload = JsonDocument.Parse(reader.GetString(0));
+        var syncedAttempt = payload.RootElement.GetProperty("attempt");
+        Assert.True(syncedAttempt.GetProperty("offRoster").GetBoolean());
+        Assert.Equal("bruno", syncedAttempt.GetProperty("studentFirstName").GetString()?.ToLowerInvariant());
+        Assert.Equal(64, syncedAttempt.GetProperty("documentHmac").GetString()?.Length);
+        Assert.DoesNotContain("98765432", reader.GetString(0), StringComparison.Ordinal);
+
+        var removeStarted = await client.DeleteAsync($"/api/sessions/{session.Id}/extra-students/{extraId}");
+        Assert.Equal(HttpStatusCode.Conflict, removeStarted.StatusCode);
+    }
+
+    [Fact]
     public async Task Nominal_resolution_cannot_be_reused_or_started_twice()
     {
         using var factory = new LocalApiFactory();

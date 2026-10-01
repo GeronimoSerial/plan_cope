@@ -263,7 +263,8 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
                     a.status AS attempt_status,
                     a.started_at,
                     a.submitted_at,
-                    a.submission_reason
+                    a.submission_reason,
+                    0 AS off_roster
                 FROM session_context c
                 LEFT JOIN local_roster_students rs
                     ON c.roster_snapshot_id IS NOT NULL
@@ -287,15 +288,33 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
                     a.status AS attempt_status,
                     a.started_at,
                     a.submitted_at,
-                    a.submission_reason
+                    a.submission_reason,
+                    0 AS off_roster
                 FROM session_context c
                 JOIN student_attempts a ON a.delivery_session_id = c.session_id
                 WHERE c.roster_snapshot_id IS NOT NULL AND c.roster_section_id IS NOT NULL
+                  AND a.extra_student_id IS NULL
                   AND NOT EXISTS (
                     SELECT 1 FROM local_roster_students rs
                     WHERE rs.snapshot_id = c.roster_snapshot_id AND rs.section_id = c.roster_section_id
                       AND (a.roster_student_id = rs.id OR (a.roster_student_id IS NULL AND a.ge_person_id = rs.ge_person_id))
                   )
+                UNION ALL
+                SELECT
+                    c.*,
+                    e.id AS student_id,
+                    e.last_name,
+                    e.first_name,
+                    e.document_last4,
+                    a.id AS attempt_id,
+                    a.status AS attempt_status,
+                    a.started_at,
+                    a.submitted_at,
+                    a.submission_reason,
+                    1 AS off_roster
+                FROM session_context c
+                JOIN session_extra_students e ON e.session_id = c.session_id
+                LEFT JOIN student_attempts a ON a.extra_student_id = e.id
             )
             SELECT * FROM progress_rows
             ORDER BY last_name COLLATE NOCASE, first_name COLLATE NOCASE, student_id;
@@ -321,7 +340,7 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
                 row.SubmittedAt,
                 row.AttemptId,
                 row.SubmissionReason,
-                false))
+                row.OffRoster))
             .ToList();
 
         var course = first.Course;
@@ -466,5 +485,6 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         public string? StartedAt { get; init; }
         public string? SubmittedAt { get; init; }
         public string? SubmissionReason { get; init; }
+        public bool OffRoster { get; init; }
     }
 }

@@ -47,6 +47,7 @@ public static class AttemptEndpoints
             }
 
             LocalRosterStudentLookup? student;
+            SessionExtraStudent? extraStudent = null;
             try
             {
                 student = await rosterRepository.FindStudentAsync(
@@ -63,12 +64,26 @@ public static class AttemptEndpoints
 
             if (student is null)
             {
-                return Results.NotFound(new
+                try
                 {
-                    kind = "not_found",
-                    message = "¿Revisaste bien el DNI? No lo encontramos en la lista de esta sección.",
-                    hint = "Si el problema sigue, avisá al docente o al operador del sistema."
-                });
+                    extraStudent = await attemptRepository.FindExtraStudentAsync(
+                        session.Id,
+                        documentHmacService.ComputeHash(request.Document),
+                        cancellationToken);
+                }
+                catch (ArgumentException)
+                {
+                    return Results.BadRequest(new { error = "El DNI no es válido." });
+                }
+                if (extraStudent is null)
+                {
+                    return Results.NotFound(new
+                    {
+                        kind = "not_found",
+                        message = "¿Revisaste bien el DNI? No lo encontramos en la lista de esta sección.",
+                        hint = "Si el problema sigue, avisá al docente o al operador del sistema."
+                    });
+                }
             }
 
             var now = DateTimeOffset.UtcNow;
@@ -77,24 +92,28 @@ public static class AttemptEndpoints
             await attemptRepository.CreateResolutionAsync(new StudentResolution(
                 Guid.NewGuid().ToString(),
                 session.Id,
-                student.SnapshotId,
-                student.SectionId,
-                student.RosterStudentId,
-                student.GePersonId,
-                student.FirstName,
-                student.LastName,
-                student.DocumentLast4,
+                student?.SnapshotId ?? session.RosterSnapshotId,
+                student?.SectionId ?? session.RosterSectionId,
+                student?.RosterStudentId,
+                student?.GePersonId,
+                extraStudent?.Id,
+                student?.FirstName ?? extraStudent!.FirstName,
+                student?.LastName ?? extraStudent!.LastName,
+                student?.DocumentLast4 ?? extraStudent!.DocumentLast4,
                 tokenService.HashToken(token),
                 expiresAt.ToString("O"),
                 now.ToString("O")), cancellationToken);
 
+            var firstName = student?.FirstName ?? extraStudent!.FirstName;
+            var lastName = student?.LastName ?? extraStudent!.LastName;
+            var documentLast4 = student?.DocumentLast4 ?? extraStudent!.DocumentLast4;
             return Results.Ok(new ResolveStudentResponse(
                 token,
                 new ResolvedStudentDto(
-                    $"{student.LastName}, {student.FirstName}",
-                    MaskDocument(student.DocumentLast4),
-                    student.FirstName,
-                    student.LastName),
+                    $"{lastName}, {firstName}",
+                    MaskDocument(documentLast4),
+                    firstName,
+                    lastName),
                 expiresAt.ToString("O")));
         });
 

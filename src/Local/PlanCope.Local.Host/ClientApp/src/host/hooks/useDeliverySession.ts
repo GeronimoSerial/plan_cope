@@ -424,6 +424,15 @@ export function useDeliverySession(hostContext: HostContext) {
     void loadActiveSessions();
   }, [loadActiveSessions]);
 
+  const refreshProgress = useCallback(async () => {
+    if (!session?.accessCode) return;
+    try {
+      setProgress(await api.getSessionProgress(session.accessCode));
+    } catch (exception) {
+      setError(exception instanceof Error ? exception.message : "No se pudo actualizar el progreso.");
+    }
+  }, [api, session?.accessCode]);
+
   useEffect(() => {
     if (!session?.accessCode) {
       return;
@@ -480,7 +489,8 @@ export function useDeliverySession(hostContext: HostContext) {
       selectSession,
       updateSessionStatus,
       discardSession,
-      returnToSessions
+      returnToSessions,
+      refreshProgress
     },
     status,
     error,

@@ -74,7 +74,19 @@ public sealed record StudentAttempt(
     string? StudentLastName = null,
     string? DocumentLast4 = null,
     string? VerificationSource = null,
-    string? VerifiedAt = null);
+    string? VerifiedAt = null,
+    string? ExtraStudentId = null,
+    string? DocumentHmac = null,
+    bool OffRoster = false);
+
+public sealed record SessionExtraStudent(
+    string Id,
+    string SessionId,
+    string DocumentHmac,
+    string DocumentLast4,
+    string FirstName,
+    string LastName,
+    string CreatedAt);
 
 public sealed record SubmissionAnswer(string Id, string StudentAttemptId, string BlockId, string AnswerJson, string CreatedAt);
 

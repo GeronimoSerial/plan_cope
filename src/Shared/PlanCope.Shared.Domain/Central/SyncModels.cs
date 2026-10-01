@@ -40,7 +40,9 @@ public sealed record ReceivedStudentAttempt(
     string? StudentLastName = null,
     string? DocumentLast4 = null,
     string? VerificationSource = null,
-    DateTimeOffset? VerifiedAt = null);
+    DateTimeOffset? VerifiedAt = null,
+    string? DocumentHmac = null,
+    bool OffRoster = false);
 
 public sealed record ReceivedSubmissionAnswer(string Id, string StudentAttemptId, string BlockId, JsonDocument Answer, DateTimeOffset CreatedAt);
 

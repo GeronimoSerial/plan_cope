@@ -18,7 +18,33 @@ export function SessionsWorkspace({ delivery, apiBaseUrl, tab, expiryPending, on
   const [statusFilter, setStatusFilter] = useState("");
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [extraStudentError, setExtraStudentError] = useState<string | null>(null);
+  const [extraStudentBusy, setExtraStudentBusy] = useState(false);
   const currentSession = activeSession.session;
+  const addExtraStudent = async (request: { document: string; firstName: string; lastName: string }) => {
+    if (!currentSession) return;
+    setExtraStudentBusy(true);
+    setExtraStudentError(null);
+    try {
+      await api.addExtraStudent(currentSession.id, request);
+      await activeSession.refreshProgress();
+    } catch (exception) {
+      setExtraStudentError(exception instanceof Error ? exception.message : "No se pudo agregar al estudiante.");
+      throw exception;
+    } finally { setExtraStudentBusy(false); }
+  };
+  const removeExtraStudent = async (studentId: string) => {
+    if (!currentSession) return;
+    setExtraStudentBusy(true);
+    setExtraStudentError(null);
+    try {
+      await api.removeExtraStudent(currentSession.id, studentId);
+      await activeSession.refreshProgress();
+    } catch (exception) {
+      setExtraStudentError(exception instanceof Error ? exception.message : "No se pudo quitar al estudiante.");
+      throw exception;
+    } finally { setExtraStudentBusy(false); }
+  };
 
   useEffect(() => {
     if (tab !== "history" || currentSession) return;
@@ -37,7 +63,9 @@ export function SessionsWorkspace({ delivery, apiBaseUrl, tab, expiryPending, on
 
   if (currentSession) return <>
     <div className="active-session-focus"><ActiveSessionPanel progress={activeSession.progress} session={currentSession} sessionLink={activeSession.sessionLink}
-      onStatusChange={activeSession.updateSessionStatus} onDiscard={activeSession.discardSession} onReturn={() => { activeSession.returnToSessions(); setCreateStep(null); onReturnHome(); }} isBusy={delivery.isBusy} /></div>
+      onStatusChange={activeSession.updateSessionStatus} onDiscard={activeSession.discardSession} onReturn={() => { activeSession.returnToSessions(); setCreateStep(null); onReturnHome(); }}
+      onAddExtraStudent={addExtraStudent} onRemoveExtraStudent={removeExtraStudent} extraStudentError={extraStudentError}
+      isBusy={delivery.isBusy || extraStudentBusy} /></div>
     {currentSession.status === "closed" && <div className="stats-actions"><ActionButton variant="secondary" onClick={onStats}>Ver estadísticas</ActionButton></div>}
   </>;
 

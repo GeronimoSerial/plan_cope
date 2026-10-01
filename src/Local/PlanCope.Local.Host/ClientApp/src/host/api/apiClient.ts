@@ -94,6 +94,15 @@ export class ApiClient {
     });
   }
 
+  addExtraStudent(sessionId: string, request: { document: string; firstName: string; lastName: string }): Promise<{ id: string }> {
+    return this.post<{ id: string }>(`/api/sessions/${encodeURIComponent(sessionId)}/extra-students`, request);
+  }
+
+  async removeExtraStudent(sessionId: string, studentId: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/api/sessions/${encodeURIComponent(sessionId)}/extra-students/${encodeURIComponent(studentId)}`, { method: "DELETE" });
+    if (!response.ok) throw new Error(await readApiError(response));
+  }
+
   async discardSession(id: string): Promise<void> {
     const response = await fetch(`${this.baseUrl}/api/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
     if (!response.ok) throw new Error(await readApiError(response));

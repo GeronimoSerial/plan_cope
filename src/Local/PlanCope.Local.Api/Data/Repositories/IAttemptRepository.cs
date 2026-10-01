@@ -41,6 +41,12 @@ public interface IAttemptRepository
 {
     Task CreateResolutionAsync(StudentResolution resolution, CancellationToken cancellationToken = default);
 
+    Task<bool> AddExtraStudentAsync(SessionExtraStudent student, CancellationToken cancellationToken = default);
+
+    Task<SessionExtraStudent?> FindExtraStudentAsync(string sessionId, string documentHmac, CancellationToken cancellationToken = default);
+
+    Task<bool> RemoveExtraStudentAsync(string sessionId, string studentId, CancellationToken cancellationToken = default);
+
     Task<NominalAttemptStartResult> StartNominalAttemptAsync(
         string deliverySessionId,
         string tokenHash,
@@ -83,10 +89,11 @@ public interface IAttemptRepository
 public sealed record StudentResolution(
     string Id,
     string DeliverySessionId,
-    string RosterSnapshotId,
-    string RosterSectionId,
-    string RosterStudentId,
-    int GePersonId,
+    string? RosterSnapshotId,
+    string? RosterSectionId,
+    string? RosterStudentId,
+    int? GePersonId,
+    string? ExtraStudentId,
     string FirstName,
     string LastName,
     string DocumentLast4,

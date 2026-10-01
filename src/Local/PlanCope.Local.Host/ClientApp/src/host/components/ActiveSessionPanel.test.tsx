@@ -37,7 +37,7 @@ describe("ActiveSessionPanel", () => {
     container = undefined;
   });
 
-  function render(progressData: SessionProgress | null, sessionData = session, callbacks: { onStatusChange?: (status: "active" | "paused" | "closed") => Promise<{ submitted: number; failed: number } | void | null>; onDiscard?: () => Promise<boolean> } = {}) {
+  function render(progressData: SessionProgress | null, sessionData = session, callbacks: { onStatusChange?: (status: "active" | "paused" | "closed") => Promise<{ submitted: number; failed: number } | void | null>; onDiscard?: () => Promise<boolean>; onAddExtraStudent?: (request: { document: string; firstName: string; lastName: string }) => Promise<void>; onRemoveExtraStudent?: (studentId: string) => Promise<void> } = {}) {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -68,6 +68,23 @@ describe("ActiveSessionPanel", () => {
 
     expect(view.textContent).toContain("Brenda Missing");
     expect(view.textContent).not.toContain("Ana Working");
+  });
+
+  it("labels teacher-added students and allows removing them before they start", () => {
+    const remove = vi.fn(async () => undefined);
+    const view = render(progress({ students: [student({ id: "extra-1", displayName: "Bruno Díaz", status: "not_started", offRoster: true })] }), session, { onRemoveExtraStudent: remove });
+    expect(view.textContent).toContain("Fuera de padrón");
+    act(() => [...view.querySelectorAll("button")].find(button => button.textContent === "Quitar")?.click());
+    expect(remove).toHaveBeenCalledWith("extra-1");
+  });
+
+  it("opens the off-roster student form only for nominal sessions", () => {
+    const view = render(progress(), session, { onAddExtraStudent: vi.fn(async () => undefined) });
+    act(() => [...view.querySelectorAll("button")].find(button => button.textContent === "Agregar alumno fuera de padrón")?.click());
+    expect(view.textContent).toContain("DNI");
+    expect(view.textContent).toContain("Nombre");
+    expect(view.textContent).toContain("Apellido");
+    expect(view.querySelectorAll("input")).toHaveLength(4);
   });
 
   it("shows only started students without a roster and hides the missing filter and grade when absent", () => {
