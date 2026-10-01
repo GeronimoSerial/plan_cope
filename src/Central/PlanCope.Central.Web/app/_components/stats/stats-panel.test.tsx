@@ -17,4 +17,15 @@ describe("StatsPanel", () => {
     expect(html).toContain("/escuelas?q=180000100");
     expect(html).toContain("Todos los años");
   });
+
+  it("renders the suppression label when attemptCount and averageScorePercent are 'cohorte insuficiente'", () => {
+    const html = renderToStaticMarkup(createElement(StatsPanel, {
+      initialSchools: [{ cue: "180000101", schoolName: "Escuela Chica", attemptCount: "cohorte insuficiente", averageScorePercent: "cohorte insuficiente" }],
+      schoolYears: [{ value: "2026", label: "2026" }],
+      scopeDenied: false
+    }));
+
+    expect(html).toContain("Escuela Chica");
+    expect(html.match(/cohorte insuficiente/g)?.length).toBeGreaterThanOrEqual(2);
+  });
 });

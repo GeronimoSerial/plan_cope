@@ -256,6 +256,103 @@ public sealed class SyncAttemptGradingTests
     }
 
     [Fact]
+    public async Task Reprocess_persists_unattributed_status_and_reason_for_ungradable_attempts()
+    {
+        using var dbContext = CreateDbContext();
+        dbContext.Schools.Add(new School("school-unattributed", "CUE-180000100", 180000100, null, "Escuela", "locality-1", "Active", null, Now, Now));
+        await dbContext.SaveChangesAsync();
+        var item = CreateAttemptItem("unattributed-idem", "unattributed-attempt", "missing-version",
+            new[] { MakeAnswerPayload("unattributed-attempt", "missing-block", "[\"B\"]") },
+            new { id = "unattributed-session", schoolCue = "180000100", schoolYear = "2026", course = "6to A", examVersionId = "missing-version", status = "closed" });
+        Assert.Equal("accepted", (await PushAsync(dbContext, item)).Results.Single().Status);
+
+        var admin = new ReceivedSyncAdminController(dbContext, new CentralStatsRollupService(dbContext), NullLogger<ReceivedSyncAdminController>.Instance);
+        Assert.IsType<OkObjectResult>(await admin.Reprocess(CancellationToken.None));
+
+        var attempt = await dbContext.ReceivedStudentAttempts.AsNoTracking().SingleAsync();
+        Assert.Equal("unattributed", attempt.AttributionStatus);
+        Assert.False(string.IsNullOrWhiteSpace(attempt.AttributionReason));
+    }
+
+    [Fact]
+    public async Task Reprocess_regrades_every_page_of_attempts_and_stays_idempotent()
+    {
+        using var dbContext = CreateDbContext();
+        const string versionId = "paged-version";
+        const string blockId = "paged-block";
+        dbContext.Schools.Add(new School("school-paged", "CUE-180000100", 180000100, null, "Escuela", "locality-1", "Active", null, Now, Now));
+        await dbContext.SaveChangesAsync();
+        for (var index = 0; index < 3; index++)
+        {
+            var attemptId = $"paged-attempt-{index}";
+            var response = await PushAsync(dbContext, CreateAttemptItem($"paged-idem-{index}", attemptId, versionId,
+                new[] { MakeAnswerPayload(attemptId, blockId, "[\"B\"]") },
+                new { id = "paged-session", schoolCue = "180000100", schoolYear = "2026", course = "6to A", examVersionId = versionId, status = "closed" }));
+            Assert.Equal("accepted", response.Results.Single().Status);
+        }
+        Assert.All(await dbContext.CentralAttemptResults.ToListAsync(), result => Assert.Equal("ungradable", result.Status));
+
+        var exam = MakeExam("paged-exam");
+        var version = MakeVersion(versionId, exam.Id);
+        var block = MakeBlock(blockId, version.Id);
+        SeedExam(dbContext, exam, version, block, MakeAnswerKey("paged-key", block.Id, "[\"B\"]", 1m));
+        await dbContext.SaveChangesAsync();
+
+        var admin = new ReceivedSyncAdminController(dbContext, new CentralStatsRollupService(dbContext), NullLogger<ReceivedSyncAdminController>.Instance)
+        {
+            RegradePageSize = 2
+        };
+        Assert.IsType<OkObjectResult>(await admin.Reprocess(CancellationToken.None));
+        Assert.IsType<OkObjectResult>(await admin.Reprocess(CancellationToken.None));
+
+        Assert.All(await dbContext.CentralAttemptResults.AsNoTracking().ToListAsync(), result => Assert.Equal("graded", result.Status));
+        Assert.All(await dbContext.ReceivedStudentAttempts.AsNoTracking().ToListAsync(), attempt => Assert.Equal("attributed", attempt.AttributionStatus));
+        Assert.Equal(3, (await dbContext.ExamRollups.AsNoTracking().SingleAsync()).AttemptCount);
+    }
+
+    [Fact]
+    public async Task Duplicate_push_of_a_graded_attempt_still_returns_duplicate()
+    {
+        using var dbContext = CreateDbContext();
+        var exam = MakeExam("graded-duplicate-exam");
+        var version = MakeVersion("graded-duplicate-version", exam.Id);
+        var block = MakeBlock("graded-duplicate-block", version.Id);
+        SeedExam(dbContext, exam, version, block, MakeAnswerKey("graded-duplicate-key", block.Id, "[\"B\"]", 1m));
+        await dbContext.SaveChangesAsync();
+        var item = CreateAttemptItem("graded-duplicate-idem", "graded-duplicate-attempt", version.Id,
+            new[] { MakeAnswerPayload("graded-duplicate-attempt", block.Id, "[\"B\"]") });
+
+        Assert.Equal("accepted", (await PushAsync(dbContext, item)).Results.Single().Status);
+        Assert.Equal("duplicate", (await PushAsync(dbContext, item)).Results.Single().Status);
+        Assert.Equal("graded", (await dbContext.CentralAttemptResults.SingleAsync()).Status);
+    }
+
+    [Fact]
+    public async Task Storage_failure_while_updating_the_rollup_is_not_swallowed_as_ungradable()
+    {
+        var failOnSave = new FailOnSaveInterceptor();
+        using var dbContext = CreateDbContext(failOnSave);
+        var exam = MakeExam("storage-failure-exam");
+        var version = MakeVersion("storage-failure-version", exam.Id);
+        var block = MakeBlock("storage-failure-block", version.Id);
+        SeedExam(dbContext, exam, version, block, MakeAnswerKey("storage-failure-key", block.Id, "[\"B\"]", 1m));
+        dbContext.Schools.Add(new School("school-storage", "CUE-180000100", 180000100, null, "Escuela", "locality-1", "Active", null, Now, Now));
+        await dbContext.SaveChangesAsync();
+        await PushAsync(dbContext, CreateAttemptItem("storage-failure-idem", "storage-failure-attempt", version.Id,
+            new[] { MakeAnswerPayload("storage-failure-attempt", block.Id, "[\"B\"]") },
+            new { id = "storage-session", schoolCue = "180000100", schoolYear = "2026", course = "6to A", examVersionId = version.Id, status = "closed" }));
+        var received = await dbContext.ReceivedStudentAttempts.SingleAsync();
+        var grader = new CentralAttemptGradingService(dbContext, new CentralStatsRollupService(dbContext));
+
+        failOnSave.Armed = true;
+        await Assert.ThrowsAsync<DbUpdateException>(() => grader.RecomputeAsync(received.Id, version.Id,
+            [new ReceivedSubmissionAnswer("a", received.RemoteLocalId, block.Id, JsonDocument.Parse("[\"B\"]"), Now)],
+            CancellationToken.None));
+
+        Assert.DoesNotContain(dbContext.CentralAttemptResults.Local, result => result.Status == "ungradable");
+    }
+
+    [Fact]
     public async Task Push_batch_isolates_a_bad_attempt_and_accepts_the_following_item()
     {
         using var dbContext = CreateDbContext();
@@ -616,13 +713,23 @@ public sealed class SyncAttemptGradingTests
         .AddSingleton<IModelCustomizer, JsonDocumentFriendlyModelCustomizer>()
         .BuildServiceProvider();
 
-    private static PlanCopeDbContext CreateDbContext()
+    private static PlanCopeDbContext CreateDbContext(params IInterceptor[] interceptors)
     {
         var options = new DbContextOptionsBuilder<PlanCopeDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
             .UseInternalServiceProvider(InMemoryServices)
+            .AddInterceptors(interceptors)
             .ConfigureWarnings(warnings => warnings.Ignore(InMemoryEventId.TransactionIgnoredWarning))
             .Options;
         return new PlanCopeDbContext(options);
+    }
+
+    private sealed class FailOnSaveInterceptor : SaveChangesInterceptor
+    {
+        public bool Armed { get; set; }
+
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default) =>
+            Armed ? throw new DbUpdateException("Simulated storage failure.") : base.SavingChangesAsync(eventData, result, cancellationToken);
     }
 }
