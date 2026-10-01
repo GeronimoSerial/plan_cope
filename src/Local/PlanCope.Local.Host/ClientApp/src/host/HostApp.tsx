@@ -19,6 +19,11 @@ export function HostApp() {
   const [localClockWarning, setLocalClockWarning] = useState(false);
   const [activeTab, setActiveTab] = useState<"home" | "history" | "stats">("home");
   const clearManualCue = () => delivery.sessionForm.updateForm("cue", "");
+  const changeTab = (tab: "home" | "history" | "stats") => {
+    clearManualCue();
+    delivery.activeSession.returnToSessions();
+    setActiveTab(tab);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -65,7 +70,7 @@ export function HostApp() {
   }
 
   return (
-    <AppShell status={delivery.status} apiBaseUrl={hostContext.apiBaseUrl} appVersion={hostContext.appVersion} activeSessionGradeLabel={delivery.activeSession.session ? delivery.activeSession.progress?.gradeLabel : null}>
+    <AppShell status={delivery.status} apiBaseUrl={hostContext.apiBaseUrl} appVersion={hostContext.appVersion} activeSessionGradeLabel={delivery.activeSession.session ? delivery.activeSession.progress?.gradeLabel : null} activeTab={activeTab} onTabChange={changeTab}>
       {localClockWarning && <p className="sync-warning" role="alert">La fecha y hora de este equipo son incorrectas. Corregilas para mantener la revalidación al día.</p>}
       {expiryPending && <p className="sync-warning" role="status">La revalidación está vencida. Finalizá y enviá la evaluación en curso; no inicies otra sesión.</p>}
       {!expiryPending && revalidationDaysRemaining !== null && revalidationDaysRemaining <= 5 && (
@@ -73,23 +78,6 @@ export function HostApp() {
           Conectate a internet para revalidar el equipo. Quedan {revalidationDaysRemaining} {revalidationDaysRemaining === 1 ? "día" : "días"}.
         </p>
       )}
-      <div className="mode-tabs">
-        <button
-          type="button"
-          className={activeTab === "home" ? "mode-tab mode-tab-active" : "mode-tab"}
-          onClick={() => { clearManualCue(); delivery.activeSession.returnToSessions(); setActiveTab("home"); }}
-        >
-          Inicio
-        </button>
-        <button type="button" className={activeTab === "history" ? "mode-tab mode-tab-active" : "mode-tab"} onClick={() => { clearManualCue(); delivery.activeSession.returnToSessions(); setActiveTab("history"); }}>Historial</button>
-        <button
-          type="button"
-          className={activeTab === "stats" ? "mode-tab mode-tab-active" : "mode-tab"}
-          onClick={() => { clearManualCue(); delivery.activeSession.returnToSessions(); setActiveTab("stats"); }}
-        >
-          Estadísticas
-        </button>
-      </div>
       {activeTab !== "stats" ? (
         <SessionsWorkspace delivery={delivery} apiBaseUrl={hostContext.apiBaseUrl} tab={activeTab} expiryPending={expiryPending} onStats={() => { delivery.activeSession.returnToSessions(); setActiveTab("stats"); }} onReturnHome={() => setActiveTab("home")} />
       ) : delivery.activeSession.session ? <SessionsWorkspace delivery={delivery} apiBaseUrl={hostContext.apiBaseUrl} tab="home" expiryPending={expiryPending} onStats={() => { delivery.activeSession.returnToSessions(); setActiveTab("stats"); }} onReturnHome={() => setActiveTab("home")} /> : (

@@ -718,6 +718,33 @@
   }
 
 }
+
+.student-page {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background: var(--page);
+}
+.student-header { background: var(--card); }
+.student-signature {
+  display: flex;
+  min-height: 70px;
+  align-items: center;
+  gap: var(--s-4);
+  border-bottom: 1px solid var(--line);
+  padding: 0 var(--gutter);
+}
+.student-signature img { display: block; width: auto; height: 48px; max-width: min(72vw, 340px); }
+.student-signature p { margin: 0 0 0 auto; color: var(--ink-soft); font-size: var(--t-small); font-weight: 600; }
+.student-signature p span { padding: 0 var(--s-1); color: var(--yellow-dark); }
+.student-content { max-width: var(--measure); padding: var(--s-6) var(--gutter); }
+
+@media (max-width: 620px) {
+  .student-signature { min-height: 62px; padding: 0 var(--s-4); }
+  .student-signature img { height: 40px; }
+  .student-signature p { font-size: var(--t-micro); }
+  .student-content { padding: var(--s-5) var(--s-4); }
+}
 .student-session-notice {
   margin: 0 0 1rem;
   padding: 0.9rem 1rem;

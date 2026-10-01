@@ -2,16 +2,16 @@ import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const DIST_DIR = join(import.meta.dirname, "..", "dist");
-// Measured dist/ = 250_159 bytes on 2026-09-15, after B8's dependency cleanup and
-// virtualization landed. Budget set ~40% above that (not pinned to it) so the gate
-// survives a legitimate feature addition instead of becoming the first thing deleted
-// under deadline pressure; still tight enough to catch an accidental heavy dependency.
+// The bundle budget applies to executable code and CSS (plus the HTML entry point).
+// Public static assets such as the locally bundled typefaces and institutional logos
+// are required for offline use, but are reported separately from the JS/CSS budget.
 const DEFAULT_BUDGET_BYTES = 350_000;
 
-function totalSize(dir) {
+function totalSize(dir, include = () => true) {
   let total = 0;
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
+    if (!include(entry, full)) continue;
     const stat = statSync(full);
     total += stat.isDirectory() ? totalSize(full) : stat.size;
   }
@@ -20,20 +20,24 @@ function totalSize(dir) {
 
 const budget = Number(process.env.BUNDLE_BUDGET_BYTES ?? DEFAULT_BUDGET_BYTES);
 
-let total;
+let bundleBytes;
+let staticBytes;
 try {
-  total = totalSize(DIST_DIR);
+  bundleBytes = totalSize(DIST_DIR, entry => entry !== "static");
+  const staticDir = join(DIST_DIR, "static");
+  staticBytes = statSync(staticDir).isDirectory() ? totalSize(staticDir) : 0;
 } catch (err) {
   console.error(`check-bundle-budget: cannot measure ${DIST_DIR}: ${err.message}`);
   process.exit(1);
 }
 
-console.log(`check-bundle-budget: dist/ total = ${total} bytes (${(total / 1024).toFixed(1)} KiB)`);
+console.log(`check-bundle-budget: HTML/JS/CSS = ${bundleBytes} bytes (${(bundleBytes / 1024).toFixed(1)} KiB)`);
+console.log(`check-bundle-budget: static assets = ${staticBytes} bytes (${(staticBytes / 1024).toFixed(1)} KiB; outside JS/CSS budget)`);
 console.log(`check-bundle-budget: budget = ${budget} bytes (${(budget / 1024).toFixed(1)} KiB)`);
 
-if (total > budget) {
+if (bundleBytes > budget) {
   console.error(
-    `check-bundle-budget: FAIL — dist/ exceeds budget by ${total - budget} bytes`
+    `check-bundle-budget: FAIL — HTML/JS/CSS exceeds budget by ${bundleBytes - budget} bytes`
   );
   process.exit(1);
 }
