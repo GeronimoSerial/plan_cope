@@ -52,6 +52,12 @@ export function QuestionList({
     }
   }
 
+  function moveQuestion(id: string, direction: -1 | 1) {
+    const currentIndex = questions.findIndex(question => question.id === id);
+    const target = questions[currentIndex + direction];
+    if (currentIndex >= 0 && target) onReorder(id, target.id);
+  }
+
   return (
     <div className="grid gap-4">
       {!disabled && (
@@ -97,9 +103,11 @@ export function QuestionList({
                   question={question}
                   versionId={versionId}
                   index={index}
+                  questionCount={questions.length}
                   errors={errors}
                   disabled={disabled}
                   onUpdate={onUpdate}
+                  onMove={moveQuestion}
                   onRemove={onRemove}
                   onDuplicate={onDuplicate}
                 />
