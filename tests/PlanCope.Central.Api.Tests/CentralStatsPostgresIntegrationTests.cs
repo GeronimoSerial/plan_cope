@@ -85,7 +85,7 @@ public sealed class CentralStatsPostgresIntegrationTests
 
         await AssertConcurrentFirstSessionPushesRecoverFromUniqueConflictAsync(connectionString);
         await using var finalContext = new PlanCopeDbContext(options);
-        Assert.Equal(2, await finalContext.DeliverySessions.CountAsync(session => session.SourceNodeId == NodeId && session.RemoteLocalId == "racing-session"));
+        Assert.Equal(1, await finalContext.DeliverySessions.CountAsync(session => session.SourceNodeId == NodeId && session.RemoteLocalId == "racing-session"));
         Assert.Equal(4, (await finalContext.ExamRollups.AsNoTracking().SingleAsync()).AttemptCount);
     }
 
