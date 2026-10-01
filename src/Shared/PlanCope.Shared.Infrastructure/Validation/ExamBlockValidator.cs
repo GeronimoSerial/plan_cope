@@ -2,6 +2,7 @@ using System.Text.Json;
 using FluentValidation;
 using PlanCope.Shared.Domain;
 using PlanCope.Shared.Domain.Central;
+using PlanCope.Shared.Grading;
 
 namespace PlanCope.Shared.Infrastructure.Validation;
 
@@ -21,14 +22,31 @@ public sealed class ExamBlockValidator : AbstractValidator<ExamBlock>
     {
         var config = block.Config.RootElement;
 
-        if (block.BlockType is BlockType.Text &&
-            (!config.TryGetProperty("content", out var content) || content.ValueKind is not JsonValueKind.String))
+        if (config.ValueKind is not JsonValueKind.Object)
         {
-            context.AddFailure("config.content", "text requires a content string.");
+            return;
+        }
+
+        if (config.TryGetProperty("imageAssetId", out var imageAssetId) &&
+            (imageAssetId.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(imageAssetId.GetString())))
+        {
+            context.AddFailure("config.imageAssetId", "imageAssetId must be a non-empty string when provided.");
         }
 
         if (block.BlockType is BlockType.MultipleChoice)
         {
+            if (config.TryGetProperty("scoringPolicy", out var scoringPolicy))
+            {
+                if (!config.TryGetProperty("multiple", out var multiple) || multiple.ValueKind != JsonValueKind.True)
+                {
+                    context.AddFailure("config.scoringPolicy", "scoringPolicy is only valid for multiple-choice questions.");
+                }
+                else if (scoringPolicy.ValueKind != JsonValueKind.String || ScoringPolicyParser.Parse(scoringPolicy.GetString()) is null)
+                {
+                    context.AddFailure("config.scoringPolicy", "scoringPolicy must be a known scoring policy.");
+                }
+            }
+
             if (!config.TryGetProperty("question", out var question) || question.ValueKind is not JsonValueKind.String)
             {
                 context.AddFailure("config.question", "multiple_choice requires a question string.");
@@ -39,6 +57,10 @@ public sealed class ExamBlockValidator : AbstractValidator<ExamBlock>
                 context.AddFailure("config.options", "multiple_choice requires at least two options.");
             }
         }
+        else if (config.TryGetProperty("scoringPolicy", out _))
+        {
+            context.AddFailure("config.scoringPolicy", "scoringPolicy is only valid for multiple-choice questions.");
+        }
 
         if (block.BlockType is BlockType.TrueFalse &&
             (!config.TryGetProperty("question", out var trueFalseQuestion) || trueFalseQuestion.ValueKind is not JsonValueKind.String))
@@ -46,16 +68,5 @@ public sealed class ExamBlockValidator : AbstractValidator<ExamBlock>
             context.AddFailure("config.question", "true_false requires a question string.");
         }
 
-        if (block.BlockType is BlockType.ShortAnswer &&
-            (!config.TryGetProperty("prompt", out var prompt) || prompt.ValueKind is not JsonValueKind.String))
-        {
-            context.AddFailure("config.prompt", "short_answer requires a prompt string.");
-        }
-
-        if (block.BlockType is BlockType.Image &&
-            (!config.TryGetProperty("assetId", out var assetId) || assetId.ValueKind is not JsonValueKind.String))
-        {
-            context.AddFailure("config.assetId", "image requires an assetId string.");
-        }
     }
 }

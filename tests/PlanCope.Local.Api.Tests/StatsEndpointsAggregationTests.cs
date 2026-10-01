@@ -131,7 +131,35 @@ public sealed class StatsEndpointsAggregationTests
             await repository.RebuildAllAsync();
         }
 
+        using (var scope = factory.Services.CreateScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IStatsQueryRepository>();
+            var filterOptions = await repository.GetReportFilterOptionsAsync("123456789");
+            Assert.Contains("2026", filterOptions.SchoolYears);
+            Assert.Contains("6", filterOptions.Courses);
+            Assert.Contains("7", filterOptions.Courses);
+            Assert.Contains(filterOptions.Exams, exam => exam.ExamVersionId == "exam-a" && exam.ExamCode == "MAT-6" && exam.VersionNumber == 1L);
+            Assert.Contains(filterOptions.Exams, exam => exam.ExamVersionId == "exam-b" && exam.ExamCode == "LEN-6" && exam.VersionNumber == 1L);
+        }
+
         var jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+        var emptySchoolResponse = await client.GetAsync("/api/stats/school?cue=123456789&schoolYear=2099");
+        Assert.Equal(HttpStatusCode.OK, emptySchoolResponse.StatusCode);
+        using (var emptySchoolJson = JsonDocument.Parse(await emptySchoolResponse.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(0, emptySchoolJson.RootElement.GetProperty("attemptCount").GetInt32());
+            Assert.Equal(0, emptySchoolJson.RootElement.GetProperty("averageScorePercent").GetDouble());
+        }
+
+        var filterResponse = await client.GetAsync("/api/stats/filters?cue=123456789");
+        Assert.Equal(HttpStatusCode.OK, filterResponse.StatusCode);
+        using (var filterJson = JsonDocument.Parse(await filterResponse.Content.ReadAsStringAsync()))
+        {
+            var filterExam = Assert.Single(filterJson.RootElement.GetProperty("exams").EnumerateArray(), exam => exam.GetProperty("examVersionId").GetString() == "exam-a");
+            Assert.Equal(JsonValueKind.Number, filterExam.GetProperty("versionNumber").ValueKind);
+            Assert.Equal(1, filterExam.GetProperty("versionNumber").GetInt32());
+        }
 
         var schoolResponse = await client.GetAsync("/api/stats/school?cue=123456789&schoolYear=2026");
         var schoolBody = await schoolResponse.Content.ReadAsStringAsync();
@@ -184,6 +212,24 @@ public sealed class StatsEndpointsAggregationTests
             Assert.Equal(0, block.PartialCount);
             Assert.Equal(0, block.BlankCount);
             Assert.Equal(0, block.UngradableCount);
+        }
+
+        using (var connection = factory.CreateConnection())
+        using (var transaction = connection.BeginTransaction())
+        {
+            LocalApiFactory.Execute(connection, transaction, """
+                INSERT INTO student_attempts (id, delivery_session_id, student_code, status, started_at, submitted_at, local_sequence, confirmation_code, student_first_name, student_last_name)
+                VALUES ('attempt-ungraded', 'ds-a-6', 'student-ungraded', 'submitted', @now, @now, 10000, 'CONF-UNGRADED', 'Ana', 'Aardvark');
+                """, ("@now", now));
+            transaction.Commit();
+        }
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IStatsQueryRepository>();
+            var reportData = await repository.GetReportDataAsync("123456789", "2026", "6", "exam-a");
+            Assert.Equal("Ana Aardvark", reportData.Attempts[0].StudentName);
+            Assert.Null(reportData.Attempts[0].ScorePercent);
         }
 
         var reportResponse = await client.GetAsync("/api/stats/report.html?cue=123456789&schoolYear=2026");

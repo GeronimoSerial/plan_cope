@@ -7,11 +7,11 @@ import {
   type ReplaceExamDocumentRequest,
   type ExamSummary
 } from "../contracts";
-import type { ExamDocument, Question, ExamOption, ScoringPolicy } from "./exam";
+import { isScoringPolicy, type ExamDocument, type Question, type ExamOption } from "./exam";
 
 // ============================================================
-// Anti-corruption layer: traduce entre el schema canonico (fuente
-// de verdad del builder) y los contratos del Central API.
+// Anti-corruption layer: translates between the canonical schema (the source
+// of truth for the builder) and Central API contracts.
 // ============================================================
 
 export function newId(): string {
@@ -21,16 +21,20 @@ export function newId(): string {
   return `id-${Math.random().toString(36).slice(2)}-${Date.now()}`;
 }
 
-// El enum BlockType puede llegar como string (con JsonStringEnumConverter)
-// o como numero (orden del enum) por compatibilidad.
+// BlockType can arrive as a string (with JsonStringEnumConverter)
+// or as its persisted numeric enum value for compatibility.
 export function normalizeBlockType(value: BlockType | number | string): BlockType {
   if (typeof value === "number") {
-    return blockTypes[value] ?? "Text";
+    // The persisted .NET enum values are kept stable for existing choice blocks.
+    if (value === 2) return "MultipleChoice";
+    if (value === 3) return "TrueFalse";
+  } else if ((blockTypes as readonly string[]).includes(value)) {
+    return value as BlockType;
   }
-  return (blockTypes as readonly string[]).includes(value) ? (value as BlockType) : "Text";
+  throw new Error(`Unsupported exam block type: ${String(value)}`);
 }
 
-// ---------- Canonico -> API (guardar) ----------
+// ---------- Canonical -> API (save) ----------
 export function documentToReplaceRequest(document: ExamDocument): ReplaceExamDocumentRequest {
   const blocks: DocumentBlock[] = document.questions.map((question, index) =>
     questionToBlock(question, index)
@@ -41,14 +45,10 @@ export function documentToReplaceRequest(document: ExamDocument): ReplaceExamDoc
       title: document.title,
       description: document.description ?? null,
       subject: document.subject ?? null,
-      level: document.level ?? null,
+      courses: document.courses,
       area: document.area ?? null
     },
-    blocks,
-    // Known limitation: the API cannot clear a stored policy. ExamsController.ReplaceDocument
-    // merges with `request.ScoringPolicy ?? version.ScoringPolicy`, so sending null here keeps the
-    // previous policy server-side; removing every multiple-choice question does not unset it.
-    scoringPolicy: document.scoringPolicy ?? null
+    blocks
   };
 }
 
@@ -70,7 +70,9 @@ function questionToBlock(question: Question, orderIndex: number): DocumentBlock 
         config: {
           question: question.prompt,
           help: question.help ?? null,
+          ...(question.imageAssetId ? { imageAssetId: question.imageAssetId } : {}),
           multiple: question.type === "multiple_choice",
+          ...(question.type === "multiple_choice" ? { scoringPolicy: question.scoringPolicy ?? "AllOrNothing" } : {}),
           options: question.options.map(option => ({ value: option.id, label: option.label }))
         },
         correctAnswer: question.options.filter(option => option.isCorrect).map(option => option.id)
@@ -79,51 +81,23 @@ function questionToBlock(question: Question, orderIndex: number): DocumentBlock 
       return {
         ...base,
         blockType: "TrueFalse",
-        config: { question: question.prompt, help: question.help ?? null },
+        config: { question: question.prompt, help: question.help ?? null, ...(question.imageAssetId ? { imageAssetId: question.imageAssetId } : {}) },
         correctAnswer: question.correctAnswer
-      };
-    case "free_text":
-      return {
-        ...base,
-        blockType: "ShortAnswer",
-        config: {
-          prompt: question.prompt,
-          help: question.help ?? null,
-          maxLength: question.maxLength ?? null
-        },
-        // Solo enviamos answer key si hay respuesta modelo.
-        correctAnswer: question.sampleAnswer ? question.sampleAnswer : undefined
-      };
-    case "text_block":
-      return {
-        ...base,
-        validation: { required: false },
-        scoreValue: 0,
-        blockType: "Text",
-        config: { content: question.prompt, help: question.help ?? null }
-      };
-    case "image_block":
-      return {
-        ...base,
-        validation: { required: false },
-        scoreValue: 0,
-        blockType: "Image",
-        config: { assetId: question.assetId, caption: question.prompt ?? null, help: question.help ?? null }
       };
   }
 }
 
-// ---------- API -> Canonico (cargar en el builder) ----------
-// Los metadatos de la version ganan cuando traen un valor util; los datos del ExamSummary
-// (title/level/area/subject) actuan como fallback: POST /api/exams deja Metadata=null en la
-// version inicial, asi que sin este fallback el builder abriria sin titulo.
+// ---------- API -> canonical (load in the builder) ----------
+// Version metadata takes precedence when it has a useful value; ExamSummary data
+// (title/courses/area/subject) is the fallback because POST /api/exams leaves Metadata=null in the
+// initial version, so without this fallback the builder would have no title.
 function metadataText(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }
 
 export function versionToDocument(
   version: ExamVersion,
-  exam: Pick<ExamSummary, "code" | "title" | "subject" | "level" | "area">
+  exam: Pick<ExamSummary, "code" | "title" | "subject" | "courses" | "area">
 ): ExamDocument {
   const answerByBlock = new Map(version.answerKeys?.map(key => [key.blockId, key]) ?? []);
   const metadata = (version.metadata ?? {}) as Record<string, unknown>;
@@ -138,9 +112,11 @@ export function versionToDocument(
       const required = typeof validation.required === "boolean" ? validation.required : true;
       const score = typeof answer?.scoreValue === "number" ? answer.scoreValue : 1;
       const help = typeof config.help === "string" ? config.help : undefined;
+      const imageAssetId = typeof config.imageAssetId === "string" && config.imageAssetId.length > 0 ? config.imageAssetId : undefined;
 
       if (type === "MultipleChoice") {
         const multiple = config.multiple === true;
+        const rawScoringPolicy = config.scoringPolicy;
         const rawOptions = Array.isArray(config.options) ? (config.options as Array<Record<string, unknown>>) : [];
         const correctIds = new Set(Array.isArray(answer?.correctAnswer) ? (answer?.correctAnswer as unknown[]).map(String) : []);
         const options: ExamOption[] = rawOptions.map(option => {
@@ -154,7 +130,9 @@ export function versionToDocument(
         return {
           id: block.id,
           type: multiple ? "multiple_choice" : "single_choice",
+          ...(multiple ? { scoringPolicy: isScoringPolicy(rawScoringPolicy) ? rawScoringPolicy : "AllOrNothing" } : {}),
           prompt: String(config.question ?? block.title ?? ""),
+          imageAssetId,
           help,
           required,
           score,
@@ -167,6 +145,7 @@ export function versionToDocument(
           id: block.id,
           type: "true_false",
           prompt: String(config.question ?? block.title ?? ""),
+          imageAssetId,
           help,
           required,
           score,
@@ -174,38 +153,7 @@ export function versionToDocument(
         };
       }
 
-      if (type === "Text") {
-        return {
-          id: block.id,
-          type: "text_block",
-          prompt: String(config.content ?? block.title ?? ""),
-          help
-        };
-      }
-
-      if (type === "Image") {
-        return {
-          id: block.id,
-          type: "image_block",
-          prompt: typeof config.caption === "string" ? config.caption : undefined,
-          assetId: String(config.assetId ?? ""),
-          help
-        };
-      }
-
-      // ShortAnswer y cualquier otro tipo no soportado caen a texto libre.
-      const sampleAnswer = typeof answer?.correctAnswer === "string" ? answer.correctAnswer : undefined;
-      const maxLength = typeof config.maxLength === "number" ? config.maxLength : undefined;
-      return {
-        id: block.id,
-        type: "free_text",
-        prompt: String(config.prompt ?? block.title ?? ""),
-        help,
-        required,
-        score,
-        sampleAnswer,
-        maxLength
-      };
+      throw new Error(`Unsupported exam block type: ${String(block.blockType)}`);
     });
 
   return {
@@ -214,9 +162,8 @@ export function versionToDocument(
     title: metadataText(metadata.title) ?? exam.title,
     description: typeof metadata.description === "string" ? metadata.description : undefined,
     subject: metadataText(metadata.subject) ?? exam.subject ?? undefined,
-    level: metadataText(metadata.level) ?? exam.level ?? undefined,
-    area: metadataText(metadata.area) ?? exam.area ?? undefined,
-    scoringPolicy: (version.scoringPolicy as ScoringPolicy | null) ?? null,
+    courses: exam.courses,
+    area: exam.area ?? undefined,
     questions
   };
 }
@@ -225,15 +172,7 @@ function emptyOptions(count: number): ExamOption[] {
   return Array.from({ length: Math.max(0, count) }, () => ({ id: newId(), label: "", isCorrect: false }));
 }
 
-// Espeja EvaluatePublishReadiness de ExamsController: una version es publicable cuando tiene
-// al menos un bloque y, si contiene un bloque MultipleChoice, tiene regla de puntaje.
-// single_choice tambien se guarda como bloque MultipleChoice (config.multiple=false), por lo que
-// el API le exige regla igual que a multiple_choice; mirror exacto de la validacion de publicacion.
-export function documentNeedsScoringPolicy(document: ExamDocument): boolean {
-  return document.questions.some(question => question.type === "single_choice" || question.type === "multiple_choice");
-}
-
-export type DocumentBlockedReason = "no_blocks" | "scoring_policy_required" | "unknown" | null;
+export type DocumentBlockedReason = "no_blocks" | "unknown" | null;
 
 export interface DocumentReadiness {
   canPublish: boolean;
@@ -244,20 +183,17 @@ export function evaluateDocumentReadiness(document: ExamDocument): DocumentReadi
   if (document.questions.length === 0) {
     return { canPublish: false, blockedReason: "no_blocks" };
   }
-  if (documentNeedsScoringPolicy(document) && !document.scoringPolicy) {
-    return { canPublish: false, blockedReason: "scoring_policy_required" };
-  }
   return { canPublish: true, blockedReason: null };
 }
 
-// Readiness reportada por el servidor (ExamVersionDto o la respuesta del PUT document).
+// Readiness reported by the server (ExamVersionDto or the PUT document response).
 export interface ServerReadiness {
   canPublish: boolean;
   blockedReason: PublishBlockedReason | null;
 }
 
-// Cuando hay cambios locales, manda la evaluacion en memoria. Sin cambios, manda el servidor:
-// asi el boton Publicar no queda deshabilitado por un `canPublish` viejo tras guardar.
+// With local changes, use the in-memory evaluation. Otherwise, use the server result:
+// this prevents a stale `canPublish` value from disabling Publish after a save.
 export function mergeDocumentReadiness(
   local: DocumentReadiness,
   server: ServerReadiness,
@@ -267,7 +203,7 @@ export function mergeDocumentReadiness(
     return local;
   }
   if (!server.canPublish) {
-    if (server.blockedReason === "no_blocks" || server.blockedReason === "scoring_policy_required") {
+    if (server.blockedReason === "no_blocks") {
       return { canPublish: false, blockedReason: server.blockedReason };
     }
     // Unknown/unmapped server reason (for example already_published, or a new reason this client
@@ -278,7 +214,7 @@ export function mergeDocumentReadiness(
   return { canPublish: true, blockedReason: null };
 }
 
-// Duplica una pregunta con ids nuevos (la copia no comparte identidad con el original).
+// Duplicate a question with new IDs so it does not share identity with the original.
 export function cloneQuestion(question: Question): Question {
   if (question.type === "single_choice" || question.type === "multiple_choice") {
     return {
@@ -290,7 +226,7 @@ export function cloneQuestion(question: Question): Question {
   return { ...question, id: newId() };
 }
 
-// Pregunta nueva en blanco segun tipo (para el boton "Agregar pregunta").
+// Create a blank question of the requested type for the Add question button.
 export function blankQuestion(type: Question["type"]): Question {
   const base = { id: newId(), prompt: "", required: true, score: 1 as number };
   switch (type) {
@@ -299,6 +235,7 @@ export function blankQuestion(type: Question["type"]): Question {
       return {
         ...base,
         type,
+        ...(type === "multiple_choice" ? { scoringPolicy: "AllOrNothing" as const } : {}),
         options: [
           { id: newId(), label: "", isCorrect: false },
           { id: newId(), label: "", isCorrect: false }
@@ -306,11 +243,5 @@ export function blankQuestion(type: Question["type"]): Question {
       };
     case "true_false":
       return { ...base, type, correctAnswer: true };
-    case "free_text":
-      return { ...base, type };
-    case "text_block":
-      return { ...base, type, prompt: "" };
-    case "image_block":
-      return { ...base, type, assetId: "" };
   }
 }

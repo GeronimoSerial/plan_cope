@@ -9,8 +9,7 @@ public sealed class ScoringInvariantTests
     private const int Iterations = 500;
 
     private static readonly string[] OptionPool = { "a", "b", "c", "d", "e" };
-    private static readonly string[] WordPool = { "apple", "pear", "lemon", "grape", "plum" };
-    private static readonly BlockType[] AllBlockTypes = { BlockType.Text, BlockType.Image, BlockType.MultipleChoice, BlockType.TrueFalse, BlockType.ShortAnswer };
+    private static readonly BlockType[] AllBlockTypes = { BlockType.MultipleChoice, BlockType.TrueFalse };
     private static readonly ScoringPolicy[] Policies = { ScoringPolicy.AllOrNothing, ScoringPolicy.ProportionalPenalised, ScoringPolicy.ProportionalPlain };
 
     [Fact]
@@ -45,7 +44,7 @@ public sealed class ScoringInvariantTests
             var blockId = $"b{i}";
             var type = AllBlockTypes[random.Next(AllBlockTypes.Length)];
             var scoreMax = (decimal)random.Next(0, 11);
-            var block = new GradableBlock { BlockId = blockId, Type = type, ScoreMax = scoreMax };
+            var block = new GradableBlock { BlockId = blockId, Type = type, ScoreMax = scoreMax, AllowsMultipleAnswers = type == BlockType.MultipleChoice, ScoringPolicy = type == BlockType.MultipleChoice ? Policies[random.Next(Policies.Length)] : null };
 
             switch (type)
             {
@@ -67,19 +66,6 @@ public sealed class ScoringInvariantTests
 
                     break;
 
-                case BlockType.ShortAnswer:
-                    block = block with { AnswerKey = new GradingAnswerKey { AcceptedAnswers = RandomWordSubset(random) } };
-                    if (random.Next(4) > 0)
-                    {
-                        var word = random.Next(2) == 0 ? RandomWord(random) : WordPool[random.Next(WordPool.Length)];
-                        answers[blockId] = new SubmittedAnswer { Text = MutateText(random, word) };
-                    }
-
-                    break;
-
-                case BlockType.Text:
-                case BlockType.Image:
-                    break;
             }
 
             blocks.Add(block);
@@ -88,7 +74,6 @@ public sealed class ScoringInvariantTests
         var exam = new ExamVersion
         {
             ExamVersionId = $"random-{random.Next()}",
-            DeclaredScoringPolicy = Policies[random.Next(Policies.Length)],
             Blocks = blocks
         };
 
@@ -102,28 +87,4 @@ public sealed class ScoringInvariantTests
             .ToList();
     }
 
-    private static IReadOnlyList<string> RandomWordSubset(Random random)
-    {
-        return WordPool
-            .Where(_ => random.Next(2) == 1)
-            .ToList();
-    }
-
-    private static string RandomWord(Random random)
-    {
-        var letters = "abcdefghijklmnopqrstuvwxyz";
-        var length = random.Next(1, 8);
-        return new string(Enumerable.Repeat(letters, length).Select(_ => letters[random.Next(letters.Length)]).ToArray());
-    }
-
-    private static string MutateText(Random random, string word)
-    {
-        var mutated = word.ToUpperInvariant();
-        if (random.Next(2) == 0)
-        {
-            mutated = " " + mutated + "  ";
-        }
-
-        return mutated;
-    }
 }

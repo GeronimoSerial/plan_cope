@@ -8,5 +8,4 @@ internal sealed record GradingFixture
 
     public AttemptResult Expected { get; init; } = new();
 
-    public ScoringPolicy? OverridePolicy { get; init; }
 }

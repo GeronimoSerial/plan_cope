@@ -1,32 +1,73 @@
 {
   "ExamVersion": {
     "ExamVersionId": "fixture-policy-penalised",
-    "DeclaredScoringPolicy": 1,
     "Blocks": [
       {
         "BlockId": "b1",
         "Type": 2,
         "ScoreMax": 9,
-        "AnswerKey": { "CorrectOptionIds": ["a", "b", "c"] }
+        "AnswerKey": {
+          "CorrectOptionIds": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        "AllowsMultipleAnswers": true,
+        "ScoringPolicy": 1
       },
       {
         "BlockId": "b2",
         "Type": 2,
         "ScoreMax": 9,
-        "AnswerKey": { "CorrectOptionIds": ["a", "b", "c"] }
+        "AnswerKey": {
+          "CorrectOptionIds": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        "AllowsMultipleAnswers": true,
+        "ScoringPolicy": 1
       },
       {
         "BlockId": "b3",
         "Type": 2,
         "ScoreMax": 9,
-        "AnswerKey": { "CorrectOptionIds": ["a", "b", "c"] }
+        "AnswerKey": {
+          "CorrectOptionIds": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        "AllowsMultipleAnswers": true,
+        "ScoringPolicy": 1
       }
     ]
   },
   "Answers": {
-    "b1": { "SelectedOptionIds": ["a", "b", "z"] },
-    "b2": { "SelectedOptionIds": ["a", "z", "w"] },
-    "b3": { "SelectedOptionIds": ["a", "b", "c"] }
+    "b1": {
+      "SelectedOptionIds": [
+        "a",
+        "b",
+        "z"
+      ]
+    },
+    "b2": {
+      "SelectedOptionIds": [
+        "a",
+        "z",
+        "w"
+      ]
+    },
+    "b3": {
+      "SelectedOptionIds": [
+        "a",
+        "b",
+        "c"
+      ]
+    }
   },
   "Expected": {
     "ExamVersionId": "fixture-policy-penalised",

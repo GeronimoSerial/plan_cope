@@ -11,26 +11,24 @@ import {
   examDocumentSchema,
   type ExamDocument,
   type Question,
-  type QuestionType,
-  type ScoringPolicy
+  type QuestionType
 } from "../../_lib/schema/exam";
 import {
   blankQuestion,
   cloneQuestion,
-  documentNeedsScoringPolicy,
   documentToReplaceRequest,
   evaluateDocumentReadiness,
   mergeDocumentReadiness,
   type DocumentReadiness,
   type ServerReadiness
 } from "../../_lib/schema/mappers";
-import { PolicyPicker } from "../policy/policy-picker";
 import { QuestionList } from "./question-list";
 import { ExamPreview } from "./exam-preview";
 import { PublishDialog } from "./publish-dialog";
 import { CreateVersionDialog } from "../exams/create-version-dialog";
 import { useNavigationGuard } from "../layout/navigation-guard";
 import { versionStatusLine, versionStatusTerm } from "../../_lib/exams/version-state";
+import { areaOptions, courseOptions } from "../../_lib/exams/catalog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Breadcrumb,
@@ -71,9 +69,6 @@ function blockedReasonMessage(reason: DocumentReadiness["blockedReason"]): strin
   if (reason === "no_blocks") {
     return "Agregá al menos una pregunta.";
   }
-  if (reason === "scoring_policy_required") {
-    return "Elegí una regla de puntaje.";
-  }
   // Unknown/unmapped server reasons keep the button disabled and fall back to this generic text.
   return "No se puede publicar todavía.";
 }
@@ -98,6 +93,7 @@ export function ExamBuilder({
   const router = useRouter();
   const { setDirty, intercept } = useNavigationGuard();
   const [document, setDocument] = useState<ExamDocument>(initialDocument);
+  const [areaOther, setAreaOther] = useState(() => Boolean(initialDocument.area && !areaOptions.includes(initialDocument.area as (typeof areaOptions)[number])));
   const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(initialDocument));
   const [published, setPublished] = useState(() => status.toLowerCase() === "published");
   const [activeTab, setActiveTab] = useState("edit");
@@ -114,7 +110,6 @@ export function ExamBuilder({
   const isReadOnly = published || !canEditExams;
   const statusLine = versionStatusLine({ versionNumber, status, isCurrent, basedOnVersionNumber });
   const statusTerm = versionStatusTerm({ status, isCurrent });
-  const needsPolicy = useMemo(() => documentNeedsScoringPolicy(document), [document]);
   const readiness = useMemo(
     () => mergeDocumentReadiness(evaluateDocumentReadiness(document), serverReadiness, dirty),
     [document, dirty, serverReadiness]
@@ -144,10 +139,7 @@ export function ExamBuilder({
     setErrors({});
     setSaving(true);
     try {
-      const effective: ExamDocument = {
-        ...result.data,
-        scoringPolicy: documentNeedsScoringPolicy(result.data) ? result.data.scoringPolicy ?? null : null
-      };
+      const effective: ExamDocument = result.data;
       const updated = await callCentral<ExamVersion>(`exams/versions/${encodeURIComponent(versionId)}/document`, {
         method: "PUT",
         body: JSON.stringify(documentToReplaceRequest(effective))
@@ -245,6 +237,15 @@ export function ExamBuilder({
     });
   }, []);
 
+  const moveQuestion = useCallback((id: string, direction: -1 | 1) => {
+    setDocument(current => {
+      const from = current.questions.findIndex(question => question.id === id);
+      const to = from + direction;
+      if (from < 0 || to < 0 || to >= current.questions.length) return current;
+      return { ...current, questions: arrayMove(current.questions, from, to) };
+    });
+  }, []);
+
   function requestNavigation(href: string) {
     if (!intercept(() => router.push(href))) {
       router.push(href);
@@ -314,7 +315,7 @@ export function ExamBuilder({
         </p>
 
         <p className="text-sm text-muted-foreground">
-          Armá las preguntas y la regla de puntaje. Al guardar y publicar, los equipos lo reciben en la próxima
+          Armá las preguntas y definí la regla de puntaje de cada pregunta de opción múltiple. Al guardar y publicar, los equipos lo reciben en la próxima
           sincronización.
         </p>
       </header>
@@ -364,7 +365,7 @@ export function ExamBuilder({
                   {errors.title && <FieldError>{errors.title}</FieldError>}
                 </Field>
               </div>
-              <div className="grid gap-4 sm:grid-cols-3">
+              <div className="grid gap-4 sm:grid-cols-2">
                 <Field>
                   <FieldLabel htmlFor="meta-subject">Materia</FieldLabel>
                   <Input
@@ -374,26 +375,48 @@ export function ExamBuilder({
                     onChange={event => patchDocument({ subject: event.target.value || undefined })}
                   />
                 </Field>
+              </div>
+              <Field data-invalid={!document.courses?.length ? true : undefined}>
+                <FieldLabel><TermLabel term="curso-grado">Curso / grado</TermLabel></FieldLabel>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-md border p-3 sm:grid-cols-3">
+                  {["Primaria", "Secundaria"].map(level => (
+                    <fieldset key={level} className="grid content-start gap-2">
+                      <legend className="text-sm font-medium">{level}</legend>
+                      {courseOptions.filter(course => course.level === level).map(course => (
+                        <label key={course.key} className="flex items-center gap-2 text-sm">
+                          <input type="checkbox" checked={(document.courses ?? []).includes(course.key)} disabled={isReadOnly}
+                            onChange={event => patchDocument({ courses: event.target.checked
+                              ? [...(document.courses ?? []), course.key]
+                              : (document.courses ?? []).filter(key => key !== course.key) })} />
+                          {course.label}
+                        </label>
+                      ))}
+                    </fieldset>
+                  ))}
+                </div>
+                {!document.courses?.length && <FieldError>Seleccioná al menos un curso.</FieldError>}
+              </Field>
+              <div className="grid gap-4 sm:grid-cols-2">
                 <Field>
-                  <FieldLabel htmlFor="meta-level">
-                    <TermLabel term="curso-grado">Curso / grado</TermLabel>
-                  </FieldLabel>
-                  <Input
-                    id="meta-level"
-                    value={document.level ?? ""}
-                    disabled={isReadOnly}
-                    onChange={event => patchDocument({ level: event.target.value || undefined })}
-                  />
+                  <FieldLabel htmlFor="meta-area-choice">Área</FieldLabel>
+                  <select id="meta-area-choice" className="h-9 rounded-md border bg-background px-3 text-sm" disabled={isReadOnly}
+                    value={areaOther ? "Otro" : document.area ?? ""}
+                    onChange={event => {
+                      const other = event.target.value === "Otro";
+                      setAreaOther(other);
+                      patchDocument({ area: other ? "" : event.target.value || undefined });
+                    }}>
+                    <option value="">Seleccionar área</option>
+                    {areaOptions.map(area => <option key={area} value={area}>{area}</option>)}
+                  </select>
                 </Field>
-                <Field>
-                  <FieldLabel htmlFor="meta-area">Área</FieldLabel>
-                  <Input
-                    id="meta-area"
-                    value={document.area ?? ""}
-                    disabled={isReadOnly}
-                    onChange={event => patchDocument({ area: event.target.value || undefined })}
-                  />
-                </Field>
+                {areaOther &&
+                  <Field data-invalid={!document.area?.trim() ? true : undefined}>
+                    <FieldLabel htmlFor="meta-area-custom">Área</FieldLabel>
+                    <Input id="meta-area-custom" value={document.area ?? ""} disabled={isReadOnly}
+                      onChange={event => patchDocument({ area: event.target.value })} />
+                    {!document.area?.trim() && <FieldError>Ingresá el nombre del área.</FieldError>}
+                  </Field>}
               </div>
               <Field>
                 <FieldLabel htmlFor="meta-description">Descripción</FieldLabel>
@@ -407,29 +430,13 @@ export function ExamBuilder({
             </CardContent>
           </Card>
 
-          {needsPolicy && (
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  <TermLabel term="regla-puntaje">Regla de puntaje</TermLabel>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <PolicyPicker
-                  value={document.scoringPolicy ?? null}
-                  disabled={isReadOnly}
-                  idPrefix="builder-policy"
-                  onChange={(policy: ScoringPolicy) => patchDocument({ scoringPolicy: policy })}
-                />
-              </CardContent>
-            </Card>
-          )}
-
           <QuestionList
+            versionId={versionId}
             questions={document.questions}
             errors={errors}
             disabled={isReadOnly}
             onReorder={reorderQuestion}
+            onMove={moveQuestion}
             onUpdate={updateQuestion}
             onRemove={removeQuestion}
             onDuplicate={duplicateQuestion}
@@ -439,7 +446,7 @@ export function ExamBuilder({
         </TabsContent>
 
         <TabsContent value="preview">
-          <ExamPreview document={document} />
+          <ExamPreview document={document} versionId={versionId} />
         </TabsContent>
       </Tabs>
 

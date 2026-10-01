@@ -1,8 +1,8 @@
-// Tipos alineados con PlanCope.Shared.Contracts (backend .NET).
-// El enum BlockType viaja como string una vez registrado JsonStringEnumConverter en el API;
-// el mapper (schema/mappers.ts) normaliza tambien valores numericos por compatibilidad.
+// Types aligned with PlanCope.Shared.Contracts (.NET backend).
+// BlockType is serialized as a string after the API registers JsonStringEnumConverter;
+// schema/mappers.ts also normalizes numeric values for compatibility.
 
-export const blockTypes = ["Text", "Image", "MultipleChoice", "TrueFalse", "ShortAnswer"] as const;
+export const blockTypes = ["MultipleChoice", "TrueFalse"] as const;
 
 export type BlockType = (typeof blockTypes)[number];
 
@@ -32,7 +32,7 @@ export interface ExamSummary {
   id: string;
   code: string;
   title: string;
-  level?: string | null;
+  courses: string[];
   area?: string | null;
   subject?: string | null;
   status: string;
@@ -49,34 +49,33 @@ export interface CreateExamRequest {
   code: string;
   title: string;
   description?: string | null;
-  level?: string | null;
+  courses: string[];
   area?: string | null;
   subject?: string | null;
 }
 
-// Creacion de versiones. Todos los campos son opcionales: por defecto el API deep-copia la
-// version fuente (`sourceVersionId`, o la ultima si se omite). `empty: true` conserva el
-// comportamiento viejo de crear una version vacia.
+// Create versions. Every field is optional; by default, the API deep-copies the
+// source version (`sourceVersionId`, or the latest when omitted). `empty: true` keeps the
+// previous behavior of creating an empty version.
 export interface CreateExamVersionRequest {
   schemaVersion?: number;
   metadata?: Record<string, unknown> | null;
-  scoringPolicy?: string | null;
   sourceVersionId?: string;
   empty?: boolean;
 }
 
-// Edicion de los datos del examen. `code` es inmutable: si viene distinto del guardado el API
-// responde 400 con un ValidationProblem bajo la clave "code".
+// Edit exam data. `code` is immutable: when it differs from the stored value, the API
+// returns 400 with a ValidationProblem under the "code" key.
 export interface UpdateExamRequest {
   title: string;
   description?: string | null;
-  level?: string | null;
+  courses: string[];
   area?: string | null;
   subject?: string | null;
   code?: string;
 }
 
-export type PublishBlockedReason = "already_published" | "no_blocks" | "scoring_policy_required";
+export type PublishBlockedReason = "already_published" | "no_blocks";
 
 export interface ExamVersion {
   id: string;
@@ -88,7 +87,6 @@ export interface ExamVersion {
   blocks: ExamBlock[];
   answerKeys: AnswerKey[];
   assets: ExamAsset[];
-  scoringPolicy: string | null;
   blockCount: number;
   canPublish: boolean;
   publishBlockedReason?: PublishBlockedReason | null;
@@ -140,11 +138,10 @@ export interface ExamAsset {
   storagePath: string;
 }
 
-// Nuevo contrato canonico (endpoint aditivo PUT /api/exams/versions/{id}/document).
+// New canonical contract (additive PUT /api/exams/versions/{id}/document endpoint).
 export interface ReplaceExamDocumentRequest {
   metadata?: Record<string, unknown> | null;
   blocks: DocumentBlock[];
-  scoringPolicy: string | null;
 }
 
 export interface DocumentBlock {
@@ -160,7 +157,6 @@ export interface DocumentBlock {
 
 export interface PublishExamVersionRequest {
   subject?: string | null;
-  grade: string;
   division?: string | null;
   nodeIds?: string[];
   schoolIds?: string[];
@@ -179,10 +175,10 @@ export interface PublishExamVersionResponse {
   targets?: PublicationTarget[];
 }
 
-// Instalador de escritorio publicado en el repo privado (B7.T15). El downloadUrl es una URL
-// privada/autenticada (requiere el token del storage); el navegador no puede autenticarse
-// contra GitHub, por lo que una descarga realmente publica requeriria que el API hiciera de
-// proxy (fuera de alcance).
+// Desktop installer published in the private repository (B7.T15). downloadUrl is a
+// private, authenticated URL (requires the storage token); the browser cannot authenticate
+// with GitHub, so public downloads would require the API to act as a
+// proxy (out of scope).
 export interface InstallerReference {
   version: string;
   channel: string;

@@ -14,6 +14,8 @@ public sealed class ExamConfiguration : IEntityTypeConfiguration<Exam>
         builder.Property(static x => x.Code).HasMaxLength(64).IsRequired();
         builder.Property(static x => x.Title).HasMaxLength(256).IsRequired();
         builder.Property(static x => x.Status).HasMaxLength(32).IsRequired();
+        builder.Property(static x => x.Courses).HasColumnType("text[]").IsRequired();
+        builder.Property(static x => x.Area).HasMaxLength(256);
         builder.HasIndex(static x => x.Code).IsUnique();
     }
 }
@@ -28,7 +30,6 @@ public sealed class ExamVersionConfiguration : IEntityTypeConfiguration<ExamVers
         builder.Property(static x => x.ExamId).HasMaxLength(64).IsRequired();
         builder.Property(static x => x.Status).HasMaxLength(32).IsRequired();
         builder.Property(static x => x.Metadata).HasColumnType("jsonb");
-        builder.Property(static x => x.ScoringPolicy).HasMaxLength(64);
         builder.Property(static x => x.SourceVersionId).HasMaxLength(64);
         builder.HasIndex(static x => new { x.ExamId, x.VersionNumber }).IsUnique();
     }

@@ -22,9 +22,9 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
         using var connection = _connectionFactory.CreateOpenConnection();
 
         var sql = @"
-            SELECT COALESCE(SUM(attempt_count), 0)   AS AttemptCount,
-                   COALESCE(SUM(score_sum), 0)       AS ScoreSum,
-                   COALESCE(SUM(score_max_sum), 0)   AS ScoreMaxSum
+            SELECT COALESCE(SUM(attempt_count), 0)     AS AttemptCount,
+                   COALESCE(SUM(score_sum), 0.0)       AS ScoreSum,
+                   COALESCE(SUM(score_max_sum), 0.0)   AS ScoreMaxSum
             FROM stats_rollups
             WHERE " + BuildRollupsFilters(schoolYear, course);
 
@@ -191,7 +191,8 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
                    CAST(TRIM(COALESCE(rs.division, '') || CASE WHEN rs.division IS NOT NULL AND rs.shift IS NOT NULL THEN ' · ' ELSE '' END || COALESCE(rs.shift, '')) AS TEXT) AS Section,
                    ds.exam_version_id AS ExamVersionId,
                    ev.exam_code AS ExamCode,
-                   CAST(CASE WHEN ar.score_max > 0 THEN ar.score * 100.0 / ar.score_max ELSE NULL END AS REAL) AS ScorePercent,
+                   CAST(CASE WHEN ar.score_max > 0 THEN ar.score * 100.0 / ar.score_max ELSE 0.0 END AS REAL) AS ScorePercent,
+                   CASE WHEN ar.score_max > 0 THEN 1 ELSE 0 END AS HasScore,
                    a.started_at AS StartedAt,
                    a.submitted_at AS SubmittedAt
             FROM student_attempts a
@@ -228,7 +229,7 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
             row.Section,
             row.ExamVersionId,
             row.ExamCode,
-            row.ScorePercent is double scorePercent ? Math.Clamp(scorePercent, 0, 100) : null,
+            row.HasScore == 1 ? Math.Clamp(row.ScorePercent, 0, 100) : null,
             ParseDate(row.StartedAt),
             ParseDate(row.SubmittedAt))).ToList();
 
@@ -274,11 +275,30 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
     private static object BuildRollupsParams(string cue, string? schoolYear, string? course) =>
         new { Cue = cue, SchoolYear = schoolYear, Course = course };
 
-    private sealed record RollupTotalsRow(long AttemptCount, double ScoreSum, double ScoreMaxSum);
+    private sealed class RollupTotalsRow
+    {
+        public long AttemptCount { get; set; }
+        public double ScoreSum { get; set; }
+        public double ScoreMaxSum { get; set; }
+    }
 
-    private sealed record CourseStatsRow(string Course, long AttemptCount, double ScoreSum, double ScoreMaxSum);
+    private sealed class CourseStatsRow
+    {
+        public string Course { get; set; } = string.Empty;
+        public long AttemptCount { get; set; }
+        public double ScoreSum { get; set; }
+        public double ScoreMaxSum { get; set; }
+    }
 
-    private sealed record ExamStatsRow(string ExamVersionId, string ExamCode, long VersionNumber, long AttemptCount, double ScoreSum, double ScoreMaxSum);
+    private sealed class ExamStatsRow
+    {
+        public string ExamVersionId { get; set; } = string.Empty;
+        public string ExamCode { get; set; } = string.Empty;
+        public long VersionNumber { get; set; }
+        public long AttemptCount { get; set; }
+        public double ScoreSum { get; set; }
+        public double ScoreMaxSum { get; set; }
+    }
 
     private static string? ExtractBlockTitle(string? configJson)
     {
@@ -305,7 +325,30 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
         return null;
     }
 
-    private sealed record BlockStatRow(string BlockId, long OrderIndex, string? ConfigJson, long CorrectCount, long PartialCount, long IncorrectCount, long BlankCount, long UngradableCount);
+    private sealed class BlockStatRow
+    {
+        public string BlockId { get; set; } = string.Empty;
+        public long OrderIndex { get; set; } = -1;
+        public string? ConfigJson { get; set; }
+        public long CorrectCount { get; set; }
+        public long PartialCount { get; set; }
+        public long IncorrectCount { get; set; }
+        public long BlankCount { get; set; }
+        public long UngradableCount { get; set; }
+    }
 
-    private sealed record ReportAttemptRow(string? FirstName, string? LastName, string? DocumentLast4, string Course, string Section, string ExamVersionId, string ExamCode, double? ScorePercent, string? StartedAt, string? SubmittedAt);
+    private sealed class ReportAttemptRow
+    {
+        public string? FirstName { get; set; }
+        public string? LastName { get; set; }
+        public string? DocumentLast4 { get; set; }
+        public string Course { get; set; } = string.Empty;
+        public string Section { get; set; } = string.Empty;
+        public string ExamVersionId { get; set; } = string.Empty;
+        public string ExamCode { get; set; } = string.Empty;
+        public double ScorePercent { get; set; }
+        public long HasScore { get; set; }
+        public string? StartedAt { get; set; }
+        public string? SubmittedAt { get; set; }
+    }
 }

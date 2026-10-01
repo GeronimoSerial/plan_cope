@@ -267,8 +267,7 @@ public sealed class LocalExamVersioningTests : IDisposable
                 [block],
                 [answerKey],
                 Array.Empty<PublishedAssetDto>(),
-                [new PublicationTargetDto("grade", "6")],
-                null);
+                [new PublicationTargetDto("grade", "6")]);
 
             return new SyncItem(
                 "publication_package",

@@ -25,7 +25,7 @@ public sealed class TrueFalseBlockGrader : IBlockGrader
 
     public BlockType BlockType => BlockType.TrueFalse;
 
-    public BlockResult Grade(GradableBlock block, SubmittedAnswer? answer, ScoringPolicy? policy)
+    public BlockResult Grade(GradableBlock block, SubmittedAnswer? answer)
     {
         if (answer?.SelectedBoolean is null)
         {

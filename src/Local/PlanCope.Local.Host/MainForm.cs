@@ -447,8 +447,9 @@ public partial class MainForm : Form
             }
             PushUpdateStatus();
         }
-        catch (Exception)
+        catch (Exception exception)
         {
+            LogUpdateFailure("check", exception);
             _updateState = manual ? "error" : "idle";
             _updateMessage = manual
                 ? "No se pudo verificar si hay actualizaciones. Revisá la conexión y la configuración de Central."
@@ -494,12 +495,18 @@ public partial class MainForm : Form
 
             await EvaluateSessionGateAsync();
         }
-        catch (Exception)
+        catch (Exception exception)
         {
+            LogUpdateFailure("download", exception);
             _updateState = "error";
             _updateMessage = "No se pudo descargar la actualización. Revisá la conexión e intentá buscar de nuevo.";
             PushUpdateStatus();
         }
+    }
+
+    private void LogUpdateFailure(string operation, Exception exception)
+    {
+        UpdateFailureLogger.Log(_directories.LogsDirectory, _updateFeedUrl, _updateAccessToken, operation, exception);
     }
 
     private async Task EvaluateSessionGateAsync()

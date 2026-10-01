@@ -2,11 +2,9 @@ namespace PlanCope.Shared.Domain;
 
 public enum BlockType
 {
-    Text,
-    Image,
-    MultipleChoice,
-    TrueFalse,
-    ShortAnswer
+    // Preserve database enum integers used by existing choice blocks.
+    MultipleChoice = 2,
+    TrueFalse = 3
 }
 
 public enum ExamStatus

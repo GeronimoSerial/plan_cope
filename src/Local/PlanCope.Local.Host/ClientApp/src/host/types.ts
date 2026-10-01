@@ -55,7 +55,7 @@ declare global {
 
 export type ExamOption = LocalExam & {
   title: string;
-  course?: string;
+  course?: string[];
   division?: string;
   displayName: string;
 };

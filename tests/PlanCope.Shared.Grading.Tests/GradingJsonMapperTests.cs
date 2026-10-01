@@ -40,27 +40,6 @@ public sealed class GradingJsonMapperTests
     }
 
     [Fact]
-    public void MapBlock_maps_a_short_answer_answer_key()
-    {
-        var block = GradingJsonMapper.MapBlock(
-            "b1", BlockType.ShortAnswer, null, Json("{\"accepted\":[\"texto1\",\"texto2\"]}"));
-
-        Assert.Equal(new[] { "texto1", "texto2" }, block.AnswerKey.AcceptedAnswers);
-    }
-
-    [Theory]
-    [InlineData(BlockType.Text)]
-    [InlineData(BlockType.Image)]
-    public void MapBlock_returns_an_empty_answer_key_for_text_and_image_blocks(BlockType type)
-    {
-        var block = GradingJsonMapper.MapBlock("b1", type, null, null);
-
-        Assert.Empty(block.AnswerKey.CorrectOptionIds);
-        Assert.Empty(block.AnswerKey.AcceptedAnswers);
-        Assert.Null(block.AnswerKey.CorrectBoolean);
-    }
-
-    [Fact]
     public void MapBlock_returns_an_empty_answer_key_when_correct_answer_is_missing()
     {
         var block = GradingJsonMapper.MapBlock("b1", BlockType.MultipleChoice, null, null);
@@ -87,21 +66,9 @@ public sealed class GradingJsonMapperTests
         Assert.False(answer.SelectedBoolean);
     }
 
-    [Fact]
-    public void MapSubmittedAnswer_maps_a_short_answer_text()
-    {
-        var answer = GradingJsonMapper.MapSubmittedAnswer(BlockType.ShortAnswer, Json("\"texto1\""));
-
-        Assert.NotNull(answer);
-        Assert.Equal("texto1", answer.Text);
-    }
-
     [Theory]
-    [InlineData(BlockType.Text)]
-    [InlineData(BlockType.Image)]
     [InlineData(BlockType.MultipleChoice)]
     [InlineData(BlockType.TrueFalse)]
-    [InlineData(BlockType.ShortAnswer)]
     public void MapSubmittedAnswer_returns_null_for_an_absent_answer(BlockType type)
     {
         Assert.Null(GradingJsonMapper.MapSubmittedAnswer(type, null));
@@ -126,15 +93,6 @@ public sealed class GradingJsonMapperTests
 
         Assert.NotNull(answer);
         Assert.Empty(answer.SelectedOptionIds);
-    }
-
-    [Fact]
-    public void MapSubmittedAnswer_returns_a_blank_submission_for_an_empty_short_answer_string()
-    {
-        var answer = GradingJsonMapper.MapSubmittedAnswer(BlockType.ShortAnswer, Json("\"\""));
-
-        Assert.NotNull(answer);
-        Assert.Equal(string.Empty, answer.Text);
     }
 
     private static JsonElement? Json(string raw)

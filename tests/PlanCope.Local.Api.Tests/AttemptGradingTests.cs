@@ -15,12 +15,12 @@ namespace PlanCope.Local.Api.Tests;
 public sealed class AttemptGradingTests
 {
     [Fact]
-    public async Task Graded_attempt_persists_score_and_excludes_ungradable_blocks()
+    public async Task Graded_attempt_persists_score_for_supported_question_types()
     {
         using var factory = new LocalApiFactory();
         using var client = factory.CreateClient();
         await EnsureInitializedAsync(client);
-        factory.SeedGradableExam(scoringPolicy: "AllOrNothing");
+        factory.SeedGradableExam();
 
         var session = await CreateSessionAsync(client);
         var started = await StartAttemptAsync(client, session.AccessCode);
@@ -31,7 +31,6 @@ public sealed class AttemptGradingTests
             {
                 new { blockId = factory.MultipleChoiceBlockId, answer = (object)new[] { "b" } },
                 new { blockId = factory.TrueFalseBlockId, answer = (object)true },
-                new { blockId = factory.ShortAnswerBlockId, answer = (object)"hola" }
             }
         });
         Assert.Equal(HttpStatusCode.NoContent, answerResponse.StatusCode);
@@ -51,8 +50,8 @@ public sealed class AttemptGradingTests
         using var reader = command.ExecuteReader();
         Assert.True(reader.Read());
         Assert.Equal("graded", reader.GetString(0));
-        Assert.Equal(3.0, reader.GetDouble(1));
-        Assert.Equal(3.0, reader.GetDouble(2));
+        Assert.Equal(2.0, reader.GetDouble(1));
+        Assert.Equal(2.0, reader.GetDouble(2));
     }
 
     [Fact]
@@ -61,7 +60,7 @@ public sealed class AttemptGradingTests
         using var factory = new LocalApiFactory();
         using var client = factory.CreateClient();
         await EnsureInitializedAsync(client);
-        factory.SeedGradableExam(scoringPolicy: "AllOrNothing");
+        factory.SeedGradableExam();
 
         var session = await CreateSessionAsync(client);
         var started = await StartAttemptAsync(client, session.AccessCode);
@@ -97,12 +96,12 @@ public sealed class AttemptGradingTests
     }
 
     [Fact]
-    public async Task No_policy_exam_is_accepted_and_marked_ungradable()
+    public async Task Missing_question_policy_defaults_to_all_or_nothing()
     {
         using var factory = new LocalApiFactory();
         using var client = factory.CreateClient();
         await EnsureInitializedAsync(client);
-        factory.SeedGradableExam(scoringPolicy: null, includeExtraBlocks: false);
+        factory.SeedGradableExam(includeExtraBlocks: false);
 
         var session = await CreateSessionAsync(client);
         var started = await StartAttemptAsync(client, session.AccessCode);
@@ -130,9 +129,9 @@ public sealed class AttemptGradingTests
 
         using var reader = command.ExecuteReader();
         Assert.True(reader.Read());
-        Assert.Equal("ungradable", reader.GetString(0));
-        Assert.True(reader.IsDBNull(1));
-        Assert.True(reader.IsDBNull(2));
+        Assert.Equal("graded", reader.GetString(0));
+        Assert.Equal(1.0, reader.GetDouble(1));
+        Assert.Equal(1.0, reader.GetDouble(2));
     }
 
     [Fact]
@@ -179,7 +178,7 @@ public sealed class AttemptGradingTests
         using var factory = new LocalApiFactory();
         using var client = factory.CreateClient();
         await EnsureInitializedAsync(client);
-        factory.SeedGradableExam(scoringPolicy: "AllOrNothing");
+        factory.SeedGradableExam();
 
         var session = await CreateSessionAsync(client);
         var started = await StartAttemptAsync(client, session.AccessCode);
@@ -253,8 +252,6 @@ public sealed class AttemptGradingTests
         public string RemoteExamVersionId { get; } = "remote-gradable-exam-v1";
         public string MultipleChoiceBlockId { get; } = "blk-local-1";
         public string TrueFalseBlockId { get; } = "blk-local-2";
-        public string ShortAnswerBlockId { get; } = "blk-local-3";
-        public string TextBlockId { get; } = "blk-local-4";
         private readonly string databasePath = Path.Combine(Path.GetTempPath(), $"plancope-grading-{Guid.NewGuid():N}.db");
         private readonly string? previousConnectionString;
         private readonly string? previousSeedDemoExam;
@@ -275,20 +272,19 @@ public sealed class AttemptGradingTests
             return connection;
         }
 
-        public void SeedGradableExam(string? scoringPolicy, bool includeExtraBlocks = true)
+        public void SeedGradableExam(bool includeExtraBlocks = true)
         {
             using var connection = CreateConnection();
             using var transaction = connection.BeginTransaction();
 
             Execute(connection, transaction, """
-                INSERT INTO local_exam_versions (id, remote_exam_version_id, exam_code, version_number, checksum, metadata_json, schema_version, synced_at, scoring_policy)
-                VALUES ($id, $remoteId, $code, 1, 'test-checksum', '{"title":"Gradable"}', 1, $now, $policy);
+                INSERT INTO local_exam_versions (id, remote_exam_version_id, exam_code, version_number, checksum, metadata_json, schema_version, synced_at)
+                VALUES ($id, $remoteId, $code, 1, 'test-checksum', '{"title":"Gradable"}', 1, $now);
                 """,
                 ("$id", ExamVersionId),
                 ("$remoteId", RemoteExamVersionId),
                 ("$code", "GRD-1"),
-                ("$now", DateTimeOffset.UtcNow.ToString("O")),
-                ("$policy", scoringPolicy));
+                ("$now", DateTimeOffset.UtcNow.ToString("O")));
 
             Execute(connection, transaction, """
                 INSERT INTO local_exam_blocks (id, local_exam_version_id, remote_block_id, order_index, block_type, config_json, validation_json)
@@ -297,7 +293,7 @@ public sealed class AttemptGradingTests
                 ("$id", MultipleChoiceBlockId),
                 ("$examId", ExamVersionId),
                 ("$remoteBlockId", "remote-blk-1"),
-                ("$config", "{\"question\":\"Elegi b\",\"options\":[{\"value\":\"a\",\"label\":\"A\"},{\"value\":\"b\",\"label\":\"B\"}]}"));
+                ("$config", "{\"question\":\"Elegi b\",\"multiple\":true,\"options\":[{\"value\":\"a\",\"label\":\"A\"},{\"value\":\"b\",\"label\":\"B\"}]}"));
 
             Execute(connection, transaction, """
                 INSERT INTO local_answer_keys (id, local_exam_version_id, remote_block_id, correct_answer_json, score_value)
@@ -324,30 +320,6 @@ public sealed class AttemptGradingTests
                     ("$id", "ak-blk-2"),
                     ("$examId", ExamVersionId),
                     ("$remoteBlockId", "remote-blk-2"));
-
-                Execute(connection, transaction, """
-                    INSERT INTO local_exam_blocks (id, local_exam_version_id, remote_block_id, order_index, block_type, config_json, validation_json)
-                    VALUES ($id, $examId, $remoteBlockId, 2, 'short_answer', '{"question":"Saluda"}', NULL);
-                    """,
-                    ("$id", ShortAnswerBlockId),
-                    ("$examId", ExamVersionId),
-                    ("$remoteBlockId", "remote-blk-3"));
-
-                Execute(connection, transaction, """
-                    INSERT INTO local_answer_keys (id, local_exam_version_id, remote_block_id, correct_answer_json, score_value)
-                    VALUES ($id, $examId, $remoteBlockId, '{"accepted":["hola"]}', 1);
-                    """,
-                    ("$id", "ak-blk-3"),
-                    ("$examId", ExamVersionId),
-                    ("$remoteBlockId", "remote-blk-3"));
-
-                Execute(connection, transaction, """
-                    INSERT INTO local_exam_blocks (id, local_exam_version_id, remote_block_id, order_index, block_type, config_json, validation_json)
-                    VALUES ($id, $examId, $remoteBlockId, 3, 'text', '{"text":"Lee"}', NULL);
-                    """,
-                    ("$id", TextBlockId),
-                    ("$examId", ExamVersionId),
-                    ("$remoteBlockId", "remote-blk-4"));
             }
 
             transaction.Commit();
@@ -359,8 +331,8 @@ public sealed class AttemptGradingTests
             using var transaction = connection.BeginTransaction();
 
             Execute(connection, transaction, """
-                INSERT INTO local_exam_versions (id, remote_exam_version_id, exam_code, version_number, checksum, metadata_json, schema_version, synced_at, scoring_policy)
-                VALUES ($id, $remoteId, $code, 1, 'test-checksum', '{"title":"Gradable"}', 1, $now, 'AllOrNothing');
+                INSERT INTO local_exam_versions (id, remote_exam_version_id, exam_code, version_number, checksum, metadata_json, schema_version, synced_at)
+                VALUES ($id, $remoteId, $code, 1, 'test-checksum', '{"title":"Gradable"}', 1, $now);
                 """,
                 ("$id", ExamVersionId),
                 ("$remoteId", RemoteExamVersionId),
@@ -373,7 +345,7 @@ public sealed class AttemptGradingTests
                 """,
                 ("$id", MultipleChoiceBlockId),
                 ("$examId", ExamVersionId),
-                ("$config", "{\"question\":\"Elegi b\",\"options\":[{\"value\":\"a\",\"label\":\"A\"},{\"value\":\"b\",\"label\":\"B\"}]}"));
+                ("$config", "{\"question\":\"Elegi b\",\"multiple\":true,\"options\":[{\"value\":\"a\",\"label\":\"A\"},{\"value\":\"b\",\"label\":\"B\"}]}"));
 
             Execute(connection, transaction, """
                 INSERT INTO local_answer_keys (id, local_exam_version_id, remote_block_id, correct_answer_json, score_value)

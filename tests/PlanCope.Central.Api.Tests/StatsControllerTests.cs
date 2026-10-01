@@ -146,8 +146,8 @@ public sealed class StatsControllerTests
     {
         var options = CreateOptions();
         using var dbContext = new PlanCopeDbContext(options);
-        dbContext.Exams.Add(new Exam("ex-1", "EXA-2026-01", "Matematica", null, null, null, null, "Approved", null, Now, Now));
-        dbContext.ExamVersions.Add(new ExamVersion("ev-1", "ex-1", 1, 1, "Published", null, null, null, null, null, null, Now, Now, null));
+        dbContext.Exams.Add(new Exam("ex-1", "EXA-2026-01", "Matematica", null, [], null, null, "Approved", null, Now, Now));
+        dbContext.ExamVersions.Add(new ExamVersion("ev-1", "ex-1", 1, 1, "Published", null, null, null, null, null, null, Now, Now));
         var rollupId = Guid.NewGuid().ToString("N");
         dbContext.ExamRollups.Add(new ExamRollup(rollupId, "180000100", "2026", "Matematica", "ev-1", 8, 6, 8, Now));
         dbContext.ExamRollupBlocks.Add(new ExamRollupBlock(Guid.NewGuid().ToString("N"), rollupId, "blk-1", 5, 1, 1, 1, 0, 0, 0));

@@ -250,7 +250,7 @@ public sealed class SyncNodeIdentityTests
             $"CODE-{packageId}",
             "Exam",
             Description: null,
-            Level: null,
+            Courses: [],
             Area: null,
             Subject: "Matematica",
             Status: "Published",
@@ -270,8 +270,7 @@ public sealed class SyncNodeIdentityTests
             PublishedBy: null,
             PublishedAt: publishedAt,
             CreatedAt: publishedAt,
-            UpdatedAt: publishedAt,
-            ScoringPolicy: null));
+            UpdatedAt: publishedAt));
         dbContext.PublicationPackages.Add(new PublicationPackage(
             packageId,
             versionId,

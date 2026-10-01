@@ -6,12 +6,8 @@ import { callCentral } from "../../_lib/api/client";
 import { publishErrorMessage } from "../../_lib/exams/publish-errors";
 import { publishSupersedeMessage } from "../../_lib/exams/version-state";
 import {
-  isScoringPolicy,
-  scoringPolicyLabels,
-  scoringPolicyTerms,
   type ExamDocument
 } from "../../_lib/schema/exam";
-import { TermHint, TermLabel } from "../help/term-hint";
 import type { PublishExamVersionResponse } from "../../_lib/contracts";
 import { Button } from "@/components/ui/button";
 import {
@@ -51,27 +47,19 @@ export function PublishDialog({
   onPublished
 }: PublishDialogProps) {
   const router = useRouter();
-  const [grade, setGrade] = useState("");
+  const [division, setDivision] = useState("");
   const [subject, setSubject] = useState("");
-  const [validationError, setValidationError] = useState<string | null>(null);
   const [publishError, setPublishError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [done, setDone] = useState(false);
 
   const questionCount = document.questions.length;
-  const policyLabel = document.scoringPolicy ? scoringPolicyLabels[document.scoringPolicy] : "sin regla de puntaje";
   const supersedeMessage = publishSupersedeMessage({
     currentPublishedNumber: currentPublishedVersionNumber,
     versionNumber
   });
 
   async function handlePublish() {
-    if (grade.trim().length === 0) {
-      setValidationError("Ingresá el curso o grado.");
-      return;
-    }
-
-    setValidationError(null);
     setPublishError(null);
     setPublishing(true);
     try {
@@ -81,8 +69,8 @@ export function PublishDialog({
         return;
       }
       const payload = {
-        grade: grade.trim(),
-        subject: subject.trim() || null
+        subject: subject.trim() || null,
+        division: division.trim() || null
       };
       await callCentral<PublishExamVersionResponse>(
         `exams/versions/${encodeURIComponent(versionId)}/publish`,
@@ -99,9 +87,8 @@ export function PublishDialog({
 
   function handleOpenChange(nextOpen: boolean) {
     if (nextOpen) {
-      setGrade(document.level ?? "");
       setSubject(document.subject ?? "");
-      setValidationError(null);
+      setDivision("");
       setPublishError(null);
       setDone(false);
     }
@@ -137,34 +124,21 @@ export function PublishDialog({
 
             <div className="grid gap-5">
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field data-invalid={validationError ? true : undefined}>
-                  <FieldLabel htmlFor="publish-grade">
-                    <TermLabel term="curso-grado">Curso / grado</TermLabel>
-                  </FieldLabel>
-                  <Input
-                    id="publish-grade"
-                    value={grade}
-                    onChange={event => setGrade(event.target.value)}
-                    placeholder="Ej. 6"
-                  />
-                  {validationError && <FieldError>{validationError}</FieldError>}
-                </Field>
                 <Field>
                   <FieldLabel htmlFor="publish-subject">Materia (opcional)</FieldLabel>
                   <Input id="publish-subject" value={subject} onChange={event => setSubject(event.target.value)} />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="publish-division">División (opcional)</FieldLabel>
+                  <Input id="publish-division" value={division} onChange={event => setDivision(event.target.value)} />
                 </Field>
               </div>
 
               <div className="rounded-lg border bg-muted/40 p-3 text-sm">
                 <p className="font-medium">Se entrega a todos los equipos</p>
                 {supersedeMessage && <p className="text-muted-foreground">{supersedeMessage}</p>}
-                <p className="inline-flex flex-wrap items-center gap-1 text-muted-foreground">
-                  <span>
-                    {questionCount} {questionCount === 1 ? "pregunta" : "preguntas"} · regla: {policyLabel}
-                  </span>
-                  {isScoringPolicy(document.scoringPolicy) && (
-                    <TermHint term={scoringPolicyTerms[document.scoringPolicy]} />
-                  )}
+                <p className="text-muted-foreground">
+                  {questionCount} {questionCount === 1 ? "pregunta" : "preguntas"}
                 </p>
               </div>
 

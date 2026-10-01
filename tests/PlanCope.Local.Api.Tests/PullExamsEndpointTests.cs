@@ -122,8 +122,7 @@ public sealed class PullExamsEndpointTests
             Array.Empty<BlockDto>(),
             Array.Empty<AnswerKeyDto>(),
             Array.Empty<PublishedAssetDto>(),
-            [new PublicationTargetDto("grade", "6")],
-            null);
+            [new PublicationTargetDto("grade", "6")]);
 
         var item = new SyncItem(
             "publication_package",

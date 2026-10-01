@@ -37,7 +37,7 @@ public sealed record ExamSummaryDto(
     string Id,
     string Code,
     string Title,
-    string? Level,
+    IReadOnlyList<string> Courses,
     string? Area,
     string? Subject,
     string Status,
@@ -60,7 +60,6 @@ public sealed record ExamVersionDto(
     IReadOnlyList<BlockDto> Blocks,
     IReadOnlyList<AnswerKeyDto> AnswerKeys,
     IReadOnlyList<AssetDto> Assets,
-    string? ScoringPolicy,
     int BlockCount = 0,
     bool CanPublish = false,
     string? PublishBlockedReason = null,
@@ -89,13 +88,15 @@ public sealed record PublishedExamPackageDto(
     IReadOnlyList<AnswerKeyDto> AnswerKeys,
     IReadOnlyList<PublishedAssetDto> Assets,
     IReadOnlyList<PublicationTargetDto> Targets,
-    string? ScoringPolicy);
+    // Legacy compatibility for Local nodes that require an exam-level policy. Remove after all
+    // deployed Local versions grade with per-question config.scoringPolicy.
+    string? ScoringPolicy = null);
 
 public sealed record PublishedAssetDto(string Id, string VersionId, string FileName, string MimeType, long SizeBytes, string Checksum, string ContentBase64);
 
 public sealed record PublicationTargetDto(string TargetType, string? TargetId);
 
-public sealed record CreateExamRequest(string Code, string Title, string? Description, string? Level, string? Area, string? Subject);
+public sealed record CreateExamRequest(string Code, string Title, string? Description, IReadOnlyList<string>? Courses, string? Area, string? Subject);
 
 // Body is fully optional. Without sourceVersionId the new version is a deep copy of the exam's
 // highest-numbered published version, falling back to the highest-numbered version overall when the
@@ -105,12 +106,11 @@ public sealed record CreateExamRequest(string Code, string Title, string? Descri
 public sealed record CreateExamVersionRequest(
     int? SchemaVersion = null,
     JsonElement? Metadata = null,
-    string? ScoringPolicy = null,
     string? SourceVersionId = null,
     bool Empty = false,
     bool Force = false);
 
-public sealed record UpdateExamRequest(string? Code, string Title, string? Description, string? Level, string? Area, string? Subject);
+public sealed record UpdateExamRequest(string? Code, string Title, string? Description, IReadOnlyList<string>? Courses, string? Area, string? Subject);
 
 public sealed record UpsertBlockRequest(int OrderIndex, BlockType BlockType, string? Title, string? Description, JsonElement Config, JsonElement? Validation);
 
@@ -120,7 +120,6 @@ public sealed record CreateAssetRequest(string FileName, string MimeType, string
 /// <param name="SchoolIds">Deprecated and ignored. Published exams are delivered to every node.</param>
 public sealed record PublishExamVersionRequest(
     string? Subject,
-    string Grade,
     string? Division,
     IReadOnlyList<string>? NodeIds = null,
     IReadOnlyList<string>? SchoolIds = null);
@@ -128,7 +127,7 @@ public sealed record PublishExamVersionRequest(
 public sealed record PublishExamVersionResponse(string PackageId, string ExamVersionId, int PackageVersion, string Checksum, IReadOnlyList<PublicationTargetDto> Targets);
 
 // Contrato canonico: reemplaza el documento completo de una version (bloques + answer keys) en una sola operacion.
-public sealed record ReplaceExamDocumentRequest(JsonElement? Metadata, IReadOnlyList<DocumentBlockDto> Blocks, string? ScoringPolicy);
+public sealed record ReplaceExamDocumentRequest(JsonElement? Metadata, IReadOnlyList<DocumentBlockDto> Blocks);
 
 public sealed record DocumentBlockDto(
     int OrderIndex,

@@ -3,7 +3,8 @@ import type { ExamOption } from "../types";
 
 export function toExamOption(exam: LocalExam): ExamOption {
   const metadata = parseMetadata(exam.metadataJson);
-  const course = metadata.grade ?? metadata.course ?? metadata.curso;
+  const rawCourse = metadata.grade ?? metadata.course ?? metadata.curso;
+  const course = Array.isArray(rawCourse) ? rawCourse : rawCourse ? [rawCourse] : undefined;
   const division = metadata.division ?? metadata.section ?? metadata.classroom;
   const title = metadata.title ?? exam.examCode;
 
@@ -22,7 +23,7 @@ export function uniqueSorted(values: Array<string | undefined>): string[] {
 
 export function filterExams(exams: ExamOption[], selectedCourse: string, selectedDivision: string): ExamOption[] {
   return exams
-    .filter(exam => !selectedCourse || exam.course === selectedCourse)
+    .filter(exam => !selectedCourse || exam.course?.includes(selectedCourse))
     .filter(exam => !selectedDivision || exam.division === selectedDivision);
 }
 

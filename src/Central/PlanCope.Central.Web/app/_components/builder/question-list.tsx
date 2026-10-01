@@ -17,10 +17,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { QuestionCard } from "./question-card";
 
 interface QuestionListProps {
+  versionId: string;
   questions: Question[];
   errors: Record<string, string>;
   disabled?: boolean;
   onReorder: (activeId: string, overId: string) => void;
+  onMove: (id: string, direction: -1 | 1) => void;
   onUpdate: (id: string, next: Question) => void;
   onRemove: (id: string) => void;
   onDuplicate: (id: string) => void;
@@ -28,10 +30,12 @@ interface QuestionListProps {
 }
 
 export function QuestionList({
+  versionId,
   questions,
   errors,
   disabled = false,
   onReorder,
+  onMove,
   onUpdate,
   onRemove,
   onDuplicate,
@@ -93,10 +97,13 @@ export function QuestionList({
                 <QuestionCard
                   key={question.id}
                   question={question}
+                  versionId={versionId}
                   index={index}
+                  questionCount={questions.length}
                   errors={errors}
                   disabled={disabled}
                   onUpdate={onUpdate}
+                  onMove={onMove}
                   onRemove={onRemove}
                   onDuplicate={onDuplicate}
                 />

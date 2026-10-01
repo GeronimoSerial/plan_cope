@@ -9,6 +9,7 @@
   <ItemGroup>
     <ProjectReference Include="..\PlanCope.Shared.Contracts\PlanCope.Shared.Contracts.csproj" />
     <ProjectReference Include="..\PlanCope.Shared.Domain\PlanCope.Shared.Domain.csproj" />
+    <ProjectReference Include="..\PlanCope.Shared.Grading\PlanCope.Shared.Grading.csproj" />
   </ItemGroup>
 
   <ItemGroup>

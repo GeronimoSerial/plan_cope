@@ -46,8 +46,8 @@ public sealed class ExamsController(
             request.Code.Trim(),
             request.Title.Trim(),
             request.Description,
-            request.Level,
-            request.Area,
+            request.Courses?.Distinct(StringComparer.Ordinal).ToArray() ?? [],
+            NormalizeArea(request.Area),
             request.Subject,
             "Draft",
             null,
@@ -82,8 +82,7 @@ public sealed class ExamsController(
             null,
             null,
             now,
-            now,
-            null);
+            now);
 
         var versionValidation = await versionValidator.ValidateAsync(initialVersion, cancellationToken);
         if (!versionValidation.IsValid)
@@ -99,7 +98,7 @@ public sealed class ExamsController(
             exam.Id,
             exam.Code,
             exam.Title,
-            exam.Level,
+            exam.Courses,
             exam.Area,
             exam.Subject,
             exam.Status,
@@ -187,7 +186,6 @@ public sealed class ExamsController(
             null,
             now,
             now,
-            request.ScoringPolicy ?? source?.ScoringPolicy,
             source?.Id);
 
         var validation = await versionValidator.ValidateAsync(version, cancellationToken);
@@ -349,8 +347,8 @@ public sealed class ExamsController(
         {
             Title = request.Title?.Trim() ?? string.Empty,
             Description = request.Description,
-            Level = request.Level,
-            Area = request.Area,
+            Courses = request.Courses?.Distinct(StringComparer.Ordinal).ToArray() ?? exam.Courses,
+            Area = NormalizeArea(request.Area),
             Subject = request.Subject,
             UpdatedAt = now
         };
@@ -484,6 +482,7 @@ public sealed class ExamsController(
 
     [HttpPost("versions/{versionId}/assets")]
     [Authorize(Policy = "ExamAuthor")]
+    [RequestSizeLimit(4 * 1024 * 1024)]
     public async Task<ActionResult<AssetDto>> CreateAsset(string versionId, CreateAssetRequest request, CancellationToken cancellationToken)
     {
         var version = await dbContext.ExamVersions.SingleOrDefaultAsync(x => x.Id == versionId, cancellationToken);
@@ -497,12 +496,19 @@ public sealed class ExamsController(
             return Conflict("Published exam versions are immutable. Create a new version before editing.");
         }
 
+        var mimeType = request.MimeType?.Trim().ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(request.FileName) ||
-            string.IsNullOrWhiteSpace(request.MimeType) ||
-            !request.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ||
+            mimeType is not ("image/jpeg" or "image/png" or "image/webp") ||
             string.IsNullOrWhiteSpace(request.ContentBase64))
         {
-            return BadRequest("fileName, image mimeType and contentBase64 are required.");
+            return BadRequest("Solo se permiten imágenes JPEG, PNG o WebP; el nombre y el contenido son obligatorios.");
+        }
+
+        const int maxAssetSizeBytes = 2 * 1024 * 1024;
+        const int maxBase64Length = ((maxAssetSizeBytes + 2) / 3) * 4;
+        if (request.ContentBase64.Length > maxBase64Length)
+        {
+            return BadRequest("La imagen no puede superar los 2 MB.");
         }
 
         byte[] bytes;
@@ -512,7 +518,12 @@ public sealed class ExamsController(
         }
         catch (FormatException)
         {
-            return BadRequest("contentBase64 is not valid base64.");
+            return BadRequest("El contenido de la imagen no es base64 válido.");
+        }
+
+        if (bytes.Length > maxAssetSizeBytes)
+        {
+            return BadRequest("La imagen no puede superar los 2 MB.");
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -520,7 +531,7 @@ public sealed class ExamsController(
             NewId(),
             versionId,
             Path.GetFileName(request.FileName.Trim()),
-            request.MimeType.Trim(),
+            mimeType,
             bytes.LongLength,
             HexSha256(bytes),
             $"base64:{request.ContentBase64}",
@@ -530,6 +541,27 @@ public sealed class ExamsController(
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return CreatedAtAction(nameof(GetVersion), new { versionId }, ToDto(asset));
+    }
+
+    [HttpGet("versions/{versionId}/assets/{assetId}")]
+    public async Task<IActionResult> GetAssetContent(string versionId, string assetId, CancellationToken cancellationToken)
+    {
+        var asset = await dbContext.ExamAssets.SingleOrDefaultAsync(
+            x => x.Id == assetId && x.ExamVersionId == versionId, cancellationToken);
+        if (asset is null || !asset.StoragePath.StartsWith("base64:", StringComparison.Ordinal))
+        {
+            return NotFound();
+        }
+
+        try
+        {
+            var bytes = Convert.FromBase64String(asset.StoragePath["base64:".Length..]);
+            return File(bytes, asset.MimeType, enableRangeProcessing: false);
+        }
+        catch (FormatException)
+        {
+            return NotFound();
+        }
     }
 
     [HttpPost("versions/{versionId}/publish")]
@@ -568,13 +600,13 @@ public sealed class ExamsController(
             return Conflict(new { code = "older_than_current" });
         }
 
-        if (string.IsNullOrWhiteSpace(request.Grade))
+        var exam = await dbContext.Exams.SingleAsync(x => x.Id == version.ExamId, cancellationToken);
+        if (exam.Courses.Length == 0 || exam.Courses.Any(course => !ExamCourses.IsValid(course)))
         {
-            ModelState.AddModelError(nameof(request.Grade), "Grade/course is required.");
+            ModelState.AddModelError("courses", "At least one valid course is required before publishing.");
             return ValidationProblem(ModelState);
         }
 
-        var exam = await dbContext.Exams.SingleAsync(x => x.Id == version.ExamId, cancellationToken);
         var blocks = await dbContext.ExamBlocks
             .Where(x => x.ExamVersionId == versionId)
             .OrderBy(x => x.OrderIndex)
@@ -583,15 +615,6 @@ public sealed class ExamsController(
         if (blocks.Count == 0)
         {
             ModelState.AddModelError("blocks", "At least one block is required before publishing.");
-            return ValidationProblem(ModelState);
-        }
-
-        var hasMultipleChoiceBlock = blocks.Any(block => block.BlockType == PlanCope.Shared.Domain.BlockType.MultipleChoice);
-        if (hasMultipleChoiceBlock && PlanCope.Shared.Grading.ScoringPolicyParser.Parse(version.ScoringPolicy) is null)
-        {
-            ModelState.AddModelError(
-                "scoringPolicy",
-                "A scoring policy must be chosen before publishing an exam with multiple-choice questions.");
             return ValidationProblem(ModelState);
         }
 
@@ -604,26 +627,29 @@ public sealed class ExamsController(
             }
         }
 
+        var referencedAssetIds = ExamPackageChecksum.GetReferencedImageAssetIds(blocks.Select(static block => block.Config.RootElement));
+        if (referencedAssetIds.Count > 0)
+        {
+            var existingAssetIds = await dbContext.ExamAssets
+                .Where(asset => asset.ExamVersionId == versionId && referencedAssetIds.Contains(asset.Id))
+                .Select(asset => asset.Id)
+                .ToListAsync(cancellationToken);
+            var missingAssetIds = referencedAssetIds.Except(existingAssetIds, StringComparer.Ordinal).ToList();
+            if (missingAssetIds.Count > 0)
+            {
+                ModelState.AddModelError("blocks", "Cada imagen de pregunta debe existir y pertenecer a esta versión del examen.");
+                return ValidationProblem(ModelState);
+            }
+        }
+
         var blockIds = blocks.Select(static block => block.Id).ToList();
         var answerKeys = await dbContext.AnswerKeys
             .Where(x => blockIds.Contains(x.ExamBlockId))
             .ToListAsync(cancellationToken);
         var assets = await dbContext.ExamAssets
-            .Where(x => x.ExamVersionId == versionId)
+            .Where(x => x.ExamVersionId == versionId && referencedAssetIds.Contains(x.Id))
             .OrderBy(x => x.FileName)
             .ToListAsync(cancellationToken);
-
-        var missingAssetReferences = blocks
-            .Where(static block => block.BlockType is PlanCope.Shared.Domain.BlockType.Image)
-            .Select(block => block.Config.RootElement.TryGetProperty("assetId", out var assetId) ? assetId.GetString() : null)
-            .Where(assetId => !string.IsNullOrWhiteSpace(assetId) && assets.All(asset => asset.Id != assetId))
-            .ToList();
-
-        if (missingAssetReferences.Count > 0)
-        {
-            ModelState.AddModelError("assets", "One or more image blocks reference assets that do not exist.");
-            return ValidationProblem(ModelState);
-        }
 
         var targets = BuildTargets(request, exam);
         var publishedAssets = assets.Select(ToPublishedDto).ToList();
@@ -648,8 +674,6 @@ public sealed class ExamsController(
                 title = exam.Title,
                 versionId = version.Id,
                 versionNumber = version.VersionNumber,
-                schemaVersion = version.SchemaVersion,
-                scoringPolicy = version.ScoringPolicy,
                 targets
             })),
             "Published",
@@ -774,8 +798,28 @@ public sealed class ExamsController(
         dbContext.AnswerKeys.AddRange(newAnswerKeys);
 
         var metadata = request.Metadata.HasValue ? ToJsonDocument(request.Metadata.Value) : version.Metadata;
-        var updatedVersion = version with { Metadata = metadata, UpdatedAt = now, ScoringPolicy = request.ScoringPolicy ?? version.ScoringPolicy };
+        var updatedVersion = version with { Metadata = metadata, UpdatedAt = now };
         dbContext.Entry(version).CurrentValues.SetValues(updatedVersion);
+
+        if (request.Metadata is { ValueKind: JsonValueKind.Object } examMetadata)
+        {
+            var exam = await dbContext.Exams.SingleAsync(x => x.Id == version.ExamId, cancellationToken);
+            var updatedExam = exam with
+            {
+                Courses = ReadStringArray(examMetadata, "courses") ?? exam.Courses,
+                Area = ReadOptionalString(examMetadata, "area") ??
+                    (examMetadata.TryGetProperty("area", out _) ? null : exam.Area),
+                UpdatedAt = now
+            };
+            var examValidation = await examValidator.ValidateAsync(updatedExam, cancellationToken);
+            if (!examValidation.IsValid)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return BadRequest(new ValidationProblemDetails(examValidation.ToDictionary()));
+            }
+
+            dbContext.Entry(exam).CurrentValues.SetValues(updatedExam);
+        }
 
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
@@ -802,7 +846,6 @@ public sealed class ExamsController(
             blocks.Select(ToDto).ToList(),
             answerKeys.Select(ToDto).ToList(),
             assets.Select(ToDto).ToList(),
-            version.ScoringPolicy,
             blocks.Count,
             canPublish,
             publishBlockedReason,
@@ -853,8 +896,8 @@ public sealed class ExamsController(
     }
 
     /// <summary>
-    /// Per-version readiness independent of the publish request. The publish endpoint applies two
-    /// additional request-level gates (<c>grade</c> required, block-level validation), so
+    /// Per-version readiness independent of the publish request. The publish endpoint also applies
+    /// block-level validation,
     /// <see cref="ExamVersionDto.CanPublish"/> true means "this version is not blocked by its own
     /// content", not a guarantee the next publish call will succeed.
     /// </summary>
@@ -868,12 +911,6 @@ public sealed class ExamsController(
         if (blocks.Count == 0)
         {
             return (false, "no_blocks");
-        }
-
-        var hasMultipleChoiceBlock = blocks.Any(static block => block.BlockType == PlanCope.Shared.Domain.BlockType.MultipleChoice);
-        if (hasMultipleChoiceBlock && PlanCope.Shared.Grading.ScoringPolicyParser.Parse(version.ScoringPolicy) is null)
-        {
-            return (false, "scoring_policy_required");
         }
 
         return (true, null);
@@ -950,11 +987,33 @@ public sealed class ExamsController(
         }
 
         // grade/subject/division are descriptive metadata, not delivery filters.
-        Add(PublicationTargetTypes.Grade, request.Grade);
+        foreach (var course in exam.Courses)
+        {
+            Add(PublicationTargetTypes.Grade, course);
+        }
         Add(PublicationTargetTypes.Subject, request.Subject ?? exam.Subject);
         Add(PublicationTargetTypes.Division, request.Division);
 
         return targets;
+    }
+
+    private static string? NormalizeArea(string? value) => value?.Trim();
+
+    private static string[]? ReadStringArray(JsonElement json, string propertyName)
+    {
+        if (!json.TryGetProperty(propertyName, out var value)) return null;
+        if (value.ValueKind != JsonValueKind.Array) return [];
+        return value.EnumerateArray()
+            .Where(static item => item.ValueKind == JsonValueKind.String)
+            .Select(static item => item.GetString()!)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static string? ReadOptionalString(JsonElement json, string propertyName)
+    {
+        if (!json.TryGetProperty(propertyName, out var value) || value.ValueKind == JsonValueKind.Null) return null;
+        return value.ValueKind == JsonValueKind.String ? NormalizeArea(value.GetString()) : string.Empty;
     }
 
     private async Task<List<ExamSummaryDto>> BuildExamSummariesAsync(
@@ -1052,7 +1111,7 @@ public sealed class ExamsController(
                 exam.Id,
                 exam.Code,
                 exam.Title,
-                exam.Level,
+                exam.Courses,
                 exam.Area,
                 exam.Subject,
                 exam.Status,

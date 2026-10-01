@@ -1,31 +1,35 @@
-# Formato local de examenes
+# Formato de examen local
 
-Los examenes preparados manualmente se importan como JSON en la API local:
-
-```http
-POST /api/exams/import
-Content-Type: application/json
-```
-
-Usa `docs/local-exam-format.json` como plantilla minima. Para probar visualizacion y flujo completo, usa `docs/local-exam-extensive-sample.json`, que incluye textos, 3 imagenes, opciones multiples, verdadero/falso, respuestas cortas y preguntas obligatorias/opcionales. Al importar, la API valida el contenido, guarda los bloques en SQLite y copia los assets de imagen a la carpeta local configurada con `Local:AssetsPath`. Si no se configura, usa `local-assets` junto al ejecutable de la API.
+Los archivos `docs/local-exam-format.json` y `docs/local-exam-extensive-sample.json` muestran el
+modelo de preguntas que Central publica y los nodos locales reciben mediante `GET /api/sync/pull`.
+Ambos son ejemplos de referencia; la sincronización transporta un `PublishedExamPackageDto`, no un
+endpoint de importación JSON.
 
 ## Campos principales
 
-- `id`: opcional, estable para reimportar sin duplicar. Si falta, se genera uno deterministico.
-- `examCode`, `title`: obligatorios.
-- `grade`, `division`, `subject`: metadatos usados por el host local para filtrar y mostrar el examen.
+- `id`, `examCode`, `title`: identifican el examen.
+- `courses`: claves de curso seleccionadas, por ejemplo `primaria-6` o `secundaria-1`. Central
+  publica estas claves como destinos descriptivos `grade`; no se envía un campo `level`.
+- `division`, `subject`: metadatos descriptivos de la publicación.
 - `versionNumber`: opcional, por defecto `1`.
-- `assets`: imagenes locales. Cada asset requiere `id`, `fileName`, `mimeType` con prefijo `image/` y `contentBase64`.
-- `blocks`: bloques ordenados del examen.
+- `assets`: imágenes referenciadas por preguntas. Cada asset requiere `id`, `fileName`, `mimeType`
+  y `contentBase64`. Central acepta JPEG, PNG y WebP de hasta 2 MiB por imagen.
+- `blocks`: preguntas ordenadas. Los tipos admitidos son `multiple_choice` y `true_false`.
 
 ## Tipos de bloque
 
-- `text`: requiere `config.content`.
-- `image`: requiere `config.assetId`, que debe apuntar a un asset importado. Acepta `alt` y `caption`.
-- `multiple_choice`: requiere `config.question` y al menos dos `config.options` con `value` y `label`; los `value` deben ser unicos.
+- `multiple_choice`: requiere `config.question` y al menos dos `config.options` con `value` y
+  `label`. `config.multiple` indica si se puede marcar más de una opción.
 - `true_false`: requiere `config.question`.
-- `short_answer`: requiere `config.prompt`.
 
-`validation.required: true` marca una pregunta como obligatoria en la pantalla `/examen`. Los bloques `text` e `image` son informativos y no generan respuesta.
+Ambos tipos aceptan un `config.imageAssetId` opcional que debe identificar un asset de la misma
+versión. No hay bloques de contenido sin respuesta: incluí las instrucciones necesarias en el
+enunciado de la pregunta.
 
-Reimportar el mismo `id` actualiza metadata, bloques, assets y claves de respuesta, y elimina del examen local los bloques/assets/keys que ya no esten en el JSON.
+Para una pregunta `multiple_choice` con `multiple: true`, `config.scoringPolicy` puede ser
+`AllOrNothing`, `ProportionalPenalised` o `ProportionalPlain`; si se omite, se usa `AllOrNothing`.
+No se envía `scoringPolicy` en preguntas de selección única ni en `true_false`.
+
+`validation.required: true` marca una pregunta como obligatoria. La clave se representa como
+`answerKey.correctAnswer` y `answerKey.scoreValue`; para selección múltiple la respuesta correcta
+es un array de valores, para selección única es un valor y para verdadero/falso es un booleano.

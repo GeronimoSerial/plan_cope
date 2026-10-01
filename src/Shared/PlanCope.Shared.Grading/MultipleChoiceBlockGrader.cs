@@ -21,8 +21,9 @@ public sealed class MultipleChoiceBlockGrader : IBlockGrader
 
     public BlockType BlockType => BlockType.MultipleChoice;
 
-    public BlockResult Grade(GradableBlock block, SubmittedAnswer? answer, ScoringPolicy? policy)
+    public BlockResult Grade(GradableBlock block, SubmittedAnswer? answer)
     {
-        return _multiSelectGrader.Grade(block, answer, policy);
+        var effectivePolicy = block.AllowsMultipleAnswers ? block.ScoringPolicy ?? ScoringPolicy.AllOrNothing : ScoringPolicy.AllOrNothing;
+        return _multiSelectGrader.Grade(block, answer, effectivePolicy);
     }
 }

@@ -153,7 +153,7 @@ public sealed class ExamVersioningFixesTests
 
         var result = await controller.PublishVersion(
             "ev-ex-6-2",
-            new PublishExamVersionRequest(null, "6", null),
+            new PublishExamVersionRequest(null, null),
             CancellationToken.None);
 
         var objectResult = Assert.IsAssignableFrom<ObjectResult>(result.Result);
@@ -234,7 +234,7 @@ public sealed class ExamVersioningFixesTests
     private static void SeedExam(PlanCopeDbContext dbContext, string examId, string code)
     {
         var now = DateTimeOffset.UtcNow;
-        dbContext.Exams.Add(new Exam(examId, code, "Exam", null, null, null, null, "Draft", null, now, now));
+        dbContext.Exams.Add(new Exam(examId, code, "Exam", null, [], null, null, "Draft", null, now, now));
     }
 
     private static void SeedVersion(

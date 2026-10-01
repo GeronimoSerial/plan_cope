@@ -36,7 +36,7 @@ public sealed class ExamAuthoringPublicationTests
         var controller = CreateController(dbContext);
 
         var result = await controller.Create(
-            new CreateExamRequest("EXA-2026-01", "Matematica", null, "Secundario", "Matematica", "Numeros"),
+            new CreateExamRequest("EXA-2026-01", "Matematica", null, ["secundaria-1"], "Matematica", "Numeros"),
             CancellationToken.None);
 
         var created = Assert.IsType<CreatedAtActionResult>(result.Result);
@@ -59,7 +59,7 @@ public sealed class ExamAuthoringPublicationTests
         var controller = CreateController(dbContext);
 
         var create = await controller.Create(
-            new CreateExamRequest("EXA-2026-02", "Lengua", null, null, null, null),
+            new CreateExamRequest("EXA-2026-02", "Lengua", null, ["primaria-1", "secundaria-1"], null, null),
             CancellationToken.None);
         var createdSummary = Assert.IsType<ExamSummaryDto>(Assert.IsType<CreatedAtActionResult>(create.Result).Value);
         var examId = createdSummary.Id;
@@ -78,7 +78,7 @@ public sealed class ExamAuthoringPublicationTests
 
         var publish = await controller.PublishVersion(
             versionId,
-            new PublishExamVersionRequest(null, "6", null, ["legacy-node"], ["legacy-school"]),
+            new PublishExamVersionRequest(null, null, ["legacy-node"], ["legacy-school"]),
             CancellationToken.None);
         Assert.IsType<OkObjectResult>(publish.Result);
 
@@ -89,7 +89,9 @@ public sealed class ExamAuthoringPublicationTests
         Assert.NotNull(published.PublishedAt);
         Assert.NotNull(published.Targets);
         Assert.Contains(published.Targets!, target =>
-            target.TargetType == PublicationTargetTypes.Grade && target.TargetId == "6");
+            target.TargetType == PublicationTargetTypes.Grade && target.TargetId == "primaria-1");
+        Assert.Contains(published.Targets!, target =>
+            target.TargetType == PublicationTargetTypes.Grade && target.TargetId == "secundaria-1");
         Assert.DoesNotContain(published.Targets!, target =>
             target.TargetType is PublicationTargetTypes.Node or PublicationTargetTypes.School);
         Assert.DoesNotContain(await dbContext.PublicationTargets.ToListAsync(), target =>
@@ -98,12 +100,49 @@ public sealed class ExamAuthoringPublicationTests
 
         var duplicatePublish = await controller.PublishVersion(
             versionId,
-            new PublishExamVersionRequest(null, "6", null),
+            new PublishExamVersionRequest(null, null),
             CancellationToken.None);
 
         var duplicateConflict = Assert.IsAssignableFrom<ObjectResult>(duplicatePublish.Result);
         Assert.Equal(StatusCodes.Status409Conflict, duplicateConflict.StatusCode);
         Assert.Single(await dbContext.PublicationPackages.ToListAsync());
+    }
+
+    [Theory]
+    [MemberData(nameof(InvalidCourseLists))]
+    public async Task Create_exam_rejects_missing_or_unknown_courses(IReadOnlyList<string>? courses)
+    {
+        using var dbContext = new PlanCopeDbContext(CreateOptions());
+        var controller = CreateController(dbContext);
+
+        var result = await controller.Create(
+            new CreateExamRequest("EXA-INVALID-COURSE", "Examen", null, courses, null, null),
+            CancellationToken.None);
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        var problem = Assert.IsType<ValidationProblemDetails>(badRequest.Value);
+        Assert.Contains("Courses", problem.Errors.Keys);
+    }
+
+    public static IEnumerable<object?[]> InvalidCourseLists =>
+    [
+        [Array.Empty<string>()],
+        [new[] { "unknown-course" }]
+    ];
+
+    [Fact]
+    public async Task Create_exam_rejects_an_empty_area_when_provided()
+    {
+        using var dbContext = new PlanCopeDbContext(CreateOptions());
+        var controller = CreateController(dbContext);
+
+        var result = await controller.Create(
+            new CreateExamRequest("EXA-INVALID-AREA", "Examen", null, ["primaria-1"], "   ", null),
+            CancellationToken.None);
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        var problem = Assert.IsType<ValidationProblemDetails>(badRequest.Value);
+        Assert.Contains("Area", problem.Errors.Keys);
     }
 
     [Fact]
@@ -114,14 +153,14 @@ public sealed class ExamAuthoringPublicationTests
         var controller = CreateController(dbContext);
 
         var create = await controller.Create(
-            new CreateExamRequest("EXA-2026-03", "Historia", null, null, null, null),
+            new CreateExamRequest("EXA-2026-03", "Historia", null, ["secundaria-1"], null, null),
             CancellationToken.None);
         var versionId = Assert.IsType<ExamSummaryDto>(
             Assert.IsType<CreatedAtActionResult>(create.Result).Value).InitialVersionId!;
 
         var publish = await controller.PublishVersion(
             versionId,
-            new PublishExamVersionRequest(null, "1A", null),
+            new PublishExamVersionRequest(null, null),
             CancellationToken.None);
 
         var objectResult = Assert.IsAssignableFrom<ObjectResult>(publish.Result);
@@ -132,6 +171,51 @@ public sealed class ExamAuthoringPublicationTests
     }
 
     [Fact]
+    public async Task Publish_rejects_a_question_referencing_a_missing_image_asset()
+    {
+        var options = CreateOptions();
+        using var dbContext = new PlanCopeDbContext(options);
+        var controller = CreateController(dbContext);
+        var exam = await CreateExamAsync(controller, "EXA-MISSING-IMAGE");
+        var versionId = exam.InitialVersionId!;
+
+        var upsert = await controller.UpsertBlock(versionId, 0,
+            new UpsertBlockRequest(0, BlockType.TrueFalse, "Q", null,
+                Json("{\"question\":\"Q\",\"imageAssetId\":\"missing-asset\"}"), null), CancellationToken.None);
+        Assert.IsType<OkObjectResult>(upsert.Result);
+
+        var publish = await controller.PublishVersion(versionId,
+            new PublishExamVersionRequest(null, null), CancellationToken.None);
+
+        var result = Assert.IsAssignableFrom<ObjectResult>(publish.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, result.StatusCode);
+        var problem = Assert.IsType<ValidationProblemDetails>(result.Value);
+        Assert.Contains(problem.Errors.Values.SelectMany(static messages => messages),
+            message => message.Contains("Cada imagen de pregunta", StringComparison.Ordinal));
+        Assert.Empty(await dbContext.PublicationPackages.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Asset_upload_rejects_unsupported_types_and_oversized_content()
+    {
+        var options = CreateOptions();
+        using var dbContext = new PlanCopeDbContext(options);
+        var controller = CreateController(dbContext);
+        var exam = await CreateExamAsync(controller, "EXA-ASSET-VALIDATION");
+        var versionId = exam.InitialVersionId!;
+
+        var unsupported = await controller.CreateAsset(versionId,
+            new CreateAssetRequest("vector.svg", "image/svg+xml", Convert.ToBase64String([1, 2, 3])), CancellationToken.None);
+        Assert.Equal(StatusCodes.Status400BadRequest, Assert.IsAssignableFrom<ObjectResult>(unsupported.Result).StatusCode);
+
+        var oversizedBytes = new byte[2 * 1024 * 1024 + 1];
+        var oversized = await controller.CreateAsset(versionId,
+            new CreateAssetRequest("large.png", "image/png", Convert.ToBase64String(oversizedBytes)), CancellationToken.None);
+        Assert.Equal(StatusCodes.Status400BadRequest, Assert.IsAssignableFrom<ObjectResult>(oversized.Result).StatusCode);
+        Assert.Empty(await dbContext.ExamAssets.ToListAsync());
+    }
+
+    [Fact]
     public async Task Version_list_exposes_per_version_readiness()
     {
         var options = CreateOptions();
@@ -139,7 +223,7 @@ public sealed class ExamAuthoringPublicationTests
         var controller = CreateController(dbContext);
 
         var create = await controller.Create(
-            new CreateExamRequest("EXA-2026-04", "Biologia", null, null, null, null),
+            new CreateExamRequest("EXA-2026-04", "Biologia", null, ["secundaria-1"], null, null),
             CancellationToken.None);
         var createdSummary = Assert.IsType<ExamSummaryDto>(
             Assert.IsType<CreatedAtActionResult>(create.Result).Value);
@@ -169,6 +253,14 @@ public sealed class ExamAuthoringPublicationTests
         var result = await controller.List(CancellationToken.None);
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         return Assert.IsAssignableFrom<IReadOnlyList<ExamSummaryDto>>(ok.Value);
+    }
+
+    private static async Task<ExamSummaryDto> CreateExamAsync(ExamsController controller, string code)
+    {
+        var result = await controller.Create(
+            new CreateExamRequest(code, "Matemática", null, ["secundaria-1"], "Matemática", "Números"),
+            CancellationToken.None);
+        return Assert.IsType<ExamSummaryDto>(Assert.IsType<CreatedAtActionResult>(result.Result).Value);
     }
 
     private static async Task<ExamVersionDto> ListVersionsAsync(ExamsController controller, string examId)
