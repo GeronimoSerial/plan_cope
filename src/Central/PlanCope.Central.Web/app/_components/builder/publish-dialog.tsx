@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { callCentral } from "../../_lib/api/client";
 import { publishErrorMessage } from "../../_lib/exams/publish-errors";
@@ -20,6 +20,15 @@ import {
 } from "@/components/ui/dialog";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { GradeSectionPicker, type GradeSectionOption } from "../shared/grade-section-picker";
+import { courseOptions } from "../../_lib/exams/catalog";
+
+interface PublicationSectionOption {
+  gradeValue: string;
+  value: string;
+  label: string;
+  shift?: string | null;
+}
 
 interface PublishDialogProps {
   open: boolean;
@@ -47,13 +56,59 @@ export function PublishDialog({
   onPublished
 }: PublishDialogProps) {
   const router = useRouter();
+  const [grade, setGrade] = useState("");
   const [division, setDivision] = useState("");
+  const [sections, setSections] = useState<PublicationSectionOption[]>([]);
+  const [sectionsError, setSectionsError] = useState<string | null>(null);
+  const [loadedGradeQuery, setLoadedGradeQuery] = useState<string | null>(null);
   const [subject, setSubject] = useState("");
   const [publishError, setPublishError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [done, setDone] = useState(false);
 
   const questionCount = document.questions.length;
+  const gradeKeys = document.courses ?? [];
+  const gradeQuery = [...gradeKeys].sort().join(",");
+  const sectionsLoading = open && gradeQuery.length > 0 && loadedGradeQuery !== gradeQuery;
+  const pickerGrades = useMemo<GradeSectionOption[]>(() => {
+    const selectedGradeKeys = new Set(gradeQuery.split(",").filter(Boolean));
+    return courseOptions
+      .filter(course => selectedGradeKeys.has(course.key))
+      .map(course => ({
+        value: course.key,
+        label: course.label,
+        group: course.level,
+        sections: sections.filter(section => section.gradeValue === course.key).map(section => ({
+          value: section.value,
+          label: section.label,
+          shift: section.shift
+        }))
+      }));
+  }, [gradeQuery, sections]);
+
+  useEffect(() => {
+    if (!open || gradeQuery.length === 0) return;
+    let active = true;
+    const params = new URLSearchParams();
+    gradeQuery.split(",").forEach(gradeKey => params.append("grades", gradeKey));
+    void callCentral<PublicationSectionOption[]>(`rosters/publication-sections?${params.toString()}`)
+      .then(options => {
+        if (active) {
+          setSections(options);
+          if (options.length === 0) {
+            setSectionsError("No hay divisiones disponibles para los grados seleccionados.");
+          }
+          setLoadedGradeQuery(gradeQuery);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setSectionsError("No se pudieron cargar las divisiones disponibles.");
+          setLoadedGradeQuery(gradeQuery);
+        }
+      });
+    return () => { active = false; };
+  }, [open, gradeQuery]);
   const supersedeMessage = publishSupersedeMessage({
     currentPublishedNumber: currentPublishedVersionNumber,
     versionNumber
@@ -70,7 +125,7 @@ export function PublishDialog({
       }
       const payload = {
         subject: subject.trim() || null,
-        division: division.trim() || null
+        division: division.trim() && division !== "all" ? division.trim() : null
       };
       await callCentral<PublishExamVersionResponse>(
         `exams/versions/${encodeURIComponent(versionId)}/publish`,
@@ -88,7 +143,11 @@ export function PublishDialog({
   function handleOpenChange(nextOpen: boolean) {
     if (nextOpen) {
       setSubject(document.subject ?? "");
+      setGrade(gradeKeys.length === 1 ? gradeKeys[0] : "");
       setDivision("");
+      setSections([]);
+      setSectionsError(null);
+      setLoadedGradeQuery(null);
       setPublishError(null);
       setDone(false);
     }
@@ -128,10 +187,27 @@ export function PublishDialog({
                   <FieldLabel htmlFor="publish-subject">Materia (opcional)</FieldLabel>
                   <Input id="publish-subject" value={subject} onChange={event => setSubject(event.target.value)} />
                 </Field>
-                <Field>
-                  <FieldLabel htmlFor="publish-division">División (opcional)</FieldLabel>
-                  <Input id="publish-division" value={division} onChange={event => setDivision(event.target.value)} />
-                </Field>
+                {sectionsError ? (
+                  <Field>
+                    <FieldLabel htmlFor="publish-division">División (opcional)</FieldLabel>
+                    <Input id="publish-division" value={division} onChange={event => setDivision(event.target.value)} />
+                    <p className="text-xs text-muted-foreground">{sectionsError}</p>
+                  </Field>
+                ) : (
+                  <div className="grid gap-2 sm:col-span-2">
+                    <GradeSectionPicker
+                      grades={pickerGrades}
+                      value={grade}
+                      onValueChange={next => setGrade(typeof next === "string" ? next : "")}
+                      sectionValue={division}
+                      onSectionValueChange={setDivision}
+                      includeAllSections
+                      forceSection
+                      disabled={sectionsLoading}
+                    />
+                    {sectionsLoading && <p className="text-xs text-muted-foreground">Cargando divisiones…</p>}
+                  </div>
+                )}
               </div>
 
               <div className="rounded-lg border bg-muted/40 p-3 text-sm">

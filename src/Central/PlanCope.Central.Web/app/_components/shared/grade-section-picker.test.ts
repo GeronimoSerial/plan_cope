@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getSectionsForGrade, resolveGradeChange, sortGradeOptions, type GradeSectionOption } from "./grade-section-picker";
+import { getSectionsForGrade, orderSelectedGrades, resolveGradeChange, sortGradeOptions, type GradeSectionOption } from "./grade-section-picker";
 
 const grades: GradeSectionOption[] = [
   { value: "g10", label: "10°", sections: [{ value: "10-c", label: "C" }] },
@@ -11,6 +11,22 @@ const grades: GradeSectionOption[] = [
 describe("GradeSectionPicker model", () => {
   it("sorts grade labels naturally and keeps named levels after numbered grades", () => {
     expect(sortGradeOptions(grades).map(grade => grade.value)).toEqual(["g1", "g2", "g10", "sala5"]);
+  });
+
+  it("groups multi-select grades by level and stores selections in level-then-grade order", () => {
+    const grouped = [
+      { value: "secundaria-2", label: "Secundaria 2° año", group: "Secundaria" },
+      { value: "primaria-2", label: "Primaria 2° grado", group: "Primaria" },
+      { value: "secundaria-1", label: "Secundaria 1° año", group: "Secundaria" },
+      { value: "primaria-1", label: "Primaria 1° grado", group: "Primaria" }
+    ];
+
+    expect(sortGradeOptions(grouped).map(grade => grade.value)).toEqual([
+      "primaria-1", "primaria-2", "secundaria-1", "secundaria-2"
+    ]);
+    expect(orderSelectedGrades(grouped, ["secundaria-1", "primaria-2", "secundaria-2", "primaria-1"])).toEqual([
+      "primaria-1", "primaria-2", "secundaria-1", "secundaria-2"
+    ]);
   });
 
   it("shows only the chosen grade sections, ordered naturally with shift labels for duplicate sections", () => {

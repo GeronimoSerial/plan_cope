@@ -151,7 +151,7 @@ export function CreateExamButton({ canEditExams }: { canEditExams: boolean }) {
                 {errors.title && <FieldError>{errors.title}</FieldError>}
               </Field>
               <Field data-invalid={courses.length === 0 ? true : undefined}>
-                <GradeSectionPicker mode="multi" grades={courseOptions.map(course => ({ value: course.key, label: course.label }))}
+                <GradeSectionPicker mode="multi" grades={courseOptions.map(course => ({ value: course.key, label: course.label, group: course.level }))}
                   value={courses} onValueChange={next => setCourses(Array.isArray(next) ? next : [next])} showSection={false} disabled={pending}
                   className="grid grid-cols-2 gap-2 rounded-md border p-3 sm:grid-cols-3" />
                 {courses.length === 0 && <FieldError>Seleccioná al menos un curso.</FieldError>}

@@ -378,7 +378,7 @@ export function ExamBuilder({
                 </Field>
               </div>
               <Field data-invalid={!document.courses?.length ? true : undefined}>
-                <GradeSectionPicker mode="multi" grades={courseOptions.map(course => ({ value: course.key, label: course.label }))}
+                <GradeSectionPicker mode="multi" grades={courseOptions.map(course => ({ value: course.key, label: course.label, group: course.level }))}
                   value={document.courses ?? []} onValueChange={next => patchDocument({ courses: Array.isArray(next) ? next : [next] })}
                   showSection={false} disabled={isReadOnly} className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-md border p-3 sm:grid-cols-3" />
                 {!document.courses?.length && <FieldError>Seleccioná al menos un curso.</FieldError>}

@@ -149,7 +149,7 @@ export function EditExamButton({ exam, canEditExams }: EditExamButtonProps) {
               </Field>
 
               <Field>
-                <GradeSectionPicker mode="multi" grades={courseOptions.map(course => ({ value: course.key, label: course.label }))}
+                <GradeSectionPicker mode="multi" grades={courseOptions.map(course => ({ value: course.key, label: course.label, group: course.level }))}
                   value={courses} onValueChange={next => setCourses(Array.isArray(next) ? next : [next])} showSection={false}
                   className="grid grid-cols-2 gap-2 sm:grid-cols-3" />
               </Field>
