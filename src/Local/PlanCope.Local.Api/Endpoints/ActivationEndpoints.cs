@@ -14,6 +14,8 @@ public static class ActivationEndpoints
             var identity = await repository.GetAsync(ct);
             var expired = await revalidation.IsExpiredAsync(ct);
             var inProgress = await revalidation.IsActivationInProgressAsync(ct);
+            var expiryPending = await revalidation.IsExpiryPendingAsync(ct);
+            var isLocked = identity?.RevocationStage == "locked" || expired;
             var daysRemaining = await revalidation.GetDaysRemainingAsync(ct);
             ActivationDownloadProgress? downloadProgress = null;
             var progressState = await syncState.GetAsync("activation_download_progress", ct);
@@ -26,9 +28,10 @@ public static class ActivationEndpoints
             {
                 phaseAComplete = identity?.CredentialState == "active" && !expired && !inProgress,
                 cue = identity?.Cue,
-                isLocked = identity?.RevocationStage == "locked" || expired || inProgress,
+                isLocked,
                 activationInProgress = inProgress,
-                expiryPending = await revalidation.IsExpiryPendingAsync(ct),
+                retryAvailable = inProgress && !isLocked && !expiryPending && identity?.CredentialState == "active",
+                expiryPending,
                 localClockWarning = await revalidation.IsLocalClockWarningAsync(ct),
                 revalidationDaysRemaining = daysRemaining,
                 revalidationWarning = daysRemaining is <= 5,

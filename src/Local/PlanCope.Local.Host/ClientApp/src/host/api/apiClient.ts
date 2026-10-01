@@ -46,7 +46,7 @@ export class ApiClient {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",
-      signal
+      ...(isAbortSignal(signal) ? { signal } : {})
     });
     return (await response.json()) as PullExamsResult;
   }
@@ -109,7 +109,7 @@ export class ApiClient {
   }
 
   private async get<T>(path: string, signal?: AbortSignal): Promise<T> {
-    return this.request<T>(path, { method: "GET", signal });
+    return this.request<T>(path, { method: "GET", ...(isAbortSignal(signal) ? { signal } : {}) });
   }
 
   private async post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
@@ -117,7 +117,7 @@ export class ApiClient {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-      signal
+      ...(isAbortSignal(signal) ? { signal } : {})
     });
   }
 
@@ -130,6 +130,10 @@ export class ApiClient {
 
     return response.json() as Promise<T>;
   }
+}
+
+function isAbortSignal(value: unknown): value is AbortSignal {
+  return typeof AbortSignal !== "undefined" && value instanceof AbortSignal;
 }
 
 async function readApiError(response: Response): Promise<string> {

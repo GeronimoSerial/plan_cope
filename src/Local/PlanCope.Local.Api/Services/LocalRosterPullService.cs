@@ -247,7 +247,7 @@ public sealed class LocalRosterPullService(
     private static LocalRosterPullResult Failure(string error) =>
         new(false, false, null, null, 0, 0, error);
 
-    private static string SummarizeFailure(string error)
+    internal static string SummarizeFailure(string error)
     {
         if (error.Contains("DocumentHmacKey", StringComparison.OrdinalIgnoreCase) ||
             error.Contains("document key", StringComparison.OrdinalIgnoreCase))
