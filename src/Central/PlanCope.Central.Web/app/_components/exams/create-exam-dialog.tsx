@@ -20,6 +20,7 @@ import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field
 import { Input } from "@/components/ui/input";
 import type { ExamSummary } from "../../_lib/contracts";
 import { areaOptions, courseOptions } from "../../_lib/exams/catalog";
+import { GradeSectionPicker } from "../shared/grade-section-picker";
 
 function mapCreateExamError(error: unknown): string {
   const message = getErrorMessage(error, "");
@@ -150,23 +151,9 @@ export function CreateExamButton({ canEditExams }: { canEditExams: boolean }) {
                 {errors.title && <FieldError>{errors.title}</FieldError>}
               </Field>
               <Field data-invalid={courses.length === 0 ? true : undefined}>
-                <FieldLabel>Curso / grado</FieldLabel>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-md border p-3 sm:grid-cols-3">
-                  {["Primaria", "Secundaria"].map(level => (
-                    <fieldset key={level} className="grid content-start gap-2">
-                      <legend className="text-sm font-medium">{level}</legend>
-                      {courseOptions.filter(course => course.level === level).map(course => (
-                        <label key={course.key} className="flex items-center gap-2 text-sm">
-                          <input type="checkbox" checked={courses.includes(course.key)} disabled={pending}
-                            onChange={event => setCourses(current => event.target.checked
-                              ? [...current, course.key]
-                              : current.filter(key => key !== course.key))} />
-                          {course.label}
-                        </label>
-                      ))}
-                    </fieldset>
-                  ))}
-                </div>
+                <GradeSectionPicker mode="multi" grades={courseOptions.map(course => ({ value: course.key, label: course.label, group: course.level }))}
+                  value={courses} onValueChange={next => setCourses(Array.isArray(next) ? next : [next])} showSection={false} disabled={pending}
+                  className="grid grid-cols-2 gap-2 rounded-md border p-3 sm:grid-cols-3" />
                 {courses.length === 0 && <FieldError>Seleccioná al menos un curso.</FieldError>}
               </Field>
               <Field>
