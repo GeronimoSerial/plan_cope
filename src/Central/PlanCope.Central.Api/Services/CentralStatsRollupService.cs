@@ -174,7 +174,10 @@ public sealed class CentralStatsRollupService(PlanCopeDbContext dbContext, ILogg
         {
             logger.LogWarning("Cannot attribute Central attempt {AttemptId}: {Reason}", attempt.Id, reason);
         }
-        dbContext.Entry(attempt).CurrentValues.SetValues(attempt with
+        // Callers may pass a no-tracking snapshot (the rebuild does), so resolve the tracked
+        // instance; otherwise the change would never reach SaveChanges.
+        var tracked = await dbContext.ReceivedStudentAttempts.FindAsync([attempt.Id], cancellationToken) ?? attempt;
+        dbContext.Entry(tracked).CurrentValues.SetValues(tracked with
         {
             AttributionStatus = status,
             AttributionReason = reason
