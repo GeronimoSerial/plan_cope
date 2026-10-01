@@ -31,7 +31,7 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
             new CommandDefinition(sql, BuildRollupsParams(cue, schoolYear, course), cancellationToken: cancellationToken));
 
         var attemptCount = (int)row.AttemptCount;
-        var averageScorePercent = row.ScoreMaxSum > 0 ? row.ScoreSum / row.ScoreMaxSum * 100 : 0;
+        var averageScorePercent = row.ScoreMaxSum > 0 ? Math.Clamp(row.ScoreSum / row.ScoreMaxSum * 100, 0, 100) : 0;
 
         return new SchoolStatsDto(
             SuppressibleValue<int>.For(rosterScope, attemptCount, attemptCount),
@@ -67,7 +67,7 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
         var result = new List<CourseStatsDto>();
         foreach (var row in rows)
         {
-            var averageScorePercent = row.ScoreMaxSum > 0 ? row.ScoreSum / row.ScoreMaxSum * 100 : 0;
+            var averageScorePercent = row.ScoreMaxSum > 0 ? Math.Clamp(row.ScoreSum / row.ScoreMaxSum * 100, 0, 100) : 0;
 
             result.Add(new CourseStatsDto(
                 row.Course,
@@ -141,7 +141,7 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
                   .ToList();
 
             var attemptCount = (int)row.AttemptCount;
-            var averageScorePercent = row.ScoreMaxSum > 0 ? row.ScoreSum / row.ScoreMaxSum * 100 : 0;
+            var averageScorePercent = row.ScoreMaxSum > 0 ? Math.Clamp(row.ScoreSum / row.ScoreMaxSum * 100, 0, 100) : 0;
 
             result.Add(new ExamStatsDto(
                 row.ExamVersionId,
@@ -168,15 +168,23 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
         if (examVersionId is not null) filters += " AND ds.exam_version_id = @ExamVersionId";
 
         var args = new { Cue = cue, SchoolYear = schoolYear, Course = course, ExamVersionId = examVersionId };
-        var rows = await connection.QueryAsync<ReportAttemptRow>(new CommandDefinition($@"
+        var hasAttempts = await connection.ExecuteScalarAsync<bool>(new CommandDefinition($@"
+            SELECT EXISTS (
+                SELECT 1 FROM student_attempts a
+                JOIN delivery_sessions ds ON ds.id = a.delivery_session_id
+                JOIN local_exam_versions ev ON ev.id = ds.exam_version_id
+                LEFT JOIN local_roster_sections rs ON rs.id = ds.roster_section_id
+                WHERE {filters})", args, cancellationToken: cancellationToken));
+        var rows = hasAttempts
+            ? await connection.QueryAsync<ReportAttemptRow>(new CommandDefinition($@"
             SELECT a.student_first_name AS FirstName,
                    a.student_last_name AS LastName,
                    a.document_last4 AS DocumentLast4,
-                   COALESCE(NULLIF(rs.course, ''), 'Sin asignar') AS Course,
-                   TRIM(COALESCE(rs.division, '') || CASE WHEN rs.division IS NOT NULL AND rs.shift IS NOT NULL THEN ' · ' ELSE '' END || COALESCE(rs.shift, '')) AS Section,
+                   CAST(COALESCE(NULLIF(rs.course, ''), 'Sin asignar') AS TEXT) AS Course,
+                   CAST(TRIM(COALESCE(rs.division, '') || CASE WHEN rs.division IS NOT NULL AND rs.shift IS NOT NULL THEN ' · ' ELSE '' END || COALESCE(rs.shift, '')) AS TEXT) AS Section,
                    ds.exam_version_id AS ExamVersionId,
                    ev.exam_code AS ExamCode,
-                   CASE WHEN ar.score_max > 0 THEN ar.score * 100.0 / ar.score_max ELSE NULL END AS ScorePercent,
+                   CAST(CASE WHEN ar.score_max > 0 THEN ar.score * 100.0 / ar.score_max ELSE NULL END AS REAL) AS ScorePercent,
                    a.started_at AS StartedAt,
                    a.submitted_at AS SubmittedAt
             FROM student_attempts a
@@ -188,7 +196,8 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
                 WHERE result.student_attempt_id = a.id AND result.status = 'graded'
                 ORDER BY result.graded_at DESC LIMIT 1)
             WHERE {filters}
-            ORDER BY ev.exam_code, rs.course, rs.division, ar.score, a.student_last_name, a.student_first_name", args, cancellationToken: cancellationToken));
+            ORDER BY ev.exam_code, rs.course, rs.division, ar.score, a.student_last_name, a.student_first_name", args, cancellationToken: cancellationToken))
+            : Array.Empty<ReportAttemptRow>();
 
         var expectedFilters = "ds.school_code = @Cue";
         if (schoolYear is not null) expectedFilters += " AND ds.school_year = @SchoolYear";
@@ -212,7 +221,7 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
             row.Section,
             row.ExamVersionId,
             row.ExamCode,
-            row.ScorePercent,
+            row.ScorePercent is double scorePercent ? Math.Clamp(scorePercent, 0, 100) : null,
             ParseDate(row.StartedAt),
             ParseDate(row.SubmittedAt))).ToList();
 

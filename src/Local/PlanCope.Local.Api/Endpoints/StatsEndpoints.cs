@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using PlanCope.Local.Api.Data.Repositories;
 using PlanCope.Shared.Domain;
 using PlanCope.Local.Api.Services.Stats;
@@ -122,7 +123,8 @@ public static class StatsEndpoints
                 : allExams.Where(item => item.ExamVersionId == exam).ToArray();
             var generatedAt = DateTimeOffset.UtcNow;
             var html = reportBuilder.Build(data, exams, schoolYear, course, exam, generatedAt, RosterScope);
-            var filename = $"informe-estadistico-{cue}-{generatedAt:yyyyMMdd}.html";
+            var filenameCue = Regex.Replace(cue, "[^A-Za-z0-9_-]", "_");
+            var filename = $"informe-estadistico-{filenameCue}-{generatedAt:yyyyMMdd}.html";
             return Results.File(Encoding.UTF8.GetBytes(html), "text/html; charset=utf-8", filename);
         });
 

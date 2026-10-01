@@ -85,16 +85,25 @@ public sealed class StatsHtmlReportBuilder
         var row = 0;
         foreach (var group in groups)
         {
-            var mean = group.Where(attempt => attempt.ScorePercent.HasValue).Select(attempt => attempt.ScorePercent!.Value).DefaultIfEmpty(0).Average();
+            var scores = group.Where(attempt => attempt.ScorePercent.HasValue).Select(attempt => attempt.ScorePercent!.Value).ToList();
             var y = 12 + row * 46;
-            html.Append("<text x=\"0\" y=\"").Append((y + 18).ToString(CultureInfo.InvariantCulture)).Append("\">").Append(E(SectionLabel(group.Key.Course, group.Key.Section))).Append("</text><rect x=\"190\" y=\"").Append(y.ToString(CultureInfo.InvariantCulture)).Append("\" width=\"").Append((Math.Clamp(mean, 0, 100) * 4).ToString("F1", CultureInfo.InvariantCulture)).Append("\" height=\"28\" rx=\"5\"/><text class=\"value\" x=\"620\" y=\"").Append((y + 18).ToString(CultureInfo.InvariantCulture)).Append("\">").Append(Percent(mean)).Append("</text>");
+            html.Append("<text x=\"0\" y=\"").Append((y + 18).ToString(CultureInfo.InvariantCulture)).Append("\">").Append(E(SectionLabel(group.Key.Course, group.Key.Section))).Append("</text>");
+            if (scores.Count == 0)
+            {
+                html.Append("<text class=\"value\" x=\"620\" y=\"").Append((y + 18).ToString(CultureInfo.InvariantCulture)).Append("\">Sin datos</text>");
+            }
+            else
+            {
+                var mean = scores.Average();
+                html.Append("<rect x=\"190\" y=\"").Append(y.ToString(CultureInfo.InvariantCulture)).Append("\" width=\"").Append((Math.Clamp(mean, 0, 100) * 4).ToString("F1", CultureInfo.InvariantCulture)).Append("\" height=\"28\" rx=\"5\"/><text class=\"value\" x=\"620\" y=\"").Append((y + 18).ToString(CultureInfo.InvariantCulture)).Append("\">").Append(Percent(mean)).Append("</text>");
+            }
             row++;
         }
         html.Append("</svg></div><div class=\"table-wrap\"><table><thead><tr><th>Curso</th><th>Sección</th><th>Intentos</th><th>Promedio</th></tr></thead><tbody>");
         foreach (var group in groups)
         {
             var scores = group.Where(attempt => attempt.ScorePercent.HasValue).Select(attempt => attempt.ScorePercent!.Value).ToList();
-            html.Append("<tr><td>").Append(E(group.Key.Course)).Append("</td><td>").Append(E(group.Key.Section)).Append("</td><td>").Append(group.Count().ToString(CultureInfo.InvariantCulture)).Append("</td><td>").Append(scores.Count == 0 ? "—" : Percent(scores.Average())).Append("</td></tr>");
+            html.Append("<tr><td>").Append(E(group.Key.Course)).Append("</td><td>").Append(E(group.Key.Section)).Append("</td><td>").Append(group.Count().ToString(CultureInfo.InvariantCulture)).Append("</td><td>").Append(scores.Count == 0 ? "Sin datos" : Percent(scores.Average())).Append("</td></tr>");
         }
         html.Append("</tbody></table></div></section>");
     }
