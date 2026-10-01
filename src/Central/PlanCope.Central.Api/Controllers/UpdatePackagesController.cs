@@ -9,24 +9,21 @@ namespace PlanCope.Central.Api.Controllers;
 [Route("api/updates")]
 public sealed class UpdatePackagesController(IInstallerStorage installerStorage, IReleaseGateService releaseGate) : ControllerBase
 {
-    [HttpGet("{fileName}")]
-    public async Task<IActionResult> Download(string fileName, CancellationToken cancellationToken)
+    [HttpGet("{channel}/{fileName}")]
+    public async Task<IActionResult> Download(string channel, string fileName, CancellationToken cancellationToken)
     {
         if (!NodeAccessAuth.TryGetNodeId(User, out var nodeId)) return Forbid();
-        var (channel, packageFileName) = fileName.StartsWith("stable__", StringComparison.Ordinal)
-            ? ("stable", fileName[8..])
-            : fileName.StartsWith("beta__", StringComparison.Ordinal)
-                ? ("beta", fileName[6..])
-                : (string.Empty, string.Empty);
-        if (string.IsNullOrEmpty(channel) ||
-            !packageFileName.StartsWith("PlanCope.Local.Host-", StringComparison.Ordinal) ||
-            !(packageFileName.EndsWith("-full.nupkg", StringComparison.OrdinalIgnoreCase) ||
-              packageFileName.EndsWith("-delta.nupkg", StringComparison.OrdinalIgnoreCase)) ||
+        if ((!channel.Equals("stable", StringComparison.OrdinalIgnoreCase) &&
+             !channel.Equals("beta", StringComparison.OrdinalIgnoreCase)) ||
+            !fileName.StartsWith("PlanCope.Local.Host-", StringComparison.Ordinal) ||
+            !(fileName.EndsWith("-full.nupkg", StringComparison.OrdinalIgnoreCase) ||
+              fileName.EndsWith("-delta.nupkg", StringComparison.OrdinalIgnoreCase)) ||
             fileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
             fileName.Contains('/') || fileName.Contains('\\'))
         {
             return BadRequest();
         }
+        channel = channel.ToLowerInvariant();
 
         if (!installerStorage.IsConfigured)
         {
@@ -35,7 +32,7 @@ public sealed class UpdatePackagesController(IInstallerStorage installerStorage,
 
         var releaseFeed = await installerStorage.GetUpdateReleaseFeedAsync(channel, cancellationToken).ConfigureAwait(false);
         var asset = releaseFeed?.Assets.FirstOrDefault(candidate =>
-            candidate.PackageId == "PlanCope.Local.Host" && candidate.Type == 1 && candidate.FileName == packageFileName);
+            candidate.PackageId == "PlanCope.Local.Host" && candidate.Type == 1 && candidate.FileName == fileName);
         if (releaseFeed is null || asset is null) return NotFound();
 
         // The asset route has no client version in Velopack's URL. Resolve the channel's
@@ -45,7 +42,7 @@ public sealed class UpdatePackagesController(IInstallerStorage installerStorage,
             .ConfigureAwait(false);
         if (!decision.MayInstall || !string.Equals(decision.TargetVersion, asset.Version, StringComparison.Ordinal)) return NotFound();
 
-        var download = await installerStorage.GetUpdatePackageDownloadAsync(channel, asset.Version, packageFileName, cancellationToken)
+        var download = await installerStorage.GetUpdatePackageDownloadAsync(channel, asset.Version, fileName, cancellationToken)
             .ConfigureAwait(false);
         if (download is null) return NotFound();
 

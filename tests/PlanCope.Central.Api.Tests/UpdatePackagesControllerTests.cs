@@ -20,7 +20,7 @@ public sealed class UpdatePackagesControllerTests
         var storage = new StubInstallerStorage();
         var controller = CreateController(storage, new StubReleaseGateService(), tokenType: "access", nodeId: "node-1");
 
-        var result = await controller.Download("stable__PlanCope.Local.Host-2.0.0-full.nupkg", CancellationToken.None);
+        var result = await controller.Download("stable", "PlanCope.Local.Host-2.0.0-full.nupkg", CancellationToken.None);
 
         Assert.IsType<ForbidResult>(result);
         Assert.Null(storage.RequestedAssetName);
@@ -35,7 +35,7 @@ public sealed class UpdatePackagesControllerTests
         var storage = new StubInstallerStorage();
         var controller = CreateController(storage, new StubReleaseGateService(), tokenType: "node_access", nodeId: "node-1");
 
-        var result = await controller.Download(fileName, CancellationToken.None);
+        var result = await controller.Download("stable", fileName, CancellationToken.None);
 
         Assert.IsType<BadRequestResult>(result);
         Assert.Null(storage.RequestedAssetName);
@@ -48,7 +48,7 @@ public sealed class UpdatePackagesControllerTests
         var gate = new StubReleaseGateService { Decision = new ReleaseGateDecision(true, "2.0.0") };
         var controller = CreateController(storage, gate, tokenType: "node_access", nodeId: "node-1");
 
-        var result = await controller.Download("stable__PlanCope.Local.Host-2.0.0-full.nupkg", CancellationToken.None);
+        var result = await controller.Download("stable", "PlanCope.Local.Host-2.0.0-full.nupkg", CancellationToken.None);
 
         Assert.IsType<EmptyResult>(result);
         Assert.Equal("PlanCope.Local.Host-2.0.0-full.nupkg", storage.RequestedAssetName);
@@ -66,7 +66,7 @@ public sealed class UpdatePackagesControllerTests
         var gate = new StubReleaseGateService { Decision = new ReleaseGateDecision(true, "3.0.0") };
         var controller = CreateController(storage, gate, tokenType: "node_access", nodeId: "node-1");
 
-        var result = await controller.Download("stable__PlanCope.Local.Host-2.0.0-full.nupkg", CancellationToken.None);
+        var result = await controller.Download("stable", "PlanCope.Local.Host-2.0.0-full.nupkg", CancellationToken.None);
 
         Assert.IsType<NotFoundResult>(result);
         Assert.Null(storage.RequestedAssetName);
@@ -79,24 +79,25 @@ public sealed class UpdatePackagesControllerTests
         var gate = new StubReleaseGateService { Decision = ReleaseGateDecision.None };
         var controller = CreateController(storage, gate, tokenType: "node_access", nodeId: "node-1");
 
-        var result = await controller.Download("stable__PlanCope.Local.Host-2.0.0-full.nupkg", CancellationToken.None);
+        var result = await controller.Download("stable", "PlanCope.Local.Host-2.0.0-full.nupkg", CancellationToken.None);
 
         Assert.IsType<NotFoundResult>(result);
         Assert.Null(storage.RequestedAssetName);
     }
 
     [Fact]
-    public async Task Download_RequiresAnExplicitChannelMarkerAndNeverFallsBackToBeta()
+    public async Task Download_UsesOnlyRequestedBetaChannelAndNeverFallsBackToStable()
     {
         var storage = CreateConfiguredStorage();
         var gate = new StubReleaseGateService { Decision = new ReleaseGateDecision(true, "2.0.0-beta.1") };
         var controller = CreateController(storage, gate, tokenType: "node_access", nodeId: "node-1");
 
-        var result = await controller.Download("PlanCope.Local.Host-2.0.0-beta.1-full.nupkg", CancellationToken.None);
+        var result = await controller.Download("beta", "PlanCope.Local.Host-2.0.0-beta.1-full.nupkg", CancellationToken.None);
 
-        Assert.IsType<BadRequestResult>(result);
+        Assert.IsType<NotFoundResult>(result);
         Assert.Null(storage.RequestedAssetName);
         Assert.Null(gate.RequestedChannel);
+        Assert.Equal("beta", storage.RequestedFeedChannel);
     }
 
     private static UpdatePackagesController CreateController(StubInstallerStorage storage, StubReleaseGateService gate, string tokenType, string nodeId)
@@ -122,10 +123,15 @@ public sealed class UpdatePackagesControllerTests
     {
         public bool IsConfigured { get; set; }
         public UpdateReleaseFeed? Feed { get; set; }
+        public string? RequestedFeedChannel { get; private set; }
         public string? RequestedAssetName { get; private set; }
         public Task<InstallerReference?> GetLatestAsync(string channel, CancellationToken cancellationToken) => Task.FromResult<InstallerReference?>(null);
         public Task<InstallerDownload?> GetLatestDownloadAsync(string channel, CancellationToken cancellationToken) => Task.FromResult<InstallerDownload?>(null);
-        public Task<UpdateReleaseFeed?> GetUpdateReleaseFeedAsync(string channel, CancellationToken cancellationToken) => Task.FromResult(Feed);
+        public Task<UpdateReleaseFeed?> GetUpdateReleaseFeedAsync(string channel, CancellationToken cancellationToken)
+        {
+            RequestedFeedChannel = channel;
+            return Task.FromResult(Feed);
+        }
         public Task<InstallerDownload?> GetUpdatePackageDownloadAsync(string channel, string version, string fileName, CancellationToken cancellationToken)
         {
             RequestedAssetName = fileName;

@@ -124,11 +124,13 @@ public partial class MainForm : Form
                 : centralBaseUrl.TrimEnd('/') + "/api/updates";
         if (string.IsNullOrWhiteSpace(_updateFeedUrl)) return;
 
-        var channelName = Environment.GetEnvironmentVariable("PLANCOPE_UPDATE_CHANNEL") is { } c && !string.IsNullOrWhiteSpace(c)
+        var configuredChannel = Environment.GetEnvironmentVariable("PLANCOPE_UPDATE_CHANNEL") is { } c && !string.IsNullOrWhiteSpace(c)
             ? c
             : "stable";
-        var channel = channelName.Equals("beta", StringComparison.OrdinalIgnoreCase) ? UpdateChannel.Beta : UpdateChannel.Stable;
-        var backend = new VelopackUpdateBackend(_updateFeedUrl, channelName, () => _updateAccessToken);
+        var channel = configuredChannel.Equals("beta", StringComparison.OrdinalIgnoreCase) ? UpdateChannel.Beta : UpdateChannel.Stable;
+        var channelName = channel == UpdateChannel.Beta ? "beta" : "stable";
+        var channelFeedUrl = $"{_updateFeedUrl.TrimEnd('/')}/{channelName}";
+        var backend = new VelopackUpdateBackend(channelFeedUrl, channelName, () => _updateAccessToken);
         _updateService = new UpdateService(backend, channel);
         _updateChannel = channelName;
     }
@@ -473,9 +475,14 @@ public partial class MainForm : Form
         var expiresAt = DateTimeOffset.TryParse(expiryText, out var parsedExpiry)
             ? parsedExpiry
             : (DateTimeOffset?)null;
-        if (forceRefresh || UpdateRequestAuth.ShouldRefresh(expiresAt, DateTimeOffset.UtcNow))
+        var refresher = services.GetRequiredService<NodeCredentialRefresher>();
+        if (forceRefresh)
         {
-            await services.GetRequiredService<NodeCredentialRefresher>().TryRefreshAsync(CancellationToken.None);
+            await refresher.TryRefreshAfterUnauthorizedAsync(_updateAccessToken, CancellationToken.None);
+        }
+        else if (expiresAt is not null && UpdateRequestAuth.ShouldRefresh(expiresAt, DateTimeOffset.UtcNow))
+        {
+            await refresher.TryRefreshAsync(CancellationToken.None);
         }
 
         var tokenState = await repository.GetAsync("central_access_token");

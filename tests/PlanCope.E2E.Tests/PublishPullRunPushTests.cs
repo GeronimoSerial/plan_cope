@@ -381,7 +381,7 @@ public sealed class PublishPullRunPushTests
 
         using var updateCheckClient = centralFactory.CreateClient();
         updateCheckClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", nodeAccessToken);
-        var feedResponse = await updateCheckClient.GetAsync("/api/updates/releases.stable.json?id=PlanCope.Local.Host&localVersion=1.0.0");
+        var feedResponse = await updateCheckClient.GetAsync("/api/updates/stable/releases.stable.json?id=PlanCope.Local.Host&localVersion=1.0.0");
         Assert.True(feedResponse.StatusCode == HttpStatusCode.OK, await feedResponse.Content.ReadAsStringAsync());
         using (var feedDoc = JsonDocument.Parse(await feedResponse.Content.ReadAsStringAsync()))
         {

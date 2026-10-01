@@ -9,7 +9,7 @@ namespace PlanCope.Central.Api.Controllers;
 
 /// <summary>
 /// Serves the Velopack client release feed for a registered node. The wire protocol is fixed by
-/// Velopack's <c>SimpleWebSource</c> (route <c>releases.{channel}.json</c>, PascalCase
+/// Velopack's <c>SimpleWebSource</c> (route <c>/{channel}/releases.{channel}.json</c>, PascalCase
 /// single-asset JSON) and was verified by round-trip against the pinned Velopack 0.0.1251 — see
 /// _briefs/B7-PROGRESS.md. This is D6's enforcement point: only a node-access token may read the
 /// feed, so the <c>token_type == node_access</c> claim is checked in addition to <c>[Authorize]</c>
@@ -25,9 +25,10 @@ public sealed class UpdatesController(
 {
     private const string PackageId = "PlanCope.Local.Host";
 
-    [HttpGet("releases.{channel}.json")]
+    [HttpGet("{channel}/releases.{feedChannel}.json")]
     public async Task<IActionResult> Releases(
         string channel,
+        string feedChannel,
         [FromQuery] string? id,
         [FromQuery] string? localVersion,
         CancellationToken cancellationToken)
@@ -42,11 +43,13 @@ public sealed class UpdatesController(
             return Forbid();
         }
 
-        if (!channel.Equals("stable", StringComparison.OrdinalIgnoreCase) &&
-            !channel.Equals("beta", StringComparison.OrdinalIgnoreCase))
+        if (!channel.Equals(feedChannel, StringComparison.OrdinalIgnoreCase) ||
+            (!channel.Equals("stable", StringComparison.OrdinalIgnoreCase) &&
+             !channel.Equals("beta", StringComparison.OrdinalIgnoreCase)))
         {
             return BadRequest();
         }
+        channel = channel.ToLowerInvariant();
 
         if (!updateStorage.IsConfigured)
         {
@@ -77,14 +80,11 @@ public sealed class UpdatesController(
             candidate.PackageId == PackageId && candidate.Type == 1 && candidate.Version == decision.TargetVersion);
         if (asset is null) return JsonBody("""{"Assets":[]}""");
 
-        // Velopack downloads packages from the feed base URL using FileName. Include the
-        // channel in that path component so the package endpoint can repeat the same gate
-        // decision without trusting a caller-supplied channel query parameter.
         return JsonBody(JsonSerializer.Serialize(new ReleaseFeedDto([new ReleaseAssetDto(
             asset.PackageId,
             asset.Version,
             asset.Type,
-            $"{channel.ToLowerInvariant()}__{asset.FileName}",
+            asset.FileName,
             asset.SHA1,
             asset.SHA256,
             asset.Size,
