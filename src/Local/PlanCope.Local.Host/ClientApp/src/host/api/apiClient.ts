@@ -4,6 +4,7 @@ import type {
   RosterResponse,
   SessionProgress,
   LocalSchool,
+  LocalSchoolWithAttempts,
   SessionHistoryPage
 } from "../types";
 import type { ApiErrorPayload, LocalExam } from "../../shared/api-types";
@@ -31,7 +32,7 @@ export type PullExamsResult = {
 
 export type CourseStatDto = { course: string; attemptCount: number | string; averageScorePercent: number | string };
 export type BlockStatDto = { blockId: string; orderIndex: number | null; title: string | null; correctCount: number; partialCount: number; incorrectCount: number; blankCount: number; ungradableCount: number };
-export type ExamStatDto = { examVersionId: string; examCode: string; versionNumber: number; attemptCount: number | string; averageScorePercent: number | string; blocks: BlockStatDto[] };
+export type ExamStatDto = { examVersionId: string; examCode: string; title?: string | null; courses?: string[]; versionNumber: number; attemptCount: number | string; averageScorePercent: number | string; blocks: BlockStatDto[] };
 export type StatsFilterOptionsDto = { schoolYears: string[]; courses: string[]; exams: { examVersionId: string; examCode: string; versionNumber: number }[] };
 
 export class ApiClient {
@@ -78,6 +79,10 @@ export class ApiClient {
 
   getSchools(signal?: AbortSignal): Promise<LocalSchool[]> {
     return this.get<LocalSchool[]>("/api/schools", signal);
+  }
+
+  getSchoolsWithAttempts(signal?: AbortSignal): Promise<LocalSchoolWithAttempts[]> {
+    return this.get<LocalSchoolWithAttempts[]>("/api/schools?withAttempts=true", signal);
   }
 
   getSession(idOrAccessCode: string, signal?: AbortSignal): Promise<LocalSession> {

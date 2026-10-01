@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiClient, type CourseStatDto, type ExamStatDto, type StatsFilterOptionsDto } from "../api/apiClient";
 import { downloadBlob, openStatsReport } from "../hostBridge";
-import { SearchableCombobox } from "../../shared/ui";
+import { SearchableCombobox, normalizeSearch, tokenizeSearch } from "../../shared/ui";
 
 type StatsWorkspaceProps = {
   apiBaseUrl: string;
@@ -27,13 +27,29 @@ function formatElapsedSeconds(updatedAt: number, now: number): number {
   return Math.max(0, Math.floor((now - updatedAt) / 1000));
 }
 
+function formatSubmissionDate(value: string): string {
+  const parts = new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" }).formatToParts(new Date(value));
+  const getPart = (type: Intl.DateTimeFormatPartTypes) => parts.find(part => part.type === type)?.value ?? "";
+  return `${getPart("day")}/${getPart("month")}/${getPart("year")}`;
+}
+
+function searchableCourse(value: string): string[] {
+  const label = displayCourse(value);
+  const grade = normalizeSearch(value);
+  if (!/^\d{1,2}$/.test(grade)) return [value, label];
+  const ordinal = grade === "6" ? "sexto" : `${grade}to`;
+  return [value, label, `${grade}a`, `${grade} a`, `${grade}to a`, `${ordinal} a`];
+}
+
 export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspaceProps) {
   const api = useMemo(() => new ApiClient(apiBaseUrl), [apiBaseUrl]);
-  const [activeCue, setActiveCue] = useState(cue);
-  const [schools, setSchools] = useState<{ code: string; name: string }[]>([]);
+  const [activeCue, setActiveCue] = useState("");
+  const [schools, setSchools] = useState<{ code: string; name: string; submittedAttemptCount: number; lastSubmittedAt: string }[]>([]);
+  const [schoolsLoaded, setSchoolsLoaded] = useState(false);
   const [schoolYearFilter, setSchoolYearFilter] = useState(schoolYear ?? "");
   const [courseFilter, setCourseFilter] = useState("");
   const [examFilter, setExamFilter] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [filterOptions, setFilterOptions] = useState<StatsFilterOptionsDto>({ schoolYears: [], courses: [], exams: [] });
   const [courseStats, setCourseStats] = useState<CourseStatDto[]>([]);
   const [examStats, setExamStats] = useState<ExamStatDto[]>([]);
@@ -47,11 +63,14 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
   const [now, setNow] = useState(Date.now());
   const hasLoadedStats = useRef(false);
 
-  useEffect(() => { setActiveCue(cue); }, [cue]);
-
   useEffect(() => {
     const controller = new AbortController();
-    void api.getSchools(controller.signal).then(setSchools).catch(() => undefined);
+    void api.getSchoolsWithAttempts(controller.signal).then(items => {
+      if (controller.signal.aborted) return;
+      setSchools(items);
+      setSchoolsLoaded(true);
+      setActiveCue(current => items.some(item => item.code === current) ? current : items[0]?.code ?? "");
+    }).catch(() => { if (!controller.signal.aborted) setSchoolsLoaded(true); });
     return () => controller.abort();
   }, [api]);
 
@@ -79,6 +98,7 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
     let disposed = false;
     let timer: number | undefined;
     let requestController: AbortController | null = null;
+    if (!activeCue) return () => undefined;
 
     const refresh = async (manual = false) => {
       if (disposed || document.visibilityState === "hidden" || requestController) return;
@@ -146,6 +166,13 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
   }, [updatedAt]);
 
   const hasAttempts = examStats.some(exam => typeof exam.attemptCount === "number" ? exam.attemptCount > 0 : Number(exam.attemptCount) > 0);
+  const searchTokens = tokenizeSearch(searchQuery.slice(0, 100));
+  const matchesSearch = (fields: string[]) => searchTokens.every(token => normalizeSearch(fields.join(" ")).includes(token));
+  const visibleCourses = courseStats.filter(stat => matchesSearch(searchableCourse(stat.course)));
+  const visibleExams = examStats.filter(exam => matchesSearch([
+    exam.title ?? "", exam.examCode, `${exam.examCode} v${exam.versionNumber}`,
+    ...(exam.courses ?? []).flatMap(searchableCourse)
+  ]));
 
   const handleRefresh = () => {
     setIsRefreshing(true);
@@ -185,7 +212,7 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
 
       <div className="stats-filters">
         <SearchableCombobox id="stats-school-filter" label="Escuela" value={activeCue} placeholder="Buscá por nombre o CUE"
-          options={schools.map(school => ({ value: school.code, label: school.name, description: `CUE ${school.code}` }))} onChange={value => {
+          options={schools.map(school => ({ value: school.code, label: school.name, description: `${school.submittedAttemptCount} entregas · última ${formatSubmissionDate(school.lastSubmittedAt)} · CUE ${school.code}` }))} onChange={value => {
             hasLoadedStats.current = false;
             setSchoolYearFilter("");
             setCourseFilter("");
@@ -193,7 +220,7 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
             setActiveCue(value);
           }} />
         <label htmlFor="stats-school-year-filter">Año lectivo
-          <select id="stats-school-year-filter" value={schoolYearFilter} onChange={event => {
+          <select id="stats-school-year-filter" value={schoolYearFilter} disabled={!activeCue} onChange={event => {
             setIsLoading(true);
             setSchoolYearFilter(event.target.value);
           }}>
@@ -203,7 +230,7 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
         </label>
 
         <label htmlFor="stats-course-filter">Curso
-          <select id="stats-course-filter" value={courseFilter} onChange={event => {
+          <select id="stats-course-filter" value={courseFilter} disabled={!activeCue} onChange={event => {
             setIsLoading(true);
             setCourseFilter(event.target.value);
           }}>
@@ -213,7 +240,7 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
         </label>
 
         <label htmlFor="stats-exam-filter">Examen
-          <select id="stats-exam-filter" value={examFilter} onChange={event => setExamFilter(event.target.value)}>
+          <select id="stats-exam-filter" value={examFilter} disabled={!activeCue} onChange={event => setExamFilter(event.target.value)}>
             <option value="">Todos los exámenes</option>
             {filterOptions.exams.map(exam => <option key={exam.examVersionId} value={exam.examVersionId}>{exam.examCode} v{exam.versionNumber}</option>)}
           </select>
@@ -221,26 +248,30 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
       </div>
 
       <div className="stats-actions">
-        <button className="button button-primary" type="button" onClick={handleReport}>Generar informe HTML</button>
-        <button className="button button-secondary" type="button" onClick={() => void handleCsvExport()}>Descargar CSV</button>
+        <button className="button button-primary" type="button" onClick={handleReport} disabled={!activeCue}>Generar informe HTML</button>
+        <button className="button button-secondary" type="button" onClick={() => void handleCsvExport()} disabled={!activeCue}>Descargar CSV</button>
         <button id="stats-refresh-button" className="button button-secondary" type="button" onClick={handleRefresh} disabled={isRefreshing}>Actualizar ahora</button>
       </div>
+      <p className="stats-search-field"><label htmlFor="stats-search">Buscar examen o curso</label><input id="stats-search" type="search" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder="Buscar examen o curso" /></p>
+      <p className="stats-search-help">La búsqueda solo filtra esta pantalla; los archivos exportados siguen los filtros seleccionados.</p>
       {updatedAt !== null && <p className="stats-updated" role="status" aria-live="polite">Actualizado hace {formatElapsedSeconds(updatedAt, now)}s</p>}
       {reportStatus && <p className="stats-report-status" role="status" aria-live="polite">{reportStatus}</p>}
       {reportError && <p className="workspace-error" role="alert">{reportError}</p>}
       {error && <p className="workspace-error" role="alert">{error}</p>}
       {isLoading ? (
         <p role="status">{hasLoadedStats.current ? "Actualizando estadísticas…" : "Cargando estadísticas…"}</p>
+      ) : schoolsLoaded && schools.length === 0 ? (
+        <div className="stats-empty-state"><p>Todavía no hay exámenes entregados en este equipo.</p></div>
       ) : !hasAttempts ? (
         <div className="stats-empty-state">
           <h3>Todavía no hay intentos entregados</h3>
-          <p>Cuando los estudiantes entreguen evaluaciones, acá vas a encontrar los resultados por curso y examen. También podés generar un informe HTML vacío para guardar o compartir.</p>
+          <p>Cuando los estudiantes entreguen evaluaciones, acá vas a encontrar los resultados por curso y examen.</p>
         </div>
       ) : (
         <>
           <div className="table-wrap"><table>
             <thead><tr><th>Curso</th><th>Intentos</th><th>Promedio (%)</th></tr></thead>
-            <tbody>{courseStats.map(stat => (
+            <tbody>{visibleCourses.map(stat => (
               <tr key={stat.course}>
                 <td>{displayCourse(stat.course)}</td>
                 <td>{displayAttemptCount(stat.attemptCount)}</td>
@@ -249,9 +280,9 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
             ))}</tbody>
           </table></div>
 
-          {examStats.map(exam => (
+          {visibleExams.map(exam => (
             <details key={exam.examVersionId}>
-              <summary>{exam.examCode} v{exam.versionNumber} — {displayAttemptCount(exam.attemptCount)} intentos</summary>
+              <summary>{exam.title ? `${exam.title} · ` : ""}{exam.examCode} v{exam.versionNumber} — {displayAttemptCount(exam.attemptCount)} intentos</summary>
               <div className="table-wrap stats-block-table-wrap"><table className="stats-block-table">
                 <thead><tr><th>Bloque</th><th>Correctas</th><th>Parciales</th><th>Incorrectas</th><th>En blanco</th><th>No corregibles</th></tr></thead>
                 <tbody>{exam.blocks.map((block, index) => (
@@ -263,6 +294,7 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
               </table></div>
             </details>
           ))}
+          {visibleCourses.length === 0 && visibleExams.length === 0 && <p role="status">Sin resultados para la búsqueda.</p>}
         </>
       )}
     </section>

@@ -39,7 +39,9 @@ describe("StatsWorkspace", () => {
     const blockId = "1f37ed04-5275-4e47-90c0-14d5e18ff1ae";
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      const body = url.includes("/api/stats/filters?")
+      const body = url.includes("/api/schools?withAttempts=true")
+        ? [{ code: "123456789", name: "Escuela Test", submittedAttemptCount: 2, lastSubmittedAt: "2026-09-30T10:12:00Z" }]
+        : url.includes("/api/stats/filters?")
         ? { schoolYears: ["2026"], courses: [], exams: [] }
         : url.includes("/api/stats/course?")
           ? [{ course: "6", attemptCount: 2, averageScorePercent: 75 }]
@@ -57,6 +59,76 @@ describe("StatsWorkspace", () => {
     expect(container?.textContent).toContain("Pregunta 3");
     expect(container?.textContent).toContain("¿Cuál es la función principal de las raíces?");
     expect(container?.textContent).not.toContain(blockId);
+  });
+
+  it("filters course rows and exam sections with the search field", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const body = url.includes("/api/schools?withAttempts=true")
+        ? [{ code: "123456789", name: "Escuela Test", submittedAttemptCount: 2, lastSubmittedAt: "2026-09-30T10:12:00Z" }]
+        : url.includes("/api/stats/filters?")
+          ? { schoolYears: ["2026"], courses: ["6", "7"], exams: [] }
+          : url.includes("/api/stats/course?")
+            ? [{ course: "6", attemptCount: 1, averageScorePercent: 80 }, { course: "7", attemptCount: 1, averageScorePercent: 60 }]
+            : [{ examVersionId: "math-v1", examCode: "MAT-6", title: "Matemática diagnóstico", courses: ["6"], versionNumber: 1, attemptCount: 1, averageScorePercent: 80, blocks: [] }, { examVersionId: "bio-v1", examCode: "BIO-7", title: "Biología", courses: ["7"], versionNumber: 1, attemptCount: 1, averageScorePercent: 60, blocks: [] }];
+      return { ok: true, json: async () => body };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await renderComponent();
+    await act(async () => {
+      container?.querySelector<HTMLInputElement>("#stats-school-filter")?.click();
+      await Promise.resolve();
+    });
+    expect(container?.querySelectorAll('[role="option"]')).toHaveLength(1);
+    expect(container?.textContent).toContain("2 entregas · última 30/09/2026");
+    const search = container?.querySelector<HTMLInputElement>("#stats-search");
+    expect(search).not.toBeNull();
+    await act(async () => {
+      if (search) {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        setter?.call(search, "matematica");
+        search.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      await Promise.resolve();
+    });
+
+    expect(container?.textContent).toContain("Matemática diagnóstico");
+    expect(container?.textContent).not.toContain("Biología");
+    expect(container?.textContent).toContain("1 intentos");
+
+    await act(async () => {
+      if (search) {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        setter?.call(search, "7");
+        search.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      await Promise.resolve();
+    });
+    expect(container?.textContent).toContain("BIO-7");
+    expect(container?.textContent).not.toContain("MAT-6");
+
+    await act(async () => {
+      if (search) {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        setter?.call(search, "6to a");
+        search.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      await Promise.resolve();
+    });
+    expect(container?.textContent).toContain("MAT-6");
+    expect(container?.textContent).not.toContain("BIO-7");
+  });
+
+  it("shows the school empty state and disables exports when there are no submitted attempts", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await renderComponent();
+
+    expect(container?.textContent).toContain("Todavía no hay exámenes entregados en este equipo.");
+    expect(findButton("Generar informe HTML").disabled).toBe(true);
+    expect(findButton("Descargar CSV").disabled).toBe(true);
   });
 
   it("sends selected filters to the host and shows the report result", async () => {
@@ -116,6 +188,9 @@ describe("StatsWorkspace", () => {
     const response = (body: unknown) => ({ ok: true, json: async () => body });
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
+      if (url.includes("/api/schools?withAttempts=true")) {
+        return Promise.resolve(response([{ code: "123456789", name: "Escuela Test", submittedAttemptCount: 2, lastSubmittedAt: "2026-09-30T10:12:00Z" }]));
+      }
       if (url.includes("/api/stats/filters?")) {
         return Promise.resolve(response({ schoolYears: ["2025", "2026"], courses: [], exams: [] }));
       }
@@ -160,6 +235,9 @@ describe("StatsWorkspace", () => {
     vi.useFakeTimers();
     const pendingRequests: (() => void)[] = [];
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      if (String(input).includes("/api/schools?withAttempts=true")) {
+        return Promise.resolve({ ok: true, json: async () => [{ code: "123456789", name: "Escuela Test", submittedAttemptCount: 2, lastSubmittedAt: "2026-09-30T10:12:00Z" }] });
+      }
       if (String(input).includes("/api/stats/filters?")) {
         return Promise.resolve({ ok: true, json: async () => ({ schoolYears: [], courses: [], exams: [] }) });
       }
@@ -242,7 +320,9 @@ describe("StatsWorkspace", () => {
 function installFetchMock(): ReturnType<typeof vi.fn> {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => ({
     ok: true,
-    json: async () => String(input).includes("/api/stats/filters?") ? { schoolYears: [], courses: [], exams: [] } : [],
+    json: async () => String(input).includes("/api/schools?withAttempts=true")
+      ? [{ code: "123456789", name: "Escuela Test", submittedAttemptCount: 2, lastSubmittedAt: "2026-09-30T10:12:00Z" }]
+      : String(input).includes("/api/stats/filters?") ? { schoolYears: [], courses: [], exams: [] } : [],
     blob: async () => new Blob(["<html>snapshot</html>"], { type: "text/html" })
   }));
   vi.stubGlobal("fetch", fetchMock);
