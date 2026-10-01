@@ -314,7 +314,7 @@ export function ExamBuilder({
         </p>
 
         <p className="text-sm text-muted-foreground">
-          Armá las preguntas y la regla de puntaje. Al guardar y publicar, los nodos lo reciben en la próxima
+          Armá las preguntas y la regla de puntaje. Al guardar y publicar, los equipos lo reciben en la próxima
           sincronización.
         </p>
       </header>

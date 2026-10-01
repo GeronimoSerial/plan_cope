@@ -11,7 +11,6 @@ import { TermLabel } from "../help/term-hint";
 import {
   filterExams,
   formatPublishedAt,
-  formatReceivedBy,
   publicationStateBadgeVariant,
   publicationStateLabel,
   publicationStateTerm
@@ -76,7 +75,6 @@ export function ExamsTable({ exams, canEditExams }: ExamsTableProps) {
             <TableBody>
               {filtered.map(exam => {
                 const published = exam.publicationState === "published";
-                const received = formatReceivedBy(exam.pulledByNodeCount);
                 return (
                   <TableRow key={exam.id}>
                     <TableCell className="whitespace-normal font-medium">
@@ -88,13 +86,6 @@ export function ExamsTable({ exams, canEditExams }: ExamsTableProps) {
                         {published && (
                           <span className="text-xs text-muted-foreground md:hidden">
                             Publicado el {formatPublishedAt(exam.publishedAt)}
-                          </span>
-                        )}
-                        {published && received && (
-                          <span className="md:hidden">
-                            <TermLabel term="recibido-por-nodos">
-                              <span className="text-xs text-muted-foreground">{received}</span>
-                            </TermLabel>
                           </span>
                         )}
                       </div>
@@ -113,9 +104,6 @@ export function ExamsTable({ exams, canEditExams }: ExamsTableProps) {
                       {published ? (
                         <div className="flex flex-col">
                           <span>Publicado el {formatPublishedAt(exam.publishedAt)}</span>
-                          <TermLabel term="recibido-por-nodos">
-                            <span className="text-xs">{received}</span>
-                          </TermLabel>
                         </div>
                       ) : (
                         <span>—</span>

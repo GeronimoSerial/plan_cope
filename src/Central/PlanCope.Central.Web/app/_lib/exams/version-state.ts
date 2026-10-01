@@ -167,5 +167,5 @@ export function publishSupersedeMessage(input: {
   if (current == null || current >= input.versionNumber) {
     return null;
   }
-  return `Reemplaza a la versión ${current} en los nodos.`;
+  return `Reemplaza a la versión ${current} en todos los equipos.`;
 }

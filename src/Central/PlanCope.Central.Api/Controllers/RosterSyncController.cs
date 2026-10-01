@@ -55,12 +55,6 @@ public sealed class RosterSyncController(
             .Select(static group => group.First())
             .ToList();
 
-        if (!string.IsNullOrEmpty(node.Cue))
-        {
-            schoolList = schoolList.Where(school => school.cue == node.Cue).ToList();
-            rosters = rosters.Where(roster => roster.cue == node.Cue).ToList();
-        }
-
         return Ok(new { serverTime = DateTimeOffset.UtcNow, schools = schoolList, rosters });
     }
 
@@ -86,11 +80,7 @@ public sealed class RosterSyncController(
         if (nodeId is not null && (node is null || node.RevokedAt is not null))
             return Forbid();
 
-        var universalNode = node is not null && string.IsNullOrEmpty(node.Cue);
-        var scopedNode = node is not null && !string.IsNullOrEmpty(node.Cue);
-        if (scopedNode && !string.Equals(node!.Cue, cue, StringComparison.Ordinal))
-            return Forbid();
-        if (!universalNode && !scopedNode && !(await authorizationService.AuthorizeAsync(User, cue, "RosterCueAccess")).Succeeded)
+        if (node is null && !(await authorizationService.AuthorizeAsync(User, cue, "RosterCueAccess")).Succeeded)
         {
             return Forbid();
         }
