@@ -85,7 +85,10 @@ describe("SessionsWorkspace", () => {
     const view = render(state);
 
     act(() => button(view, "Nueva sesión").click());
-    act(() => view.querySelector<HTMLButtonElement>(".school-choice")!.click());
+    const schoolInput = view.querySelector<HTMLInputElement>('#new-session-school[role="combobox"]')!;
+    act(() => { schoolInput.focus(); setInputValue(schoolInput, "norte"); });
+    act(() => view.querySelector<HTMLElement>('[role="option"]')!.click());
+    act(() => button(view, "Continuar").click());
 
     expect(view.querySelector('[role="alert"]')?.textContent).toBe(state.error);
   });
