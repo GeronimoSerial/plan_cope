@@ -15,6 +15,7 @@ public sealed class CentralAttemptResultConfiguration : IEntityTypeConfiguration
         builder.Property(static x => x.ScoringPolicy).HasMaxLength(64);
         builder.Property(static x => x.Status).HasMaxLength(32).IsRequired();
         builder.Property(static x => x.BlocksJson).HasColumnType("jsonb");
+        builder.Property(static x => x.Reason).HasMaxLength(2000);
         builder.HasIndex(static x => new { x.ReceivedStudentAttemptId, x.GradingSchemaVersion }).IsUnique();
     }
 }
