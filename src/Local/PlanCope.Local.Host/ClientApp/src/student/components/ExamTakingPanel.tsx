@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { LocalExamBlock } from "../../shared/api-types";
-import { ActionButton } from "../../shared/ui";
+import { ActionButton, MessageBar } from "../../shared/ui";
 import type { AnswerMap } from "../domain/examAnswers";
 import { questionNumberFor } from "../domain/examAnswers";
 import { hasAnswer, isAnswerBlock, parseValidation } from "../examBlocks";
@@ -189,7 +189,7 @@ export function ExamTakingPanel({
 
       {(status || error) && (
         <div className="student-exam-status">
-          {status && <p className="builder-status">{status}</p>}
+          {status && <MessageBar tone="success">{status}</MessageBar>}
           {error && <p className="error-banner">{error}</p>}
         </div>
       )}

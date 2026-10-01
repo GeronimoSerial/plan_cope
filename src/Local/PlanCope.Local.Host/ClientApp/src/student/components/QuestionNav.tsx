@@ -60,6 +60,7 @@ export function QuestionNav({ blocks, answers }: QuestionNavProps) {
   const navRef = useRef<HTMLElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(DEFAULT_VIEWPORT_HEIGHT);
+  const [currentBlockId, setCurrentBlockId] = useState<string | null>(null);
 
   useEffect(() => {
     const nav = navRef.current;
@@ -67,6 +68,38 @@ export function QuestionNav({ blocks, answers }: QuestionNavProps) {
       setViewportHeight(nav.clientHeight || DEFAULT_VIEWPORT_HEIGHT);
     }
   }, []);
+
+  useEffect(() => {
+    const answerBlocks = blocks.filter(isAnswerBlock);
+    const updateCurrentQuestion = () => {
+      if (answerBlocks.length === 0) {
+        setCurrentBlockId(null);
+        return;
+      }
+
+      const readingLine = Math.min(window.innerHeight * 0.3, 220);
+      const visibleItems = answerBlocks
+        .map(block => ({ block, element: document.getElementById(block.id) }))
+        .filter((item): item is { block: LocalExamBlock; element: HTMLElement } => item.element instanceof HTMLElement)
+        .map(item => ({ ...item, rect: item.element.getBoundingClientRect() }));
+      const next = visibleItems.find(item => item.rect.top <= readingLine && item.rect.bottom > readingLine)
+        ?? visibleItems.find(item => item.rect.top > readingLine);
+
+      if (next) {
+        setCurrentBlockId(next.block.id);
+      } else {
+        setCurrentBlockId(answerBlocks.at(-1)?.id ?? null);
+      }
+    };
+
+    updateCurrentQuestion();
+    window.addEventListener("scroll", updateCurrentQuestion, { passive: true });
+    window.addEventListener("resize", updateCurrentQuestion);
+    return () => {
+      window.removeEventListener("scroll", updateCurrentQuestion);
+      window.removeEventListener("resize", updateCurrentQuestion);
+    };
+  }, [blocks]);
 
   const navItems = useMemo(
     () => blocks.map((block, index) => ({ block, index })).filter(({ block }) => isAnswerBlock(block)),
@@ -123,6 +156,7 @@ export function QuestionNav({ blocks, answers }: QuestionNavProps) {
                 type="button"
                 className={`student-question-nav-item ${statusClass}`}
                 aria-label={`Pregunta ${number}: ${statusLabel}`}
+                aria-current={currentBlockId === block.id ? "location" : undefined}
                 onClick={() => scrollBlockIntoView(block.id)}
               >
                 <span className="student-nav-number">{number}</span>
