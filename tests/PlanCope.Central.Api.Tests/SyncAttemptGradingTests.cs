@@ -56,6 +56,94 @@ public sealed class SyncAttemptGradingTests
     }
 
     [Fact]
+    public async Task Push_with_session_block_creates_session_and_rollup_and_duplicate_is_idempotent()
+    {
+        using var dbContext = CreateDbContext();
+        var exam = MakeExam("session-exam");
+        var version = MakeVersion("session-version", exam.Id, "AllOrNothing");
+        var block = MakeBlock("session-block", version.Id);
+        SeedExam(dbContext, exam, version, block, MakeAnswerKey("session-key", block.Id, "[\"B\"]", 1m));
+        SeedRoster(dbContext, "session-section");
+        await dbContext.SaveChangesAsync();
+
+        var item = CreateAttemptItem("session-key-1", "session-attempt", version.Id,
+            new[] { MakeAnswerPayload("session-attempt", block.Id, "[\"B\"]") },
+            new { id = "session-1", schoolCue = "180000100", schoolYear = "2026", course = "6to A", sectionId = "session-section", examVersionId = version.Id, startedAt = Now.ToString("O"), closedAt = Now.ToString("O") },
+            "session-section");
+        var first = await PushAsync(dbContext, item);
+        var duplicate = await PushAsync(dbContext, item);
+        var updatedSessionItem = CreateAttemptItem("session-key-2", "session-attempt-2", null,
+            Array.Empty<object>(),
+            new { id = "session-1", schoolCue = "180000101", schoolYear = "2026", course = "6to A", sectionId = "session-section", examVersionId = version.Id, startedAt = Now.ToString("O"), closedAt = Now.AddMinutes(5).ToString("O") },
+            "session-section");
+        var update = await PushAsync(dbContext, updatedSessionItem);
+
+        Assert.Equal("accepted", first.Results.Single().Status);
+        Assert.Equal("duplicate", duplicate.Results.Single().Status);
+        Assert.Equal("accepted", update.Results.Single().Status);
+        var session = await dbContext.DeliverySessions.SingleAsync();
+        Assert.Equal("180000101", session.SchoolId);
+        Assert.Equal(version.Id, session.ExamVersionId);
+        Assert.Equal(Now.AddMinutes(5), session.EndedAt);
+        Assert.Equal(2, await dbContext.ReceivedStudentAttempts.CountAsync());
+        var rollup = await dbContext.ExamRollups.SingleAsync();
+        Assert.Equal(1, rollup.AttemptCount);
+        Assert.Equal("6to A", rollup.Course);
+    }
+
+    [Fact]
+    public async Task Legacy_push_without_session_block_uses_roster_section_snapshot_cue()
+    {
+        using var dbContext = CreateDbContext();
+        var exam = MakeExam("legacy-exam");
+        var version = MakeVersion("legacy-version", exam.Id, "AllOrNothing");
+        var block = MakeBlock("legacy-block", version.Id);
+        SeedExam(dbContext, exam, version, block, MakeAnswerKey("legacy-key", block.Id, "[\"B\"]", 1m));
+        SeedRoster(dbContext, "legacy-section");
+        await dbContext.SaveChangesAsync();
+
+        var item = CreateAttemptItem("legacy-push-key", "legacy-attempt", version.Id,
+            new[] { MakeAnswerPayload("legacy-attempt", block.Id, "[\"B\"]") }, rosterSectionId: "legacy-section");
+        var response = await PushAsync(dbContext, item);
+
+        Assert.Equal("accepted", response.Results.Single().Status);
+        var rollup = await dbContext.ExamRollups.SingleAsync();
+        Assert.Equal("180000100", rollup.Cue);
+        Assert.Equal("2026", rollup.SchoolYear);
+        Assert.Equal("6to A", rollup.Course);
+    }
+
+    [Fact]
+    public async Task Rollup_rebuild_reproduces_existing_aggregates()
+    {
+        using var dbContext = CreateDbContext();
+        var exam = MakeExam("rebuild-exam");
+        var version = MakeVersion("rebuild-version", exam.Id, "AllOrNothing");
+        var block = MakeBlock("rebuild-block", version.Id);
+        SeedExam(dbContext, exam, version, block, MakeAnswerKey("rebuild-key", block.Id, "[\"B\"]", 1m));
+        SeedRoster(dbContext, "rebuild-section");
+        await dbContext.SaveChangesAsync();
+        var item = CreateAttemptItem("rebuild-push-key", "rebuild-attempt", version.Id,
+            new[] { MakeAnswerPayload("rebuild-attempt", block.Id, "[\"B\"]") }, rosterSectionId: "rebuild-section");
+        await PushAsync(dbContext, item);
+
+        var before = await dbContext.ExamRollups.AsNoTracking().SingleAsync();
+        var rebuilt = await new CentralStatsRollupService(dbContext).RebuildAllAsync();
+        var after = await dbContext.ExamRollups.AsNoTracking().SingleAsync();
+
+        Assert.Equal(1, rebuilt);
+        Assert.Equal(before.Cue, after.Cue);
+        Assert.Equal(before.SchoolYear, after.SchoolYear);
+        Assert.Equal(before.Course, after.Course);
+        Assert.Equal(before.ExamVersionId, after.ExamVersionId);
+        Assert.Equal(before.AttemptCount, after.AttemptCount);
+        Assert.Equal(before.ScoreSum, after.ScoreSum);
+        Assert.Equal(before.ScoreMaxSum, after.ScoreMaxSum);
+        var blockAfter = await dbContext.ExamRollupBlocks.SingleAsync();
+        Assert.Equal(1, blockAfter.CorrectCount);
+    }
+
+    [Fact]
     public async Task Attempt_against_no_policy_exam_is_accepted_and_marked_ungradable()
     {
         using var dbContext = CreateDbContext();
@@ -195,11 +283,26 @@ public sealed class SyncAttemptGradingTests
         return Assert.IsType<PushResponse>(okResult.Value);
     }
 
+    private static void SeedRoster(PlanCopeDbContext dbContext, string sectionId)
+    {
+        dbContext.GeRosterSnapshots.Add(new GeRosterSnapshot
+        {
+            Id = $"snapshot-{sectionId}", Cue = "180000100", SchoolYear = "2026", FetchedAt = Now,
+            Checksum = "test", SectionCount = 1, StudentCount = 1, Status = "current"
+        });
+        dbContext.GeRosterSections.Add(new GeRosterSection
+        {
+            Id = sectionId, SnapshotId = $"snapshot-{sectionId}", Course = "6to A"
+        });
+    }
+
     private static PushItem CreateAttemptItem(
         string idempotencyKey,
         string attemptId,
         string? examVersionRemoteId,
-        IReadOnlyList<object> answers)
+        IReadOnlyList<object> answers,
+        object? deliverySession = null,
+        string? rosterSectionId = null)
     {
         var payloadObject = new Dictionary<string, object?>
         {
@@ -220,6 +323,8 @@ public sealed class SyncAttemptGradingTests
         {
             payloadObject["examVersionRemoteId"] = examVersionRemoteId;
         }
+        if (deliverySession is not null) payloadObject["deliverySession"] = deliverySession;
+        if (rosterSectionId is not null) payloadObject["rosterSectionId"] = rosterSectionId;
 
         var payload = JsonSerializer.SerializeToElement(payloadObject);
         return new PushItem(

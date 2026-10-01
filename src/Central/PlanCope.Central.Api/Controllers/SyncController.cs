@@ -262,6 +262,7 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
         DateTimeOffset? verifiedAt = ParseOptionalDate(attempt.VerifiedAt);
         var receivedAt = DateTimeOffset.UtcNow;
         var receivedAttemptId = Guid.NewGuid().ToString("N");
+        UpsertDeliverySession(payload, receivedAt);
         dbContext.ReceivedStudentAttempts.Add(new ReceivedStudentAttempt(
             receivedAttemptId,
             attempt.Id,
@@ -310,6 +311,48 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
         if (examVersionRemoteId is not null)
         {
             await RecomputeGradeAsync(receivedAttemptId, examVersionRemoteId, receivedAnswers, cancellationToken);
+        }
+    }
+
+    private void UpsertDeliverySession(JsonElement payload, DateTimeOffset receivedAt)
+    {
+        if (!payload.TryGetProperty("deliverySession", out var sessionElement) ||
+            sessionElement.ValueKind is not JsonValueKind.Object)
+        {
+            return;
+        }
+
+        var id = ReadOptionalString(sessionElement, "id");
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return;
+        }
+
+        var schoolCueValue = ReadOptionalString(sessionElement, "schoolCue");
+        var schoolCue = CueCode.TryNormalize(schoolCueValue, out var normalizedCue) ? normalizedCue : null;
+        var startedAt = ParseOptionalDate(ReadOptionalString(sessionElement, "startedAt"));
+        var closedAt = ParseOptionalDate(ReadOptionalString(sessionElement, "closedAt"));
+        var existing = dbContext.DeliverySessions.Local.FirstOrDefault(session => session.Id == id);
+        existing ??= dbContext.DeliverySessions.Find(id);
+        var session = new CentralDeliverySession(
+            id,
+            id,
+            schoolCue,
+            ReadOptionalString(sessionElement, "examVersionId"),
+            null,
+            null,
+            closedAt is null ? "open" : "closed",
+            startedAt,
+            closedAt,
+            receivedAt,
+            existing?.CreatedAt ?? receivedAt);
+        if (existing is null)
+        {
+            dbContext.DeliverySessions.Add(session);
+        }
+        else
+        {
+            dbContext.Entry(existing).CurrentValues.SetValues(session);
         }
     }
 

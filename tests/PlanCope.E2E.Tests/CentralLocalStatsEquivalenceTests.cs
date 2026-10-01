@@ -16,6 +16,8 @@ using PlanCope.Local.Api.Data;
 using PlanCope.Local.Api.Data.Repositories;
 using PlanCope.Shared.Domain;
 using PlanCope.Shared.Domain.Central;
+using PlanCope.Shared.Contracts.Sync;
+using PlanCope.Shared.Infrastructure.Validation;
 using PlanCope.Shared.Grading;
 using PlanCope.TestSupport;
 using Xunit;
@@ -73,9 +75,10 @@ public sealed class CentralLocalStatsEquivalenceTests
         var options = CreateOptions();
         using var dbContext = new PlanCopeDbContext(options);
         await SeedCentralAttemptAsync(dbContext);
+        var receivedAttemptId = await PushCentralAttemptAsync(dbContext);
 
         await new CentralStatsRollupService(dbContext).UpsertForAttemptAsync(
-            "attempt-equiv-1",
+            receivedAttemptId,
             new AttemptResult
             {
                 ExamVersionId = ExamVersionId,
@@ -189,32 +192,46 @@ public sealed class CentralLocalStatsEquivalenceTests
             SnapshotId = "snap-equiv-1",
             Course = Course
         });
-        dbContext.DeliverySessions.Add(new CentralDeliverySession(
-            "ds-equiv-1",
-            "ds-equiv-1-local",
-            Cue,
-            ExamVersionId,
-            null,
-            null,
-            "closed",
-            Now,
-            null,
-            Now,
-            Now));
-        dbContext.ReceivedStudentAttempts.Add(new ReceivedStudentAttempt(
-            "attempt-equiv-1",
-            "attempt-equiv-1-local",
-            "ds-equiv-1",
-            "student-1",
-            "submitted",
-            Now,
-            Now,
-            Now,
-            "idem-equiv-1",
-            Now,
-            RosterSectionId: "sec-equiv-1"));
-
         await dbContext.SaveChangesAsync();
+    }
+
+    private static async Task<string> PushCentralAttemptAsync(PlanCopeDbContext dbContext)
+    {
+        var payload = JsonSerializer.SerializeToElement(new
+        {
+            attempt = new
+            {
+                id = "attempt-equiv-1-local",
+                deliverySessionId = "ds-equiv-1",
+                studentCode = "student-1",
+                status = "submitted",
+                startedAt = Now.ToString("O"),
+                submittedAt = Now.ToString("O"),
+                localSequence = 1,
+                confirmationCode = "EQV1"
+            },
+            rosterSectionId = "sec-equiv-1",
+            rosterSnapshotId = "snap-equiv-1",
+            deliverySession = new
+            {
+                id = "ds-equiv-1",
+                schoolCue = Cue,
+                schoolYear = SchoolYear,
+                sectionId = "sec-equiv-1",
+                examVersionId = ExamVersionId,
+                startedAt = Now.ToString("O"),
+                closedAt = Now.ToString("O")
+            },
+            answers = Array.Empty<object>()
+        });
+        var item = new PushItem("idem-equiv-1", "attempt_submitted", "student_attempt",
+            "attempt-equiv-1-local", payload, SyncPayloadChecksum.Calculate(payload), Now.ToString("O"));
+        var controller = new SyncController(dbContext, new CentralStatsRollupService(dbContext));
+        SyncTestPrincipals.BindNode(controller, "node-equiv-1");
+        var response = await controller.Push(new PushRequest("node-equiv-1", new[] { item }), "node-equiv-1",
+            new PushRequestValidator(), CancellationToken.None);
+        Assert.Equal("accepted", Assert.IsType<PushResponse>(Assert.IsType<OkObjectResult>(response.Result).Value).Results.Single().Status);
+        return (await dbContext.ReceivedStudentAttempts.SingleAsync()).Id;
     }
 
     private static void Execute(SqliteConnection connection, SqliteTransaction transaction, string sql, params (string Name, object? Value)[] parameters)

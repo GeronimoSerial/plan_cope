@@ -1,13 +1,25 @@
 using Microsoft.EntityFrameworkCore;
 using PlanCope.Central.Api.Data;
 using PlanCope.Shared.Domain.Central;
+using PlanCope.Shared.Domain.ValueObjects;
 using PlanCope.Shared.Grading;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace PlanCope.Central.Api.Services;
 
-public sealed class CentralStatsRollupService(PlanCopeDbContext dbContext)
+public sealed class CentralStatsRollupService(PlanCopeDbContext dbContext, ILogger<CentralStatsRollupService> logger)
 {
     private const string UnassignedCourse = "sin_asignar";
+    private static readonly JsonSerializerOptions RollupJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new JsonStringEnumConverter() }
+    };
+
+    public CentralStatsRollupService(PlanCopeDbContext dbContext)
+        : this(dbContext, Microsoft.Extensions.Logging.Abstractions.NullLogger<CentralStatsRollupService>.Instance)
+    {
+    }
 
     public async Task UpsertForAttemptAsync(
         string receivedStudentAttemptId,
@@ -19,15 +31,9 @@ public sealed class CentralStatsRollupService(PlanCopeDbContext dbContext)
         // tracker-aware lookup is required here; a plain query would not see the pending row.
         var attempt = await dbContext.ReceivedStudentAttempts
             .FindAsync([receivedStudentAttemptId], cancellationToken);
-        if (attempt?.DeliverySessionId is null || attempt.RosterSectionId is null)
+        if (attempt is null || attempt.RosterSectionId is null)
         {
-            return;
-        }
-
-        var deliverySession = await dbContext.DeliverySessions
-            .SingleOrDefaultAsync(x => x.Id == attempt.DeliverySessionId, cancellationToken);
-        if (deliverySession?.SchoolId is null)
-        {
+            logger.LogInformation("Cannot attribute Central attempt {AttemptId}: delivery session or roster section is missing.", receivedStudentAttemptId);
             return;
         }
 
@@ -35,17 +41,28 @@ public sealed class CentralStatsRollupService(PlanCopeDbContext dbContext)
             .SingleOrDefaultAsync(x => x.Id == attempt.RosterSectionId, cancellationToken);
         if (section is null)
         {
+            logger.LogInformation("Cannot attribute Central attempt {AttemptId}: roster section {RosterSectionId} was not found.", receivedStudentAttemptId, attempt.RosterSectionId);
             return;
         }
 
         var snapshot = await dbContext.GeRosterSnapshots
             .SingleOrDefaultAsync(x => x.Id == section.SnapshotId, cancellationToken);
-        if (snapshot is null || string.IsNullOrWhiteSpace(snapshot.SchoolYear))
+        if (snapshot is null || string.IsNullOrWhiteSpace(snapshot.SchoolYear) || !CueCode.TryNormalize(snapshot.Cue, out var rosterCue))
         {
+            logger.LogInformation("Cannot attribute Central attempt {AttemptId}: roster snapshot {RosterSnapshotId} has no valid CUE or school year.", receivedStudentAttemptId, section.SnapshotId);
             return;
         }
 
-        var cue = deliverySession.SchoolId;
+        var deliverySession = attempt.DeliverySessionId is null
+            ? null
+            : dbContext.DeliverySessions.Local.FirstOrDefault(x => x.Id == attempt.DeliverySessionId)
+                ?? await dbContext.DeliverySessions.SingleOrDefaultAsync(x => x.Id == attempt.DeliverySessionId, cancellationToken);
+        var cue = CueCode.TryNormalize(deliverySession?.SchoolId, out var sessionCue) ? sessionCue : rosterCue;
+        if (deliverySession?.SchoolId is not null && cue == rosterCue && !CueCode.TryNormalize(deliverySession.SchoolId, out _))
+        {
+            logger.LogDebug("Central attempt {AttemptId} has an invalid session CUE; using roster snapshot {RosterSnapshotId}.", receivedStudentAttemptId, section.SnapshotId);
+        }
+
         var schoolYear = snapshot.SchoolYear;
         var course = string.IsNullOrWhiteSpace(section.Course) ? UnassignedCourse : section.Course;
         var now = DateTimeOffset.UtcNow;
@@ -124,5 +141,77 @@ public sealed class CentralStatsRollupService(PlanCopeDbContext dbContext)
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<int> RebuildAllAsync(CancellationToken cancellationToken = default)
+    {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        var attempts = await dbContext.ReceivedStudentAttempts.AsNoTracking().ToListAsync(cancellationToken);
+        var storedResults = await dbContext.CentralAttemptResults.AsNoTracking()
+            .Where(result => result.Status == "graded" && result.Score != null && result.ScoreMax != null && result.BlocksJson != null)
+            .ToListAsync(cancellationToken);
+        var results = storedResults
+            .GroupBy(result => result.ReceivedStudentAttemptId)
+            .Select(group => group.MaxBy(result => result.GradedAt)!)
+            .OrderBy(result => result.GradedAt)
+            .ToList();
+
+        dbContext.ExamRollupBlocks.RemoveRange(await dbContext.ExamRollupBlocks.ToListAsync(cancellationToken));
+        dbContext.ExamRollups.RemoveRange(await dbContext.ExamRollups.ToListAsync(cancellationToken));
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        var attemptsById = attempts.ToDictionary(attempt => attempt.Id);
+        var rebuilt = 0;
+        foreach (var resultRow in results)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!attemptsById.TryGetValue(resultRow.ReceivedStudentAttemptId, out var attempt)) continue;
+            List<BlockResult>? blocks;
+            try
+            {
+                blocks = resultRow.BlocksJson!.RootElement.Deserialize<List<BlockResult>>(RollupJsonOptions);
+            }
+            catch (JsonException)
+            {
+                logger.LogWarning("Skipping Central rollup rebuild for attempt {AttemptId}: stored grade blocks could not be read.", attempt.Id);
+                continue;
+            }
+
+            if (blocks is null) continue;
+            var examVersionId = attempt.DeliverySessionId is null
+                ? null
+                : await dbContext.DeliverySessions.AsNoTracking()
+                    .Where(session => session.Id == attempt.DeliverySessionId)
+                    .Select(session => session.ExamVersionId)
+                    .SingleOrDefaultAsync(cancellationToken);
+            if (string.IsNullOrWhiteSpace(examVersionId))
+            {
+                var inboxPayload = await dbContext.SyncInbox.AsNoTracking()
+                    .Where(inbox => inbox.AggregateId == attempt.RemoteLocalId)
+                    .Select(inbox => inbox.Payload)
+                    .SingleOrDefaultAsync(cancellationToken);
+                if (inboxPayload is not null && inboxPayload.RootElement.TryGetProperty("examVersionRemoteId", out var versionElement))
+                {
+                    examVersionId = versionElement.GetString();
+                }
+            }
+            if (string.IsNullOrWhiteSpace(examVersionId))
+            {
+                logger.LogInformation("Cannot rebuild Central rollup for attempt {AttemptId}: exam version is missing.", attempt.Id);
+                continue;
+            }
+
+            await UpsertForAttemptAsync(attempt.Id, new AttemptResult
+            {
+                ExamVersionId = examVersionId,
+                Score = resultRow.Score!.Value,
+                ScoreMax = resultRow.ScoreMax!.Value,
+                Blocks = blocks
+            }, examVersionId, cancellationToken);
+            rebuilt++;
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return rebuilt;
     }
 }

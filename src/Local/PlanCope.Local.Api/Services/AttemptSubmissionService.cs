@@ -33,6 +33,7 @@ public sealed class AttemptSubmissionService(
         var confirmationCode = Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
         var answers = await attemptRepository.GetAnswersAsync(attemptId, cancellationToken);
         var examVersion = await examRepository.GetByIdAsync(session.ExamVersionId, cancellationToken);
+        var course = await GetRosterCourseAsync(session.RosterSectionId, cancellationToken);
         var blocks = examVersion is null ? Array.Empty<LocalExamBlock>() : await examRepository.GetBlocksAsync(examVersion.Id, cancellationToken);
         var answerKeys = examVersion is null ? Array.Empty<LocalAnswerKey>() : await examRepository.GetAnswerKeysAsync(examVersion.Id, cancellationToken);
         var grading = GradeAttempt(examVersion, blocks, answerKeys, answers);
@@ -42,7 +43,18 @@ public sealed class AttemptSubmissionService(
             answers,
             rosterSnapshotId = session.RosterSnapshotId,
             rosterSectionId = session.RosterSectionId,
-            examVersionRemoteId = examVersion?.RemoteExamVersionId
+            examVersionRemoteId = examVersion?.RemoteExamVersionId,
+            deliverySession = new
+            {
+                id = session.Id,
+                schoolCue = session.SchoolCode,
+                schoolYear = session.SchoolYear,
+                course,
+                sectionId = session.RosterSectionId,
+                examVersionId = examVersion?.RemoteExamVersionId,
+                startedAt = session.StartAt,
+                closedAt = session.EndAt
+            }
         }, SyncJsonOptions);
         var submitted = await attemptRepository.SubmitWithOutboxAsync(attemptId, submittedAt, confirmationCode, new SyncOutbox(
             Guid.NewGuid().ToString(), SyncEventTypes.AttemptSubmitted, "student_attempt", attemptId, Guid.NewGuid().ToString(),
@@ -99,6 +111,7 @@ public sealed class AttemptSubmissionService(
         var attempt = await attemptRepository.GetByIdAsync(attemptId, cancellationToken);
         if (attempt is null || attempt.SubmittedAt is not null) return false;
         var session = await sessionRepository.GetByIdAsync(attempt.DeliverySessionId, cancellationToken);
+        var course = await GetRosterCourseAsync(session?.RosterSectionId, cancellationToken);
         var answers = await attemptRepository.GetAnswersAsync(attemptId, cancellationToken);
         var submittedAt = DateTimeOffset.UtcNow.ToString("O");
         var confirmationCode = Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
@@ -109,7 +122,18 @@ public sealed class AttemptSubmissionService(
             answers,
             rosterSnapshotId = session?.RosterSnapshotId,
             rosterSectionId = session?.RosterSectionId,
-            examVersionRemoteId = (string?)null
+            examVersionRemoteId = (string?)null,
+            deliverySession = session is null ? null : new
+            {
+                id = session.Id,
+                schoolCue = session.SchoolCode,
+                schoolYear = session.SchoolYear,
+                course,
+                sectionId = session.RosterSectionId,
+                examVersionId = (string?)null,
+                startedAt = session.StartAt,
+                closedAt = session.EndAt
+            }
         }, SyncJsonOptions);
         var outbox = new SyncOutbox(Guid.NewGuid().ToString(), SyncEventTypes.AttemptSubmitted,
             "student_attempt", attemptId, Guid.NewGuid().ToString(), payload, "pending", 0, null, null, submittedAt, null);
@@ -151,6 +175,16 @@ public sealed class AttemptSubmissionService(
             return GradingOutcome.Graded(result, gradedAt);
         }
         catch (UngradableExamException) { return GradingOutcome.Ungradable(gradedAt); }
+    }
+
+    private async Task<string?> GetRosterCourseAsync(string? sectionId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(sectionId)) return null;
+        using var connection = connectionFactory.CreateOpenConnection();
+        return await Dapper.SqlMapper.QuerySingleOrDefaultAsync<string>(connection, new Dapper.CommandDefinition(
+            "SELECT course FROM local_roster_sections WHERE id = @SectionId LIMIT 1;",
+            new { SectionId = sectionId },
+            cancellationToken: cancellationToken));
     }
 
     private static JsonElement? ParseJsonElement(string? json)
