@@ -27,7 +27,7 @@ public interface ISessionRepository
 
     Task<IReadOnlyList<SessionListItem>> GetActiveSummariesAsync(string? schoolCode, CancellationToken cancellationToken = default);
 
-    Task<SessionHistoryPage> GetHistoryAsync(string? schoolCode, string? status, int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<SessionHistoryPage> GetHistoryAsync(string? schoolCode, string? status, string? query, int page, int pageSize, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<LocalSchoolListItem>> GetSchoolsAsync(CancellationToken cancellationToken = default);
 

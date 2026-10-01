@@ -56,6 +56,14 @@ public sealed class LocalSessionFlowTests
         Assert.Equal(1, filtered.GetProperty("totalCount").GetInt32());
         Assert.Equal(open.Id, filtered.GetProperty("items")[0].GetProperty("id").GetString());
 
+        factory.SetSchoolName("180055400", "Escuela Álamo");
+        foreach (var query in new[] { "alamo", "180055400", open.AccessCode.Replace("-", ""), "manana" })
+        {
+            var searched = await client.GetFromJsonAsync<JsonElement>($"/api/sessions/history?q={Uri.EscapeDataString(query)}&pageSize=1");
+            Assert.Equal(1, searched.GetProperty("totalCount").GetInt32());
+            Assert.Equal(open.Id, searched.GetProperty("items")[0].GetProperty("id").GetString());
+        }
+
         var schoolsResponse = await client.GetAsync("/api/schools");
         Assert.True(schoolsResponse.IsSuccessStatusCode, await schoolsResponse.Content.ReadAsStringAsync());
         var schools = (await schoolsResponse.Content.ReadFromJsonAsync<JsonElement>()).Clone();

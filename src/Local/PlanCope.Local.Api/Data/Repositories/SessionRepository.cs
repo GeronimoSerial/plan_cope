@@ -1,5 +1,6 @@
 using Dapper;
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using PlanCope.Local.Api.Services;
 using PlanCope.Shared.Domain.Local;
@@ -113,7 +114,7 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         return rows.Select(ToListItem).ToList();
     }
 
-    public async Task<SessionHistoryPage> GetHistoryAsync(string? schoolCode, string? status, int page, int pageSize, CancellationToken cancellationToken = default)
+    public async Task<SessionHistoryPage> GetHistoryAsync(string? schoolCode, string? status, string? query, int page, int pageSize, CancellationToken cancellationToken = default)
     {
         const string sql = """
             WITH filtered AS (
@@ -140,21 +141,41 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
                 LEFT JOIN local_roster_sections section ON section.id = s.roster_section_id AND section.snapshot_id = s.roster_snapshot_id
                 WHERE (@SchoolCode IS NULL OR s.school_code = @SchoolCode)
                   AND (@Status IS NULL OR s.status = @Status)
+                  AND (@Query IS NULL OR instr(replace(lower(s.access_code), '-', ''), replace(@Query, '-', '')) > 0
+                    OR instr(lower(s.school_code), @Query) > 0
+                    OR instr(replace(replace(replace(replace(replace(replace(replace(lower(replace(COALESCE(NULLIF(sc.name, ''), NULLIF(rs.school_name, ''), 'CUE ' || s.school_code), 'Á', 'á')), 'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u'),'ñ','n'),'ü','u'), @Query) > 0
+                    OR instr(replace(replace(replace(replace(replace(replace(replace(lower(COALESCE(json_extract(ev.metadata_json, '$.title'), ev.exam_code)), 'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u'),'ñ','n'),'ü','u'), @Query) > 0
+                    OR instr(replace(replace(replace(replace(replace(replace(replace(lower(COALESCE(section.course, json_extract(ev.metadata_json, '$.grade'), '')), 'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u'),'ñ','n'),'ü','u'), @Query) > 0
+                    OR instr(replace(replace(replace(replace(replace(replace(replace(lower(COALESCE(section.division, json_extract(ev.metadata_json, '$.division'), '')), 'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u'),'ñ','n'),'ü','u'), @Query) > 0
+                    OR instr(replace(replace(replace(replace(replace(replace(replace(lower(COALESCE(section.shift, '')), 'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u'),'ñ','n'),'ü','u'), @Query) > 0)
             )
             SELECT * FROM filtered ORDER BY StartAt DESC, Id DESC LIMIT @PageSize OFFSET @Offset;
             """;
         using var connection = connectionFactory.CreateOpenConnection();
         var statusFilter = NormalizeOptionalStatus(status);
         var schoolFilter = NormalizeOptionalCue(schoolCode);
+        var queryFilter = NormalizeSearchQuery(query);
         using var results = await connection.QueryMultipleAsync(new CommandDefinition($"""
             SELECT COUNT(*) FROM delivery_sessions s
+            JOIN local_exam_versions ev ON ev.id = s.exam_version_id
+            LEFT JOIN schools sc ON sc.cue = s.school_code
+            LEFT JOIN local_roster_snapshots rs ON rs.id = s.roster_snapshot_id
+            LEFT JOIN local_roster_sections section ON section.id = s.roster_section_id AND section.snapshot_id = s.roster_snapshot_id
             WHERE (@SchoolCode IS NULL OR s.school_code = @SchoolCode)
-              AND (@Status IS NULL OR s.status = @Status);
+              AND (@Status IS NULL OR s.status = @Status)
+              AND (@Query IS NULL OR instr(replace(lower(s.access_code), '-', ''), replace(@Query, '-', '')) > 0
+                OR instr(lower(s.school_code), @Query) > 0
+                OR instr(replace(replace(replace(replace(replace(replace(replace(lower(replace(COALESCE(NULLIF(sc.name, ''), NULLIF(rs.school_name, ''), 'CUE ' || s.school_code), 'Á', 'á')), 'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u'),'ñ','n'),'ü','u'), @Query) > 0
+                OR instr(replace(replace(replace(replace(replace(replace(replace(lower(COALESCE(json_extract(ev.metadata_json, '$.title'), ev.exam_code)), 'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u'),'ñ','n'),'ü','u'), @Query) > 0
+                OR instr(replace(replace(replace(replace(replace(replace(replace(lower(COALESCE(section.course, json_extract(ev.metadata_json, '$.grade'), '')), 'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u'),'ñ','n'),'ü','u'), @Query) > 0
+                OR instr(replace(replace(replace(replace(replace(replace(replace(lower(COALESCE(section.division, json_extract(ev.metadata_json, '$.division'), '')), 'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u'),'ñ','n'),'ü','u'), @Query) > 0
+                OR instr(replace(replace(replace(replace(replace(replace(replace(lower(COALESCE(section.shift, '')), 'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u'),'ñ','n'),'ü','u'), @Query) > 0);
             {sql}
             """, new
         {
             SchoolCode = schoolFilter,
             Status = statusFilter,
+            Query = queryFilter,
             PageSize = pageSize,
             Offset = (page - 1) * pageSize
         }, cancellationToken: cancellationToken));
@@ -199,6 +220,15 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
     }
 
     private static string? NormalizeOptionalCue(string? cue) => string.IsNullOrWhiteSpace(cue) ? null : CueCode.Normalize(cue);
+
+    private static string? NormalizeSearchQuery(string? query)
+    {
+        if (string.IsNullOrWhiteSpace(query)) return null;
+        var trimmed = query.Trim();
+        if (trimmed.Length < 2) return null;
+        var decomposed = trimmed.Normalize(NormalizationForm.FormD);
+        return new string(decomposed.Where(character => CharUnicodeInfo.GetUnicodeCategory(character) != UnicodeCategory.NonSpacingMark).ToArray()).ToLowerInvariant();
+    }
 
     private static string? NormalizeOptionalStatus(string? status) => string.IsNullOrWhiteSpace(status) ? null : status.Trim().ToLowerInvariant() switch
     {
