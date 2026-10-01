@@ -20,7 +20,7 @@ function student(overrides: Partial<SessionStudentProgress> & Pick<SessionStuden
 function progress(overrides: Partial<SessionProgress> = {}): SessionProgress {
   return {
     sessionId: session.id, accessCode: session.accessCode, expectedStudentCount: 2, startedCount: 1, submittedCount: 0,
-    inProgressCount: 1, completionPercentage: 0,
+    inProgressCount: 1, offRosterSubmittedCount: 0, offRosterInProgressCount: 0, completionPercentage: 0,
     students: [student({ id: "missing", displayName: "Brenda Missing", status: "not_started" }), student({ id: "working", displayName: "Ana Working", status: "in_progress", maskedDocument: "•••456" })],
     gradeLabel: "6° A · Turno mañana", course: "6°", division: "A", shift: "Mañana", level: "Primario", ...overrides
   };
@@ -59,6 +59,21 @@ describe("ActiveSessionPanel", () => {
     expect(view.textContent).toContain("Faltan1");
     expect(view.querySelector("table")?.querySelectorAll("th")).toHaveLength(4);
     expect(view.textContent).toContain("•••456");
+  });
+
+  it("keeps off-roster submissions outside the roster completion counter", () => {
+    const view = render(progress({
+      expectedStudentCount: 20,
+      startedCount: 19,
+      submittedCount: 19,
+      offRosterSubmittedCount: 1,
+      inProgressCount: 0,
+      offRosterInProgressCount: 0,
+      completionPercentage: 95
+    }));
+
+    expect(view.textContent).toContain("19 / 20+1 fuera de padrón");
+    expect(view.textContent).toContain("95% completado");
   });
 
   it("filters nominal students by missing status", () => {

@@ -12,6 +12,8 @@ function progress(overrides: Partial<SessionProgress> = {}): SessionProgress {
     startedCount: 10,
     submittedCount: 2,
     inProgressCount: 5,
+    offRosterSubmittedCount: 0,
+    offRosterInProgressCount: 0,
     completionPercentage: 10,
     students: [],
     gradeLabel: null,

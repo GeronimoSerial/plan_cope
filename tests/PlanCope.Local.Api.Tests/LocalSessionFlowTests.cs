@@ -115,6 +115,55 @@ public sealed class LocalSessionFlowTests
     }
 
     [Fact]
+    public async Task Roster_completion_excludes_teacher_added_submissions_and_reports_them_separately()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
+        for (var index = 0; index < 20; index++)
+        {
+            var studentId = $"student-{index:D2}";
+            factory.SeedRosterStudent("snapshot-a", "section-a", studentId, 500 + index,
+                $"1000000{index:D2}", $"Nombre{index:D2}", $"Apellido{index:D2}");
+        }
+
+        var session = await CreateRosterSessionAsync(client, expectedStudentCount: 20);
+        for (var index = 0; index < 19; index++)
+        {
+            factory.SeedAttempt(session.Id, $"attempt-{index:D2}", $"student-{index:D2}", 500 + index,
+                "submitted", "2026-10-01T10:00:00Z", "2026-10-01T10:20:00Z");
+        }
+
+        var extraResponse = await client.PostAsJsonAsync($"/api/sessions/{session.Id}/extra-students",
+            new AddSessionExtraStudentRequest("98.765.432", "Bruno", "Díaz"));
+        Assert.Equal(HttpStatusCode.Created, extraResponse.StatusCode);
+        var extraId = (await extraResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString()!;
+        factory.SeedAttempt(session.Id, "attempt-extra", null, 999, "submitted", "2026-10-01T10:02:00Z",
+            "2026-10-01T10:21:00Z", "Bruno", "Díaz", extraId);
+
+        var progress = await client.GetFromJsonAsync<LocalSessionProgress>($"/api/sessions/{session.AccessCode}/progress");
+        Assert.NotNull(progress);
+        Assert.Equal(20, progress!.ExpectedStudentCount);
+        Assert.Equal(19, progress.StartedCount);
+        Assert.Equal(19, progress.SubmittedCount);
+        Assert.Equal(95, progress.CompletionPercentage);
+        Assert.Equal(1, progress.OffRosterSubmittedCount);
+
+        var active = await client.GetFromJsonAsync<JsonElement>("/api/sessions/active");
+        var activeItem = Assert.Single(active.EnumerateArray());
+        Assert.Equal(19, activeItem.GetProperty("submittedCount").GetInt32());
+        Assert.Equal(1, activeItem.GetProperty("offRosterSubmittedCount").GetInt32());
+        Assert.Equal(0, activeItem.GetProperty("offRosterInProgressCount").GetInt32());
+
+        var history = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history");
+        var historyItem = Assert.Single(history.GetProperty("items").EnumerateArray());
+        Assert.Equal(19, historyItem.GetProperty("submittedCount").GetInt32());
+        Assert.Equal(1, historyItem.GetProperty("offRosterSubmittedCount").GetInt32());
+    }
+
+    [Fact]
     public async Task Progress_sorts_accented_surnames_using_argentine_spanish_collation()
     {
         using var factory = new LocalApiFactory();
@@ -909,10 +958,10 @@ public sealed class LocalSessionFlowTests
         return session;
     }
 
-    private static async Task<LocalDeliverySession> CreateRosterSessionAsync(HttpClient client)
+    private static async Task<LocalDeliverySession> CreateRosterSessionAsync(HttpClient client, int expectedStudentCount = 2)
     {
         var response = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
-            LocalApiFactory.ExamVersionId, "180055400", "6 A", null, "Operador", 2, null,
+            LocalApiFactory.ExamVersionId, "180055400", "6 A", null, "Operador", expectedStudentCount, null,
             "2026", "snapshot-a", "section-a"));
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var session = await response.Content.ReadFromJsonAsync<LocalDeliverySession>();
@@ -1061,14 +1110,14 @@ public sealed class LocalSessionFlowTests
             command.ExecuteNonQuery();
         }
 
-        public void SeedAttempt(string sessionId, string attemptId, string? rosterStudentId, int gePersonId, string status, string startedAt, string? submittedAt = null, string? firstName = null, string? lastName = null)
+        public void SeedAttempt(string sessionId, string attemptId, string? rosterStudentId, int gePersonId, string status, string startedAt, string? submittedAt = null, string? firstName = null, string? lastName = null, string? extraStudentId = null)
         {
             using var connection = CreateConnection();
             using var command = connection.CreateCommand();
             command.CommandText = """
                 INSERT INTO student_attempts (id, delivery_session_id, student_code, status, started_at, submitted_at, local_sequence,
-                    roster_student_id, ge_person_id, student_first_name, student_last_name, document_last4)
-                VALUES ($id, $session, $id, $status, $started, $submitted, 1, $roster, $person, $first, $last, '9876');
+                    roster_student_id, ge_person_id, student_first_name, student_last_name, document_last4, extra_student_id)
+                VALUES ($id, $session, $id, $status, $started, $submitted, 1, $roster, $person, $first, $last, '9876', $extra);
                 """;
             command.Parameters.AddWithValue("$id", attemptId);
             command.Parameters.AddWithValue("$session", sessionId);
@@ -1079,6 +1128,7 @@ public sealed class LocalSessionFlowTests
             command.Parameters.AddWithValue("$person", gePersonId);
             command.Parameters.AddWithValue("$first", (object?)firstName ?? DBNull.Value);
             command.Parameters.AddWithValue("$last", (object?)lastName ?? DBNull.Value);
+            command.Parameters.AddWithValue("$extra", (object?)extraStudentId ?? DBNull.Value);
             command.ExecuteNonQuery();
         }
 

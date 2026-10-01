@@ -34,6 +34,8 @@ function progressChanged(previous: SessionProgress, next: SessionProgress): bool
   return (
     previous.submittedCount !== next.submittedCount ||
     previous.inProgressCount !== next.inProgressCount ||
+    previous.offRosterSubmittedCount !== next.offRosterSubmittedCount ||
+    previous.offRosterInProgressCount !== next.offRosterInProgressCount ||
     previous.completionPercentage !== next.completionPercentage ||
     previous.students.length !== next.students.length ||
     next.students.some(student => previousStatuses.get(student.id) !== student.status)

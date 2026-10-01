@@ -6,7 +6,8 @@ public sealed record SessionListItem(
     string Id, string ExamVersionId, string SchoolCode, string SchoolName, string ExamTitle,
     string? GradeLabel, string StartAt, string? EndAt, string Status, string AccessCode,
     int ExpectedStudentCount, int SubmittedCount, int InProgressCount,
-    string? RosterSnapshotId, string? RosterSectionId);
+    string? RosterSnapshotId, string? RosterSectionId,
+    int OffRosterSubmittedCount = 0, int OffRosterInProgressCount = 0);
 
 public sealed record SessionHistoryPage(IReadOnlyList<SessionListItem> Items, int Page, int PageSize, int TotalCount);
 

@@ -21,7 +21,7 @@ describe("SessionsWorkspace", () => {
   afterEach(() => { if (root) act(() => root?.unmount()); root = undefined; container?.remove(); container = undefined; vi.restoreAllMocks(); });
 
   it("shows multiple node sessions before a school is selected and waits for an explicit selection", () => {
-    const state = delivery([session("a", "180055400", "Escuela Norte"), session("b", "180055401", "Escuela Sur")]);
+    const state = delivery([session("a", "180055400", "Escuela Norte"), { ...session("b", "180055401", "Escuela Sur"), offRosterSubmittedCount: 1 }]);
     const view = render(state);
     expect(view.textContent).toContain("Escuela Norte");
     expect(view.textContent).toContain("Escuela Sur");
@@ -32,6 +32,8 @@ describe("SessionsWorkspace", () => {
     expect(view.querySelector(".node-session-card-copy > span")?.textContent).toBe("6° A · Turno mañana · Matemática 6");
     const firstCard = view.querySelector(".node-session-card")!;
     expect([...firstCard.querySelectorAll(".node-session-meta span")].map(item => item.textContent)).toEqual([expect.stringMatching(/^Inicio /), "Entregaron 4/20"]);
+    const secondCard = view.querySelectorAll(".node-session-card")[1];
+    expect([...secondCard.querySelectorAll(".node-session-meta span")].map(item => item.textContent)).toContain("Entregaron 4/20 +1 fuera de padrón");
     expect(view.querySelector(".node-session-card .button")?.textContent).toBe("Ver");
     expect(state.activeSession.selectSession).not.toHaveBeenCalled();
     button(view, "Ver").click();
@@ -72,13 +74,14 @@ describe("SessionsWorkspace", () => {
   });
 
   it("loads node history and applies school and status filters", async () => {
-    const historySession = { ...session("closed", "180055400", "Escuela Norte"), status: "closed", endAt: "2026-10-01T10:35:00Z" };
+    const historySession = { ...session("closed", "180055400", "Escuela Norte"), status: "closed", endAt: "2026-10-01T10:35:00Z", offRosterSubmittedCount: 1 };
     const historyLoader = vi.spyOn(ApiClient.prototype, "getSessionHistory").mockResolvedValue({ items: [historySession], page: 1, pageSize: 20, totalCount: 1 });
     const view = render(delivery([]), "history");
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(view.textContent).toContain("CODEclosed");
     expect(view.querySelector(".badge-neutral")?.textContent).toBe("Cerrada");
     expect(view.querySelector("td small")?.textContent).toMatch(/\d+ h \d+ min · hasta \d{2}:\d{2}/);
+    expect(view.querySelectorAll("tbody tr td")[5].textContent).toBe("4/20+1 fuera de padrón");
     const selects = view.querySelectorAll("select");
     act(() => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(selects[0], "180055400"); selects[0].dispatchEvent(new Event("change", { bubbles: true })); });
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });

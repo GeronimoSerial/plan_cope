@@ -83,7 +83,7 @@ export function SessionsWorkspace({ delivery, apiBaseUrl, tab, expiryPending, on
     {historyLoading ? <p role="status">Cargando historial…</p> : history.items.length ? <div className="student-table-wrap"><table className="student-table"><thead><tr><th>Fecha y horario</th><th>Escuela</th><th>Evaluación</th><th>Estado</th><th>Acceso</th><th>Entregaron</th><th></th></tr></thead><tbody>
       {history.items.map(item => <tr key={item.id}><td>{formatDate(item.startAt)} · {formatTime(item.startAt)}<small>{historyDuration(item.startAt, item.endAt)}</small></td>
         <td>{item.schoolName}<small>{item.gradeLabel || `CUE ${item.schoolCode}`}</small></td><td>{item.examTitle}</td><td><SessionStatusBadge status={item.status} /></td><td>{item.accessCode}</td>
-        <td>{item.submittedCount ?? 0}/{item.expectedStudentCount}</td><td><button type="button" className="button button-secondary" onClick={() => activeSession.selectSession(item)}>{item.status === "closed" ? "Ver" : "Abrir"}</button></td></tr>)}
+        <td>{item.submittedCount ?? 0}/{item.expectedStudentCount}{(item.offRosterSubmittedCount ?? 0) > 0 && <small>+{item.offRosterSubmittedCount} fuera de padrón</small>}</td><td><button type="button" className="button button-secondary" onClick={() => activeSession.selectSession(item)}>{item.status === "closed" ? "Ver" : "Abrir"}</button></td></tr>)}
     </tbody></table></div> : <p>No hay sesiones para estos filtros.</p>}
     <div className="stats-actions"><button type="button" className="button button-secondary" disabled={history.page <= 1 || historyLoading} onClick={() => setHistory({ ...history, page: history.page - 1 })}>Anterior</button>
       <span>Página {history.page} · {history.totalCount} sesiones</span><button type="button" className="button button-secondary" disabled={history.page * history.pageSize >= history.totalCount || historyLoading} onClick={() => setHistory({ ...history, page: history.page + 1 })}>Siguiente</button></div>
@@ -112,7 +112,7 @@ function SessionCard({ session, onOpen }: { session: LocalSession; onOpen: () =>
   return <article className="node-session-card"><div className="node-session-card-copy">
     <div className="node-session-card-heading"><strong>{session.schoolName || `CUE ${session.schoolCode}`}</strong><SessionStatusBadge status={session.status} /></div>
     <span>{grade && <>{grade} · </>}{session.examTitle || session.examVersionId}</span>
-    <div className="node-session-meta"><span>Inicio {formatTime(session.startAt)}</span><span>Entregaron {session.submittedCount ?? 0}/{session.expectedStudentCount}</span></div>
+    <div className="node-session-meta"><span>Inicio {formatTime(session.startAt)}</span><span>Entregaron {session.submittedCount ?? 0}/{session.expectedStudentCount}{(session.offRosterSubmittedCount ?? 0) > 0 && ` +${session.offRosterSubmittedCount} fuera de padrón`}</span></div>
   </div><button type="button" className="button button-secondary" onClick={onOpen}>Ver</button></article>;
 }
 function statusLabel(status: string) { return status === "paused" ? "Pausada" : status === "closed" ? "Cerrada" : "Abierta"; }

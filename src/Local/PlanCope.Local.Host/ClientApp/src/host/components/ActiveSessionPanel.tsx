@@ -43,9 +43,11 @@ function ActiveSessionContent({ progress, session, sessionLink, onStatusChange, 
   const previousSessionId = useRef<string | null>(null);
   const students = progress?.students ?? [];
   const nominal = progress?.hasRoster ?? (students.some(student => student.status === "not_started") || Boolean(session.rosterSnapshotId || session.rosterSectionId));
-  const submitted = progress?.submittedCount ?? students.filter(student => student.status === "submitted").length;
+  const submitted = progress?.submittedCount ?? students.filter(student => student.status === "submitted" && (!nominal || !student.offRoster)).length;
+  const offRosterSubmitted = progress?.offRosterSubmittedCount ?? (nominal ? students.filter(student => student.status === "submitted" && student.offRoster).length : 0);
   const expected = progress?.expectedStudentCount ?? session.expectedStudentCount;
-  const inProgress = progress?.inProgressCount ?? students.filter(student => student.status === "in_progress").length;
+  const inProgress = progress?.inProgressCount ?? students.filter(student => student.status === "in_progress" && (!nominal || !student.offRoster)).length;
+  const offRosterInProgress = progress?.offRosterInProgressCount ?? (nominal ? students.filter(student => student.status === "in_progress" && student.offRoster).length : 0);
   const missing = nominal ? students.filter(student => student.status === "not_started").length : 0;
   const completion = progress?.completionPercentage ?? 0;
   const isClosed = session.status === "closed";
@@ -104,7 +106,7 @@ function ActiveSessionContent({ progress, session, sessionLink, onStatusChange, 
 
       {isClosed && <section className="session-close-summary" aria-label="Resumen de cierre">
         <h3>Resumen</h3>
-        <p>Entregaron {submitted} de {expected}.</p>
+        <p>Entregaron {submitted} de {expected}{offRosterSubmitted > 0 ? ` +${offRosterSubmitted} fuera de padrón` : ""}.</p>
         {nominal && <p>No rindieron: {formatSummaryNames(students.filter(student => student.status === "not_started").map(student => student.displayName))}.</p>}
         <p>Entregados por cierre: {formatSummaryNames(students.filter(student => student.submissionReason === "closed_by_teacher").map(student => student.displayName))}.</p>
         {progress?.averageScorePercent != null && <p>Promedio de puntaje: {progress.averageScorePercent.toFixed(1)}%.</p>}
@@ -126,8 +128,8 @@ function ActiveSessionContent({ progress, session, sessionLink, onStatusChange, 
       </Field>}
 
       {!isClosed && <div className="progress-summary" aria-live="polite" aria-atomic="true">
-        <div><span>Entregaron</span><strong>{submitted} / {expected}</strong></div>
-        <div><span>Rindiendo</span><strong>{inProgress}</strong></div>
+        <div><span>Entregaron</span><strong>{submitted} / {expected}{offRosterSubmitted > 0 && <small>+{offRosterSubmitted} fuera de padrón</small>}</strong></div>
+        <div><span>Rindiendo</span><strong>{inProgress}{offRosterInProgress > 0 && <small>+{offRosterInProgress} fuera de padrón</small>}</strong></div>
         {nominal && <div><span>Faltan</span><strong>{missing}</strong></div>}
       </div>}
 

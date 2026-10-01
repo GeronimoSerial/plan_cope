@@ -94,6 +94,8 @@ export type LocalSession = {
   gradeLabel?: string | null;
   submittedCount?: number;
   inProgressCount?: number;
+  offRosterSubmittedCount?: number;
+  offRosterInProgressCount?: number;
 };
 
 export type LocalSchool = { code: string; name: string; hasReadyRoster: boolean };
@@ -136,6 +138,8 @@ export type SessionProgress = {
   startedCount: number;
   submittedCount: number;
   inProgressCount: number;
+  offRosterSubmittedCount: number;
+  offRosterInProgressCount: number;
   completionPercentage: number;
   students: SessionStudentProgress[];
   gradeLabel: string | null;

@@ -91,8 +91,14 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
                    COALESCE(section.division, json_extract(ev.metadata_json, '$.division')) AS Division,
                    section.shift AS Shift, s.start_at AS StartAt, s.end_at AS EndAt, s.status AS Status,
                    s.access_code AS AccessCode, s.expected_student_count AS ExpectedStudentCount,
-                   (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'submitted') AS SubmittedCount,
-                   (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'in_progress') AS InProgressCount
+                   (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'submitted'
+                       AND (s.roster_snapshot_id IS NULL OR s.roster_section_id IS NULL OR a.extra_student_id IS NULL)) AS SubmittedCount,
+                   (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'in_progress'
+                       AND (s.roster_snapshot_id IS NULL OR s.roster_section_id IS NULL OR a.extra_student_id IS NULL)) AS InProgressCount,
+                   (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'submitted'
+                       AND s.roster_snapshot_id IS NOT NULL AND s.roster_section_id IS NOT NULL AND a.extra_student_id IS NOT NULL) AS OffRosterSubmittedCount,
+                   (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'in_progress'
+                       AND s.roster_snapshot_id IS NOT NULL AND s.roster_section_id IS NOT NULL AND a.extra_student_id IS NOT NULL) AS OffRosterInProgressCount
             FROM delivery_sessions s
             JOIN local_exam_versions ev ON ev.id = s.exam_version_id
             LEFT JOIN schools sc ON sc.cue = s.school_code
@@ -119,8 +125,14 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
                        COALESCE(section.division, json_extract(ev.metadata_json, '$.division')) AS Division,
                        section.shift AS Shift, s.start_at AS StartAt, s.end_at AS EndAt, s.status AS Status,
                        s.access_code AS AccessCode, s.expected_student_count AS ExpectedStudentCount,
-                       (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'submitted') AS SubmittedCount,
-                       (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'in_progress') AS InProgressCount
+                       (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'submitted'
+                           AND (s.roster_snapshot_id IS NULL OR s.roster_section_id IS NULL OR a.extra_student_id IS NULL)) AS SubmittedCount,
+                       (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'in_progress'
+                           AND (s.roster_snapshot_id IS NULL OR s.roster_section_id IS NULL OR a.extra_student_id IS NULL)) AS InProgressCount,
+                       (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'submitted'
+                           AND s.roster_snapshot_id IS NOT NULL AND s.roster_section_id IS NOT NULL AND a.extra_student_id IS NOT NULL) AS OffRosterSubmittedCount,
+                       (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'in_progress'
+                           AND s.roster_snapshot_id IS NOT NULL AND s.roster_section_id IS NOT NULL AND a.extra_student_id IS NOT NULL) AS OffRosterInProgressCount
                 FROM delivery_sessions s
                 JOIN local_exam_versions ev ON ev.id = s.exam_version_id
                 LEFT JOIN schools sc ON sc.cue = s.school_code
@@ -172,7 +184,7 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         ReadExamTitle(row.MetadataJson, row.ExamCode),
         GradeLabelFormatter.Format(row.Course, row.Division, row.Shift), row.StartAt, row.EndAt,
         row.Status, row.AccessCode, checked((int)row.ExpectedStudentCount), checked((int)row.SubmittedCount), checked((int)row.InProgressCount),
-        row.RosterSnapshotId, row.RosterSectionId);
+        row.RosterSnapshotId, row.RosterSectionId, checked((int)row.OffRosterSubmittedCount), checked((int)row.OffRosterInProgressCount));
 
     private static string ReadExamTitle(string? metadataJson, string fallback)
     {
@@ -216,6 +228,8 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         public long ExpectedStudentCount { get; init; }
         public long SubmittedCount { get; init; }
         public long InProgressCount { get; init; }
+        public long OffRosterSubmittedCount { get; init; }
+        public long OffRosterInProgressCount { get; init; }
     }
 
     private sealed class LocalSchoolListRow
@@ -240,9 +254,16 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
                     section.division,
                     section.shift,
                     section.level,
-                    (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id) AS started_count,
-                    (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'submitted') AS submitted_count,
-                    (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'in_progress') AS in_progress_count,
+                    (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id
+                        AND (s.roster_snapshot_id IS NULL OR s.roster_section_id IS NULL OR a.extra_student_id IS NULL)) AS started_count,
+                    (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'submitted'
+                        AND (s.roster_snapshot_id IS NULL OR s.roster_section_id IS NULL OR a.extra_student_id IS NULL)) AS submitted_count,
+                    (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'in_progress'
+                        AND (s.roster_snapshot_id IS NULL OR s.roster_section_id IS NULL OR a.extra_student_id IS NULL)) AS in_progress_count,
+                    (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'submitted'
+                        AND s.roster_snapshot_id IS NOT NULL AND s.roster_section_id IS NOT NULL AND a.extra_student_id IS NOT NULL) AS off_roster_submitted_count,
+                    (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'in_progress'
+                        AND s.roster_snapshot_id IS NOT NULL AND s.roster_section_id IS NOT NULL AND a.extra_student_id IS NOT NULL) AS off_roster_in_progress_count,
                     (SELECT AVG(100.0 * r.score / r.score_max)
                      FROM student_attempts a JOIN attempt_results r ON r.student_attempt_id = a.id
                      WHERE a.delivery_session_id = s.id AND r.status = 'graded' AND r.score_max > 0) AS average_score_percent
@@ -364,7 +385,9 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
             first.Shift,
             first.Level,
             first.AverageScorePercent,
-            first.RosterSnapshotId is not null && first.RosterSectionId is not null);
+            first.RosterSnapshotId is not null && first.RosterSectionId is not null,
+            checked((int)first.OffRosterSubmittedCount),
+            checked((int)first.OffRosterInProgressCount));
     }
 
     public async Task UpdateStatusAsync(string id, string status, string? endAt = null, CancellationToken cancellationToken = default)
@@ -475,6 +498,8 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         public long StartedCount { get; init; }
         public long SubmittedCount { get; init; }
         public long InProgressCount { get; init; }
+        public long OffRosterSubmittedCount { get; init; }
+        public long OffRosterInProgressCount { get; init; }
         public double? AverageScorePercent { get; init; }
         public string? StudentId { get; init; }
         public string? LastName { get; init; }
