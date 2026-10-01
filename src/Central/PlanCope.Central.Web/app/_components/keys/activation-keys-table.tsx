@@ -61,17 +61,17 @@ export function ActivationKeysTable({ keys, onRevoke, onReissue, onCreate }: Act
     <div className="overflow-hidden rounded-xl border">
       <Table>
         <TableHeader className="bg-muted/40">
-            <TableRow>
-              <TableHead>
-                <TermLabel term="clave-activacion">Clave</TermLabel>
-              </TableHead>
-                <TableHead>A nombre de</TableHead>
-                <TableHead>Emitida</TableHead>
-              <TableHead>Vencimiento</TableHead>
-              <TableHead>Activaciones por equipo</TableHead>
-              <TableHead>Estado</TableHead>
-              <TableHead className="text-right">Acciones</TableHead>
-            </TableRow>
+          <TableRow>
+            <TableHead>
+              <TermLabel term="clave-activacion">Clave</TermLabel>
+            </TableHead>
+            <TableHead>A nombre de</TableHead>
+            <TableHead>Emitida</TableHead>
+            <TableHead>Vencimiento</TableHead>
+            <TableHead>Equipos (usados/máximo)</TableHead>
+            <TableHead>Estado</TableHead>
+            <TableHead className="text-right">Acciones</TableHead>
+          </TableRow>
         </TableHeader>
         <TableBody>
           {keys.map(key => {
@@ -99,45 +99,50 @@ function KeyTableRows({
   const revoked = Boolean(key.revokedAt);
   return (
     <>
-              <TableRow key={key.id}>
-                <TableCell>
-                  <Button variant="ghost" size="icon-sm" aria-label={expanded ? "Ocultar equipos activados" : "Mostrar equipos activados"} onClick={() => setExpanded(value => !value)}>
-                    {expanded ? <ChevronDown /> : <ChevronRight />}
-                  </Button>
-                  <span className="font-mono font-medium">{key.keyPrefix}</span>
-                </TableCell>
-                <TableCell>{activationKeyHolderLabel(key.holderName)}</TableCell>
-                <TableCell>{formatDate(key.issuedAt)}</TableCell>
-                <TableCell className="text-muted-foreground">
-                  {key.expiresAt ? formatDate(key.expiresAt) : "Sin vencimiento"}
-                </TableCell>
-                <TableCell>
-                  {key.activationCount} / {key.maxActivations}
-                </TableCell>
-                <TableCell>
-                  <Badge variant={toneVariant[status.tone]}>{status.label}</Badge>
-                </TableCell>
-                <TableCell className="text-right">
-                  {revoked ? (
-                    <span className="text-muted-foreground">—</span>
-                  ) : (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={<Button variant="ghost" size="icon-sm" aria-label="Acciones" />}
-                      >
-                        <MoreHorizontal />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => onReissue(key)}>Reemitir</DropdownMenuItem>
-                        <DropdownMenuItem variant="destructive" onClick={() => onRevoke(key)}>
-                          Revocar
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
-                </TableCell>
-              </TableRow>
-              {expanded && <KeyDevicesRow keyRecord={key} />}
+      <TableRow>
+        <TableCell>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={expanded ? "Ocultar equipos activados" : "Mostrar equipos activados"}
+            onClick={() => setExpanded(value => !value)}
+          >
+            {expanded ? <ChevronDown /> : <ChevronRight />}
+          </Button>
+          <span className="font-mono font-medium">{key.keyPrefix}</span>
+        </TableCell>
+        <TableCell>{activationKeyHolderLabel(key.holderName)}</TableCell>
+        <TableCell>{formatDate(key.issuedAt)}</TableCell>
+        <TableCell className="text-muted-foreground">
+          {key.expiresAt ? formatDate(key.expiresAt) : "Sin vencimiento"}
+        </TableCell>
+        <TableCell>
+          {key.activationCount} / {key.maxActivations}
+        </TableCell>
+        <TableCell>
+          <Badge variant={toneVariant[status.tone]}>{status.label}</Badge>
+        </TableCell>
+        <TableCell className="text-right">
+          {revoked ? (
+            <span className="text-muted-foreground">—</span>
+          ) : (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={<Button variant="ghost" size="icon-sm" aria-label="Acciones" />}
+              >
+                <MoreHorizontal />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => onReissue(key)}>Reemitir</DropdownMenuItem>
+                <DropdownMenuItem variant="destructive" onClick={() => onRevoke(key)}>
+                  Revocar
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </TableCell>
+      </TableRow>
+      {expanded && <KeyDevicesRow keyRecord={key} />}
     </>
   );
 }

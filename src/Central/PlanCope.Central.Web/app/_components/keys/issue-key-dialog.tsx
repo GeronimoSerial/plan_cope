@@ -160,7 +160,7 @@ export function IssueKeyDialog({ open, issued, onOpenChange, onCreated }: IssueK
 
               <Field data-invalid={errors.maxActivations ? true : undefined}>
                 <div className="flex items-center gap-1.5">
-                  <FieldLabel htmlFor="max-activations">Activaciones máximas por equipo</FieldLabel>
+                  <FieldLabel htmlFor="max-activations">Cantidad máxima de equipos</FieldLabel>
                 </div>
                 <Input
                   id="max-activations"
