@@ -5,6 +5,7 @@ import { StatsWorkspace } from "./components/StatsWorkspace";
 import { useDeliverySession } from "./hooks/useDeliverySession";
 import { useHostContext } from "./hooks/useHostContext";
 import { ActivationScreen, shouldShowActivation } from "./activation/ActivationScreen";
+import { isValidCue } from "./domain/cue";
 
 export function HostApp() {
   const hostContext = useHostContext();
@@ -17,6 +18,7 @@ export function HostApp() {
   const [expiryPending, setExpiryPending] = useState(false);
   const [localClockWarning, setLocalClockWarning] = useState(false);
   const [activeTab, setActiveTab] = useState<"home" | "history" | "stats">("home");
+  const clearManualCue = () => delivery.sessionForm.updateForm("cue", "");
 
   useEffect(() => {
     let cancelled = false;
@@ -75,15 +77,15 @@ export function HostApp() {
         <button
           type="button"
           className={activeTab === "home" ? "mode-tab mode-tab-active" : "mode-tab"}
-          onClick={() => { delivery.activeSession.returnToSessions(); setActiveTab("home"); }}
+          onClick={() => { clearManualCue(); delivery.activeSession.returnToSessions(); setActiveTab("home"); }}
         >
           Inicio
         </button>
-        <button type="button" className={activeTab === "history" ? "mode-tab mode-tab-active" : "mode-tab"} onClick={() => { delivery.activeSession.returnToSessions(); setActiveTab("history"); }}>Historial</button>
+        <button type="button" className={activeTab === "history" ? "mode-tab mode-tab-active" : "mode-tab"} onClick={() => { clearManualCue(); delivery.activeSession.returnToSessions(); setActiveTab("history"); }}>Historial</button>
         <button
           type="button"
           className={activeTab === "stats" ? "mode-tab mode-tab-active" : "mode-tab"}
-          onClick={() => { delivery.activeSession.returnToSessions(); setActiveTab("stats"); }}
+          onClick={() => { clearManualCue(); delivery.activeSession.returnToSessions(); setActiveTab("stats"); }}
         >
           Estadísticas
         </button>
@@ -93,10 +95,14 @@ export function HostApp() {
       ) : delivery.activeSession.session ? <SessionsWorkspace delivery={delivery} apiBaseUrl={hostContext.apiBaseUrl} tab="home" expiryPending={expiryPending} onStats={() => { delivery.activeSession.returnToSessions(); setActiveTab("stats"); }} onReturnHome={() => setActiveTab("home")} /> : (
         <StatsWorkspace
           apiBaseUrl={hostContext.apiBaseUrl}
-          cue={delivery.sessionForm.form.cue || delivery.activeSession.schools[0]?.code || ""}
+          cue={resolveStatsCue(delivery.sessionForm.form.cue, delivery.activeSession.schools.map(school => school.code))}
           schoolYear={delivery.roster.snapshot?.schoolYear}
         />
       )}
     </AppShell>
   );
+}
+
+export function resolveStatsCue(cue: string, schoolCodes: readonly string[]): string {
+  return isValidCue(cue) ? cue : schoolCodes[0] ?? "";
 }

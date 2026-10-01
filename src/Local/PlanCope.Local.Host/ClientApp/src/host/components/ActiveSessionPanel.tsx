@@ -34,7 +34,7 @@ function ActiveSessionContent({ progress, session, sessionLink, onStatusChange, 
   const previousStatuses = useRef<Map<string, string> | null>(null);
   const previousSessionId = useRef<string | null>(null);
   const students = progress?.students ?? [];
-  const nominal = students.some(student => student.status === "not_started") || Boolean(session.rosterSnapshotId || session.rosterSectionId);
+  const nominal = progress?.hasRoster ?? (students.some(student => student.status === "not_started") || Boolean(session.rosterSnapshotId || session.rosterSectionId));
   const submitted = progress?.submittedCount ?? students.filter(student => student.status === "submitted").length;
   const expected = progress?.expectedStudentCount ?? session.expectedStudentCount;
   const inProgress = progress?.inProgressCount ?? students.filter(student => student.status === "in_progress").length;

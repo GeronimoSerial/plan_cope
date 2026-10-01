@@ -84,6 +84,7 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
     {
         const string sql = """
             SELECT s.id AS Id, s.exam_version_id AS ExamVersionId, s.school_code AS SchoolCode,
+                   s.roster_snapshot_id AS RosterSnapshotId, s.roster_section_id AS RosterSectionId,
                    COALESCE(NULLIF(sc.name, ''), NULLIF(rs.school_name, ''), 'CUE ' || s.school_code) AS SchoolName,
                    ev.exam_code AS ExamCode, ev.metadata_json AS MetadataJson,
                    COALESCE(section.course, json_extract(ev.metadata_json, '$.grade')) AS Course,
@@ -111,6 +112,7 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         const string sql = """
             WITH filtered AS (
                 SELECT s.id AS Id, s.exam_version_id AS ExamVersionId, s.school_code AS SchoolCode,
+                       s.roster_snapshot_id AS RosterSnapshotId, s.roster_section_id AS RosterSectionId,
                        COALESCE(NULLIF(sc.name, ''), NULLIF(rs.school_name, ''), 'CUE ' || s.school_code) AS SchoolName,
                        ev.exam_code AS ExamCode, ev.metadata_json AS MetadataJson,
                        COALESCE(section.course, json_extract(ev.metadata_json, '$.grade')) AS Course,
@@ -118,8 +120,7 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
                        section.shift AS Shift, s.start_at AS StartAt, s.end_at AS EndAt, s.status AS Status,
                        s.access_code AS AccessCode, s.expected_student_count AS ExpectedStudentCount,
                        (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'submitted') AS SubmittedCount,
-                       (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'in_progress') AS InProgressCount,
-                       COUNT(*) OVER() AS TotalCount
+                       (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'in_progress') AS InProgressCount
                 FROM delivery_sessions s
                 JOIN local_exam_versions ev ON ev.id = s.exam_version_id
                 LEFT JOIN schools sc ON sc.cue = s.school_code
@@ -128,17 +129,26 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
                 WHERE (@SchoolCode IS NULL OR s.school_code = @SchoolCode)
                   AND (@Status IS NULL OR s.status = @Status)
             )
-            SELECT * FROM filtered ORDER BY StartAt DESC LIMIT @PageSize OFFSET @Offset;
+            SELECT * FROM filtered ORDER BY StartAt DESC, Id DESC LIMIT @PageSize OFFSET @Offset;
             """;
         using var connection = connectionFactory.CreateOpenConnection();
-        var rows = (await connection.QueryAsync<SessionListRow>(new CommandDefinition(sql, new
+        var statusFilter = NormalizeOptionalStatus(status);
+        var schoolFilter = NormalizeOptionalCue(schoolCode);
+        using var results = await connection.QueryMultipleAsync(new CommandDefinition($"""
+            SELECT COUNT(*) FROM delivery_sessions s
+            WHERE (@SchoolCode IS NULL OR s.school_code = @SchoolCode)
+              AND (@Status IS NULL OR s.status = @Status);
+            {sql}
+            """, new
         {
-            SchoolCode = NormalizeOptionalCue(schoolCode),
-            Status = NormalizeOptionalStatus(status),
+            SchoolCode = schoolFilter,
+            Status = statusFilter,
             PageSize = pageSize,
             Offset = (page - 1) * pageSize
-        }, cancellationToken: cancellationToken))).ToList();
-        return new SessionHistoryPage(rows.Select(ToListItem).ToList(), page, pageSize, rows.FirstOrDefault()?.TotalCount ?? 0);
+        }, cancellationToken: cancellationToken));
+        var totalCount = await results.ReadSingleAsync<int>();
+        var rows = (await results.ReadAsync<SessionListRow>()).ToList();
+        return new SessionHistoryPage(rows.Select(ToListItem).ToList(), page, pageSize, totalCount);
     }
 
     public async Task<IReadOnlyList<LocalSchoolListItem>> GetSchoolsAsync(CancellationToken cancellationToken = default)
@@ -161,7 +171,8 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         row.Id, row.ExamVersionId, row.SchoolCode, row.SchoolName,
         ReadExamTitle(row.MetadataJson, row.ExamCode),
         GradeLabelFormatter.Format(row.Course, row.Division, row.Shift), row.StartAt, row.EndAt,
-        row.Status, row.AccessCode, checked((int)row.ExpectedStudentCount), checked((int)row.SubmittedCount), checked((int)row.InProgressCount));
+        row.Status, row.AccessCode, checked((int)row.ExpectedStudentCount), checked((int)row.SubmittedCount), checked((int)row.InProgressCount),
+        row.RosterSnapshotId, row.RosterSectionId);
 
     private static string ReadExamTitle(string? metadataJson, string fallback)
     {
@@ -190,6 +201,8 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         public string Id { get; init; } = "";
         public string ExamVersionId { get; init; } = "";
         public string SchoolCode { get; init; } = "";
+        public string? RosterSnapshotId { get; init; }
+        public string? RosterSectionId { get; init; }
         public string SchoolName { get; init; } = "";
         public string ExamCode { get; init; } = "";
         public string? MetadataJson { get; init; }
@@ -203,7 +216,6 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         public long ExpectedStudentCount { get; init; }
         public long SubmittedCount { get; init; }
         public long InProgressCount { get; init; }
-        public int TotalCount { get; init; }
     }
 
     private sealed class LocalSchoolListRow
@@ -332,7 +344,8 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
             division,
             first.Shift,
             first.Level,
-            first.AverageScorePercent);
+            first.AverageScorePercent,
+            first.RosterSnapshotId is not null && first.RosterSectionId is not null);
     }
 
     public async Task UpdateStatusAsync(string id, string status, string? endAt = null, CancellationToken cancellationToken = default)

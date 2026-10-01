@@ -144,6 +144,7 @@ export type SessionProgress = {
   shift: string | null;
   level: string | null;
   averageScorePercent?: number | null;
+  hasRoster?: boolean;
 };
 
 export type SessionStudentProgress = {

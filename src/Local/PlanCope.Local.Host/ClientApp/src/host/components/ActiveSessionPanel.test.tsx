@@ -130,4 +130,14 @@ describe("ActiveSessionPanel", () => {
     expect(view.textContent).not.toContain("Pausar");
     expect(view.textContent).toContain("Volver al inicio");
   });
+
+  it("keeps the roster label and missing filter after every rostered student has started", () => {
+    const closed = { ...session, status: "closed" };
+    const view = render(progress({ hasRoster: true, startedCount: 2, submittedCount: 2, inProgressCount: 0, students: [
+      student({ id: "one", displayName: "Ana Entregada", status: "submitted" }),
+      student({ id: "two", displayName: "Bruno Entregado", status: "submitted" })
+    ] }), closed);
+    expect(view.textContent).toContain("Faltan");
+    expect(view.textContent).not.toContain("Sesión sin padrón");
+  });
 });

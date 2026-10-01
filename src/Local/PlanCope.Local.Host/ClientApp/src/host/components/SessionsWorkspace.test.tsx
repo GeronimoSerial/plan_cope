@@ -31,6 +31,15 @@ describe("SessionsWorkspace", () => {
     expect(state.activeSession.selectSession).toHaveBeenCalledWith(state.activeSession.activeSessions[0]);
   });
 
+  it("clears a manually entered CUE when the teacher cancels that step", () => {
+    const state = delivery([]);
+    const view = render(state);
+    act(() => button(view, "Nueva sesión").click());
+    act(() => button(view, "Ingresar otro CUE").click());
+    act(() => button(view, "Cancelar").click());
+    expect(state.sessionForm.updateForm).toHaveBeenCalledWith("cue", "");
+  });
+
   it("asks for a CUE and reaches session creation for a ready roster", () => {
     const state = delivery([]);
     const view = render(state);

@@ -41,12 +41,17 @@ public sealed class LocalSessionFlowTests
         Assert.Equal("Escuela Norte", activeItem.GetProperty("schoolName").GetString());
         Assert.Equal("Matematica 6", activeItem.GetProperty("examTitle").GetString());
         Assert.Equal("6° A · Turno mañana", activeItem.GetProperty("gradeLabel").GetString());
+        Assert.Equal("snapshot-a", activeItem.GetProperty("rosterSnapshotId").GetString());
+        Assert.Equal("section-a", activeItem.GetProperty("rosterSectionId").GetString());
         Assert.Equal(0, activeItem.GetProperty("submittedCount").GetInt32());
         Assert.Equal(1, activeItem.GetProperty("inProgressCount").GetInt32());
 
         var page = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history?page=1&pageSize=1");
         Assert.Equal(2, page.GetProperty("totalCount").GetInt32());
         Assert.Single(page.GetProperty("items").EnumerateArray());
+        var beyondEnd = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history?page=3&pageSize=1");
+        Assert.Equal(2, beyondEnd.GetProperty("totalCount").GetInt32());
+        Assert.Empty(beyondEnd.GetProperty("items").EnumerateArray());
         var filtered = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history?schoolCode=180055400&status=active");
         Assert.Equal(1, filtered.GetProperty("totalCount").GetInt32());
         Assert.Equal(open.Id, filtered.GetProperty("items")[0].GetProperty("id").GetString());
@@ -92,7 +97,8 @@ public sealed class LocalSessionFlowTests
         var progress = await client.GetFromJsonAsync<LocalSessionProgress>($"/api/sessions/{session.AccessCode}/progress");
 
         Assert.NotNull(progress);
-        Assert.Equal(3, progress!.StartedCount);
+        Assert.True(progress!.HasRoster);
+        Assert.Equal(3, progress.StartedCount);
         Assert.Equal(2, progress.SubmittedCount);
         Assert.Equal(1, progress.InProgressCount);
         Assert.Equal("6° A · Turno mañana", progress.GradeLabel);

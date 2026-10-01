@@ -53,7 +53,8 @@ public sealed record LocalSessionProgress(
     string? Division,
     string? Shift,
     string? Level,
-    double? AverageScorePercent = null)
+    double? AverageScorePercent = null,
+    bool HasRoster = false)
 {
     public int CompletionPercentage => ExpectedStudentCount <= 0 ? 0 : Math.Min(100, (int)Math.Round(SubmittedCount * 100.0 / ExpectedStudentCount));
 }

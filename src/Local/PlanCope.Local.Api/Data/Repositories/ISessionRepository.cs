@@ -5,7 +5,8 @@ namespace PlanCope.Local.Api.Data.Repositories;
 public sealed record SessionListItem(
     string Id, string ExamVersionId, string SchoolCode, string SchoolName, string ExamTitle,
     string? GradeLabel, string StartAt, string? EndAt, string Status, string AccessCode,
-    int ExpectedStudentCount, int SubmittedCount, int InProgressCount);
+    int ExpectedStudentCount, int SubmittedCount, int InProgressCount,
+    string? RosterSnapshotId, string? RosterSectionId);
 
 public sealed record SessionHistoryPage(IReadOnlyList<SessionListItem> Items, int Page, int PageSize, int TotalCount);
 
