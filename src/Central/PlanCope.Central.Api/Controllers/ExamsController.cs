@@ -504,6 +504,12 @@ public sealed class ExamsController(
             return BadRequest("Solo se permiten imágenes JPEG, PNG o WebP; el nombre y el contenido son obligatorios.");
         }
 
+        var fileName = Path.GetFileName(request.FileName.Trim());
+        if (fileName.EnumerateRunes().Count() > 256)
+        {
+            return BadRequest("El nombre del archivo no puede superar los 256 caracteres.");
+        }
+
         const int maxAssetSizeBytes = 2 * 1024 * 1024;
         const int maxBase64Length = ((maxAssetSizeBytes + 2) / 3) * 4;
         if (request.ContentBase64.Length > maxBase64Length)
@@ -530,7 +536,7 @@ public sealed class ExamsController(
         var asset = new ExamAsset(
             NewId(),
             versionId,
-            Path.GetFileName(request.FileName.Trim()),
+            fileName,
             mimeType,
             bytes.LongLength,
             HexSha256(bytes),
@@ -948,7 +954,7 @@ public sealed class ExamsController(
             asset.MimeType,
             asset.SizeBytes,
             asset.Checksum,
-            asset.StoragePath);
+            "database");
     }
 
     private static PublishedAssetDto ToPublishedDto(ExamAsset asset)
