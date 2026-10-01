@@ -261,7 +261,7 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
           </select>
         </label>
 
-        <div className="stats-grade-filters"><GradeSectionPicker sections={filterOptions.sections ?? filterOptions.courses.map(course => ({ course, division: "" }))}
+        <div className="stats-grade-filters"><GradeSectionPicker sections={filterOptions.sections ?? []} grades={filterOptions.courses}
           grade={courseFilter} section={sectionFilter} onGradeChange={value => { setIsLoading(true); setCourseFilter(value); setSectionFilter(""); }}
           onSectionChange={value => { setIsLoading(true); setSectionFilter(value); }} filters disabled={!activeCue} gradeId="stats-course-filter" sectionId="stats-section-filter" /></div>
 

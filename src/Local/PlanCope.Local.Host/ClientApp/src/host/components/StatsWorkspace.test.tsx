@@ -35,6 +35,35 @@ describe("StatsWorkspace", () => {
     expect(html).toContain("Todavía no hay intentos entregados");
   });
 
+  it("keeps every course grade available when the API has no section options", async () => {
+    installStatsFilterFetch({ schoolYears: [], courses: ["5", "6º"], sections: [], exams: [] });
+    await renderComponent();
+    await flushEffects();
+
+    const grade = container!.querySelector<HTMLSelectElement>("#stats-course-filter")!;
+    expect([...grade.options].map(option => option.text)).toEqual(["Todos los grados", "5", "6°"]);
+    const section = container!.querySelector<HTMLSelectElement>("#stats-section-filter")!;
+    act(() => { grade.value = "5"; grade.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect([...section.options].map(option => option.text)).toEqual(["Todas las secciones"]);
+  });
+
+  it("unions course grades with section grades and only lists sections for the selected grade", async () => {
+    installStatsFilterFetch({
+      schoolYears: [], courses: ["5", "6", "7"],
+      sections: [{ course: "6", division: "A", shift: "Mañana" }, { course: "7", division: "B", shift: null }], exams: []
+    });
+    await renderComponent();
+    await flushEffects();
+
+    const grade = container!.querySelector<HTMLSelectElement>("#stats-course-filter")!;
+    const section = container!.querySelector<HTMLSelectElement>("#stats-section-filter")!;
+    expect([...grade.options].map(option => option.text)).toEqual(["Todos los grados", "5", "6", "7"]);
+    act(() => { grade.value = "5"; grade.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect([...section.options].map(option => option.text)).toEqual(["Todas las secciones"]);
+    act(() => { grade.value = "6"; grade.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect([...section.options].map(option => option.text)).toEqual(["Todas las secciones", "A"]);
+  });
+
   it("shows ordered question labels and prompts instead of block identifiers", async () => {
     const blockId = "1f37ed04-5275-4e47-90c0-14d5e18ff1ae";
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -371,6 +400,10 @@ describe("StatsWorkspace", () => {
     });
   }
 
+  async function flushEffects(): Promise<void> {
+    await act(async () => { for (let index = 0; index < 6; index++) await Promise.resolve(); });
+  }
+
   function findButton(text: string): HTMLButtonElement {
     const button = [...(container?.querySelectorAll("button") ?? [])].find(item => item.textContent === text);
     if (!button) throw new Error(`Button not found: ${text}`);
@@ -385,6 +418,18 @@ function installFetchMock(): ReturnType<typeof vi.fn> {
       ? [{ code: "123456789", name: "Escuela Test", submittedAttemptCount: 2, lastSubmittedAt: "2026-09-30T10:12:00Z" }]
       : String(input).includes("/api/stats/filters?") ? { schoolYears: [], courses: [], exams: [] } : [],
     blob: async () => new Blob(["<html>snapshot</html>"], { type: "text/html" })
+  }));
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+function installStatsFilterFetch(filters: { schoolYears: string[]; courses: string[]; sections: { course: string; division: string; shift?: string | null }[]; exams: [] }): ReturnType<typeof vi.fn> {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => ({
+    ok: true,
+    json: async () => String(input).includes("/api/schools?withAttempts=true")
+      ? [{ code: "123456789", name: "Escuela Test", submittedAttemptCount: 1, lastSubmittedAt: "2026-09-30T10:12:00Z" }]
+      : String(input).includes("/api/stats/filters?") ? filters : [],
+    blob: async () => new Blob()
   }));
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;

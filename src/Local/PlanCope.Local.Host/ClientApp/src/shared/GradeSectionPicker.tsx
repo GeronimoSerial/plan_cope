@@ -4,6 +4,7 @@ export type GradeSectionOption = { course: string; division: string; shift?: str
 
 type Props = {
   sections: GradeSectionOption[];
+  grades?: string[];
   grade: string;
   section: string;
   onGradeChange: (value: string) => void;
@@ -16,8 +17,8 @@ type Props = {
 
 const natural = new Intl.Collator("es", { numeric: true, sensitivity: "base" });
 
-export function GradeSectionPicker({ sections, grade, section, onGradeChange, onSectionChange, filters = false, disabled = false, gradeId = "grade-filter", sectionId = "section-filter" }: Props) {
-  const grades = useMemo(() => [...new Set(sections.map(item => item.course.trim()).filter(Boolean))].sort(sortGrades), [sections]);
+export function GradeSectionPicker({ sections, grades: additionalGrades = [], grade, section, onGradeChange, onSectionChange, filters = false, disabled = false, gradeId = "grade-filter", sectionId = "section-filter" }: Props) {
+  const grades = useMemo(() => [...new Set([...sections.map(item => item.course.trim()), ...additionalGrades.map(item => item.trim())].filter(Boolean))].sort(sortGrades), [sections, additionalGrades]);
   const options = useMemo(() => sections.filter(item => item.course === grade)
     .sort((a, b) => natural.compare(a.division, b.division) || natural.compare(a.shift ?? "", b.shift ?? "")), [sections, grade]);
   useEffect(() => {
