@@ -62,7 +62,7 @@ export function SessionsWorkspace({ delivery, apiBaseUrl, tab, expiryPending, on
     setHistoryLoading(true);
     setHistoryError(null);
     void api.getSessionHistory({ schoolCode: schoolFilter, status: statusFilter, q: historyQuery, page: history.page, pageSize: history.pageSize }, controller.signal)
-      .then(setHistory).catch(error => { if (!controller.signal.aborted) setHistoryError(error instanceof Error ? error.message : "No se pudo cargar el historial."); })
+      .then(result => { if (!controller.signal.aborted) setHistory(result); }).catch(error => { if (!controller.signal.aborted) setHistoryError(error instanceof Error ? error.message : "No se pudo cargar el historial."); })
       .finally(() => { if (!controller.signal.aborted) setHistoryLoading(false); });
     return () => controller.abort();
   }, [api, tab, currentSession, schoolFilter, statusFilter, historyQuery, history.page, history.pageSize]);
@@ -91,11 +91,12 @@ export function SessionsWorkspace({ delivery, apiBaseUrl, tab, expiryPending, on
       <div className="history-search"><label className="searchable-combobox-label" htmlFor="history-search">Buscar</label><div className="history-search-control"><input id="history-search" className="control" placeholder="Escuela, examen, código o grado" value={historySearch} onChange={event => { setHistorySearch(event.target.value); setHistory(current => ({ ...current, page: 1 })); }} />{historySearch && <button className="button button-secondary" type="button" aria-label="Limpiar búsqueda" onClick={() => { setHistorySearch(""); setHistory(current => ({ ...current, page: 1 })); }}>Limpiar</button>}</div></div>
     </div>
     {historyError && <p role="alert" className="error-banner">{historyError}</p>}
-    {historyLoading ? <p role="status">Cargando historial…</p> : history.items.length ? <div className="student-table-wrap"><table className="student-table"><thead><tr><th>Fecha y horario</th><th>Escuela</th><th>Evaluación</th><th>Estado</th><th>Acceso</th><th>Entregaron</th><th></th></tr></thead><tbody>
+    {historyLoading && <p role="status" className={history.items.length ? "history-searching" : undefined}>{history.items.length ? "Buscando…" : "Cargando historial…"}</p>}
+    {history.items.length ? <div className="student-table-wrap"><table className="student-table"><thead><tr><th>Fecha y horario</th><th>Escuela</th><th>Evaluación</th><th>Estado</th><th>Acceso</th><th>Entregaron</th><th></th></tr></thead><tbody>
       {history.items.map(item => <tr key={item.id}><td>{formatDate(item.startAt)} · {formatTime(item.startAt)}<small>{historyDuration(item.startAt, item.endAt)}</small></td>
         <td>{item.schoolName}<small>{item.gradeLabel || `CUE ${item.schoolCode}`}</small></td><td>{item.examTitle}</td><td><SessionStatusBadge status={item.status} /></td><td>{item.accessCode}</td>
         <td>{item.submittedCount ?? 0}/{item.expectedStudentCount}{(item.offRosterSubmittedCount ?? 0) > 0 && <small>+{item.offRosterSubmittedCount} fuera de padrón</small>}</td><td><button type="button" className="button button-secondary" onClick={() => activeSession.selectSession(item)}>{item.status === "closed" ? "Ver" : "Abrir"}</button></td></tr>)}
-    </tbody></table></div> : <p>{historyQuery ? "No hay sesiones que coincidan con la búsqueda." : "No hay sesiones para estos filtros."}</p>}
+    </tbody></table></div> : !historyLoading && <p>{historyQuery ? "No hay sesiones que coincidan con la búsqueda." : "No hay sesiones para estos filtros."}</p>}
     <div className="stats-actions"><button type="button" className="button button-secondary" disabled={history.page <= 1 || historyLoading} onClick={() => setHistory({ ...history, page: history.page - 1 })}>Anterior</button>
       <span>Página {history.page} · {history.totalCount} sesiones</span><button type="button" className="button button-secondary" disabled={history.page * history.pageSize >= history.totalCount || historyLoading} onClick={() => setHistory({ ...history, page: history.page + 1 })}>Siguiente</button></div>
   </section>;

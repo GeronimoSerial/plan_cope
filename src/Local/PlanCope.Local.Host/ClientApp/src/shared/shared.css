@@ -216,7 +216,7 @@ button, input, select, textarea { font: inherit; }
 
 .searchable-combobox { position: relative; display: grid; gap: var(--s-2); min-width: 0; }
 .searchable-combobox-label { color: var(--ink); font-size: var(--t-small); font-weight: 600; }
-.searchable-combobox-list { position: absolute; z-index: 20; top: 100%; left: 0; right: 0; max-height: 22rem; overflow-y: auto; margin: 4px 0 0; padding: 4px; list-style: none; border: 1px solid var(--ink-faint); border-radius: var(--r-sm); background: var(--card); box-shadow: 0 8px 24px rgb(20 30 45 / 16%); }
+.searchable-combobox-list { position: absolute; z-index: 20; top: 100%; left: 0; right: 0; max-height: 360px; overflow-y: auto; margin: 4px 0 0; padding: 4px; list-style: none; border: 1px solid var(--ink-faint); border-radius: var(--r-sm); background: var(--card); box-shadow: 0 8px 24px rgb(20 30 45 / 16%); }
 .searchable-combobox-option { display: flex; min-height: 44px; flex-direction: column; justify-content: center; gap: 2px; padding: 6px 10px; border-radius: var(--r-sm); color: var(--ink); cursor: pointer; }
 .searchable-combobox-option span { color: var(--ink-soft); font-size: var(--t-micro); }
 .searchable-combobox-option:hover, .searchable-combobox-option.is-active { background: var(--surface-soft); }
@@ -225,6 +225,7 @@ button, input, select, textarea { font: inherit; }
 .history-search-control { display: flex; gap: var(--s-2); align-items: center; }
 .history-search-control .control { flex: 1; }
 .history-search-control .button { width: auto; }
+.history-searching { margin: 0 0 var(--s-2); color: var(--ink-soft); font-size: var(--t-micro); }
 .school-selection-confirmation { display: flex; flex-direction: column; gap: 2px; margin: var(--s-3) 0; }
 .school-selection-confirmation span { color: var(--ink-soft); font-size: var(--t-small); }
 

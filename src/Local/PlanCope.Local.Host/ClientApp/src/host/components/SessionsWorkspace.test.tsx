@@ -97,17 +97,27 @@ describe("SessionsWorkspace", () => {
 
   it("debounces history search and resets pagination to the first page", async () => {
     vi.useFakeTimers();
-    const historyLoader = vi.spyOn(ApiClient.prototype, "getSessionHistory").mockImplementation(async filters => ({ items: [], page: filters.page ?? 1, pageSize: 20, totalCount: 40 }));
+    const historySession = session("history-result", "180055400", "Escuela Norte");
+    let finishSearch: ((page: { items: LocalSession[]; page: number; pageSize: number; totalCount: number }) => void) | undefined;
+    const historyLoader = vi.spyOn(ApiClient.prototype, "getSessionHistory").mockImplementation(filters => filters.q
+      ? new Promise(resolve => { finishSearch = resolve; })
+      : Promise.resolve({ items: [historySession], page: filters.page ?? 1, pageSize: 20, totalCount: 40 }));
     const view = render(delivery([]), "history");
     await act(async () => { for (let index = 0; index < 8; index++) await Promise.resolve(); });
     expect(button(view, "Siguiente").disabled).toBe(false);
+    const initialRequestSignal = historyLoader.mock.calls[0][1];
     act(() => button(view, "Siguiente").click());
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(initialRequestSignal?.aborted).toBe(true);
     expect(historyLoader).toHaveBeenLastCalledWith({ schoolCode: "", status: "", q: "", page: 2, pageSize: 20 }, expect.any(AbortSignal));
     const search = view.querySelector<HTMLInputElement>("#history-search")!;
     act(() => setInputValue(search, "Álamo"));
     await act(async () => { await vi.advanceTimersByTimeAsync(300); });
     expect(historyLoader).toHaveBeenLastCalledWith({ schoolCode: "", status: "", q: "Álamo", page: 1, pageSize: 20 }, expect.any(AbortSignal));
+    await act(async () => { await Promise.resolve(); });
+    expect(view.textContent).toContain("Buscando…");
+    expect(view.querySelectorAll("tbody tr")).toHaveLength(1);
+    await act(async () => finishSearch?.({ items: [], page: 1, pageSize: 20, totalCount: 0 }));
   });
 
   function render(state: DeliverySessionState, tab: "home" | "history" = "home") {
