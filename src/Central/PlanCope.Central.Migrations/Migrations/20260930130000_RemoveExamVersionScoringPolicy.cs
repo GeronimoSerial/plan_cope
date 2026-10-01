@@ -1,13 +1,9 @@
-using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
-using PlanCope.Central.Api.Data;
 
 #nullable disable
 
 namespace PlanCope.Central.Migrations.Migrations;
 
-[DbContext(typeof(PlanCopeDbContext))]
-[Migration("20260930130000_RemoveExamVersionScoringPolicy")]
 public partial class RemoveExamVersionScoringPolicy : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)

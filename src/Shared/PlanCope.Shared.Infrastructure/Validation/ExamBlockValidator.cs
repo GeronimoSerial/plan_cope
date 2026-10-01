@@ -22,6 +22,11 @@ public sealed class ExamBlockValidator : AbstractValidator<ExamBlock>
     {
         var config = block.Config.RootElement;
 
+        if (config.ValueKind is not JsonValueKind.Object)
+        {
+            return;
+        }
+
         if (block.BlockType is BlockType.MultipleChoice)
         {
             if (config.TryGetProperty("scoringPolicy", out var scoringPolicy))

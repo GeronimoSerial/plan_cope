@@ -37,7 +37,7 @@ export const scoringPolicyTerms: Record<ScoringPolicy, GlossaryTerm> = {
 };
 
 /** True cuando el string del API corresponde a una política de puntaje conocida. */
-export function isScoringPolicy(value: string | null | undefined): value is ScoringPolicy {
+export function isScoringPolicy(value: unknown): value is ScoringPolicy {
   return value === "AllOrNothing" || value === "ProportionalPenalised" || value === "ProportionalPlain";
 }
 
