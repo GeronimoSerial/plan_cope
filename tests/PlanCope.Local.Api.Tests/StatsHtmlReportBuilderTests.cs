@@ -18,6 +18,10 @@ public sealed class StatsHtmlReportBuilderTests
 
         Assert.Contains("Escuela &lt;script&gt;alert(1)&lt;/script&gt;", html);
         Assert.Contains("Informe al", html);
+        Assert.Contains("data:font/woff2;base64,", html);
+        Assert.Contains("class=\"ribbon\"", html);
+        Assert.Contains("Plan COPE · Ministerio de Educación", html);
+        Assert.Contains("fill:#356f23", html);
         Assert.Contains("Ana &lt;img src=x onerror=alert(1)&gt;", html);
         Assert.Contains("6&lt;/text&gt;&lt;script&gt;alert(2)&lt;/script&gt;", html);
         Assert.DoesNotContain("<script>alert(1)</script>", html);

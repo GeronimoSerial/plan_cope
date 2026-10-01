@@ -186,6 +186,27 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         return rows.Select(row => new LocalSchoolListItem(row.Code, row.Name, row.HasReadyRoster != 0)).ToList();
     }
 
+    public async Task<IReadOnlyList<LocalSchoolWithAttempts>> GetSchoolsWithAttemptsAsync(CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT s.cue AS Code,
+                   COALESCE(NULLIF(s.name, ''), NULLIF(r.school_name, ''), 'CUE ' || s.cue) AS Name,
+                   COUNT(a.id) AS SubmittedAttemptCount,
+                   MAX(a.submitted_at) AS LastSubmittedAt
+            FROM schools s
+            JOIN delivery_sessions ds ON ds.school_code = s.cue
+            JOIN student_attempts a ON a.delivery_session_id = ds.id
+            LEFT JOIN local_roster_snapshots r ON r.id = (
+                SELECT snap.id FROM local_roster_snapshots snap WHERE snap.cue = s.cue ORDER BY snap.fetched_at DESC LIMIT 1)
+            WHERE a.status = 'submitted' AND a.submitted_at IS NOT NULL
+            GROUP BY s.cue, s.name, r.school_name
+            ORDER BY LastSubmittedAt DESC, Name COLLATE NOCASE, s.cue;
+            """;
+        using var connection = connectionFactory.CreateOpenConnection();
+        var rows = await connection.QueryAsync<LocalSchoolWithAttempts>(new CommandDefinition(sql, cancellationToken: cancellationToken));
+        return rows.ToList();
+    }
+
     private static SessionListItem ToListItem(SessionListRow row) => new(
         row.Id, row.ExamVersionId, row.SchoolCode, row.SchoolName,
         ReadExamTitle(row.MetadataJson, row.ExamCode),

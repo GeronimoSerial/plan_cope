@@ -31,8 +31,10 @@ public static class SessionEndpoints
             return Results.Ok(await repository.GetHistoryAsync(schoolCode, status, q, currentPage, currentPageSize, cancellationToken));
         });
 
-        endpoints.MapGet("/api/schools", async (ISessionRepository repository, CancellationToken cancellationToken) =>
-            Results.Ok(await repository.GetSchoolsAsync(cancellationToken)));
+        endpoints.MapGet("/api/schools", async (bool? withAttempts, ISessionRepository repository, CancellationToken cancellationToken) =>
+            withAttempts == true
+                ? Results.Ok(await repository.GetSchoolsWithAttemptsAsync(cancellationToken))
+                : Results.Ok(await repository.GetSchoolsAsync(cancellationToken)));
 
         group.MapGet("/{idOrAccessCode}", async (
             string idOrAccessCode,

@@ -74,6 +74,8 @@ public static class StatsEndpoints
             {
                 exam.ExamVersionId,
                 exam.ExamCode,
+                exam.Title,
+                exam.Courses,
                 exam.VersionNumber,
                 attemptCount = Render(exam.AttemptCount),
                 averageScorePercent = Render(exam.AverageScorePercent),
@@ -118,6 +120,11 @@ public static class StatsEndpoints
                 return Results.BadRequest(new { error = "cue es obligatorio." });
             }
 
+            if (!await statsQueryRepository.HasSubmittedAttemptsAsync(cue, cancellationToken))
+            {
+                return Results.BadRequest(new { error = "La escuela todavía no tiene exámenes entregados en este equipo." });
+            }
+
             var data = await statsQueryRepository.GetReportDataAsync(cue, schoolYear, course, exam, cancellationToken);
             var allExams = await statsQueryRepository.GetExamStatsAsync(cue, RosterScope, schoolYear, course, cancellationToken);
             var exams = string.IsNullOrWhiteSpace(exam)
@@ -139,6 +146,11 @@ public static class StatsEndpoints
             if (string.IsNullOrWhiteSpace(cue))
             {
                 return Results.BadRequest(new { error = "cue es obligatorio." });
+            }
+
+            if (!await statsQueryRepository.HasSubmittedAttemptsAsync(cue, cancellationToken))
+            {
+                return Results.BadRequest(new { error = "La escuela todavía no tiene exámenes entregados en este equipo." });
             }
 
             var stats = await statsQueryRepository.GetCourseStatsAsync(cue, RosterScope, schoolYear, cancellationToken);

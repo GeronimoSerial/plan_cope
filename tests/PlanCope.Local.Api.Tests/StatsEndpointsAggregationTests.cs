@@ -252,8 +252,8 @@ public sealed class StatsEndpointsAggregationTests
         Assert.DoesNotContain("LEN-6", filteredReport);
 
         var sanitizedFilenameResponse = await client.GetAsync("/api/stats/report.html?cue=12%2F34%3F");
-        Assert.True(sanitizedFilenameResponse.StatusCode == HttpStatusCode.OK, await sanitizedFilenameResponse.Content.ReadAsStringAsync());
-        Assert.Contains("informe-estadistico-12_34_-", sanitizedFilenameResponse.Content.Headers.ContentDisposition?.FileName);
+        Assert.Equal(HttpStatusCode.BadRequest, sanitizedFilenameResponse.StatusCode);
+        Assert.Contains("exámenes entregados", await sanitizedFilenameResponse.Content.ReadAsStringAsync());
 
         using var updateConnection = factory.CreateConnection();
         using var updateTransaction = updateConnection.BeginTransaction();

@@ -30,7 +30,9 @@ public sealed record ExamStatsDto(
     int VersionNumber,
     SuppressibleValue<int> AttemptCount,
     SuppressibleValue<double> AverageScorePercent,
-    IReadOnlyList<BlockStatDto> Blocks);
+    IReadOnlyList<BlockStatDto> Blocks,
+    string? Title = null,
+    IReadOnlyList<string>? Courses = null);
 
 public sealed record StatsReportAttemptDto(
     string? StudentName,
@@ -67,6 +69,8 @@ public interface IStatsQueryRepository
     Task<IReadOnlyList<ExamStatsDto>> GetExamStatsAsync(string cue, string rosterScope, string? schoolYear, string? course, CancellationToken cancellationToken = default);
 
     Task<StatsReportDataDto> GetReportDataAsync(string cue, string? schoolYear, string? course, string? examVersionId, CancellationToken cancellationToken = default);
+
+    Task<bool> HasSubmittedAttemptsAsync(string cue, CancellationToken cancellationToken = default);
 
     Task<StatsFilterOptionsDto> GetReportFilterOptionsAsync(string cue, CancellationToken cancellationToken = default);
 }
