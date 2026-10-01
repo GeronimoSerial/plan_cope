@@ -481,6 +481,52 @@ public sealed class ExamVersioningEditTests
         Assert.Equal(1, summary.PulledByNodeCount);
     }
 
+    [Fact]
+    public async Task Publish_and_sync_include_only_referenced_assets_and_keep_package_checksum_consistent()
+    {
+        using var dbContext = new PlanCopeDbContext(CreateOptions());
+        var examsController = CreateController(dbContext);
+        var exam = await CreateExamAsync(examsController, "EXA-ASSET-FILTER");
+        var versionId = exam.InitialVersionId!;
+        var referencedAssetId = await AddImageAssetAsync(examsController, versionId);
+        await AddImageAssetAsync(examsController, versionId);
+        var upsert = await examsController.UpsertBlock(versionId, 0,
+            new UpsertBlockRequest(0, BlockType.TrueFalse, "Pregunta", null,
+                Json($"{{\"question\":\"Pregunta\",\"imageAssetId\":\"{referencedAssetId}\"}}"), null),
+            CancellationToken.None);
+        Assert.IsType<OkObjectResult>(upsert.Result);
+
+        var publish = await examsController.PublishVersion(versionId,
+            new PublishExamVersionRequest(null, null), CancellationToken.None);
+        var published = Assert.IsType<PublishExamVersionResponse>(Assert.IsType<OkObjectResult>(publish.Result).Value);
+        var packageRow = await dbContext.PublicationPackages.SingleAsync();
+
+        var syncController = new SyncController(dbContext, new CentralStatsRollupService(dbContext));
+        SyncTestPrincipals.BindNode(syncController, "asset-filter-node");
+        var pullResult = await syncController.Pull("asset-filter-node", "0", 50, CancellationToken.None);
+        var pull = Assert.IsType<PullResponse>(Assert.IsType<OkObjectResult>(pullResult.Result).Value);
+        var payloadJson = Assert.Single(pull.Items).Payload;
+        var payload = JsonSerializer.Deserialize<PublishedExamPackageDto>(
+            payloadJson.GetRawText(), new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+
+        Assert.Equal(referencedAssetId, Assert.Single(payload.Assets).Id);
+        Assert.Equal("AllOrNothing", payload.ScoringPolicy);
+        Assert.Equal(published.Checksum, payload.Checksum);
+        Assert.Equal(packageRow.Checksum, payload.Checksum);
+
+        var examEntity = await dbContext.Exams.SingleAsync(item => item.Id == exam.Id);
+        var versionEntity = await dbContext.ExamVersions.SingleAsync(item => item.Id == versionId);
+        var payloadChecksum = ExamPackageChecksum.Compute(
+            examEntity,
+            versionEntity,
+            payload.Blocks,
+            payload.AnswerKeys,
+            payload.Assets,
+            payload.Targets,
+            payload.Metadata);
+        Assert.Equal(payload.Checksum, payloadChecksum);
+    }
+
     private static async Task<ExamSummaryDto> CreateExamAsync(ExamsController controller, string code)
     {
         var result = await controller.Create(

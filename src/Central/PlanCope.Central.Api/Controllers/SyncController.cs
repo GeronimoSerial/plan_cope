@@ -460,8 +460,9 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
             .Where(x => blockIds.Contains(x.ExamBlockId))
             .OrderBy(x => x.ExamBlockId)
             .ToListAsync(cancellationToken);
+        var referencedAssetIds = ExamPackageChecksum.GetReferencedImageAssetIds(blocks.Select(static block => block.Config.RootElement));
         var assets = await dbContext.ExamAssets
-            .Where(x => x.ExamVersionId == version.Id)
+            .Where(x => x.ExamVersionId == version.Id && referencedAssetIds.Contains(x.Id))
             .OrderBy(x => x.FileName)
             .ToListAsync(cancellationToken);
         var targets = await dbContext.PublicationTargets
@@ -483,7 +484,8 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
             blocks.Select(ToDto).ToList(),
             answerKeys.Select(ToDto).ToList(),
             assets.Select(ToPublishedDto).ToList(),
-            targets.Select(static target => new PublicationTargetDto(target.TargetType, target.TargetId)).ToList());
+            targets.Select(static target => new PublicationTargetDto(target.TargetType, target.TargetId)).ToList(),
+            ScoringPolicy: "AllOrNothing");
     }
 
     /// <summary>

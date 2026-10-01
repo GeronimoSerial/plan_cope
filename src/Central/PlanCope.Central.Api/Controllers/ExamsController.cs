@@ -627,13 +627,7 @@ public sealed class ExamsController(
             }
         }
 
-        var referencedAssetIds = blocks
-            .Select(block => block.Config.RootElement)
-            .Where(config => config.ValueKind == JsonValueKind.Object && config.TryGetProperty("imageAssetId", out _))
-            .Select(config => config.GetProperty("imageAssetId").GetString())
-            .Where(static id => !string.IsNullOrWhiteSpace(id))
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
+        var referencedAssetIds = ExamPackageChecksum.GetReferencedImageAssetIds(blocks.Select(static block => block.Config.RootElement));
         if (referencedAssetIds.Count > 0)
         {
             var existingAssetIds = await dbContext.ExamAssets
@@ -653,7 +647,7 @@ public sealed class ExamsController(
             .Where(x => blockIds.Contains(x.ExamBlockId))
             .ToListAsync(cancellationToken);
         var assets = await dbContext.ExamAssets
-            .Where(x => x.ExamVersionId == versionId)
+            .Where(x => x.ExamVersionId == versionId && referencedAssetIds.Contains(x.Id))
             .OrderBy(x => x.FileName)
             .ToListAsync(cancellationToken);
 

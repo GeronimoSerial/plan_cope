@@ -290,7 +290,8 @@ public sealed class ExamsContractTests
             {
                 new PublicationTargetDto("School", "sch-7"),
                 new PublicationTargetDto("Global", null),
-            });
+            },
+            ScoringPolicy: "AllOrNothing");
 
         var json = Serialize(sample, PlanCopeJsonSerializerContext.Default.PublishedExamPackageDto);
 
@@ -309,7 +310,7 @@ public sealed class ExamsContractTests
         AssertHasProperty(root, "answerKeys");
         AssertHasProperty(root, "assets");
         AssertHasProperty(root, "targets");
-        Assert.False(root.TryGetProperty("scoringPolicy", out _));
+        Assert.Equal("AllOrNothing", root.GetProperty("scoringPolicy").GetString());
         Assert.Equal("ProportionalPlain", root.GetProperty("blocks")[0].GetProperty("config").GetProperty("scoringPolicy").GetString());
 
         AssertCanonicalRoundTrip(sample, PlanCopeJsonSerializerContext.Default.PublishedExamPackageDto);

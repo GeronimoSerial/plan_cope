@@ -87,7 +87,10 @@ public sealed record PublishedExamPackageDto(
     IReadOnlyList<BlockDto> Blocks,
     IReadOnlyList<AnswerKeyDto> AnswerKeys,
     IReadOnlyList<PublishedAssetDto> Assets,
-    IReadOnlyList<PublicationTargetDto> Targets);
+    IReadOnlyList<PublicationTargetDto> Targets,
+    // Legacy compatibility for Local nodes that require an exam-level policy. Remove after all
+    // deployed Local versions grade with per-question config.scoringPolicy.
+    string? ScoringPolicy = null);
 
 public sealed record PublishedAssetDto(string Id, string VersionId, string FileName, string MimeType, long SizeBytes, string Checksum, string ContentBase64);
 
