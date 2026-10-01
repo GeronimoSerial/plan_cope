@@ -92,8 +92,8 @@ Per-version readiness is exposed on every `ExamVersionDto` (version list and ver
 | `publishBlockedReason`| `string?` | `already_published` \| `no_blocks` \| null.|
 
 `canPublish = true` means the version is not blocked by its own content. The publish call still
-applies block validation and checks that referenced image assets must
-exist), so it is possible for `canPublish` to be true and publish to return `400`.
+applies question validation and checks that referenced image assets exist, so it is possible for
+`canPublish` to be true and publish to return `400`.
 
 Computed publication fields on every `ExamVersionDto` (version list and version detail). They are
 derived from the exam's versions, never stored (except the source link):
@@ -150,7 +150,8 @@ Response `201 Created`:
 }
 ```
 
-Errors: `400` validation (`code`/`title` required, `code` format, duplicate `code`),
+Errors: `400` validation (`code`, `title` and at least one valid `course` required, `code` format,
+duplicate `code`),
 `401` unauthenticated.
 
 ### 3.2 List exams — `GET /api/exams`
@@ -181,10 +182,10 @@ optional and so is the body itself: a request with no body (or no `Content-Type`
 | `empty`           | `false`. Set `empty: true` to create an empty version instead of copying (legacy behaviour).|
 | `force`           | `false`. Set `force: true` to create the version even when the exam already has a draft.    |
 
-When the source is copied, the new version is a **deep copy**: new ids for the version, blocks,
-block options, answer keys and assets; image blocks' `config.assetId` is rewritten to the new asset
-id; `sourceVersionId` is stored and exposed as `basedOnVersionNumber`. The copy starts in status
-`Draft`, so it is fully editable.
+When the source is copied, the new version is a **deep copy**: new ids for the version, question
+blocks, block options, answer keys and assets. Each copied question's `config.imageAssetId` is
+rewritten to the copied asset id; `sourceVersionId` is stored and exposed as
+`basedOnVersionNumber`. The copy starts in status `Draft`, so it is fully editable.
 
 Response `201 Created`: `ExamVersionDto` for the new draft, carrying the copied `blocks`,
 `answerKeys` and `assets`, `basedOnVersionNumber`, and readiness fields. An empty copy reports
@@ -216,9 +217,10 @@ Errors: `404`.
 
 ### 3.6 Write the document (canonical builder path) — `PUT /api/exams/versions/{versionId}/document`
 
-Replaces the whole block/answer-key set in one call. Multiple-choice questions carry their scoring
-policy in `config.scoringPolicy`; when absent, grading uses `AllOrNothing`. Single-choice and
-true/false questions do not carry a policy.
+Replaces the whole question/answer-key set in one call. Multiple-choice questions carry their
+scoring policy in `config.scoringPolicy` only when `config.multiple` is `true`; when absent, grading
+uses `AllOrNothing`. True/false questions do not carry a per-question policy. Either question type
+may include an `imageAssetId` in `config` to show an image with that question.
 
 Request:
 
@@ -231,7 +233,7 @@ Request:
       "blockType": "MultipleChoice",
       "title": "Pregunta 1",
       "description": null,
-      "config": { "question": "¿Cuánto es 2 + 2?", "multiple": true, "scoringPolicy": "ProportionalPenalised", "options": [{ "value": "42", "label": "42" }, { "value": "44", "label": "44" }] },
+      "config": { "question": "¿Cuánto es 2 + 2?", "multiple": true, "scoringPolicy": "ProportionalPenalised", "imageAssetId": "asset-123", "options": [{ "value": "42", "label": "42" }, { "value": "44", "label": "44" }] },
       "validation": null,
       "correctAnswer": { "value": "42" },
       "scoreValue": 1
@@ -249,14 +251,24 @@ validation.
 Body `UpsertBlockRequest` (`orderIndex`, `blockType`, `title`, `description`, `config`,
 `validation`). Also available as `PUT /api/exams/versions/{versionId}/blocks/{orderIndex}`.
 Response `200`: `BlockDto`. Errors: `404`, `409` published version, `400` validation.
-Type-specific `config` requirements: `Text` needs `content`; `MultipleChoice` needs `question` and
-`options` (>= 2); `TrueFalse` needs `question`; `ShortAnswer` needs `prompt`; `Image` needs
-`assetId`.
+Supported question types are `MultipleChoice` and `TrueFalse`. `MultipleChoice` requires a
+`question` string and at least two `options`; `multiple` controls whether multiple answers can be
+selected. `scoringPolicy` is allowed only when `multiple` is `true` and must be one of
+`AllOrNothing`, `ProportionalPenalised`, or `ProportionalPlain`. `TrueFalse` requires a `question`
+string and does not accept `scoringPolicy`. Both types may include an optional `imageAssetId` that
+references an uploaded asset in the same version.
 
 ### 3.8 Add an image asset — `POST /api/exams/versions/{versionId}/assets`
 
-Body `CreateAssetRequest` (`fileName`, image `mimeType`, `contentBase64`). Response `201`:
+Body `CreateAssetRequest` (`fileName`, `mimeType`, `contentBase64`). Only `image/jpeg`, `image/png`
+and `image/webp` are accepted. The decoded image must be no larger than 2 MiB. Response `201`:
 `AssetDto`. Errors: `404`, `409` published version, `400` invalid payload.
+
+Image bytes can be read with
+`GET /api/exams/versions/{versionId}/assets/{assetId}`. It returns the image with its MIME type, or
+`404` when the asset does not belong to the version. At publish time, every referenced
+`imageAssetId` must exist in that version. Only assets referenced by a question are included in the
+published package and its checksum; unreferenced uploads are omitted.
 
 ### 3.9 Publish — `POST /api/exams/versions/{versionId}/publish`
 
@@ -304,7 +316,7 @@ Errors: `404` unknown version, `409` already published, `409` when the version's
 lower than the current published version's (out-of-order publish, body
 `{ "code": "older_than_current" }`, nothing changes), `400` with a `ValidationProblemDetails`
 whose error keys are `blocks` (no blocks) or per-block/config keys; `400` when
-an `Image` block references an asset that does not exist.
+a question's `imageAssetId` references an asset that does not exist in the version.
 
 ### 3.10 Edit exam metadata — `PUT /api/exams/{examId}`
 
@@ -429,8 +441,11 @@ Node-side pieces (Local API; implemented outside this Central change):
 
 The package payload (`PublishedExamPackageDto`) contains `packageId`, `examId`, `examVersionId`,
 `examCode`, `title`, `versionNumber`, `schemaVersion`, `checksum`, `metadata`, `blocks`,
-`answerKeys`, `assets` (base64), `targets`. Each multiple-choice block's `config.scoringPolicy`
-travels with the block.
+`answerKeys`, `assets` (base64), `targets`, and the legacy top-level `scoringPolicy` set to
+`AllOrNothing`. That field keeps older Local nodes able to grade multiple-choice exams; remove it
+after all deployed Local versions support per-question policies. Current grading uses each
+multiple-choice block's `config.scoringPolicy`, which travels with the block. The legacy field is
+compatibility metadata and is not part of the package checksum.
 
 ### 6.1 Node identity binding (D6)
 
