@@ -10,6 +10,7 @@ type AppShellProps = {
   status: string;
   apiBaseUrl?: string;
   appVersion?: string;
+  sessionContext?: { schoolName: string; schoolCode: string } | null;
   activeTab: HostTab;
   onTabChange: (tab: HostTab) => void;
   children: ReactNode;
@@ -21,7 +22,7 @@ const tabs: Array<{ id: HostTab; label: string }> = [
   { id: "stats", label: "Estadísticas" }
 ];
 
-export function AppShell({ status, apiBaseUrl, appVersion, activeTab, onTabChange, children }: AppShellProps) {
+export function AppShell({ status, apiBaseUrl, appVersion, sessionContext, activeTab, onTabChange, children }: AppShellProps) {
   const update = useUpdateStatus();
   const sync = useSyncStatus(apiBaseUrl ?? "");
 
@@ -70,6 +71,7 @@ export function AppShell({ status, apiBaseUrl, appVersion, activeTab, onTabChang
       </header>
 
       <main className="app-content">
+        {sessionContext && <div className="session-context" aria-label="Escuela de la sesión"><strong>{sessionContext.schoolName}</strong>{sessionContext.schoolName !== `CUE ${sessionContext.schoolCode}` && <span>CUE {sessionContext.schoolCode}</span>}</div>}
         <div className="workspace">{children}</div>
       </main>
       <footer className="footer">

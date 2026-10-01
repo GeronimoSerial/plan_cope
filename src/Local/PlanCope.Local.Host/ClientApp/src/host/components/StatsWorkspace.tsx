@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiClient, type CourseStatDto, type ExamStatDto, type StatsFilterOptionsDto } from "../api/apiClient";
 import { downloadBlob, openStatsReport } from "../hostBridge";
 import { SearchableCombobox, normalizeSearch, tokenizeSearch } from "../../shared/ui";
+import { GradeSectionPicker } from "../../shared/GradeSectionPicker";
 
 type StatsWorkspaceProps = {
   apiBaseUrl: string;
@@ -75,6 +76,7 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
   const [schoolsLoaded, setSchoolsLoaded] = useState(false);
   const [schoolYearFilter, setSchoolYearFilter] = useState(schoolYear ?? "");
   const [courseFilter, setCourseFilter] = useState("");
+  const [sectionFilter, setSectionFilter] = useState("");
   const [examFilter, setExamFilter] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterOptions, setFilterOptions] = useState<StatsFilterOptionsDto>({ schoolYears: [], courses: [], exams: [] });
@@ -196,6 +198,7 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
   const searchTokens = tokenizeSearch(searchQuery.slice(0, 100));
   const visibleCourses = courseStats.filter(stat => matchesSearch(searchableCourse(stat.course, stat.sections), searchTokens, !stat.sections?.length));
   const visibleExams = examStats.filter(exam => {
+    if (sectionFilter && !exam.sections?.some(section => section.course === courseFilter && section.division === sectionFilter)) return false;
     const courseFields = exam.sections?.length
       ? exam.sections.flatMap(section => searchableCourse(section.course, [section.division]))
       : (exam.courses ?? []).flatMap(course => searchableCourse(course));
@@ -244,6 +247,7 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
             hasLoadedStats.current = false;
             setSchoolYearFilter("");
             setCourseFilter("");
+            setSectionFilter("");
             setExamFilter("");
             setActiveCue(value);
           }} />
@@ -257,15 +261,9 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
           </select>
         </label>
 
-        <label htmlFor="stats-course-filter">Curso
-          <select id="stats-course-filter" value={courseFilter} disabled={!activeCue} onChange={event => {
-            setIsLoading(true);
-            setCourseFilter(event.target.value);
-          }}>
-            <option value="">Todos los cursos</option>
-            {filterOptions.courses.map(course => <option key={course} value={course}>{displayCourse(course)}</option>)}
-          </select>
-        </label>
+        <div className="stats-grade-filters"><GradeSectionPicker sections={filterOptions.sections ?? filterOptions.courses.map(course => ({ course, division: "" }))}
+          grade={courseFilter} section={sectionFilter} onGradeChange={value => { setIsLoading(true); setCourseFilter(value); setSectionFilter(""); }}
+          onSectionChange={value => { setIsLoading(true); setSectionFilter(value); }} filters disabled={!activeCue} gradeId="stats-course-filter" sectionId="stats-section-filter" /></div>
 
         <label htmlFor="stats-exam-filter">Examen
           <select id="stats-exam-filter" value={examFilter} disabled={!activeCue} onChange={event => setExamFilter(event.target.value)}>
@@ -274,6 +272,7 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
           </select>
         </label>
       </div>
+      {sectionFilter && <p className="stats-search-help" role="status">Se muestran exámenes vinculados con esa sección. Los totales y los informes siguen agrupados por grado.</p>}
 
       <div className="stats-actions">
         <button className="button button-primary" type="button" onClick={handleReport} disabled={!activeCue}>Generar informe HTML</button>

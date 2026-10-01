@@ -82,6 +82,7 @@ describe("SessionsWorkspace", () => {
   it("loads node history and applies school and status filters", async () => {
     const historySession = { ...session("closed", "180055400", "Escuela Norte"), status: "closed", endAt: "2026-10-01T10:35:00Z", offRosterSubmittedCount: 1 };
     const historyLoader = vi.spyOn(ApiClient.prototype, "getSessionHistory").mockResolvedValue({ items: [historySession], page: 1, pageSize: 20, totalCount: 1 });
+    vi.spyOn(ApiClient.prototype, "getSessionHistoryFilters").mockResolvedValue([{ course: "6°", division: "A", shift: "Mañana" }]);
     const view = render(delivery([]), "history");
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(view.textContent).toContain("CODEclosed");
@@ -92,7 +93,11 @@ describe("SessionsWorkspace", () => {
     act(() => schoolPicker.focus());
     act(() => view.querySelectorAll<HTMLElement>('[role="option"]')[1].click());
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    expect(historyLoader).toHaveBeenLastCalledWith({ schoolCode: "180055400", status: "", q: "", page: 1, pageSize: 20 }, expect.any(AbortSignal));
+    expect(historyLoader).toHaveBeenLastCalledWith({ schoolCode: "180055400", status: "", course: "", division: "", q: "", page: 1, pageSize: 20 }, expect.any(AbortSignal));
+    const gradeSelect = view.querySelector<HTMLSelectElement>('[aria-label="Grado"]')!;
+    act(() => { gradeSelect.value = "6°"; gradeSelect.dispatchEvent(new Event("change", { bubbles: true })); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(historyLoader).toHaveBeenLastCalledWith({ schoolCode: "180055400", status: "", course: "6°", division: "A", q: "", page: 1, pageSize: 20 }, expect.any(AbortSignal));
   });
 
   it("debounces history search and resets pagination to the first page", async () => {
@@ -109,11 +114,11 @@ describe("SessionsWorkspace", () => {
     act(() => button(view, "Siguiente").click());
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(initialRequestSignal?.aborted).toBe(true);
-    expect(historyLoader).toHaveBeenLastCalledWith({ schoolCode: "", status: "", q: "", page: 2, pageSize: 20 }, expect.any(AbortSignal));
+    expect(historyLoader).toHaveBeenLastCalledWith({ schoolCode: "", status: "", course: "", division: "", q: "", page: 2, pageSize: 20 }, expect.any(AbortSignal));
     const search = view.querySelector<HTMLInputElement>("#history-search")!;
     act(() => setInputValue(search, "Álamo"));
     await act(async () => { await vi.advanceTimersByTimeAsync(300); });
-    expect(historyLoader).toHaveBeenLastCalledWith({ schoolCode: "", status: "", q: "Álamo", page: 1, pageSize: 20 }, expect.any(AbortSignal));
+    expect(historyLoader).toHaveBeenLastCalledWith({ schoolCode: "", status: "", course: "", division: "", q: "Álamo", page: 1, pageSize: 20 }, expect.any(AbortSignal));
     await act(async () => { await Promise.resolve(); });
     expect(view.textContent).toContain("Buscando…");
     expect(view.querySelectorAll("tbody tr")).toHaveLength(1);

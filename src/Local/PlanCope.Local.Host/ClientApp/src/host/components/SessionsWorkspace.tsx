@@ -6,6 +6,7 @@ import { ActiveSessionPanel } from "./ActiveSessionPanel";
 import { SessionCreatePanel } from "./SessionCreatePanel";
 import { isValidCue, normalizeCueInput } from "../domain/cue";
 import { ActionButton, Badge, Field, SearchableCombobox, TextInput } from "../../shared/ui";
+import { GradeSectionPicker } from "../../shared/GradeSectionPicker";
 
 type Props = { delivery: DeliverySessionState; apiBaseUrl: string; tab: "home" | "history"; expiryPending: boolean; onStats: () => void; onReturnHome: () => void };
 
@@ -19,6 +20,9 @@ export function SessionsWorkspace({ delivery, apiBaseUrl, tab, expiryPending, on
   const [historyQuery, setHistoryQuery] = useState("");
   const [selectedSchool, setSelectedSchool] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [historySections, setHistorySections] = useState<{ course: string; division: string; shift?: string | null }[]>([]);
+  const [gradeFilter, setGradeFilter] = useState("");
+  const [divisionFilter, setDivisionFilter] = useState("");
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [extraStudentError, setExtraStudentError] = useState<string | null>(null);
@@ -31,6 +35,11 @@ export function SessionsWorkspace({ delivery, apiBaseUrl, tab, expiryPending, on
     const timeout = window.setTimeout(() => setHistoryQuery(historySearch.trim()), 300);
     return () => window.clearTimeout(timeout);
   }, [historySearch]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void api.getSessionHistoryFilters(controller.signal).then(setHistorySections).catch(() => undefined);
+    return () => controller.abort();
+  }, [api]);
   const addExtraStudent = async (request: { document: string; firstName: string; lastName: string }) => {
     if (!currentSession) return;
     setExtraStudentBusy(true);
@@ -61,11 +70,11 @@ export function SessionsWorkspace({ delivery, apiBaseUrl, tab, expiryPending, on
     const controller = new AbortController();
     setHistoryLoading(true);
     setHistoryError(null);
-    void api.getSessionHistory({ schoolCode: schoolFilter, status: statusFilter, q: historyQuery, page: history.page, pageSize: history.pageSize }, controller.signal)
+    void api.getSessionHistory({ schoolCode: schoolFilter, status: statusFilter, course: gradeFilter, division: divisionFilter, q: historyQuery, page: history.page, pageSize: history.pageSize }, controller.signal)
       .then(result => { if (!controller.signal.aborted) setHistory(result); }).catch(error => { if (!controller.signal.aborted) setHistoryError(error instanceof Error ? error.message : "No se pudo cargar el historial."); })
       .finally(() => { if (!controller.signal.aborted) setHistoryLoading(false); });
     return () => controller.abort();
-  }, [api, tab, currentSession, schoolFilter, statusFilter, historyQuery, history.page, history.pageSize]);
+  }, [api, tab, currentSession, schoolFilter, statusFilter, gradeFilter, divisionFilter, historyQuery, history.page, history.pageSize]);
 
   const createPanel = <SessionCreatePanel exams={examCatalog.exams} formErrors={sessionForm.formErrors} selectedExamId={examCatalog.selectedExamId}
     isBusy={delivery.isBusy || expiryPending} isLoadingExams={examCatalog.isLoadingExams} onCreateSession={delivery.createSession}
@@ -88,6 +97,9 @@ export function SessionsWorkspace({ delivery, apiBaseUrl, tab, expiryPending, on
       <label htmlFor="history-status">Estado<select id="history-status" value={statusFilter} onChange={event => { setHistory({ ...history, page: 1 }); setStatusFilter(event.target.value); }}>
         <option value="">Todos</option><option value="active">Abierta</option><option value="paused">Pausada</option><option value="closed">Cerrada</option>
       </select></label>
+      <div className="history-grade-filters"><GradeSectionPicker sections={historySections} grade={gradeFilter} section={divisionFilter}
+        onGradeChange={value => { setHistory(current => ({ ...current, page: 1 })); setGradeFilter(value); }}
+        onSectionChange={value => { setHistory(current => ({ ...current, page: 1 })); setDivisionFilter(value); }} filters gradeId="history-grade" sectionId="history-section" /></div>
       <div className="history-search"><label className="searchable-combobox-label" htmlFor="history-search">Buscar</label><div className="history-search-control"><input id="history-search" className="control" placeholder="Escuela, examen, código o grado" value={historySearch} onChange={event => { setHistorySearch(event.target.value); setHistory(current => ({ ...current, page: 1 })); }} />{historySearch && <button className="button button-secondary" type="button" aria-label="Limpiar búsqueda" onClick={() => { setHistorySearch(""); setHistory(current => ({ ...current, page: 1 })); }}>Limpiar</button>}</div></div>
     </div>
     {historyError && <p role="alert" className="error-banner">{historyError}</p>}

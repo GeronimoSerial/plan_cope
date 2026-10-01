@@ -150,6 +150,9 @@ export type SessionProgress = {
   level: string | null;
   averageScorePercent?: number | null;
   hasRoster?: boolean;
+  schoolCode?: string | null;
+  schoolName?: string | null;
+  gradeLabelWithShift?: string | null;
 };
 
 export type SessionStudentProgress = {

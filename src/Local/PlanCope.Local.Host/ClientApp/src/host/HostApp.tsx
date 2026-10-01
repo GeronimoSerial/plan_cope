@@ -70,7 +70,9 @@ export function HostApp() {
   }
 
   return (
-    <AppShell status={delivery.status} apiBaseUrl={hostContext.apiBaseUrl} appVersion={hostContext.appVersion} activeTab={activeTab} onTabChange={changeTab}>
+    <AppShell status={delivery.status} apiBaseUrl={hostContext.apiBaseUrl} appVersion={hostContext.appVersion}
+      sessionContext={delivery.activeSession.session ? { schoolName: delivery.activeSession.session.schoolName || `CUE ${delivery.activeSession.session.schoolCode}`, schoolCode: delivery.activeSession.session.schoolCode } : null}
+      activeTab={activeTab} onTabChange={changeTab}>
       {localClockWarning && <p className="sync-warning" role="alert">La fecha y hora de este equipo son incorrectas. Corregilas para mantener la revalidación al día.</p>}
       {expiryPending && <p className="sync-warning" role="status">La revalidación está vencida. Finalizá y enviá la evaluación en curso; no inicies otra sesión.</p>}
       {!expiryPending && revalidationDaysRemaining !== null && revalidationDaysRemaining <= 5 && (
