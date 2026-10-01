@@ -8,10 +8,11 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
 interface ExamPreviewProps {
   document: ExamDocument;
+  versionId: string;
 }
 
 // Read-only preview showing the exam as a student will see it.
-export function ExamPreview({ document }: ExamPreviewProps) {
+export function ExamPreview({ document, versionId }: ExamPreviewProps) {
   const meta = [document.subject, document.level, document.area].filter(Boolean).join(" · ");
 
   return (
@@ -37,6 +38,13 @@ export function ExamPreview({ document }: ExamPreviewProps) {
                   {"required" in question && question.required && <span className="text-destructive"> *</span>}
                 </span>
               </div>
+              {question.imageAssetId && (
+                <img
+                  src={`/api/central/exams/versions/${encodeURIComponent(versionId)}/assets/${encodeURIComponent(question.imageAssetId)}`}
+                  alt={question.prompt}
+                  className="max-h-80 max-w-full rounded-md object-contain"
+                />
+              )}
               {question.help && <p className="text-xs text-muted-foreground">{question.help}</p>}
 
               {(question.type === "single_choice" || question.type === "multiple_choice") && (

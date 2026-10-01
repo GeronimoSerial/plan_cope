@@ -451,6 +451,11 @@ public sealed class ExamVersioningEditTests
         dbContext.Exams.Add(new Exam("ex-sync", "EXA-SYNC-01", "Exam", null, null, null, "Matematica", "Published", null, t1, t2));
         dbContext.ExamVersions.Add(new ExamVersion("ev-1", "ex-sync", 1, 1, "Published", null, null, null, null, null, t1, t1, t1));
         dbContext.ExamVersions.Add(new ExamVersion("ev-2", "ex-sync", 2, 1, "Published", null, null, null, null, null, t2, t2, t2, SourceVersionId: "ev-1"));
+        const string referencedAssetId = "asset-in-question";
+        dbContext.ExamBlocks.Add(new ExamBlock("block-with-image", "ev-2", 0, BlockType.TrueFalse, "Q", null,
+            JsonDocument.Parse("{\"question\":\"Question\",\"imageAssetId\":\"asset-in-question\"}"), null, t2, t2));
+        dbContext.ExamAssets.Add(new ExamAsset(referencedAssetId, "ev-2", "question.png", "image/png", 3,
+            "checksum", "base64:AQID", t2));
         dbContext.PublicationPackages.Add(new PublicationPackage("pkg-1", "ev-1", 1, "sha-1", JsonDocument.Parse("{}"), "Published", t1, t1));
         dbContext.PublicationPackages.Add(new PublicationPackage("pkg-2", "ev-2", 1, "sha-2", JsonDocument.Parse("{}"), "Published", t2, t2));
         dbContext.PublicationTargets.Add(new PublicationTarget("pt-1", "pkg-1", "grade", "6", t1, t1));
@@ -463,6 +468,11 @@ public sealed class ExamVersioningEditTests
         var response = Assert.IsType<PullResponse>(Assert.IsType<OkObjectResult>(pull.Result).Value);
 
         Assert.Equal(["pkg-1", "pkg-2"], response.Items.Select(item => item.EntityId).ToList());
+        var deliveredPackage = response.Items.Single(item => item.EntityId == "pkg-2").Payload;
+        Assert.Equal(referencedAssetId, deliveredPackage.GetProperty("Assets")[0].GetProperty("Id").GetString());
+        Assert.Equal(referencedAssetId,
+            deliveredPackage.GetProperty("Blocks")[0].GetProperty("Config").GetProperty("imageAssetId").GetString());
+        Assert.Equal("AQID", deliveredPackage.GetProperty("Assets")[0].GetProperty("ContentBase64").GetString());
         Assert.Equal(t2.UtcTicks.ToString(), response.NextCursor);
 
         var summary = (await ListExamsAsync(CreateController(dbContext))).Single(item => item.Id == "ex-sync");

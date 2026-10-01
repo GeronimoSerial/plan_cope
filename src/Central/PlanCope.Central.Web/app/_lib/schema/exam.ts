@@ -62,6 +62,7 @@ const baseQuestion = z.object({
   id: z.string().min(1),
   prompt: z.string().trim().min(1, "El enunciado es requerido."),
   help: z.string().trim().optional(),
+  imageAssetId: z.string().min(1).optional(),
   required: z.boolean(),
   score: z.number().min(0, "El puntaje no puede ser negativo.")
 });

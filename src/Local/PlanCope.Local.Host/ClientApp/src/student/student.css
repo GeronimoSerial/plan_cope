@@ -320,6 +320,16 @@
   scroll-margin-top: 16px;
 }
 
+.student-question-image {
+  display: block;
+  max-width: 100%;
+  max-height: 28rem;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  margin: 0.75rem 0;
+}
+
 .student-question h3 {
   margin: 0 0 12px;
   font-size: 18px;

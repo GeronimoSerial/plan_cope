@@ -169,4 +169,21 @@ public sealed class ExamBlockValidatorTests
         result.ShouldNotHaveAnyValidationErrors();
     }
 
+    [Fact]
+    public void Question_accepts_a_non_empty_image_asset_reference()
+    {
+        var result = _validator.TestValidate(CreateBlock(config: "{\"question\":\"q\",\"options\":[\"a\",\"b\"],\"imageAssetId\":\"asset-1\"}"));
+        result.ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("\"\"")]
+    [InlineData("17")]
+    public void Question_rejects_invalid_image_asset_reference(string imageAssetId)
+    {
+        var result = _validator.TestValidate(CreateBlock(config: $"{{\"question\":\"q\",\"options\":[\"a\",\"b\"],\"imageAssetId\":{imageAssetId}}}"));
+        result.ShouldHaveValidationErrorFor("config.imageAssetId");
+    }
+
 }

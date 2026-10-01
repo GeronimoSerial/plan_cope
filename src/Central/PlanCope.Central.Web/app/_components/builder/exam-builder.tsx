@@ -398,6 +398,7 @@ export function ExamBuilder({
           </Card>
 
           <QuestionList
+            versionId={versionId}
             questions={document.questions}
             errors={errors}
             disabled={isReadOnly}
@@ -411,7 +412,7 @@ export function ExamBuilder({
         </TabsContent>
 
         <TabsContent value="preview">
-          <ExamPreview document={document} />
+          <ExamPreview document={document} versionId={versionId} />
         </TabsContent>
       </Tabs>
 

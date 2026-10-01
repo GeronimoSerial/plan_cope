@@ -27,6 +27,7 @@ import { QuestionEditor } from "./question-editor";
 
 interface QuestionCardProps {
   question: Question;
+  versionId: string;
   index: number;
   errors: Record<string, string>;
   disabled?: boolean;
@@ -62,6 +63,7 @@ function sliceErrors(errors: Record<string, string>, index: number): Record<stri
 
 export const QuestionCard = memo(function QuestionCard({
   question,
+  versionId,
   index,
   errors,
   disabled = false,
@@ -132,6 +134,7 @@ export const QuestionCard = memo(function QuestionCard({
         <CardContent>
           <QuestionEditor
             question={question}
+            versionId={versionId}
             errors={ownErrors}
             disabled={disabled}
             onChange={next => onUpdate(question.id, next)}

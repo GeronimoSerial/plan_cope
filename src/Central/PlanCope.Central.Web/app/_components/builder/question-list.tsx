@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { QuestionCard } from "./question-card";
 
 interface QuestionListProps {
+  versionId: string;
   questions: Question[];
   errors: Record<string, string>;
   disabled?: boolean;
@@ -28,6 +29,7 @@ interface QuestionListProps {
 }
 
 export function QuestionList({
+  versionId,
   questions,
   errors,
   disabled = false,
@@ -93,6 +95,7 @@ export function QuestionList({
                 <QuestionCard
                   key={question.id}
                   question={question}
+                  versionId={versionId}
                   index={index}
                   errors={errors}
                   disabled={disabled}

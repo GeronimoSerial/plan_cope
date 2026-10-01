@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useId, useState } from "react";
 import { XIcon } from "lucide-react";
 import {
   questionTypes,
@@ -24,16 +24,32 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { TermHint } from "../help/term-hint";
+import { callCentral } from "../../_lib/api/client";
+
+const MAX_IMAGE_SIZE = 2 * 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+function encodeBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
 
 interface QuestionEditorProps {
   question: Question;
+  versionId: string;
   errors: Record<string, string>;
   disabled?: boolean;
   onChange: (next: Question) => void;
 }
 
-export function QuestionEditor({ question, errors, disabled = false, onChange }: QuestionEditorProps) {
+export function QuestionEditor({ question, versionId, errors, disabled = false, onChange }: QuestionEditorProps) {
   const uid = useId();
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
 
   function patchCommon(patch: Partial<{ prompt: string; help: string | undefined; required: boolean; score: number }>) {
     onChange({ ...question, ...patch } as Question);
@@ -51,8 +67,39 @@ export function QuestionEditor({ question, errors, disabled = false, onChange }:
       prompt: question.prompt ?? "",
       help: question.help,
       ...("required" in question ? { required: question.required } : {}),
-      ...("score" in question ? { score: question.score } : {})
+      ...("score" in question ? { score: question.score } : {}),
+      ...(question.imageAssetId ? { imageAssetId: question.imageAssetId } : {})
     } as Question);
+  }
+
+  async function uploadImage(file: File | undefined, input: HTMLInputElement) {
+    setImageError(null);
+    if (!file) return;
+    if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
+      setImageError("Elegí una imagen JPEG, PNG o WebP.");
+      input.value = "";
+      return;
+    }
+    if (file.size > MAX_IMAGE_SIZE) {
+      setImageError("La imagen no puede superar los 2 MB.");
+      input.value = "";
+      return;
+    }
+
+    setUploadingImage(true);
+    try {
+      const contentBase64 = encodeBase64(new Uint8Array(await file.arrayBuffer()));
+      const asset = await callCentral<{ id: string }>(`exams/versions/${encodeURIComponent(versionId)}/assets`, {
+        method: "POST",
+        body: JSON.stringify({ fileName: file.name, mimeType: file.type, contentBase64 })
+      });
+      onChange({ ...question, imageAssetId: asset.id } as Question);
+    } catch (error) {
+      setImageError(error instanceof Error ? error.message : "No se pudo subir la imagen.");
+    } finally {
+      setUploadingImage(false);
+      input.value = "";
+    }
   }
 
   const promptLabel = "Enunciado";
@@ -132,6 +179,36 @@ export function QuestionEditor({ question, errors, disabled = false, onChange }:
           Respuesta obligatoria
         </Label>
       </div>
+
+      <Field data-invalid={imageError ? true : undefined}>
+        <FieldLabel htmlFor={`${uid}-image`}>Imagen (opcional)</FieldLabel>
+        {question.imageAssetId ? (
+          <div className="grid justify-items-start gap-2">
+            <img
+              src={`/api/central/exams/versions/${encodeURIComponent(versionId)}/assets/${encodeURIComponent(question.imageAssetId)}`}
+              alt={question.prompt}
+              className="max-h-48 max-w-full rounded-md border object-contain"
+            />
+            <Button type="button" variant="outline" size="sm" disabled={disabled || uploadingImage} onClick={() => {
+              setImageError(null);
+              onChange({ ...question, imageAssetId: undefined } as Question);
+            }}>
+              Quitar
+            </Button>
+          </div>
+        ) : (
+          <Input
+            id={`${uid}-image`}
+            type="file"
+            accept=".jpg,.jpeg,.png,.webp"
+            disabled={disabled || uploadingImage}
+            aria-label="Agregar imagen"
+            onChange={event => void uploadImage(event.currentTarget.files?.[0], event.currentTarget)}
+          />
+        )}
+        {uploadingImage && <p className="text-sm text-muted-foreground">Subiendo imagen…</p>}
+        {imageError && <FieldError>{imageError}</FieldError>}
+      </Field>
 
       {(question.type === "single_choice" || question.type === "multiple_choice") && (
         <ChoiceEditor question={question} errors={errors} disabled={disabled} onChange={onChange} />

@@ -27,6 +27,12 @@ public sealed class ExamBlockValidator : AbstractValidator<ExamBlock>
             return;
         }
 
+        if (config.TryGetProperty("imageAssetId", out var imageAssetId) &&
+            (imageAssetId.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(imageAssetId.GetString())))
+        {
+            context.AddFailure("config.imageAssetId", "imageAssetId must be a non-empty string when provided.");
+        }
+
         if (block.BlockType is BlockType.MultipleChoice)
         {
             if (config.TryGetProperty("scoringPolicy", out var scoringPolicy))

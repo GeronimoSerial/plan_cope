@@ -148,6 +148,16 @@ describe("versionToDocument", () => {
       expect(question.options.find(option => option.id === "b")?.isCorrect).toBe(false);
     }
   });
+
+  it("round-trips a question image asset reference", () => {
+    const withImage = {
+      ...version,
+      blocks: [{ ...version.blocks[0], config: { ...version.blocks[0].config, imageAssetId: "asset-42" } }]
+    };
+    const question = versionToDocument(withImage, { code: "MAT-1", title: "Examen", subject: null, level: null, area: null }).questions[0];
+    expect(question.imageAssetId).toBe("asset-42");
+    expect(documentToReplaceRequest({ ...doc, questions: [question] }).blocks[0].config.imageAssetId).toBe("asset-42");
+  });
 });
 
 describe("evaluateDocumentReadiness", () => {

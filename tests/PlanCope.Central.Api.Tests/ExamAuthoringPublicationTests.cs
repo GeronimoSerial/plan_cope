@@ -128,6 +128,51 @@ public sealed class ExamAuthoringPublicationTests
     }
 
     [Fact]
+    public async Task Publish_rejects_a_question_referencing_a_missing_image_asset()
+    {
+        var options = CreateOptions();
+        using var dbContext = new PlanCopeDbContext(options);
+        var controller = CreateController(dbContext);
+        var exam = await CreateExamAsync(controller, "EXA-MISSING-IMAGE");
+        var versionId = exam.InitialVersionId!;
+
+        var upsert = await controller.UpsertBlock(versionId, 0,
+            new UpsertBlockRequest(0, BlockType.TrueFalse, "Q", null,
+                Json("{\"question\":\"Q\",\"imageAssetId\":\"missing-asset\"}"), null), CancellationToken.None);
+        Assert.IsType<OkObjectResult>(upsert.Result);
+
+        var publish = await controller.PublishVersion(versionId,
+            new PublishExamVersionRequest(null, "6", null), CancellationToken.None);
+
+        var result = Assert.IsAssignableFrom<ObjectResult>(publish.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, result.StatusCode);
+        var problem = Assert.IsType<ValidationProblemDetails>(result.Value);
+        Assert.Contains(problem.Errors.Values.SelectMany(static messages => messages),
+            message => message.Contains("Cada imagen de pregunta", StringComparison.Ordinal));
+        Assert.Empty(await dbContext.PublicationPackages.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Asset_upload_rejects_unsupported_types_and_oversized_content()
+    {
+        var options = CreateOptions();
+        using var dbContext = new PlanCopeDbContext(options);
+        var controller = CreateController(dbContext);
+        var exam = await CreateExamAsync(controller, "EXA-ASSET-VALIDATION");
+        var versionId = exam.InitialVersionId!;
+
+        var unsupported = await controller.CreateAsset(versionId,
+            new CreateAssetRequest("vector.svg", "image/svg+xml", Convert.ToBase64String([1, 2, 3])), CancellationToken.None);
+        Assert.Equal(StatusCodes.Status400BadRequest, Assert.IsAssignableFrom<ObjectResult>(unsupported.Result).StatusCode);
+
+        var oversizedBytes = new byte[2 * 1024 * 1024 + 1];
+        var oversized = await controller.CreateAsset(versionId,
+            new CreateAssetRequest("large.png", "image/png", Convert.ToBase64String(oversizedBytes)), CancellationToken.None);
+        Assert.Equal(StatusCodes.Status400BadRequest, Assert.IsAssignableFrom<ObjectResult>(oversized.Result).StatusCode);
+        Assert.Empty(await dbContext.ExamAssets.ToListAsync());
+    }
+
+    [Fact]
     public async Task Version_list_exposes_per_version_readiness()
     {
         var options = CreateOptions();
@@ -165,6 +210,14 @@ public sealed class ExamAuthoringPublicationTests
         var result = await controller.List(CancellationToken.None);
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         return Assert.IsAssignableFrom<IReadOnlyList<ExamSummaryDto>>(ok.Value);
+    }
+
+    private static async Task<ExamSummaryDto> CreateExamAsync(ExamsController controller, string code)
+    {
+        var result = await controller.Create(
+            new CreateExamRequest(code, "Matemática", null, "Secundario", "Matemática", "Números"),
+            CancellationToken.None);
+        return Assert.IsType<ExamSummaryDto>(Assert.IsType<CreatedAtActionResult>(result.Result).Value);
     }
 
     private static async Task<ExamVersionDto> ListVersionsAsync(ExamsController controller, string examId)

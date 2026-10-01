@@ -48,7 +48,8 @@ public sealed class PublishPullRunPushTests
 
         var exam = await CreateExamOnCentralAsync(centralClient);
         var version = await CreateExamVersionOnCentralAsync(centralClient, exam.Id);
-        var block = await AddBlockOnCentralAsync(centralClient, version.Id);
+        var image = await AddImageAssetOnCentralAsync(centralClient, version.Id);
+        var block = await AddBlockOnCentralAsync(centralClient, version.Id, image.Id);
         await PublishVersionOnCentralAsync(centralClient, version.Id);
 
         using var localFactory = new LocalApiFactory(centralFactory);
@@ -65,6 +66,10 @@ public sealed class PublishPullRunPushTests
             Assert.True(result.Success, result.Error);
             Assert.True(result.Imported >= 1, $"expected at least one imported exam version but got {result.Imported}");
         }
+
+        var downloadedImage = await localClient.GetAsync($"/api/assets/{image.Id}");
+        Assert.Equal(HttpStatusCode.OK, downloadedImage.StatusCode);
+        Assert.Equal(new byte[] { 1, 2, 3, 4 }, await downloadedImage.Content.ReadAsByteArrayAsync());
 
         var attemptId = await RunSessionAndSubmitAsync(localClient, version.Id, block.Id);
 
@@ -444,11 +449,17 @@ public sealed class PublishPullRunPushTests
         return version;
     }
 
-    private static async Task<BlockCreated> AddBlockOnCentralAsync(HttpClient client, string versionId)
+    private static async Task<BlockCreated> AddBlockOnCentralAsync(HttpClient client, string versionId, string? imageAssetId = null)
     {
-        var config = JsonSerializer.Deserialize<JsonElement>("""
-            {"question":"Cuanto es 18 + 24?","multiple":true,"scoringPolicy":"AllOrNothing","options":[{"value":"42","label":"42"},{"value":"44","label":"44"}]}
-            """);
+        var configValues = new Dictionary<string, object>
+        {
+            ["question"] = "Cuanto es 18 + 24?",
+            ["multiple"] = true,
+            ["scoringPolicy"] = "AllOrNothing",
+            ["options"] = new[] { new { value = "42", label = "42" }, new { value = "44", label = "44" } }
+        };
+        if (imageAssetId is not null) configValues["imageAssetId"] = imageAssetId;
+        var config = JsonSerializer.SerializeToElement(configValues);
         var response = await client.PutAsJsonAsync($"/api/exams/versions/{versionId}/blocks", new UpsertBlockRequest(
             0, BlockType.MultipleChoice, "Pregunta 1", null, config, null));
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -456,6 +467,16 @@ public sealed class PublishPullRunPushTests
         Assert.NotNull(block);
         Assert.False(string.IsNullOrWhiteSpace(block!.Id));
         return block;
+    }
+
+    private static async Task<AssetDto> AddImageAssetOnCentralAsync(HttpClient client, string versionId)
+    {
+        var response = await client.PostAsJsonAsync($"/api/exams/versions/{versionId}/assets",
+            new CreateAssetRequest("question.png", "image/png", Convert.ToBase64String([1, 2, 3, 4])));
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var asset = await response.Content.ReadFromJsonAsync<AssetDto>();
+        Assert.NotNull(asset);
+        return asset!;
     }
 
     private static async Task<BlockCreated> AddTrueFalseBlockOnCentralAsync(HttpClient client, string versionId)

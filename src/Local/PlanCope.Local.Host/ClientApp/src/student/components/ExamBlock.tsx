@@ -18,10 +18,17 @@ export function ExamBlock({ block, number, value, isMissing, onChange }: ExamBlo
   const errorId = `question-error-${block.id}`;
 
   if (kind === "multiple_choice") {
-    const config = parseConfig<{ question?: string; options?: Array<{ value: string; label: string }> }>(block);
+    const config = parseConfig<{ question?: string; imageAssetId?: string; options?: Array<{ value: string; label: string }> }>(block);
     return (
       <section className="student-question">
         <QuestionTitle id={titleId} number={number} text={config.question ?? ""} required={isRequired} />
+        {config.imageAssetId && (
+          <img
+            src={`/api/assets/${encodeURIComponent(config.imageAssetId)}`}
+            alt={config.question ?? "Imagen de la pregunta"}
+            className="student-question-image"
+          />
+        )}
         <fieldset
           className="student-options"
           aria-labelledby={titleId}
@@ -47,10 +54,17 @@ export function ExamBlock({ block, number, value, isMissing, onChange }: ExamBlo
   }
 
   if (kind === "true_false") {
-    const config = parseConfig<{ question?: string }>(block);
+    const config = parseConfig<{ question?: string; imageAssetId?: string }>(block);
     return (
       <section className="student-question">
         <QuestionTitle id={titleId} number={number} text={config.question ?? ""} required={isRequired} />
+        {config.imageAssetId && (
+          <img
+            src={`/api/assets/${encodeURIComponent(config.imageAssetId)}`}
+            alt={config.question ?? "Imagen de la pregunta"}
+            className="student-question-image"
+          />
+        )}
         <fieldset
           className="student-options"
           aria-labelledby={titleId}

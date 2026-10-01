@@ -482,6 +482,7 @@ public sealed class ExamsController(
 
     [HttpPost("versions/{versionId}/assets")]
     [Authorize(Policy = "ExamAuthor")]
+    [RequestSizeLimit(4 * 1024 * 1024)]
     public async Task<ActionResult<AssetDto>> CreateAsset(string versionId, CreateAssetRequest request, CancellationToken cancellationToken)
     {
         var version = await dbContext.ExamVersions.SingleOrDefaultAsync(x => x.Id == versionId, cancellationToken);
@@ -495,12 +496,19 @@ public sealed class ExamsController(
             return Conflict("Published exam versions are immutable. Create a new version before editing.");
         }
 
+        var mimeType = request.MimeType?.Trim().ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(request.FileName) ||
-            string.IsNullOrWhiteSpace(request.MimeType) ||
-            !request.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ||
+            mimeType is not ("image/jpeg" or "image/png" or "image/webp") ||
             string.IsNullOrWhiteSpace(request.ContentBase64))
         {
-            return BadRequest("fileName, image mimeType and contentBase64 are required.");
+            return BadRequest("Solo se permiten imágenes JPEG, PNG o WebP; el nombre y el contenido son obligatorios.");
+        }
+
+        const int maxAssetSizeBytes = 2 * 1024 * 1024;
+        const int maxBase64Length = ((maxAssetSizeBytes + 2) / 3) * 4;
+        if (request.ContentBase64.Length > maxBase64Length)
+        {
+            return BadRequest("La imagen no puede superar los 2 MB.");
         }
 
         byte[] bytes;
@@ -510,7 +518,12 @@ public sealed class ExamsController(
         }
         catch (FormatException)
         {
-            return BadRequest("contentBase64 is not valid base64.");
+            return BadRequest("El contenido de la imagen no es base64 válido.");
+        }
+
+        if (bytes.Length > maxAssetSizeBytes)
+        {
+            return BadRequest("La imagen no puede superar los 2 MB.");
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -518,7 +531,7 @@ public sealed class ExamsController(
             NewId(),
             versionId,
             Path.GetFileName(request.FileName.Trim()),
-            request.MimeType.Trim(),
+            mimeType,
             bytes.LongLength,
             HexSha256(bytes),
             $"base64:{request.ContentBase64}",
@@ -528,6 +541,27 @@ public sealed class ExamsController(
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return CreatedAtAction(nameof(GetVersion), new { versionId }, ToDto(asset));
+    }
+
+    [HttpGet("versions/{versionId}/assets/{assetId}")]
+    public async Task<IActionResult> GetAssetContent(string versionId, string assetId, CancellationToken cancellationToken)
+    {
+        var asset = await dbContext.ExamAssets.SingleOrDefaultAsync(
+            x => x.Id == assetId && x.ExamVersionId == versionId, cancellationToken);
+        if (asset is null || !asset.StoragePath.StartsWith("base64:", StringComparison.Ordinal))
+        {
+            return NotFound();
+        }
+
+        try
+        {
+            var bytes = Convert.FromBase64String(asset.StoragePath["base64:".Length..]);
+            return File(bytes, asset.MimeType, enableRangeProcessing: false);
+        }
+        catch (FormatException)
+        {
+            return NotFound();
+        }
     }
 
     [HttpPost("versions/{versionId}/publish")]
@@ -590,6 +624,27 @@ public sealed class ExamsController(
             if (!validation.IsValid)
             {
                 return BadRequest(new ValidationProblemDetails(validation.ToDictionary()));
+            }
+        }
+
+        var referencedAssetIds = blocks
+            .Select(block => block.Config.RootElement)
+            .Where(config => config.ValueKind == JsonValueKind.Object && config.TryGetProperty("imageAssetId", out _))
+            .Select(config => config.GetProperty("imageAssetId").GetString())
+            .Where(static id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (referencedAssetIds.Count > 0)
+        {
+            var existingAssetIds = await dbContext.ExamAssets
+                .Where(asset => asset.ExamVersionId == versionId && referencedAssetIds.Contains(asset.Id))
+                .Select(asset => asset.Id)
+                .ToListAsync(cancellationToken);
+            var missingAssetIds = referencedAssetIds.Except(existingAssetIds, StringComparer.Ordinal).ToList();
+            if (missingAssetIds.Count > 0)
+            {
+                ModelState.AddModelError("blocks", "Cada imagen de pregunta debe existir y pertenecer a esta versión del examen.");
+                return ValidationProblem(ModelState);
             }
         }
 

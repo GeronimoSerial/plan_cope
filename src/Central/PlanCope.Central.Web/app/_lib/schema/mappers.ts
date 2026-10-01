@@ -70,6 +70,7 @@ function questionToBlock(question: Question, orderIndex: number): DocumentBlock 
         config: {
           question: question.prompt,
           help: question.help ?? null,
+          ...(question.imageAssetId ? { imageAssetId: question.imageAssetId } : {}),
           multiple: question.type === "multiple_choice",
           ...(question.type === "multiple_choice" ? { scoringPolicy: question.scoringPolicy ?? "AllOrNothing" } : {}),
           options: question.options.map(option => ({ value: option.id, label: option.label }))
@@ -80,7 +81,7 @@ function questionToBlock(question: Question, orderIndex: number): DocumentBlock 
       return {
         ...base,
         blockType: "TrueFalse",
-        config: { question: question.prompt, help: question.help ?? null },
+        config: { question: question.prompt, help: question.help ?? null, ...(question.imageAssetId ? { imageAssetId: question.imageAssetId } : {}) },
         correctAnswer: question.correctAnswer
       };
   }
@@ -111,6 +112,7 @@ export function versionToDocument(
       const required = typeof validation.required === "boolean" ? validation.required : true;
       const score = typeof answer?.scoreValue === "number" ? answer.scoreValue : 1;
       const help = typeof config.help === "string" ? config.help : undefined;
+      const imageAssetId = typeof config.imageAssetId === "string" && config.imageAssetId.length > 0 ? config.imageAssetId : undefined;
 
       if (type === "MultipleChoice") {
         const multiple = config.multiple === true;
@@ -130,6 +132,7 @@ export function versionToDocument(
           type: multiple ? "multiple_choice" : "single_choice",
           ...(multiple ? { scoringPolicy: isScoringPolicy(rawScoringPolicy) ? rawScoringPolicy : "AllOrNothing" } : {}),
           prompt: String(config.question ?? block.title ?? ""),
+          imageAssetId,
           help,
           required,
           score,
@@ -142,6 +145,7 @@ export function versionToDocument(
           id: block.id,
           type: "true_false",
           prompt: String(config.question ?? block.title ?? ""),
+          imageAssetId,
           help,
           required,
           score,

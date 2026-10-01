@@ -45,10 +45,9 @@ async function proxy(request: NextRequest, ctx: { params: Promise<{ path: string
     return NextResponse.json({ error: "No se pudo conectar con el servidor." }, { status: 502 });
   }
 
-  const text = await res.text();
-  return new NextResponse(text.length > 0 ? text : null, {
+  return new NextResponse(res.body, {
     status: res.status,
-    headers: { "Content-Type": "application/json" }
+    headers: { "Content-Type": res.headers.get("Content-Type") ?? "application/json" }
   });
 }
 
