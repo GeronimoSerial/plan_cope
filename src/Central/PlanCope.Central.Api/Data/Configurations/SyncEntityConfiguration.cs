@@ -76,6 +76,8 @@ public sealed class CentralDeliverySessionConfiguration : IEntityTypeConfigurati
         builder.Property(static x => x.Status).HasMaxLength(32).IsRequired();
         builder.Property(static x => x.SchoolYear).HasMaxLength(64);
         builder.Property(static x => x.Course).HasMaxLength(128);
+        builder.Property(static x => x.RosterSectionId).HasMaxLength(128);
+        builder.Property(static x => x.LocalAppVersion).HasMaxLength(64);
         builder.HasIndex(static x => new { x.SourceNodeId, x.RemoteLocalId }).IsUnique();
     }
 }

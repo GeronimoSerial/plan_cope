@@ -160,6 +160,32 @@ export interface SchoolStatsRow {
   schoolName: string | null;
   attemptCount: number | string;
   averageScorePercent: number | string;
+  liveSessionCount?: number;
+  liveJoinedCount?: number;
+  liveInProgressCount?: number;
+  liveSubmittedCount?: number;
+}
+
+export interface LiveSessionSummary {
+  sessionId: string;
+  cue: string;
+  schoolYear: string | null;
+  rosterSectionId: string | null;
+  examVersionId: string | null;
+  status: string;
+  joinedCount: number;
+  inProgressCount: number;
+  submittedCount: number;
+  closedOrForcedCount: number;
+  startedAt: string;
+  lastActivityAt: string | null;
+  lastHeartbeatAt: string | null;
+  signalStatus: string;
+  appVersion: string | null;
+}
+
+export function listLiveSessions(): Promise<LiveSessionSummary[]> {
+  return serverGet<LiveSessionSummary[]>("/api/admin/live-sessions");
 }
 
 export interface SchoolYearOption {

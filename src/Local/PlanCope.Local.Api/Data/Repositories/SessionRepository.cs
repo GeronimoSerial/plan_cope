@@ -1,5 +1,6 @@
 using Dapper;
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using PlanCope.Local.Api.Data;
 using PlanCope.Local.Api.Services;
@@ -79,6 +80,53 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         using var connection = connectionFactory.CreateOpenConnection();
         var sessions = await connection.QueryAsync<LocalDeliverySessionRow>(new CommandDefinition(sql, cancellationToken: cancellationToken));
         return sessions.Select(static row => row.ToDomain()).ToList();
+    }
+
+    public async Task<SessionHeartbeatSnapshot?> GetHeartbeatSnapshotAsync(string id, CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT s.id AS SessionId, s.school_code AS SchoolCode, s.school_year AS SchoolYear,
+                   s.roster_section_id AS RosterSectionId, ev.remote_exam_version_id AS RemoteExamVersionId,
+                   s.status AS Status, s.start_at AS StartAt,
+                   (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id) AS JoinedCount,
+                   (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'in_progress') AS InProgressCount,
+                   (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'submitted') AS SubmittedCount,
+                   (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.submission_reason IS NOT NULL) AS ClosedOrForcedCount,
+                   CAST((SELECT MAX(activity_at) FROM (
+                       SELECT a.started_at AS activity_at FROM student_attempts a WHERE a.delivery_session_id = s.id
+                       UNION ALL SELECT a.submitted_at FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.submitted_at IS NOT NULL
+                       UNION ALL SELECT answer.created_at FROM student_attempts a JOIN submission_answers answer ON answer.student_attempt_id = a.id WHERE a.delivery_session_id = s.id
+                   )) AS TEXT) AS LastActivityAt
+            FROM delivery_sessions s JOIN local_exam_versions ev ON ev.id = s.exam_version_id
+            WHERE s.id = @Id AND s.status IN ('active', 'paused') LIMIT 1;
+            """;
+        using var connection = connectionFactory.CreateOpenConnection();
+        var row = await connection.QuerySingleOrDefaultAsync<SessionHeartbeatRow>(new CommandDefinition(sql, new { Id = id }, cancellationToken: cancellationToken));
+        return row is null ? null : new SessionHeartbeatSnapshot(row.SessionId, row.SchoolCode, row.SchoolYear,
+            row.RosterSectionId, row.RemoteExamVersionId, row.Status, row.StartAt, row.JoinedCount,
+            row.InProgressCount, row.SubmittedCount, row.ClosedOrForcedCount,
+            ReadTimestamp(row.LastActivityAt));
+    }
+
+    public async Task<IReadOnlyDictionary<string, DateTimeOffset?>> GetActiveLastActivityAsync(CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT s.id AS Id, CAST(COALESCE(MAX(activity_at), s.start_at) AS TEXT) AS LastActivityAt
+            FROM delivery_sessions s LEFT JOIN (
+                SELECT a.delivery_session_id, a.started_at AS activity_at
+                FROM student_attempts a JOIN delivery_sessions active ON active.id = a.delivery_session_id AND active.status IN ('active', 'paused')
+                UNION ALL SELECT a.delivery_session_id, a.submitted_at FROM student_attempts a
+                    JOIN delivery_sessions active ON active.id = a.delivery_session_id AND active.status IN ('active', 'paused')
+                    WHERE a.submitted_at IS NOT NULL
+                UNION ALL SELECT a.delivery_session_id, answer.created_at FROM student_attempts a
+                    JOIN delivery_sessions active ON active.id = a.delivery_session_id AND active.status IN ('active', 'paused')
+                    JOIN submission_answers answer ON answer.student_attempt_id = a.id
+            ) activity ON activity.delivery_session_id = s.id
+            WHERE s.status IN ('active', 'paused') GROUP BY s.id;
+            """;
+        using var connection = connectionFactory.CreateOpenConnection();
+        var rows = await connection.QueryAsync<ActiveSessionActivityRow>(new CommandDefinition(sql, cancellationToken: cancellationToken));
+        return rows.ToDictionary(row => row.Id, row => DateTimeOffset.TryParse(ReadTimestamp(row.LastActivityAt), out var parsed) ? (DateTimeOffset?)parsed : null, StringComparer.Ordinal);
     }
 
     public async Task<IReadOnlyList<SessionListItem>> GetActiveSummariesAsync(string? schoolCode, CancellationToken cancellationToken = default)
@@ -239,6 +287,13 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
     }
 
     private static string? NormalizeOptionalCue(string? cue) => string.IsNullOrWhiteSpace(cue) ? null : CueCode.Normalize(cue);
+
+    private static string? ReadTimestamp(object? value) => value switch
+    {
+        string text => text,
+        byte[] bytes => Encoding.UTF8.GetString(bytes),
+        _ => null
+    };
 
     private static string BuildHistorySearchPredicate(IReadOnlyList<string> tokens, DynamicParameters parameters)
     {
@@ -586,6 +641,28 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         {
             return new LocalDeliverySession(Id, ExamVersionId, SchoolCode, ClassroomCode, CommissionCode, StartedBy, StartAt, EndAt, Status, ConfigJson, AccessCode, checked((int)ExpectedStudentCount), SchoolYear, RosterSnapshotId, RosterSectionId);
         }
+    }
+
+    private sealed class ActiveSessionActivityRow
+    {
+        public string Id { get; set; } = "";
+        public object? LastActivityAt { get; set; }
+    }
+
+    private sealed class SessionHeartbeatRow
+    {
+        public string SessionId { get; set; } = "";
+        public string SchoolCode { get; set; } = "";
+        public string? SchoolYear { get; set; }
+        public string? RosterSectionId { get; set; }
+        public string? RemoteExamVersionId { get; set; }
+        public string Status { get; set; } = "";
+        public string StartAt { get; set; } = "";
+        public long JoinedCount { get; set; }
+        public long InProgressCount { get; set; }
+        public long SubmittedCount { get; set; }
+        public long ClosedOrForcedCount { get; set; }
+        public object? LastActivityAt { get; set; }
     }
 
     private static string FormatDisplayName(string? lastName, string? firstName)

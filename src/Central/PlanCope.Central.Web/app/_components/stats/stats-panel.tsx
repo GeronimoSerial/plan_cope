@@ -285,6 +285,7 @@ export function StatsPanel({ initialSchools, schoolYears, scopeDenied }: StatsPa
                     <TableHead>
                       <TermLabel term="stats-promedio">Promedio de puntaje (%)</TermLabel>
                     </TableHead>
+                    <TableHead>Sesiones en curso</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -313,6 +314,13 @@ export function StatsPanel({ initialSchools, schoolYears, scopeDenied }: StatsPa
                       </TableCell>
                       <TableCell>
                         <StatValue value={row.averageScorePercent} format={formatPercent} />
+                      </TableCell>
+                      <TableCell>
+                        {(row.liveSessionCount ?? 0) > 0 ? (
+                          <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100">
+                            En curso · {row.liveJoinedCount ?? 0} alumnos · {row.liveInProgressCount ?? 0} en evaluación · {row.liveSubmittedCount ?? 0} entregados
+                          </span>
+                        ) : <span className="text-muted-foreground">—</span>}
                       </TableCell>
                     </TableRow>
                   ))}

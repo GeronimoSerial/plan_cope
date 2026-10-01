@@ -136,6 +136,29 @@ public sealed class StatsControllerTests
     }
 
     [Fact]
+    public async Task GetSchools_Includes_live_only_cues_and_counts_without_final_attempts()
+    {
+        using var dbContext = new PlanCopeDbContext(CreateOptions());
+        var now = DateTimeOffset.UtcNow;
+        dbContext.DeliverySessions.Add(new CentralDeliverySession(
+            "central-session-1", "local-session-1", "180000300", "exam-1", null, null, "active",
+            now.AddMinutes(-15), null, now, now, "node-1", "2026", null, "section-1", 12, 5, 7, 0, now, now, "1.0.0"));
+        await dbContext.SaveChangesAsync();
+
+        using var scope = CreateAuthScope();
+        var controller = CreateController(dbContext, scope.ServiceProvider.GetRequiredService<IAuthorizationService>(),
+            Principal(new Claim("roster_scope", "province")));
+        var response = Assert.IsType<OkObjectResult>(await controller.GetSchools(null, null, CancellationToken.None));
+        using var json = ToJson(response.Value);
+        var row = Assert.Single(json.RootElement.EnumerateArray());
+        Assert.Equal("180000300", row.GetProperty("cue").GetString());
+        Assert.Equal(1, row.GetProperty("liveSessionCount").GetInt32());
+        Assert.Equal(12, row.GetProperty("liveJoinedCount").GetInt32());
+        Assert.Equal(5, row.GetProperty("liveInProgressCount").GetInt32());
+        Assert.Equal(7, row.GetProperty("liveSubmittedCount").GetInt32());
+    }
+
+    [Fact]
     public async Task GetSchool_SchoolScopeWithDifferentCue_IsForbidden()
     {
         var options = CreateOptions();

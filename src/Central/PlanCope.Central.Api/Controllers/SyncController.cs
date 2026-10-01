@@ -358,7 +358,15 @@ public sealed class SyncController(
             existing?.CreatedAt ?? receivedAt,
             nodeId,
             existing?.SchoolYear ?? ReadOptionalString(sessionElement, "schoolYear"),
-            existing?.Course ?? ReadOptionalString(sessionElement, "course"));
+            existing?.Course ?? ReadOptionalString(sessionElement, "course"),
+            existing?.RosterSectionId ?? ReadOptionalString(sessionElement, "sectionId"),
+            existing?.JoinedCount ?? 0,
+            existing?.InProgressCount ?? 0,
+            existing?.SubmittedCount ?? 0,
+            existing?.ClosedOrForcedCount ?? 0,
+            existing?.LastActivityAt,
+            existing?.LastHeartbeatAt,
+            existing?.LocalAppVersion);
         if (existing is null)
         {
             dbContext.DeliverySessions.Add(session);

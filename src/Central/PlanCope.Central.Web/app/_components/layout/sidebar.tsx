@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useNavigationGuard } from "./navigation-guard";
 import {
   BarChart3,
+  Activity,
   Download,
   FileText,
   Home,
@@ -81,7 +82,8 @@ export function AppSidebar({ user }: { user: UserProfile }) {
           <SidebarGroupLabel>Navegación</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {links.filter(link => link.href !== "/sincronizacion-recibida" || user.role === "Admin").map(link => {
+              {[...links.filter(link => link.href !== "/sincronizacion-recibida" || user.role === "Admin"),
+                ...(user.role === "Admin" ? [{ href: "/sesiones-en-curso", label: "Sesiones en curso", icon: Activity }] : [])].map(link => {
                 const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
                 const Icon = link.icon;
                 return (
