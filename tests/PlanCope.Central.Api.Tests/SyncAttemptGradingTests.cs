@@ -1,10 +1,15 @@
 using System.Text.Json;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using PlanCope.Central.Api.Controllers;
+using PlanCope.Central.Api.Auth;
 using PlanCope.Central.Api.Data;
 using PlanCope.Central.Api.Services;
 using PlanCope.Shared.Contracts.Sync;
@@ -92,6 +97,7 @@ public sealed class SyncAttemptGradingTests
         Assert.Equal(1, rollup.AttemptCount);
         Assert.Equal("6to A", rollup.Course);
         Assert.Equal("180000100", rollup.Cue);
+        await AssertStatsContainsCueAsync(dbContext, "180000100", "2026", "6to A");
     }
 
     [Fact]
@@ -168,6 +174,244 @@ public sealed class SyncAttemptGradingTests
 
         Assert.Equal("accepted", response.Results.Single().Status);
         Assert.Equal("180000101", (await dbContext.ExamRollups.SingleAsync()).Cue);
+    }
+
+    [Fact]
+    public async Task Normal_session_without_roster_attributes_attempt_and_shows_it_in_stats()
+    {
+        using var dbContext = CreateDbContext();
+        var exam = MakeExam("no-roster-exam");
+        var version = MakeVersion("no-roster-version", exam.Id);
+        var block = MakeBlock("no-roster-block", version.Id);
+        SeedExam(dbContext, exam, version, block, MakeAnswerKey("no-roster-key", block.Id, "[\"B\"]", 1m));
+        dbContext.Schools.Add(new School("school-1", "CUE-180000100", 180000100, null, "Escuela de prueba", "locality-1", "Active", null, Now, Now));
+        await dbContext.SaveChangesAsync();
+
+        var item = CreateAttemptItem("no-roster-idem", "no-roster-attempt", version.Id,
+            new[] { MakeAnswerPayload("no-roster-attempt", block.Id, "[\"B\"]") },
+            new { id = "no-roster-session", schoolCue = "180000100", schoolYear = "2026", course = "6to A", sectionId = (string?)null, examVersionId = version.Id, startedAt = Now.ToString("O"), closedAt = Now.ToString("O"), status = "closed" });
+
+        var response = await PushAsync(dbContext, item);
+        Assert.Equal("accepted", response.Results.Single().Status);
+        var rollup = await dbContext.ExamRollups.SingleAsync();
+        Assert.Equal("180000100", rollup.Cue);
+        Assert.Equal("2026", rollup.SchoolYear);
+        Assert.Equal("6to A", rollup.Course);
+        Assert.Equal("attributed", (await dbContext.ReceivedStudentAttempts.SingleAsync()).AttributionStatus);
+
+        using var scope = CreateAuthorizationScope();
+        var stats = new StatsController(dbContext, scope.ServiceProvider.GetRequiredService<IAuthorizationService>())
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity([new Claim("roster_scope", "province")], "test"))
+                }
+            }
+        };
+        var statsResult = await stats.GetSchools("2026", "6to A", CancellationToken.None);
+        var rows = Assert.IsType<OkObjectResult>(statsResult).Value;
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(rows));
+        Assert.Contains(json.RootElement.EnumerateArray(), row => row.GetProperty("cue").GetString() == "180000100");
+    }
+
+    [Fact]
+    public async Task Admin_reprocess_grades_a_previously_unknown_version_and_rebuild_is_idempotent()
+    {
+        using var dbContext = CreateDbContext();
+        const string attemptId = "recoverable-attempt";
+        const string versionId = "recoverable-version";
+        const string blockId = "recoverable-block";
+        dbContext.Schools.Add(new School("school-recovery", "CUE-180000100", 180000100, null, "Escuela", "locality-1", "Active", null, Now, Now));
+        await dbContext.SaveChangesAsync();
+        var item = CreateAttemptItem("recoverable-idem", attemptId, versionId,
+            new[] { MakeAnswerPayload(attemptId, blockId, "[\"B\"]") },
+            new { id = "recoverable-session", schoolCue = "180000100", schoolYear = "2026", course = "6to A", examVersionId = versionId, status = "closed" });
+
+        var firstPush = await PushAsync(dbContext, item);
+        Assert.Equal("accepted", firstPush.Results.Single().Status);
+        var received = await dbContext.ReceivedStudentAttempts.SingleAsync();
+        Assert.Equal("ungradable", (await dbContext.CentralAttemptResults.SingleAsync()).Status);
+
+        var exam = MakeExam("recoverable-exam");
+        var version = MakeVersion(versionId, exam.Id);
+        var block = MakeBlock(blockId, version.Id);
+        SeedExam(dbContext, exam, version, block, MakeAnswerKey("recoverable-key", block.Id, "[\"B\"]", 1m));
+        await dbContext.SaveChangesAsync();
+
+        var rollups = new CentralStatsRollupService(dbContext);
+        var admin = new ReceivedSyncAdminController(dbContext, rollups, NullLogger<ReceivedSyncAdminController>.Instance);
+        var firstReprocess = Assert.IsType<OkObjectResult>(await admin.Reprocess(CancellationToken.None));
+        Assert.Equal("graded", (await dbContext.CentralAttemptResults.SingleAsync()).Status);
+        var firstRollup = await dbContext.ExamRollups.SingleAsync();
+        Assert.Equal(1, firstRollup.AttemptCount);
+        Assert.Equal("attributed", (await dbContext.ReceivedStudentAttempts.SingleAsync()).AttributionStatus);
+
+        var secondReprocess = Assert.IsType<OkObjectResult>(await admin.Reprocess(CancellationToken.None));
+        Assert.Equal(1, (await dbContext.ExamRollups.SingleAsync()).AttemptCount);
+        Assert.Equal(received.Id, (await dbContext.ReceivedStudentAttempts.SingleAsync()).Id);
+        Assert.NotNull(firstReprocess.Value);
+        Assert.NotNull(secondReprocess.Value);
+    }
+
+    [Fact]
+    public async Task Reprocess_persists_unattributed_status_and_reason_for_ungradable_attempts()
+    {
+        using var dbContext = CreateDbContext();
+        dbContext.Schools.Add(new School("school-unattributed", "CUE-180000100", 180000100, null, "Escuela", "locality-1", "Active", null, Now, Now));
+        await dbContext.SaveChangesAsync();
+        var item = CreateAttemptItem("unattributed-idem", "unattributed-attempt", "missing-version",
+            new[] { MakeAnswerPayload("unattributed-attempt", "missing-block", "[\"B\"]") },
+            new { id = "unattributed-session", schoolCue = "180000100", schoolYear = "2026", course = "6to A", examVersionId = "missing-version", status = "closed" });
+        Assert.Equal("accepted", (await PushAsync(dbContext, item)).Results.Single().Status);
+
+        var admin = new ReceivedSyncAdminController(dbContext, new CentralStatsRollupService(dbContext), NullLogger<ReceivedSyncAdminController>.Instance);
+        Assert.IsType<OkObjectResult>(await admin.Reprocess(CancellationToken.None));
+
+        var attempt = await dbContext.ReceivedStudentAttempts.AsNoTracking().SingleAsync();
+        Assert.Equal("unattributed", attempt.AttributionStatus);
+        Assert.False(string.IsNullOrWhiteSpace(attempt.AttributionReason));
+    }
+
+    [Fact]
+    public async Task Reprocess_regrades_every_page_of_attempts_and_stays_idempotent()
+    {
+        using var dbContext = CreateDbContext();
+        const string versionId = "paged-version";
+        const string blockId = "paged-block";
+        dbContext.Schools.Add(new School("school-paged", "CUE-180000100", 180000100, null, "Escuela", "locality-1", "Active", null, Now, Now));
+        await dbContext.SaveChangesAsync();
+        for (var index = 0; index < 3; index++)
+        {
+            var attemptId = $"paged-attempt-{index}";
+            var response = await PushAsync(dbContext, CreateAttemptItem($"paged-idem-{index}", attemptId, versionId,
+                new[] { MakeAnswerPayload(attemptId, blockId, "[\"B\"]") },
+                new { id = "paged-session", schoolCue = "180000100", schoolYear = "2026", course = "6to A", examVersionId = versionId, status = "closed" }));
+            Assert.Equal("accepted", response.Results.Single().Status);
+        }
+        Assert.All(await dbContext.CentralAttemptResults.ToListAsync(), result => Assert.Equal("ungradable", result.Status));
+
+        var exam = MakeExam("paged-exam");
+        var version = MakeVersion(versionId, exam.Id);
+        var block = MakeBlock(blockId, version.Id);
+        SeedExam(dbContext, exam, version, block, MakeAnswerKey("paged-key", block.Id, "[\"B\"]", 1m));
+        await dbContext.SaveChangesAsync();
+
+        var admin = new ReceivedSyncAdminController(dbContext, new CentralStatsRollupService(dbContext), NullLogger<ReceivedSyncAdminController>.Instance)
+        {
+            RegradePageSize = 2
+        };
+        Assert.IsType<OkObjectResult>(await admin.Reprocess(CancellationToken.None));
+        Assert.IsType<OkObjectResult>(await admin.Reprocess(CancellationToken.None));
+
+        Assert.All(await dbContext.CentralAttemptResults.AsNoTracking().ToListAsync(), result => Assert.Equal("graded", result.Status));
+        Assert.All(await dbContext.ReceivedStudentAttempts.AsNoTracking().ToListAsync(), attempt => Assert.Equal("attributed", attempt.AttributionStatus));
+        Assert.Equal(3, (await dbContext.ExamRollups.AsNoTracking().SingleAsync()).AttemptCount);
+    }
+
+    [Fact]
+    public async Task Duplicate_push_of_a_graded_attempt_still_returns_duplicate()
+    {
+        using var dbContext = CreateDbContext();
+        var exam = MakeExam("graded-duplicate-exam");
+        var version = MakeVersion("graded-duplicate-version", exam.Id);
+        var block = MakeBlock("graded-duplicate-block", version.Id);
+        SeedExam(dbContext, exam, version, block, MakeAnswerKey("graded-duplicate-key", block.Id, "[\"B\"]", 1m));
+        await dbContext.SaveChangesAsync();
+        var item = CreateAttemptItem("graded-duplicate-idem", "graded-duplicate-attempt", version.Id,
+            new[] { MakeAnswerPayload("graded-duplicate-attempt", block.Id, "[\"B\"]") });
+
+        Assert.Equal("accepted", (await PushAsync(dbContext, item)).Results.Single().Status);
+        Assert.Equal("duplicate", (await PushAsync(dbContext, item)).Results.Single().Status);
+        Assert.Equal("graded", (await dbContext.CentralAttemptResults.SingleAsync()).Status);
+    }
+
+    [Fact]
+    public async Task Storage_failure_while_updating_the_rollup_is_not_swallowed_as_ungradable()
+    {
+        var failOnSave = new FailOnSaveInterceptor();
+        using var dbContext = CreateDbContext(failOnSave);
+        var exam = MakeExam("storage-failure-exam");
+        var version = MakeVersion("storage-failure-version", exam.Id);
+        var block = MakeBlock("storage-failure-block", version.Id);
+        SeedExam(dbContext, exam, version, block, MakeAnswerKey("storage-failure-key", block.Id, "[\"B\"]", 1m));
+        dbContext.Schools.Add(new School("school-storage", "CUE-180000100", 180000100, null, "Escuela", "locality-1", "Active", null, Now, Now));
+        await dbContext.SaveChangesAsync();
+        await PushAsync(dbContext, CreateAttemptItem("storage-failure-idem", "storage-failure-attempt", version.Id,
+            new[] { MakeAnswerPayload("storage-failure-attempt", block.Id, "[\"B\"]") },
+            new { id = "storage-session", schoolCue = "180000100", schoolYear = "2026", course = "6to A", examVersionId = version.Id, status = "closed" }));
+        var received = await dbContext.ReceivedStudentAttempts.SingleAsync();
+        var grader = new CentralAttemptGradingService(dbContext, new CentralStatsRollupService(dbContext));
+
+        failOnSave.Armed = true;
+        await Assert.ThrowsAsync<DbUpdateException>(() => grader.RecomputeAsync(received.Id, version.Id,
+            [new ReceivedSubmissionAnswer("a", received.RemoteLocalId, block.Id, JsonDocument.Parse("[\"B\"]"), Now)],
+            CancellationToken.None));
+
+        Assert.DoesNotContain(dbContext.CentralAttemptResults.Local, result => result.Status == "ungradable");
+    }
+
+    [Fact]
+    public async Task Push_batch_isolates_a_bad_attempt_and_accepts_the_following_item()
+    {
+        using var dbContext = CreateDbContext();
+        var invalidPayload = JsonSerializer.SerializeToElement(new { answers = Array.Empty<object>() });
+        var invalid = new PushItem("bad-item-key", SyncEventTypes.AttemptSubmitted, "student_attempt", "bad-attempt",
+            invalidPayload, SyncPayloadChecksum.Calculate(invalidPayload), Now.ToString("O"));
+        var valid = CreateAttemptItem("good-item-key", "good-attempt", null, Array.Empty<object>());
+        var controller = new SyncController(dbContext, new CentralStatsRollupService(dbContext));
+        SyncTestPrincipals.BindNode(controller, "node-1");
+
+        var result = await controller.Push(new PushRequest("node-1", [invalid, valid]), "node-1", new PushRequestValidator(), CancellationToken.None);
+        var response = Assert.IsType<PushResponse>(Assert.IsType<OkObjectResult>(result.Result).Value);
+
+        Assert.Equal(new[] { "failed", "accepted" }, response.Results.Select(item => item.Status));
+        Assert.Equal(1, response.Received);
+        Assert.Equal(1, response.Failed);
+        Assert.Single(await dbContext.ReceivedStudentAttempts.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Unknown_session_cue_persists_attempt_attribution_reason()
+    {
+        using var dbContext = CreateDbContext();
+        var exam = MakeExam("unknown-cue-exam");
+        var version = MakeVersion("unknown-cue-version", exam.Id);
+        var block = MakeBlock("unknown-cue-block", version.Id);
+        SeedExam(dbContext, exam, version, block, MakeAnswerKey("unknown-cue-answer-key", block.Id, "[\"B\"]", 1m));
+        await dbContext.SaveChangesAsync();
+        var item = CreateAttemptItem("unknown-cue-idem", "unknown-cue-attempt", version.Id,
+            new[] { MakeAnswerPayload("unknown-cue-attempt", block.Id, "[\"B\"]") },
+            new { id = "unknown-cue-session", schoolCue = "bad-cue", schoolYear = "2026", course = "6to A", examVersionId = version.Id });
+
+        var response = await PushAsync(dbContext, item);
+
+        Assert.Equal("accepted", response.Results.Single().Status);
+        Assert.Empty(await dbContext.ExamRollups.ToListAsync());
+        var attempt = await dbContext.ReceivedStudentAttempts.SingleAsync();
+        Assert.Equal("unattributed", attempt.AttributionStatus);
+        Assert.Contains("known CUE", attempt.AttributionReason);
+    }
+
+    [Fact]
+    public async Task Unexpected_grading_exception_is_stored_as_ungradable_with_reason()
+    {
+        using var dbContext = CreateDbContext();
+        var exam = MakeExam("grading-exception-exam");
+        var version = MakeVersion("grading-exception-version", exam.Id);
+        var block = MakeBlock("grading-exception-block", version.Id);
+        SeedExam(dbContext, exam, version, block, MakeAnswerKey("grading-exception-key", block.Id, "[1]", 1m));
+        await dbContext.SaveChangesAsync();
+
+        var response = await PushAsync(dbContext, CreateAttemptItem("grading-exception-idem", "grading-exception-attempt", version.Id,
+            new[] { MakeAnswerPayload("grading-exception-attempt", block.Id, "[\"B\"]") }));
+
+        Assert.Equal("accepted", response.Results.Single().Status);
+        var result = await dbContext.CentralAttemptResults.SingleAsync();
+        Assert.Equal("ungradable", result.Status);
+        Assert.Contains("Grading failed", result.Reason);
+        Assert.Contains("string", result.Reason, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -253,7 +497,9 @@ public sealed class SyncAttemptGradingTests
         Assert.Equal("accepted", response.Results[0].Status);
         Assert.Equal(1, await dbContext.ReceivedStudentAttempts.CountAsync());
         Assert.Equal(1, await dbContext.ReceivedSubmissionAnswers.CountAsync());
-        Assert.Equal(0, await dbContext.CentralAttemptResults.CountAsync());
+        var result = await dbContext.CentralAttemptResults.SingleAsync();
+        Assert.Equal("ungradable", result.Status);
+        Assert.Contains("did not include an exam version", result.Reason);
     }
 
     [Fact]
@@ -319,6 +565,33 @@ public sealed class SyncAttemptGradingTests
         {
             Id = sectionId, SnapshotId = $"snapshot-{sectionId}", Course = "6to A"
         });
+    }
+
+    private static IServiceScope CreateAuthorizationScope()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddAuthorization(options => options.AddPolicy("RosterCueAccess", policy => policy.Requirements.Add(new RosterScopeRequirement())));
+        services.AddScoped<IAuthorizationHandler, RosterScopeAuthorizationHandler>();
+        return services.BuildServiceProvider().CreateScope();
+    }
+
+    private static async Task AssertStatsContainsCueAsync(PlanCopeDbContext dbContext, string cue, string schoolYear, string course)
+    {
+        using var scope = CreateAuthorizationScope();
+        var controller = new StatsController(dbContext, scope.ServiceProvider.GetRequiredService<IAuthorizationService>())
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity([new Claim("roster_scope", "province")], "test"))
+                }
+            }
+        };
+        var result = await controller.GetSchools(schoolYear, course, CancellationToken.None);
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(Assert.IsType<OkObjectResult>(result).Value));
+        Assert.Contains(json.RootElement.EnumerateArray(), row => row.GetProperty("cue").GetString() == cue);
     }
 
     private static PushItem CreateAttemptItem(
@@ -440,13 +713,23 @@ public sealed class SyncAttemptGradingTests
         .AddSingleton<IModelCustomizer, JsonDocumentFriendlyModelCustomizer>()
         .BuildServiceProvider();
 
-    private static PlanCopeDbContext CreateDbContext()
+    private static PlanCopeDbContext CreateDbContext(params IInterceptor[] interceptors)
     {
         var options = new DbContextOptionsBuilder<PlanCopeDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
             .UseInternalServiceProvider(InMemoryServices)
+            .AddInterceptors(interceptors)
             .ConfigureWarnings(warnings => warnings.Ignore(InMemoryEventId.TransactionIgnoredWarning))
             .Options;
         return new PlanCopeDbContext(options);
+    }
+
+    private sealed class FailOnSaveInterceptor : SaveChangesInterceptor
+    {
+        public bool Armed { get; set; }
+
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default) =>
+            Armed ? throw new DbUpdateException("Simulated storage failure.") : base.SavingChangesAsync(eventData, result, cancellationToken);
     }
 }

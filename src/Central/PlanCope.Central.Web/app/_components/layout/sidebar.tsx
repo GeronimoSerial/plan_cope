@@ -10,10 +10,12 @@ import {
   FileText,
   Home,
   KeyRound,
+  RefreshCw,
   School,
   Users,
   type LucideIcon
 } from "lucide-react";
+import type { UserProfile } from "../../_lib/contracts";
 import {
   Sidebar,
   SidebarContent,
@@ -40,10 +42,11 @@ const links: NavItem[] = [
   { href: "/usuarios", label: "Usuarios", icon: Users },
   { href: "/claves", label: "Claves de activación", icon: KeyRound },
   { href: "/estadisticas", label: "Estadísticas", icon: BarChart3 },
+  { href: "/sincronizacion-recibida", label: "Sincronización recibida", icon: RefreshCw },
   { href: "/descargas", label: "Descargas", icon: Download }
 ];
 
-export function AppSidebar({ isAdmin = false }: { isAdmin?: boolean }) {
+export function AppSidebar({ user }: { user: UserProfile }) {
   const pathname = usePathname();
   const router = useRouter();
   const { intercept } = useNavigationGuard();
@@ -79,7 +82,8 @@ export function AppSidebar({ isAdmin = false }: { isAdmin?: boolean }) {
           <SidebarGroupLabel>Navegación</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {[...links, ...(isAdmin ? [{ href: "/sesiones-en-curso", label: "Sesiones en curso", icon: Activity }] : [])].map(link => {
+              {[...links.filter(link => link.href !== "/sincronizacion-recibida" || user.role === "Admin"),
+                ...(user.role === "Admin" ? [{ href: "/sesiones-en-curso", label: "Sesiones en curso", icon: Activity }] : [])].map(link => {
                 const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
                 const Icon = link.icon;
                 return (

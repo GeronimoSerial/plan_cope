@@ -18,6 +18,13 @@ class NotFoundError extends Error {
   }
 }
 
+class ScopeDeniedError extends Error {
+  constructor() {
+    super("No tenés alcance asignado para esta consulta.");
+    this.name = "ScopeDeniedError";
+  }
+}
+
 class NoInstallerPublishedError extends Error {
   constructor() {
     super("No installer published yet.");
@@ -31,6 +38,10 @@ export function isSessionExpired(error: unknown): boolean {
 
 export function isNotFound(error: unknown): boolean {
   return error instanceof NotFoundError;
+}
+
+export function isScopeDenied(error: unknown): boolean {
+  return error instanceof ScopeDeniedError;
 }
 
 export function isNoInstallerPublishedError(error: unknown): boolean {
@@ -52,6 +63,9 @@ async function serverGet<T>(path: string): Promise<T> {
   const text = await res.text();
   if (res.status === 404) {
     throw new NotFoundError();
+  }
+  if (res.status === 403) {
+    throw new ScopeDeniedError();
   }
   if (!res.ok) {
     throw new Error(extractApiError(text, res.status));
@@ -143,6 +157,7 @@ export function listSchools(): Promise<SchoolSummary[]> {
 
 export interface SchoolStatsRow {
   cue: string;
+  schoolName: string | null;
   attemptCount: number | string;
   averageScorePercent: number | string;
   liveSessionCount?: number;
@@ -171,6 +186,40 @@ export interface LiveSessionSummary {
 
 export function listLiveSessions(): Promise<LiveSessionSummary[]> {
   return serverGet<LiveSessionSummary[]>("/api/admin/live-sessions");
+}
+
+export interface SchoolYearOption {
+  value: string;
+  label: string;
+}
+
+export function listSchoolYears(): Promise<SchoolYearOption[]> {
+  return serverGet<SchoolYearOption[]>("/api/stats/school-years");
+}
+
+export interface ReceivedSyncAttempt {
+  attemptId: string;
+  receivedAt: string;
+  nodeId: string | null;
+  cue: string | null;
+  schoolYear: string | null;
+  rosterSectionId: string | null;
+  examVersionId: string | null;
+  gradingStatus: string;
+  gradingReason: string | null;
+  attributionStatus: string;
+  attributionReason: string | null;
+}
+
+export interface ReceivedSyncPage {
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  items: ReceivedSyncAttempt[];
+}
+
+export function listReceivedSyncAttempts(page = 1): Promise<ReceivedSyncPage> {
+  return serverGet<ReceivedSyncPage>(`/api/admin/sync/received?page=${page}&pageSize=50`);
 }
 
 export function listSchoolStats(schoolYear?: string, course?: string): Promise<SchoolStatsRow[]> {

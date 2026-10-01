@@ -20,7 +20,7 @@ public sealed record RegisteredNode(
     string? AppVersion);
 
 public sealed record CentralDeliverySession(string Id, string RemoteLocalId, string? SchoolId, string? ExamVersionId, string? ClassroomCode, string? CommissionCode, string Status, DateTimeOffset? StartedAt, DateTimeOffset? EndedAt, DateTimeOffset? SyncedAt, DateTimeOffset CreatedAt, string? SourceNodeId = null,
-    string? SchoolYear = null, string? RosterSectionId = null, int JoinedCount = 0, int InProgressCount = 0, int SubmittedCount = 0, int ClosedOrForcedCount = 0,
+    string? SchoolYear = null, string? Course = null, string? RosterSectionId = null, int JoinedCount = 0, int InProgressCount = 0, int SubmittedCount = 0, int ClosedOrForcedCount = 0,
     DateTimeOffset? LastActivityAt = null, DateTimeOffset? LastHeartbeatAt = null, string? LocalAppVersion = null);
 
 public sealed record ReceivedStudentAttempt(
@@ -44,7 +44,9 @@ public sealed record ReceivedStudentAttempt(
     string? VerificationSource = null,
     DateTimeOffset? VerifiedAt = null,
     string? DocumentHmac = null,
-    bool OffRoster = false);
+    bool OffRoster = false,
+    string AttributionStatus = "pending",
+    string? AttributionReason = null);
 
 public sealed record ReceivedSubmissionAnswer(string Id, string StudentAttemptId, string BlockId, JsonDocument Answer, DateTimeOffset CreatedAt);
 
@@ -57,7 +59,8 @@ public sealed record CentralAttemptResult(
     decimal? Score,
     decimal? ScoreMax,
     JsonDocument? BlocksJson,
-    DateTimeOffset GradedAt);
+    DateTimeOffset GradedAt,
+    string? Reason = null);
 
 public sealed record SyncInbox(string Id, string? SourceNodeId, string EventType, string AggregateType, string AggregateId, string IdempotencyKey, JsonDocument Payload, string Status, DateTimeOffset CreatedAt, DateTimeOffset? ProcessedAt);
 

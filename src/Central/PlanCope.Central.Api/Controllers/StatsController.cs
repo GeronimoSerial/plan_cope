@@ -6,6 +6,7 @@ using PlanCope.Central.Api.Auth;
 using PlanCope.Central.Api.Data;
 using PlanCope.Shared.Domain;
 using PlanCope.Shared.Domain.Central;
+using PlanCope.Shared.Domain.ValueObjects;
 
 namespace PlanCope.Central.Api.Controllers;
 
@@ -64,6 +65,11 @@ public sealed class StatsController(PlanCopeDbContext dbContext, IAuthorizationS
                 Submitted = group.Sum(session => session.SubmittedCount)
             })
             .ToDictionaryAsync(row => row.Cue, cancellationToken);
+        var schoolNames = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var school in await dbContext.Schools.AsNoTracking().ToListAsync(cancellationToken))
+        {
+            if (CueCode.TryFromSchool(school.Cue, school.Annex, out var schoolCue)) schoolNames[schoolCue] = school.Name;
+        }
         var rows = new List<object>();
         foreach (var cue in cues)
         {
@@ -75,12 +81,40 @@ public sealed class StatsController(PlanCopeDbContext dbContext, IAuthorizationS
                 liveJoinedCount = liveByCue.TryGetValue(cue, out live) ? live.Joined : 0,
                 liveInProgressCount = liveByCue.TryGetValue(cue, out live) ? live.InProgress : 0,
                 liveSubmittedCount = liveByCue.TryGetValue(cue, out live) ? live.Submitted : 0,
+                schoolName = schoolNames.GetValueOrDefault(cue),
                 attemptCount = Render(SuppressibleValue<int>.For(rosterScope!, totals.AttemptCount, totals.AttemptCount)),
                 averageScorePercent = Render(SuppressibleValue<double>.For(rosterScope!, totals.AttemptCount, totals.Percent))
             });
         }
 
         return Ok(rows);
+    }
+
+    [HttpGet("school-years")]
+    public async Task<ActionResult> GetSchoolYears(CancellationToken cancellationToken)
+    {
+        var rosterScope = User.FindFirstValue("roster_scope");
+        IQueryable<ExamRollup> query = dbContext.ExamRollups.AsNoTracking();
+        if (rosterScope == "school")
+        {
+            var candidates = User.FindAll("roster_cue").Select(claim => claim.Value).Distinct().ToList();
+            var authorized = new List<string>();
+            foreach (var cue in candidates)
+            {
+                if ((await authorizationService.AuthorizeAsync(User, cue, new RosterScopeRequirement())).Succeeded)
+                {
+                    authorized.Add(cue);
+                }
+            }
+            query = query.Where(row => authorized.Contains(row.Cue));
+        }
+        else if (rosterScope != "province")
+        {
+            return Forbid();
+        }
+
+        var years = await query.Select(row => row.SchoolYear).Distinct().ToListAsync(cancellationToken);
+        return Ok(years.OrderBy(year => year, StringComparer.Ordinal).Select(year => new { value = year, label = year }));
     }
 
     [HttpGet("courses")]

@@ -30,6 +30,13 @@ describe("AppShell", () => {
     expect(html).toContain('aria-live="polite">Listo</span>');
   });
 
+  it("shows the school context while a session is open", () => {
+    const html = renderToStaticMarkup(<AppShell status="Listo" activeTab="home" onTabChange={() => undefined}
+      sessionContext={{ schoolName: "Escuela Norte", schoolCode: "180055400" }}><p>Sesión</p></AppShell>);
+    expect(html).toContain("Escuela Norte");
+    expect(html).toContain("CUE 180055400");
+  });
+
   it("renders the student product name as the page heading", () => {
     const html = renderToStaticMarkup(<StudentShell><p>Contenido</p></StudentShell>);
 

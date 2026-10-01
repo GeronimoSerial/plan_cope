@@ -1,16 +1,16 @@
 "use client";
 
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
+import Link from "next/link";
 import { callCentral } from "../../_lib/api/client";
 import { getErrorMessage } from "../../_lib/json";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TermLabel } from "../help/term-hint";
-import type { SchoolStatsRow } from "../../_lib/api/server";
+import type { SchoolStatsRow, SchoolYearOption } from "../../_lib/api/server";
 import { GradeSectionPicker } from "../shared/grade-section-picker";
 
 interface CourseStatsRow {
@@ -44,6 +44,8 @@ interface ExamStatsRow {
 
 interface StatsPanelProps {
   initialSchools: SchoolStatsRow[];
+  schoolYears: SchoolYearOption[];
+  scopeDenied: boolean;
 }
 
 // El backend puede responder el string "cohorte insuficiente" en lugar de un número cuando
@@ -70,9 +72,9 @@ function csvEscape(value: number | string): string {
 }
 
 function buildSchoolsCsv(rows: SchoolStatsRow[]): string {
-  const lines = ["cue,attemptCount,averageScorePercent"];
+  const lines = ["cue,schoolName,attemptCount,averageScorePercent"];
   for (const row of rows) {
-    lines.push([csvEscape(row.cue), csvEscape(row.attemptCount), csvEscape(row.averageScorePercent)].join(","));
+    lines.push([csvEscape(row.cue), csvEscape(row.schoolName ?? ""), csvEscape(row.attemptCount), csvEscape(row.averageScorePercent)].join(","));
   }
   return lines.join("\r\n");
 }
@@ -90,7 +92,7 @@ function TableShell({ children }: { children: ReactNode }) {
   return <div className="overflow-x-auto rounded-lg ring-1 ring-foreground/10">{children}</div>;
 }
 
-export function StatsPanel({ initialSchools }: StatsPanelProps) {
+export function StatsPanel({ initialSchools, schoolYears, scopeDenied }: StatsPanelProps) {
   const [schools, setSchools] = useState<SchoolStatsRow[]>(initialSchools);
   const [schoolYearInput, setSchoolYearInput] = useState("");
   const [courseInput, setCourseInput] = useState("");
@@ -223,14 +225,16 @@ export function StatsPanel({ initialSchools }: StatsPanelProps) {
         <CardContent className="grid gap-4">
           <div className="flex flex-wrap items-end gap-3">
             <div className="grid gap-1.5">
-              <Label htmlFor="stats-school-year">Año lectivo (opcional)</Label>
-              <Input
+              <Label htmlFor="stats-school-year">Año lectivo</Label>
+              <select
                 id="stats-school-year"
                 value={schoolYearInput}
                 onChange={event => setSchoolYearInput(event.target.value)}
-                placeholder="Ej. 2025"
-                className="w-40"
-              />
+                className="h-9 w-40 rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="">Todos los años</option>
+                {schoolYears.map(year => <option key={year.value} value={year.value}>{year.label}</option>)}
+              </select>
             </div>
             <div className="grid gap-1.5">
               <GradeSectionPicker
@@ -240,7 +244,7 @@ export function StatsPanel({ initialSchools }: StatsPanelProps) {
                 onValueChange={next => setCourseInput(typeof next === "string" && next !== "all" ? next : "")}
                 includeAll
                 showSection={false}
-                className="min-w-44"
+                className="w-full min-w-56"
               />
             </div>
             <Button onClick={() => void applyFilters()} disabled={applying}>
@@ -254,11 +258,19 @@ export function StatsPanel({ initialSchools }: StatsPanelProps) {
             </Alert>
           )}
 
-          {schools.length === 0 ? (
+          {scopeDenied && (
+            <Alert variant="destructive">
+              <AlertDescription>
+                Tu usuario no tiene alcance para consultar estadísticas. Contactá a administración para revisar tu acceso.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {schools.length === 0 && !scopeDenied ? (
             <p className="text-sm text-muted-foreground">
-              No hay establecimientos con datos para los filtros seleccionados.
+              No hay establecimientos con intentos atribuidos para estos filtros. Puede que los equipos todavía no hayan sincronizado o que haya intentos pendientes de atribución. Revisá <Link className="underline underline-offset-4" href="/sincronizacion-recibida">Sincronización recibida</Link>.
             </p>
-          ) : (
+          ) : schools.length > 0 ? (
             <TableShell>
               <Table>
                 <TableHeader>
@@ -266,6 +278,7 @@ export function StatsPanel({ initialSchools }: StatsPanelProps) {
                     <TableHead>
                       <TermLabel term="cue">CUE</TermLabel>
                     </TableHead>
+                    <TableHead>Establecimiento</TableHead>
                     <TableHead>
                       <TermLabel term="stats-intentos">Intentos</TermLabel>
                     </TableHead>
@@ -288,6 +301,15 @@ export function StatsPanel({ initialSchools }: StatsPanelProps) {
                     >
                       <TableCell className="font-mono font-medium">{row.cue}</TableCell>
                       <TableCell>
+                        <Link
+                          className="underline underline-offset-4"
+                          href={`/escuelas?q=${encodeURIComponent(row.cue)}`}
+                          onClick={event => event.stopPropagation()}
+                        >
+                          {row.schoolName ?? "Ver escuela"}
+                        </Link>
+                      </TableCell>
+                      <TableCell>
                         <StatValue value={row.attemptCount} format={formatCount} />
                       </TableCell>
                       <TableCell>
@@ -305,7 +327,7 @@ export function StatsPanel({ initialSchools }: StatsPanelProps) {
                 </TableBody>
               </Table>
             </TableShell>
-          )}
+          ) : null}
         </CardContent>
       </Card>
 

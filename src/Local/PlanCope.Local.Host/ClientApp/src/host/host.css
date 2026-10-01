@@ -142,6 +142,10 @@
 .session-heading { display:flex; align-items:start; justify-content:space-between; gap:var(--s-3); }
 .session-heading .section-title { border-top:4px solid var(--marker); padding-top:var(--s-3); }
 .session-grade-label { flex:none; margin:0; border:1px solid var(--line); border-radius:var(--r-sm); padding:var(--s-2) var(--s-3); background:var(--fill); color:var(--ink-soft); font-size:var(--t-small); font-weight:600; }
+.session-context { display:flex; align-items:center; gap:var(--s-3); max-width:1120px; margin:var(--s-3) auto 0; padding:0 28px; color:var(--ink-soft); font-size:var(--t-small); }
+.session-context strong { color:var(--ink); }
+.grade-section-picker,.stats-grade-filters,.history-grade-filters { display:contents; }
+.grade-section-picker label { display:grid; gap:var(--s-1); }
 .session-code { display:grid; gap:var(--s-2); margin:var(--s-3) 0; border:1px solid var(--line); padding:var(--s-4); background:var(--fill); }
 .session-code span,.progress-summary span,.progress-label { color:var(--ink-soft); font-size:var(--t-micro); }
 .session-code strong { color:var(--ink); font-size:clamp(2rem,5vw,2.5rem); line-height:1; letter-spacing:.16em; }

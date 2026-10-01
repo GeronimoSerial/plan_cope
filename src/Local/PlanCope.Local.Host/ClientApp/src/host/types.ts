@@ -102,6 +102,7 @@ export type LocalSession = {
 };
 
 export type LocalSchool = { code: string; name: string; hasReadyRoster: boolean };
+export type LocalSchoolWithAttempts = { code: string; name: string; submittedAttemptCount: number; lastSubmittedAt: string };
 export type SessionHistoryPage = { items: LocalSession[]; page: number; pageSize: number; totalCount: number };
 
 export type SessionCloseSummary = { submitted: number; failed: number };
@@ -152,6 +153,9 @@ export type SessionProgress = {
   level: string | null;
   averageScorePercent?: number | null;
   hasRoster?: boolean;
+  schoolCode?: string | null;
+  schoolName?: string | null;
+  gradeLabelWithShift?: string | null;
 };
 
 export type SessionStudentProgress = {

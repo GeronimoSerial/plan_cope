@@ -3,6 +3,7 @@ using System;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using PlanCope.Central.Api.Data;
@@ -12,9 +13,11 @@ using PlanCope.Central.Api.Data;
 namespace PlanCope.Central.Migrations.Migrations
 {
     [DbContext(typeof(PlanCopeDbContext))]
-    partial class PlanCopeDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261002000500_TrackAttemptAttribution")]
+    partial class TrackAttemptAttribution
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -250,36 +253,6 @@ namespace PlanCope.Central.Migrations.Migrations
                     b.Property<string>("Id")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
-
-                    b.Property<int>("ClosedOrForcedCount")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("InProgressCount")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("JoinedCount")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTimeOffset?>("LastActivityAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset?>("LastHeartbeatAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("LocalAppVersion")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("SchoolYear")
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("RosterSectionId")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<int>("SubmittedCount")
-                        .HasColumnType("integer");
 
                     b.Property<string>("ClassroomCode")
                         .HasColumnType("text");
