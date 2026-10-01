@@ -58,6 +58,15 @@ public sealed class GradingJsonMapperTests
     }
 
     [Fact]
+    public void MapSubmittedAnswer_maps_a_single_multiple_choice_selection()
+    {
+        var answer = GradingJsonMapper.MapSubmittedAnswer(BlockType.MultipleChoice, Json("\"a\""));
+
+        Assert.NotNull(answer);
+        Assert.Equal(new[] { "a" }, answer.SelectedOptionIds);
+    }
+
+    [Fact]
     public void MapSubmittedAnswer_maps_a_true_false_selection()
     {
         var answer = GradingJsonMapper.MapSubmittedAnswer(BlockType.TrueFalse, Json("false"));

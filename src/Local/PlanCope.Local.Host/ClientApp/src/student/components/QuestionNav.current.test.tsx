@@ -13,8 +13,8 @@ function makeBlock(id: string): LocalExamBlock {
     localExamVersionId: "exam-v1",
     remoteBlockId: id,
     orderIndex: 0,
-    blockType: 4,
-    configJson: JSON.stringify({ prompt: "Pregunta" }),
+    blockType: 2,
+    configJson: JSON.stringify({ question: "Pregunta", options: [] }),
     validationJson: JSON.stringify({ required: false })
   };
 }

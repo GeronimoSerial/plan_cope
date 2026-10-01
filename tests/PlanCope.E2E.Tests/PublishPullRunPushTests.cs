@@ -467,13 +467,15 @@ public sealed class PublishPullRunPushTests
         };
         if (imageAssetId is not null) configValues["imageAssetId"] = imageAssetId;
         var config = JsonSerializer.SerializeToElement(configValues);
-        var response = await client.PutAsJsonAsync($"/api/exams/versions/{versionId}/blocks", new UpsertBlockRequest(
-            0, BlockType.MultipleChoice, "Pregunta 1", null, config, null));
+        var response = await client.PutAsJsonAsync($"/api/exams/versions/{versionId}/document", new ReplaceExamDocumentRequest(
+            null,
+            [new DocumentBlockDto(0, BlockType.MultipleChoice, "Pregunta 1", null, config, null,
+                JsonSerializer.SerializeToElement(new[] { "42" }), 1m)]));
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var block = await response.Content.ReadFromJsonAsync<BlockCreated>();
-        Assert.NotNull(block);
-        Assert.False(string.IsNullOrWhiteSpace(block!.Id));
-        return block;
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var blockId = document.RootElement.GetProperty("blocks")[0].GetProperty("id").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(blockId));
+        return new BlockCreated(blockId!);
     }
 
     private static async Task<AssetDto> AddImageAssetOnCentralAsync(HttpClient client, string versionId)
@@ -489,13 +491,15 @@ public sealed class PublishPullRunPushTests
     private static async Task<BlockCreated> AddTrueFalseBlockOnCentralAsync(HttpClient client, string versionId)
     {
         var config = JsonSerializer.Deserialize<JsonElement>("""{"question":"La Tierra es redonda","correct":true}""");
-        var response = await client.PutAsJsonAsync($"/api/exams/versions/{versionId}/blocks", new UpsertBlockRequest(
-            0, BlockType.TrueFalse, "Enunciado", null, config, null));
+        var response = await client.PutAsJsonAsync($"/api/exams/versions/{versionId}/document", new ReplaceExamDocumentRequest(
+            null,
+            [new DocumentBlockDto(0, BlockType.TrueFalse, "Enunciado", null, config, null,
+                JsonSerializer.SerializeToElement(true), 1m)]));
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var block = await response.Content.ReadFromJsonAsync<BlockCreated>();
-        Assert.NotNull(block);
-        Assert.False(string.IsNullOrWhiteSpace(block!.Id));
-        return block;
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var blockId = document.RootElement.GetProperty("blocks")[0].GetProperty("id").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(blockId));
+        return new BlockCreated(blockId!);
     }
 
     private static async Task PublishVersionOnCentralAsync(HttpClient client, string versionId)

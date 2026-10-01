@@ -153,6 +153,8 @@ public sealed class AttemptSubmissionService(
         if (examVersion is null) return GradingOutcome.Ungradable(gradedAt);
         var blocksById = blocks.ToDictionary(block => block.Id);
         var answerKeyByRemoteBlock = answerKeys.ToDictionary(key => key.RemoteBlockId);
+        if (blocks.Count == 0 || blocks.Any(block => !answerKeyByRemoteBlock.ContainsKey(block.RemoteBlockId)))
+            return GradingOutcome.Ungradable(gradedAt);
         var gradableBlocks = blocks.Select(block =>
         {
             var key = answerKeyByRemoteBlock.GetValueOrDefault(block.RemoteBlockId);
