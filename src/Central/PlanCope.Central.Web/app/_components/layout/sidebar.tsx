@@ -10,7 +10,6 @@ import {
   Home,
   KeyRound,
   School,
-  Server,
   Users,
   type LucideIcon
 } from "lucide-react";
@@ -39,7 +38,6 @@ const links: NavItem[] = [
   { href: "/escuelas", label: "Escuelas", icon: School },
   { href: "/usuarios", label: "Usuarios", icon: Users },
   { href: "/claves", label: "Claves de activación", icon: KeyRound },
-  { href: "/nodos", label: "Nodos", icon: Server },
   { href: "/estadisticas", label: "Estadísticas", icon: BarChart3 },
   { href: "/descargas", label: "Descargas", icon: Download }
 ];

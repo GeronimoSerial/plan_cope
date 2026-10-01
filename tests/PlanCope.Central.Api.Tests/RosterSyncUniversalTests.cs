@@ -73,7 +73,7 @@ public sealed class RosterSyncUniversalTests
     }
 
     [Fact]
-    public async Task Scoped_node_roster_index_contains_only_its_key_scope()
+    public async Task Scoped_node_roster_index_contains_all_schools_and_rosters()
     {
         using var db = CreateDatabase();
         db.RegisteredNodes.Add(Node("scoped", "100000100"));
@@ -86,8 +86,37 @@ public sealed class RosterSyncUniversalTests
 
         var ok = Assert.IsType<OkObjectResult>((await controller.GetRosterIndex()).Result);
         using var json = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
-        Assert.Equal("100000100", json.RootElement.GetProperty("schools")[0].GetProperty("cue").GetString());
-        Assert.Equal("100000100", json.RootElement.GetProperty("rosters")[0].GetProperty("cue").GetString());
+        Assert.Equal(new[] { "100000100", "100000200" }, json.RootElement.GetProperty("schools").EnumerateArray()
+            .Select(school => school.GetProperty("cue").GetString()));
+        Assert.Equal(new[] { "100000100", "100000200" }, json.RootElement.GetProperty("rosters").EnumerateArray()
+            .Select(roster => roster.GetProperty("cue").GetString()));
+    }
+
+    [Fact]
+    public async Task Scoped_node_can_fetch_a_roster_for_another_school()
+    {
+        using var db = CreateDatabase();
+        db.RegisteredNodes.Add(Node("scoped", "100000100"));
+        await db.SaveChangesAsync();
+        var fetchedAt = DateTimeOffset.UtcNow;
+        var emptyPackage = new GeRosterPackageDto("other-school", "100000200", "2025", fetchedAt,
+            string.Empty, 0, 0, "Synced", []);
+        var otherSchoolRoster = new GeRosterSnapshot
+        {
+            Id = emptyPackage.SnapshotId,
+            Cue = emptyPackage.Cue,
+            SchoolYear = emptyPackage.SchoolYear,
+            FetchedAt = fetchedAt,
+            Checksum = GeRosterPackageChecksum.Calculate(emptyPackage),
+            SectionCount = 0,
+            StudentCount = 0,
+            Status = emptyPackage.Status
+        };
+        var controller = Controller(db, isNode: true, "scoped", new FakeRosterService(otherSchoolRoster));
+
+        var result = await controller.GetRoster("100000200", "2025");
+
+        Assert.IsType<OkObjectResult>(result.Result);
     }
 
     [Theory]
