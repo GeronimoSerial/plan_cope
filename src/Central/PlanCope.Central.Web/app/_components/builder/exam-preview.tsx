@@ -14,7 +14,8 @@ interface ExamPreviewProps {
 
 // Read-only preview showing the exam as a student will see it.
 export function ExamPreview({ document, versionId }: ExamPreviewProps) {
-  const meta = [document.subject, (document.courses ?? []).map(courseLabel).join(", "), document.area].filter(Boolean).join(" · ");
+  const grades = (document.courses ?? []).map(courseLabel).join(", ");
+  const meta = [document.subject, grades ? `Grados: ${grades}` : "", document.area].filter(Boolean).join(" · ");
 
   return (
     <Card>
