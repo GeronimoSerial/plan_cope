@@ -12,6 +12,9 @@ public sealed record SessionListItem(
 public sealed record SessionHistoryPage(IReadOnlyList<SessionListItem> Items, int Page, int PageSize, int TotalCount);
 
 public sealed record LocalSchoolListItem(string Code, string Name, bool HasReadyRoster);
+public sealed record SessionHeartbeatSnapshot(string SessionId, string SchoolCode, string? SchoolYear, string? RosterSectionId,
+    string? RemoteExamVersionId, string Status, string StartAt, long JoinedCount, long InProgressCount, long SubmittedCount,
+    long ClosedOrForcedCount, string? LastActivityAt);
 
 public interface ISessionRepository
 {
@@ -24,6 +27,10 @@ public interface ISessionRepository
     Task<bool> AccessCodeExistsAsync(string accessCode, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<LocalDeliverySession>> GetActiveAsync(CancellationToken cancellationToken = default);
+
+    Task<SessionHeartbeatSnapshot?> GetHeartbeatSnapshotAsync(string id, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyDictionary<string, DateTimeOffset?>> GetActiveLastActivityAsync(CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<SessionListItem>> GetActiveSummariesAsync(string? schoolCode, CancellationToken cancellationToken = default);
 

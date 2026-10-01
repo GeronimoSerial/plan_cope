@@ -29,6 +29,38 @@ public sealed record PushItemResult(string IdempotencyKey, string Status, string
 
 public sealed record PushResponse(int Received, int Failed, IReadOnlyList<PushItemResult> Results);
 
+public sealed record SessionHeartbeatRequest(
+    string SessionId,
+    string Cue,
+    string? SchoolYear,
+    string? RosterSectionId,
+    string? ExamVersionId,
+    string Status,
+    int JoinedCount,
+    int InProgressCount,
+    int SubmittedCount,
+    int ClosedOrForcedCount,
+    DateTimeOffset StartedAt,
+    DateTimeOffset? LastActivityAt,
+    string? AppVersion);
+
+public sealed record LiveSessionSummary(
+    string SessionId,
+    string Cue,
+    string? SchoolYear,
+    string? RosterSectionId,
+    string? ExamVersionId,
+    string Status,
+    int JoinedCount,
+    int InProgressCount,
+    int SubmittedCount,
+    int ClosedOrForcedCount,
+    DateTimeOffset StartedAt,
+    DateTimeOffset? LastActivityAt,
+    DateTimeOffset? LastHeartbeatAt,
+    string SignalStatus,
+    string? AppVersion);
+
 public static class SyncEventTypes
 {
     public const string ExamPublished = "exam_published";

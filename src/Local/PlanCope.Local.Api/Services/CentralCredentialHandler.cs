@@ -67,3 +67,25 @@ public sealed class CentralCredentialHandler(ISyncStateRepository syncStateRepos
         return clone;
     }
 }
+
+/// <summary>
+/// Authenticates one-shot, latest-wins session heartbeats without refreshing or retrying a
+/// rejected request. The next heartbeat will pick up any newer access token.
+/// </summary>
+public sealed class SessionHeartbeatCredentialHandler(ISyncStateRepository syncStateRepository) : DelegatingHandler
+{
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        var state = await syncStateRepository.GetAsync("central_access_token", cancellationToken);
+        if (!string.IsNullOrWhiteSpace(state?.ValueJson))
+        {
+            using var document = JsonDocument.Parse(state.ValueJson);
+            var token = document.RootElement.ValueKind == JsonValueKind.String
+                ? document.RootElement.GetString()
+                : document.RootElement.GetRawText();
+            if (!string.IsNullOrWhiteSpace(token))
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        }
+        return await base.SendAsync(request, cancellationToken);
+    }
+}
