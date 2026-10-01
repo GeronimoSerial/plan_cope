@@ -55,6 +55,17 @@ describe("UpdateStatus", () => {
     expect(document.activeElement?.textContent).toBe("Actualizar ahora");
   });
 
+  it("returns focus to the control that opened the dialog", () => {
+    render({ state: "idle" });
+    const trigger = container?.querySelector<HTMLButtonElement>("button");
+    trigger?.focus();
+    act(() => root?.render(<UpdateStatus appVersion="1.2.3" status={{ state: "updateAvailable", targetVersion: "2.0.0" }} onCheckForUpdates={noop} onDownloadUpdate={noop} onDeferUpdate={noop} onApplyUpdate={noop} />));
+    expect(document.activeElement?.textContent).toBe("Actualizar ahora");
+
+    act(() => root?.render(<UpdateStatus appVersion="1.2.3" status={{ state: "idle" }} onCheckForUpdates={noop} onDownloadUpdate={noop} onDeferUpdate={noop} onApplyUpdate={noop} />));
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it("shows visible download progress and percent in a body portal", () => {
     render({ state: "downloading", targetVersion: "2.0.0", progress: 42 });
     const notice = document.body.querySelector<HTMLElement>(".update-notice");

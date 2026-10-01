@@ -15,8 +15,9 @@ export function UpdateStatus({ appVersion, status, onCheckForUpdates, onDownload
   const { state, targetVersion, message, progress, restartAvailable, blockingSessions } = status;
   const isChecking = state === "checking";
   const dialogRef = useRef<HTMLElement>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
   const checkForUpdatesButton = (
-    <button type="button" onClick={onCheckForUpdates} disabled={isChecking}>
+    <button type="button" onClick={event => { returnFocusRef.current = event.currentTarget; onCheckForUpdates(); }} disabled={isChecking}>
       {isChecking ? "Buscando actualizaciones…" : "Buscar actualizaciones"}
     </button>
   );
@@ -24,6 +25,10 @@ export function UpdateStatus({ appVersion, status, onCheckForUpdates, onDownload
   useEffect(() => {
     if (state !== "updateAvailable") return;
     const dialog = dialogRef.current;
+    const activeElement = document.activeElement;
+    if (!returnFocusRef.current?.isConnected) {
+      returnFocusRef.current = activeElement instanceof HTMLElement && activeElement !== document.body ? activeElement : null;
+    }
     const focusable = dialog?.querySelector<HTMLElement>("button");
     focusable?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
@@ -39,7 +44,11 @@ export function UpdateStatus({ appVersion, status, onCheckForUpdates, onDownload
       }
     };
     document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      if (returnFocusRef.current?.isConnected) returnFocusRef.current.focus();
+      returnFocusRef.current = null;
+    };
   }, [state, onDeferUpdate]);
 
   const dialog = state === "updateAvailable" && createPortal(
@@ -90,7 +99,7 @@ export function UpdateStatus({ appVersion, status, onCheckForUpdates, onDownload
   return <>
     <div className="update-status" aria-label="Actualizaciones">
       <span className="update-version">Versión {appVersion ?? "desconocida"}</span>
-      {state === "idle" || state === "checking" || state === "error" || state === "integrityFailed" ? checkForUpdatesButton : null}
+      {checkForUpdatesButton}
       {state === "updateAvailable" && <span className="update-state-label">Actualización disponible</span>}
       {state === "downloading" && <span className="update-state-label">Descarga {progress ?? 0}%</span>}
     </div>

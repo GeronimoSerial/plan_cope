@@ -9,6 +9,7 @@
   <ItemGroup>
     <Compile Include="..\..\src\Local\PlanCope.Local.Host\Services\UpdateService.cs" Link="HostServices\UpdateService.cs" />
     <Compile Include="..\..\src\Local\PlanCope.Local.Host\Services\UpdateProgressThrottle.cs" Link="HostServices\UpdateProgressThrottle.cs" />
+    <Compile Include="..\..\src\Local\PlanCope.Local.Host\Services\UpdateRestartGuard.cs" Link="HostServices\UpdateRestartGuard.cs" />
     <Compile Include="..\..\src\Local\PlanCope.Local.Host\Services\UpdateRequestAuth.cs" Link="HostServices\UpdateRequestAuth.cs" />
     <Compile Include="..\..\src\Local\PlanCope.Local.Host\Services\UpdateFailureLogger.cs" Link="HostServices\UpdateFailureLogger.cs" />
     <Compile Include="..\..\src\Local\PlanCope.Local.Host\Services\UpdateHealthTracker.cs" Link="HostServices\UpdateHealthTracker.cs" />

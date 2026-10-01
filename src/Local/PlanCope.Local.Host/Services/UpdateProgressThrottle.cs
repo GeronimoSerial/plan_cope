@@ -29,7 +29,7 @@ public static class SessionGateRetryPolicy
     }
 
     public static string DescribeException(Exception exception)
-        => $"No se pudo consultar el estado de las sesiones: {exception.GetType().Name}: {exception.Message}";
+        => "No se pudo verificar si hay una sesión activa. La actualización se aplicará cuando termine la sesión activa.";
 
     public static void LogFailure(Action<string> log, Exception exception, int consecutiveFailures)
         => log($"{DescribeException(exception)}. Reintento {consecutiveFailures} en {GetDelay(consecutiveFailures).TotalSeconds:0} segundos.");

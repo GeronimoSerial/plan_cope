@@ -591,9 +591,21 @@ public partial class MainForm : Form
     {
         try
         {
-            var applied = _updateService?.TryApplyAndRestart(userConfirmedRestart: true) == true;
-            System.Diagnostics.Trace.WriteLine($"Update apply/restart requested (automatic={automatic}): {applied}.");
-            if (!applied)
+            var decision = await UpdateRestartGuard.TryStartAsync(
+                HasActiveSessionAsync,
+                () => _updateService?.TryApplyAndRestart(userConfirmedRestart: true) == true);
+            System.Diagnostics.Trace.WriteLine($"Update apply/restart decision (automatic={automatic}): {decision}.");
+            if (decision == UpdateRestartDecision.SessionActive)
+            {
+                _updateState = "readyPendingSessionClose";
+                if (!_sessionGateLastCheckFailed) _updateMessage = null;
+                _restartAvailable = false;
+                PushUpdateStatus();
+                StartSessionGatePolling();
+                return;
+            }
+
+            if (decision == UpdateRestartDecision.RestartUnavailable)
             {
                 _restartAvailable = true;
                 _updateMessage = "No se pudo iniciar el reinicio automático. Podés volver a intentarlo.";

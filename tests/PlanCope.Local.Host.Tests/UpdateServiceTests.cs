@@ -32,12 +32,42 @@ public sealed class UpdateServiceTests
         Assert.Equal(TimeSpan.FromSeconds(4), SessionGateRetryPolicy.GetDelay(2));
         Assert.Equal(TimeSpan.FromSeconds(30), SessionGateRetryPolicy.GetDelay(20));
         var reason = SessionGateRetryPolicy.DescribeException(new HttpRequestException("connection refused"));
-        Assert.Contains("HttpRequestException", reason);
-        Assert.Contains("connection refused", reason);
+        Assert.DoesNotContain("HttpRequestException", reason);
+        Assert.DoesNotContain("connection refused", reason);
         var logged = new List<string>();
         SessionGateRetryPolicy.LogFailure(logged.Add, new HttpRequestException("connection refused"), 2);
         Assert.Contains("Reintento 2", logged.Single());
         Assert.Contains("4 segundos", logged.Single());
+    }
+
+    [Fact]
+    public async Task UpdateRestartGuard_DoesNotApplyWhenSessionIsActive()
+    {
+        var applyCalls = 0;
+
+        var decision = await UpdateRestartGuard.TryStartAsync(
+            () => Task.FromResult(true),
+            () => { applyCalls++; return true; });
+
+        Assert.Equal(UpdateRestartDecision.SessionActive, decision);
+        Assert.Equal(0, applyCalls);
+    }
+
+    [Theory]
+    [InlineData(true, UpdateRestartDecision.RestartStarted)]
+    [InlineData(false, UpdateRestartDecision.RestartUnavailable)]
+    public async Task UpdateRestartGuard_AppliesOnlyAfterSessionGateClears(bool applyResult, UpdateRestartDecision expected)
+    {
+        var gateCalls = 0;
+        var applyCalls = 0;
+
+        var decision = await UpdateRestartGuard.TryStartAsync(
+            () => { gateCalls++; return Task.FromResult(false); },
+            () => { applyCalls++; return applyResult; });
+
+        Assert.Equal(expected, decision);
+        Assert.Equal(1, gateCalls);
+        Assert.Equal(1, applyCalls);
     }
 
     [Fact]
