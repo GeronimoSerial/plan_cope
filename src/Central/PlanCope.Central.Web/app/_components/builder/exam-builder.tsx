@@ -29,6 +29,7 @@ import { CreateVersionDialog } from "../exams/create-version-dialog";
 import { useNavigationGuard } from "../layout/navigation-guard";
 import { versionStatusLine, versionStatusTerm } from "../../_lib/exams/version-state";
 import { areaOptions, courseOptions } from "../../_lib/exams/catalog";
+import { GradeSectionPicker } from "../shared/grade-section-picker";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Breadcrumb,
@@ -377,23 +378,9 @@ export function ExamBuilder({
                 </Field>
               </div>
               <Field data-invalid={!document.courses?.length ? true : undefined}>
-                <FieldLabel><TermLabel term="curso-grado">Curso / grado</TermLabel></FieldLabel>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-md border p-3 sm:grid-cols-3">
-                  {["Primaria", "Secundaria"].map(level => (
-                    <fieldset key={level} className="grid content-start gap-2">
-                      <legend className="text-sm font-medium">{level}</legend>
-                      {courseOptions.filter(course => course.level === level).map(course => (
-                        <label key={course.key} className="flex items-center gap-2 text-sm">
-                          <input type="checkbox" checked={(document.courses ?? []).includes(course.key)} disabled={isReadOnly}
-                            onChange={event => patchDocument({ courses: event.target.checked
-                              ? [...(document.courses ?? []), course.key]
-                              : (document.courses ?? []).filter(key => key !== course.key) })} />
-                          {course.label}
-                        </label>
-                      ))}
-                    </fieldset>
-                  ))}
-                </div>
+                <GradeSectionPicker mode="multi" grades={courseOptions.map(course => ({ value: course.key, label: course.label }))}
+                  value={document.courses ?? []} onValueChange={next => patchDocument({ courses: Array.isArray(next) ? next : [next] })}
+                  showSection={false} disabled={isReadOnly} className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-md border p-3 sm:grid-cols-3" />
                 {!document.courses?.length && <FieldError>Seleccioná al menos un curso.</FieldError>}
               </Field>
               <div className="grid gap-4 sm:grid-cols-2">

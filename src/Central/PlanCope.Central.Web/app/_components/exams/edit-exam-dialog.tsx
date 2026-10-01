@@ -18,6 +18,7 @@ import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field
 import { Input } from "@/components/ui/input";
 import type { ExamSummary, UpdateExamRequest } from "../../_lib/contracts";
 import { areaOptions, courseOptions } from "../../_lib/exams/catalog";
+import { GradeSectionPicker } from "../shared/grade-section-picker";
 
 interface EditExamButtonProps {
   exam: ExamSummary;
@@ -148,14 +149,9 @@ export function EditExamButton({ exam, canEditExams }: EditExamButtonProps) {
               </Field>
 
               <Field>
-                <FieldLabel>Curso / grado</FieldLabel>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  {courseOptions.map(course => <label key={course.key} className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={courses.includes(course.key)} onChange={event => setCourses(current => event.target.checked
-                      ? [...current, course.key] : current.filter(key => key !== course.key))} />
-                    {course.label}
-                  </label>)}
-                </div>
+                <GradeSectionPicker mode="multi" grades={courseOptions.map(course => ({ value: course.key, label: course.label }))}
+                  value={courses} onValueChange={next => setCourses(Array.isArray(next) ? next : [next])} showSection={false}
+                  className="grid grid-cols-2 gap-2 sm:grid-cols-3" />
               </Field>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field>
