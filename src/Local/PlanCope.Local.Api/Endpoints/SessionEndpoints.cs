@@ -48,9 +48,20 @@ public static class SessionEndpoints
             IValidator<CreateSessionRequest> validator,
             ISessionRepository sessionRepository,
             ILocalRosterRepository rosterRepository,
+            INodeIdentityRepository nodeIdentityRepository,
             ActivationRevalidationService activationRevalidation,
             CancellationToken cancellationToken) =>
         {
+            var identity = await nodeIdentityRepository.GetAsync(cancellationToken);
+            if (identity?.CredentialState == "revoked" || identity?.RevocationStage is not null)
+            {
+                return Results.Json(new
+                {
+                    errorCode = "node_revoked",
+                    error = "Este equipo fue dado de baja. Cargá una clave nueva para crear sesiones."
+                }, statusCode: StatusCodes.Status423Locked);
+            }
+
             if (await activationRevalidation.IsExpiryPendingAsync(cancellationToken))
             {
                 return Results.Json(new { error = "El equipo debe revalidarse. Finalizá y enviá la evaluación en curso antes de volver a conectarte." }, statusCode: StatusCodes.Status423Locked);

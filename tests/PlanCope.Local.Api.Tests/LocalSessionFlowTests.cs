@@ -24,6 +24,23 @@ public sealed class LocalSessionFlowTests
     public LocalSessionFlowTests(ITestOutputHelper output) => this.output = output;
 
     [Fact]
+    public async Task Revoked_but_unlocked_node_cannot_create_a_new_session()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedRevokedNode();
+
+        var response = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
+            LocalApiFactory.ExamVersionId, "180055400", "6 A", null, "Operador", 0, null));
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.Locked, response.StatusCode);
+        Assert.Equal("node_revoked", body.GetProperty("errorCode").GetString());
+        Assert.Contains("clave nueva", body.GetProperty("error").GetString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Node_sessions_include_school_exam_grade_and_counters_and_history_filters_paginate()
     {
         using var factory = new LocalApiFactory();
@@ -1153,6 +1170,15 @@ public sealed class LocalSessionFlowTests
             var connection = new SqliteConnection(ConnectionString);
             connection.Open();
             return connection;
+        }
+
+        public void SeedRevokedNode()
+        {
+            using var connection = CreateConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = "INSERT INTO node_identity (id, node_id, cue, fingerprint_hash, fingerprint_components_json, enrolled_at, last_sync_at, credential_state, revocation_detected_at, revocation_stage) VALUES ('revoked-test', 'node-test', '180055400', 'hash', '{}', $now, $now, 'revoked', $now, NULL);";
+            command.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToString("O"));
+            command.ExecuteNonQuery();
         }
 
         public void SeedExam()
