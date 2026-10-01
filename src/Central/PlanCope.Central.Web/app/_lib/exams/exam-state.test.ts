@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   filterExams,
   formatPublishedAt,
-  formatReceivedBy,
   isValidExamCode,
   publicationStateBadgeVariant,
   publicationStateLabel,
@@ -66,19 +65,6 @@ describe("formatPublishedAt", () => {
     expect(formatPublishedAt(null)).toBe("");
     expect(formatPublishedAt(undefined)).toBe("");
     expect(formatPublishedAt("no-es-fecha")).toBe("");
-  });
-});
-
-describe("formatReceivedBy", () => {
-  it("singular, plural y cero", () => {
-    expect(formatReceivedBy(1)).toBe("Recibido por 1 nodo");
-    expect(formatReceivedBy(3)).toBe("Recibido por 3 nodos");
-    expect(formatReceivedBy(0)).toBe("Ningún nodo lo recibió todavía");
-  });
-
-  it("devuelve vacío cuando el dato no existe", () => {
-    expect(formatReceivedBy(null)).toBe("");
-    expect(formatReceivedBy(undefined)).toBe("");
   });
 });
 

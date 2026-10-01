@@ -432,10 +432,18 @@ jobs:
           }
           $setup = Get-ChildItem -Path $env:VELOPACK_OUTPUT_DIR -Filter '*Setup*.exe' | Select-Object -First 1
           if (-not $setup) { Write-Error "No Setup installer found in $env:VELOPACK_OUTPUT_DIR."; exit 1 }
+          $packagePattern = "PlanCope.Local.Host-${{ needs.validate.outputs.version }}-*.nupkg"
+          $packages = @(Get-ChildItem -Path $env:VELOPACK_OUTPUT_DIR -Filter $packagePattern -File | ForEach-Object { $_.FullName })
+          $feed = Join-Path $env:VELOPACK_OUTPUT_DIR "releases.${{ inputs.channel }}.json"
+          if ($packages.Count -eq 0 -or -not (Test-Path -LiteralPath $feed -PathType Leaf)) {
+            Write-Error "Velopack update feed or package is missing from $env:VELOPACK_OUTPUT_DIR."
+            exit 1
+          }
           $publishArgs = @{
             InstallerPath = $setup.FullName
             Version       = '${{ needs.validate.outputs.version }}'
             Channel       = '${{ inputs.channel }}'
+            UpdateAssetPaths = @($packages + $feed)
           }
           if ('${{ inputs.allow_unsigned }}' -eq 'true') {
             Write-Host "::warning title=Unsigned installer published::This release carries an installer with no Authenticode signature. Windows SmartScreen will warn on every install."

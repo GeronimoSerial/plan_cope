@@ -53,7 +53,7 @@ public sealed class ActivationRevalidationService(
             if (lastAttempt is null || now < lastAttempt || now - lastAttempt >= RetryInterval)
             {
                 await WriteStringAsync("last_revalidation_attempt_at", now.ToUniversalTime().ToString("O"), cancellationToken);
-                if (await credentialRefresher.TryRefreshAsync(cancellationToken))
+                if (await credentialRefresher.TryRefreshForRevalidationAsync(cancellationToken))
                 {
                     await SetExpiryPendingAsync(false, cancellationToken);
                     return;

@@ -8,7 +8,6 @@ import { ExamVersionsTable } from "../../../_components/exams/exam-versions-tabl
 import { TermLabel } from "../../../_components/help/term-hint";
 import {
   formatPublishedAt,
-  formatReceivedBy,
   publicationStateBadgeVariant,
   publicationStateLabel,
   publicationStateTerm
@@ -62,8 +61,6 @@ export default async function ExamDetailPage({ params }: { params: Promise<{ exa
         {published && (
           <span className="inline-flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             <span>Publicado el {formatPublishedAt(exam.publishedAt)}</span>
-            <span aria-hidden="true">·</span>
-            <TermLabel term="recibido-por-nodos">{formatReceivedBy(exam.pulledByNodeCount)}</TermLabel>
           </span>
         )}
       </div>

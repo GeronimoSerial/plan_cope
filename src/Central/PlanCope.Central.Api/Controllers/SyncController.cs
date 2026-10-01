@@ -11,7 +11,6 @@ using PlanCope.Shared.Contracts.Exams;
 using PlanCope.Shared.Contracts.Sync;
 using PlanCope.Shared.Domain.Central;
 using PlanCope.Shared.Domain.Local;
-using PlanCope.Shared.Domain.ValueObjects;
 using PlanCope.Shared.Grading;
 using GradingExamVersion = PlanCope.Shared.Grading.ExamVersion;
 
@@ -61,8 +60,6 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
         // Materialize the cursor as a DateTimeOffset so the comparison stays translatable to SQL:
         // EF cannot translate `x.PublishedAt.Value.UtcTicks` and would throw on real PostgreSQL.
         var cursorInstant = new DateTimeOffset(ParseCursor(cursor), TimeSpan.Zero);
-        var schoolIds = await ResolveNodeSchoolIdsAsync(normalizedNodeId, cancellationToken);
-
         var candidates = await dbContext.PublicationPackages
             .Where(x => x.Status == "Published" && x.PublishedAt != null && x.PublishedAt > cursorInstant)
             .OrderBy(x => x.PublishedAt)
@@ -73,10 +70,8 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
         var hasMore = candidates.Count > normalizedLimit;
         var page = candidates.Take(normalizedLimit).ToList();
 
-        // The cursor always advances past every candidate examined on this call, including packages
-        // skipped because this node is not a target: a non-targeted node must not rescan them
-        // forever, and the advance can never jump over a package it still has to receive because
-        // candidates are examined in published-at order.
+        // Every published package is available to every node, so the cursor advances through the
+        // page returned by the package query.
         var nextCursor = page.Count == 0
             ? (cursor ?? "0")
             : (page[^1].PublishedAt ?? page[^1].CreatedAt).UtcTicks.ToString();
@@ -87,15 +82,6 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
 
         foreach (var package in page)
         {
-            var targets = await dbContext.PublicationTargets
-                .Where(x => x.PublicationPackageId == package.Id)
-                .ToListAsync(cancellationToken);
-
-            if (!IsDeliveredToNode(targets, normalizedNodeId, schoolIds))
-            {
-                continue;
-            }
-
             var payload = await BuildPayloadAsync(package, cancellationToken);
             items.Add(new SyncItem(
                 "publication_package",
@@ -500,114 +486,6 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
             .AsNoTracking()
             .SingleOrDefaultAsync(x => x.ExamVersionId == examVersionId, cancellationToken);
         return assignment?.ScoringPolicy;
-    }
-
-    /// <summary>
-    /// Resolves the set of school identifiers a node can match against a <c>school</c> publication
-    /// target: the node's explicit SchoolId (if any), its enrolment CUE, and the internal School id
-    /// for that CUE when a school row exists. Nodes enrol by CUE, so a school target may legitimately
-    /// carry either a School id or a CUE.
-    /// </summary>
-    private async Task<HashSet<string>> ResolveNodeSchoolIdsAsync(string nodeId, CancellationToken cancellationToken)
-    {
-        var schoolIds = new HashSet<string>(StringComparer.Ordinal);
-        var node = await dbContext.RegisteredNodes
-            .AsNoTracking()
-            .SingleOrDefaultAsync(x => x.Id == nodeId, cancellationToken);
-        if (node is null)
-        {
-            return schoolIds;
-        }
-
-        // Universal PCOPE keys are not attached to an individual school. Empty CUE is
-        // the persisted marker for that scope and lets the node receive every publication.
-        if (string.IsNullOrWhiteSpace(node.Cue))
-        {
-            var schools = await dbContext.Schools.AsNoTracking()
-                .Select(static school => new { school.Id, school.Cue, school.Annex }).ToListAsync(cancellationToken);
-            return schools.SelectMany(static school => new[]
-                {
-                    school.Id,
-                    CueCode.TryFromSchool(school.Cue, school.Annex, out var canonicalCue)
-                        ? canonicalCue
-                        : school.Cue.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    school.Cue.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                })
-                .ToHashSet(StringComparer.Ordinal);
-        }
-
-        if (!string.IsNullOrWhiteSpace(node.SchoolId))
-        {
-            schoolIds.Add(node.SchoolId);
-        }
-
-        if (string.IsNullOrWhiteSpace(node.Cue))
-        {
-            return schoolIds;
-        }
-
-        schoolIds.Add(node.Cue);
-        if (CueCode.TryNormalize(node.Cue, out var normalizedNodeCue))
-        {
-            var cue = long.Parse(normalizedNodeCue, System.Globalization.CultureInfo.InvariantCulture);
-            var baseCue = long.Parse(normalizedNodeCue[..7], System.Globalization.CultureInfo.InvariantCulture);
-            var annex = int.Parse(normalizedNodeCue[7..], System.Globalization.CultureInfo.InvariantCulture);
-            var schools = await dbContext.Schools
-                .AsNoTracking()
-                .Where(x => x.Cue == cue || (x.Cue == baseCue && (x.Annex ?? 0) == annex))
-                .Select(static school => new { school.Id, school.Cue, school.Annex })
-                .ToListAsync(cancellationToken);
-            foreach (var school in schools.Where(candidate =>
-                         CueCode.TryFromSchool(candidate.Cue, candidate.Annex, out var normalized) && normalized == normalizedNodeCue))
-            {
-                if (!string.IsNullOrWhiteSpace(school.Id)) schoolIds.Add(school.Id);
-            }
-        }
-        else if (long.TryParse(node.Cue, System.Globalization.NumberStyles.None,
-                     System.Globalization.CultureInfo.InvariantCulture, out var legacyCue))
-        {
-            var legacySchoolId = await dbContext.Schools.AsNoTracking()
-                .Where(school => school.Cue == legacyCue)
-                .Select(static school => school.Id)
-                .FirstOrDefaultAsync(cancellationToken);
-            if (!string.IsNullOrWhiteSpace(legacySchoolId)) schoolIds.Add(legacySchoolId);
-        }
-
-        return schoolIds;
-    }
-
-    /// <summary>
-    /// A package with no <c>node</c>/<c>school</c> targets is delivered to every node, including an
-    /// unknown nodeId. A package with at least one such target is delivered only to a node matching
-    /// one of them. grade/subject/division targets describe the exam and never filter delivery.
-    /// </summary>
-    private static bool IsDeliveredToNode(IReadOnlyList<PublicationTarget> targets, string nodeId, HashSet<string> schoolIds)
-    {
-        var deliveryTargets = targets
-            .Where(target => PublicationTargetTypes.DeliveryFilterTypes.Contains(target.TargetType, StringComparer.OrdinalIgnoreCase))
-            .ToList();
-        if (deliveryTargets.Count == 0)
-        {
-            return true;
-        }
-
-        foreach (var target in deliveryTargets)
-        {
-            if (string.Equals(target.TargetType, PublicationTargetTypes.Node, StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(target.TargetId, nodeId, StringComparison.Ordinal))
-            {
-                return true;
-            }
-
-            if (string.Equals(target.TargetType, PublicationTargetTypes.School, StringComparison.OrdinalIgnoreCase) &&
-                !string.IsNullOrWhiteSpace(target.TargetId) &&
-                schoolIds.Contains(target.TargetId))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /// <summary>

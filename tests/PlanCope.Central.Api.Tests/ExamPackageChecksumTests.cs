@@ -80,6 +80,19 @@ public sealed class ExamPackageChecksumTests
         Assert.Equal(first, second);
     }
 
+    [Fact]
+    public void Compute_ContinuesToIncludeStoredTargetsInLegacyPackageChecksums()
+    {
+        var withNodeTarget = ExamPackageChecksum.Compute(
+            MakeExam(), MakeVersion("ProportionalPenalised"), MakeBlocks(), Array.Empty<AnswerKeyDto>(),
+            Array.Empty<PublishedAssetDto>(), [new PublicationTargetDto("node", "node-a")], null);
+        var withDifferentNodeTarget = ExamPackageChecksum.Compute(
+            MakeExam(), MakeVersion("ProportionalPenalised"), MakeBlocks(), Array.Empty<AnswerKeyDto>(),
+            Array.Empty<PublishedAssetDto>(), [new PublicationTargetDto("node", "node-b")], null);
+
+        Assert.NotEqual(withNodeTarget, withDifferentNodeTarget);
+    }
+
     private static JsonElement JsonElementOf(string json)
     {
         using var document = JsonDocument.Parse(json);

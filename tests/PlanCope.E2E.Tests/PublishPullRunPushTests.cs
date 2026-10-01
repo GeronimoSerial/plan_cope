@@ -17,6 +17,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using PlanCope.Central.Api.Auth;
 using PlanCope.Central.Api.Data;
+using PlanCope.Central.Api.Services;
 using PlanCope.Local.Api;
 using PlanCope.Local.Api.Data;
 using PlanCope.Local.Api.Data.Repositories;
@@ -381,7 +382,7 @@ public sealed class PublishPullRunPushTests
 
         using var updateCheckClient = centralFactory.CreateClient();
         updateCheckClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", nodeAccessToken);
-        var feedResponse = await updateCheckClient.GetAsync("/api/updates/releases.stable.json?id=PlanCope.Local.Host&localVersion=1.0.0");
+        var feedResponse = await updateCheckClient.GetAsync("/api/updates/stable/releases.stable.json?id=PlanCope.Local.Host&localVersion=1.0.0");
         Assert.True(feedResponse.StatusCode == HttpStatusCode.OK, await feedResponse.Content.ReadAsStringAsync());
         using (var feedDoc = JsonDocument.Parse(await feedResponse.Content.ReadAsStringAsync()))
         {
@@ -473,7 +474,7 @@ public sealed class PublishPullRunPushTests
     private static async Task PublishVersionOnCentralAsync(HttpClient client, string versionId)
     {
         var response = await client.PostAsJsonAsync($"/api/exams/versions/{versionId}/publish", new PublishExamVersionRequest(
-            "Matematica", "6", null));
+            "Matematica", "6", null, ["legacy-target-node"], ["legacy-target-school"]));
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var publish = await response.Content.ReadFromJsonAsync<PublishExamVersionResponse>();
         Assert.NotNull(publish);
@@ -621,6 +622,8 @@ public sealed class PublishPullRunPushTests
             });
             builder.ConfigureServices(services =>
             {
+                services.RemoveAll<IInstallerStorage>();
+                services.AddSingleton<IInstallerStorage, E2EInstallerStorage>();
                 services.RemoveAll<DbContextOptions<PlanCopeDbContext>>();
                 services.AddDbContext<PlanCopeDbContext>(options =>
                     options.UseInMemoryDatabase(DbName)
@@ -646,6 +649,53 @@ public sealed class PublishPullRunPushTests
         public string PlaceholderCentralUrl => Server.BaseAddress.ToString();
 
         public HttpMessageHandler CreateInProcessHandler() => Server.CreateHandler();
+    }
+
+    private sealed class E2EInstallerStorage : IInstallerStorage
+    {
+        private static readonly UpdateReleaseAsset StablePackage = new(
+            "PlanCope.Local.Host",
+            "9.9.9",
+            1,
+            "PlanCope.Local.Host-9.9.9-full.nupkg",
+            string.Empty,
+            "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+            13,
+            null,
+            null);
+
+        public bool IsConfigured => true;
+
+        public Task<InstallerReference?> GetLatestAsync(string channel, CancellationToken cancellationToken) =>
+            Task.FromResult<InstallerReference?>(null);
+
+        public Task<InstallerDownload?> GetLatestDownloadAsync(string channel, CancellationToken cancellationToken) =>
+            Task.FromResult<InstallerDownload?>(null);
+
+        public Task<UpdateReleaseFeed?> GetUpdateReleaseFeedAsync(string channel, CancellationToken cancellationToken) =>
+            Task.FromResult<UpdateReleaseFeed?>(channel == "stable"
+                ? new UpdateReleaseFeed("stable", StablePackage.Version, [StablePackage])
+                : null);
+
+        public Task<InstallerDownload?> GetUpdatePackageDownloadAsync(
+            string channel,
+            string version,
+            string fileName,
+            CancellationToken cancellationToken)
+        {
+            if (channel != "stable" || version != StablePackage.Version || fileName != StablePackage.FileName)
+            {
+                return Task.FromResult<InstallerDownload?>(null);
+            }
+
+            var response = new HttpResponseMessage(HttpStatusCode.OK);
+            return Task.FromResult<InstallerDownload?>(new InstallerDownload(
+                response,
+                new MemoryStream(System.Text.Encoding.UTF8.GetBytes("package-data!")),
+                "application/octet-stream",
+                StablePackage.FileName,
+                StablePackage.Size));
+        }
     }
 
     private sealed class LocalApiFactory : WebApplicationFactory<LocalDatabaseInitializer>

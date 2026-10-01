@@ -42,6 +42,42 @@ public sealed class NodeCredentialRefresherTests
     }
 
     [Fact]
+    public async Task Proactive_refresh_with_missing_expiry_does_not_rotate_credentials()
+    {
+        var syncState = new InMemorySyncStateRepository();
+        await syncState.UpsertAsync(NewState("central_url", CentralUrl));
+        await syncState.UpsertAsync(NewState("central_access_token", "existing-access-token"));
+        await syncState.UpsertAsync(NewState("central_refresh_token", "existing-refresh-token"));
+        var handler = new StubHttpMessageHandler(new HttpResponseMessage(HttpStatusCode.Unauthorized));
+        var identityRepository = new InMemoryNodeIdentityRepository(NewIdentity("active"));
+        var refresher = CreateRefresher(syncState, identityRepository, handler);
+
+        var result = await refresher.TryRefreshAsync(CancellationToken.None);
+
+        Assert.True(result);
+        Assert.Equal(0, handler.CallCount);
+        Assert.Equal("active", identityRepository.Current!.CredentialState);
+    }
+
+    [Fact]
+    public async Task Unauthorized_refresh_skips_when_failed_access_token_has_already_rotated()
+    {
+        var syncState = new InMemorySyncStateRepository();
+        await SeedRefreshableStateAsync(syncState);
+        await syncState.UpsertAsync(NewState("central_access_token", "already-rotated-access-token"));
+        await syncState.UpsertAsync(NewState("central_refresh_token", "already-rotated-refresh-token"));
+        var handler = new StubHttpMessageHandler(new HttpResponseMessage(HttpStatusCode.Unauthorized));
+        var identityRepository = new InMemoryNodeIdentityRepository(NewIdentity("active"));
+        var refresher = CreateRefresher(syncState, identityRepository, handler);
+
+        var result = await refresher.TryRefreshAfterUnauthorizedAsync("existing-access-token", CancellationToken.None);
+
+        Assert.True(result);
+        Assert.Equal(0, handler.CallCount);
+        Assert.Equal("active", identityRepository.Current!.CredentialState);
+    }
+
+    [Fact]
     public async Task Successful_refresh_without_revocation_writes_all_four_sync_state_keys()
     {
         var syncState = new InMemorySyncStateRepository();
@@ -146,10 +182,34 @@ public sealed class NodeCredentialRefresherTests
         Assert.Equal("active", identityRepository.Current!.CredentialState);
     }
 
+    [Fact]
+    public async Task Concurrent_refreshes_rotate_once_without_revoking_the_node()
+    {
+        var syncState = new InMemorySyncStateRepository();
+        await SeedRefreshableStateAsync(syncState);
+        var identityRepository = new InMemoryNodeIdentityRepository(NewIdentity("active"));
+        var handler = new BlockingRefreshHandler();
+        var firstRefresher = CreateRefresher(syncState, identityRepository, handler);
+        var secondRefresher = CreateRefresher(syncState, identityRepository, handler);
+
+        var first = firstRefresher.TryRefreshAsync(CancellationToken.None);
+        await handler.WaitForRequestAsync();
+        var second = secondRefresher.TryRefreshAsync(CancellationToken.None);
+        await syncState.WaitForConcurrentCallerSnapshotAsync();
+        handler.ReleaseResponse();
+
+        Assert.All(await Task.WhenAll(first, second), Assert.True);
+        Assert.Equal(1, handler.CallCount);
+        Assert.Equal("new-refresh-token", await ReadStateStringAsync(syncState, "central_refresh_token"));
+        Assert.Equal("active", identityRepository.Current!.CredentialState);
+    }
+
     private static async Task SeedRefreshableStateAsync(InMemorySyncStateRepository syncState)
     {
         await syncState.UpsertAsync(NewState("central_url", CentralUrl));
+        await syncState.UpsertAsync(NewState("central_access_token", "existing-access-token"));
         await syncState.UpsertAsync(NewState("central_refresh_token", "existing-refresh-token"));
+        await syncState.UpsertAsync(NewState("central_access_token_expires_at", DateTimeOffset.UtcNow.AddMinutes(1).ToString("O")));
     }
 
     private static SyncState NewState(string key, string value) =>
@@ -199,12 +259,53 @@ public sealed class NodeCredentialRefresherTests
             => Task.FromException<HttpResponseMessage>(new HttpRequestException("central is unreachable"));
     }
 
+    private sealed class BlockingRefreshHandler : HttpMessageHandler
+    {
+        private readonly TaskCompletionSource requestStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource responseReleased = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int CallCount { get; private set; }
+
+        public Task WaitForRequestAsync() => requestStarted.Task;
+
+        public void ReleaseResponse() => responseReleased.TrySetResult();
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            CallCount++;
+            requestStarted.TrySetResult();
+            await responseReleased.Task.WaitAsync(cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new ActivationRefreshResponse
+                {
+                    AccessToken = "new-access-token",
+                    RefreshToken = "new-refresh-token",
+                    AccessTokenExpiresAt = DateTimeOffset.UtcNow.AddMinutes(45),
+                    RefreshTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(30),
+                    NodeRevoked = false,
+                })
+            };
+        }
+    }
+
     private sealed class InMemorySyncStateRepository : ISyncStateRepository
     {
         private readonly Dictionary<string, SyncState> states = new(StringComparer.Ordinal);
+        private int refreshTokenReads;
+        private readonly TaskCompletionSource concurrentCallerSnapshotted = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Task<SyncState?> GetAsync(string key, CancellationToken cancellationToken = default)
-            => Task.FromResult(states.TryGetValue(key, out var state) ? state : null);
+        {
+            if (key == "central_refresh_token" && Interlocked.Increment(ref refreshTokenReads) >= 3)
+            {
+                concurrentCallerSnapshotted.TrySetResult();
+            }
+
+            return Task.FromResult(states.TryGetValue(key, out var state) ? state : null);
+        }
+
+        public Task WaitForConcurrentCallerSnapshotAsync() => concurrentCallerSnapshotted.Task;
 
         public Task UpsertAsync(SyncState state, CancellationToken cancellationToken = default)
         {

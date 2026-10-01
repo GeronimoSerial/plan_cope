@@ -98,7 +98,7 @@ public sealed class VelopackUpdateBackend : IUpdateBackend
     private Velopack.UpdateManager CreateManager(string explicitChannel)
     {
         var downloader = new BearerAuthFileDownloader(_accessTokenProvider);
-        var source = new Velopack.Sources.SimpleWebSource(_feedBaseUrl, downloader, timeout: 1.0);
+        var source = new Velopack.Sources.SimpleWebSource(_feedBaseUrl, downloader, timeout: 30.0);
         return new Velopack.UpdateManager(source, new Velopack.UpdateOptions { ExplicitChannel = explicitChannel }, locator: null);
     }
 
@@ -201,7 +201,7 @@ public sealed class VelopackUpdateBackend : IUpdateBackend
     private Velopack.UpdateManager CreateRollbackManager()
     {
         var downloader = new BearerAuthFileDownloader(_accessTokenProvider);
-        var source = new Velopack.Sources.SimpleWebSource(_feedBaseUrl, downloader, timeout: 1.0);
+        var source = new Velopack.Sources.SimpleWebSource(_feedBaseUrl, downloader, timeout: 30.0);
         return new Velopack.UpdateManager(source, new Velopack.UpdateOptions { ExplicitChannel = _channel, AllowVersionDowngrade = true }, locator: null);
     }
 }

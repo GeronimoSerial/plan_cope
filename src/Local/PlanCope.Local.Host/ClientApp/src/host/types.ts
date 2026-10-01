@@ -17,13 +17,14 @@ export type HostContextMessage = {
 
 export type UpdateStatusState =
   | "idle"
-  | "notConfigured"
   | "checking"
   | "upToDate"
+  | "updateAvailable"
+  | "updateAvailablePendingSession"
   | "downloading"
   | "integrityFailed"
   | "readyPendingSessionClose"
-  | "readyToApply"
+  | "readyToRestart"
   | "error";
 
 export type UpdateStatus = {

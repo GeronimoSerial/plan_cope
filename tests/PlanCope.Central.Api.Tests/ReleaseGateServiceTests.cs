@@ -31,12 +31,10 @@ public sealed class ReleaseGateServiceTests
         await dbContext.SaveChangesAsync();
 
         var service = CreateService(dbContext);
-        var decision = await service.ResolveAsync(node.Id, "1.0.0", "stable", CancellationToken.None);
+        var decision = await service.ResolveAsync(node.Id, "1.0.0", "stable", null, CancellationToken.None);
 
         Assert.False(decision.MayInstall);
         Assert.Null(decision.TargetVersion);
-        Assert.Null(decision.DownloadUrl);
-        Assert.Null(decision.Sha256);
     }
 
     [Fact]
@@ -49,12 +47,10 @@ public sealed class ReleaseGateServiceTests
         await dbContext.SaveChangesAsync();
 
         var service = CreateService(dbContext);
-        var decision = await service.ResolveAsync(node.Id, "1.0.0", "stable", CancellationToken.None);
+        var decision = await service.ResolveAsync(node.Id, "1.0.0", "stable", "2.0.0", CancellationToken.None);
 
         Assert.True(decision.MayInstall);
         Assert.Equal("2.0.0", decision.TargetVersion);
-        Assert.Equal("https://downloads.example.test/stable/2.0.0", decision.DownloadUrl);
-        Assert.Equal(Sha256Of("2.0.0"), decision.Sha256);
     }
 
     [Fact]
@@ -67,11 +63,11 @@ public sealed class ReleaseGateServiceTests
         await dbContext.SaveChangesAsync();
 
         var service = CreateService(dbContext);
-        var first = await service.ResolveAsync(node.Id, "1.0.0", "stable", CancellationToken.None);
+        var first = await service.ResolveAsync(node.Id, "1.0.0", "stable", "2.0.0", CancellationToken.None);
 
         for (var i = 0; i < 10; i++)
         {
-            var next = await service.ResolveAsync(node.Id, "1.0.0", "stable", CancellationToken.None);
+            var next = await service.ResolveAsync(node.Id, "1.0.0", "stable", "2.0.0", CancellationToken.None);
             Assert.Equal(first, next);
         }
     }
@@ -86,12 +82,24 @@ public sealed class ReleaseGateServiceTests
         await dbContext.SaveChangesAsync();
 
         var service = CreateService(dbContext);
-        var decision = await service.ResolveAsync(node.Id, "2.0.0", "stable", CancellationToken.None);
+        var decision = await service.ResolveAsync(node.Id, "2.0.0", "stable", "2.0.0", CancellationToken.None);
 
         Assert.False(decision.MayInstall);
         Assert.Null(decision.TargetVersion);
-        Assert.Null(decision.DownloadUrl);
-        Assert.Null(decision.Sha256);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_WithoutRing_OffersLatestPublishedStableRelease()
+    {
+        using var dbContext = CreateDbContext();
+        var node = CreateNode();
+        dbContext.RegisteredNodes.Add(node);
+        await dbContext.SaveChangesAsync();
+
+        var decision = await CreateService(dbContext).ResolveAsync(
+            node.Id, "1.0.0", "stable", "2.1.0", CancellationToken.None);
+
+        Assert.Equal(new ReleaseGateDecision(true, "2.1.0"), decision);
     }
 
     [Fact]
@@ -102,12 +110,39 @@ public sealed class ReleaseGateServiceTests
         await dbContext.SaveChangesAsync();
 
         var service = CreateService(dbContext);
-        var decision = await service.ResolveAsync("node-not-registered", "1.0.0", "stable", CancellationToken.None);
+        var decision = await service.ResolveAsync("node-not-registered", "1.0.0", "stable", "2.0.0", CancellationToken.None);
 
         Assert.False(decision.MayInstall);
         Assert.Null(decision.TargetVersion);
-        Assert.Null(decision.DownloadUrl);
-        Assert.Null(decision.Sha256);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_RevokedNodeGetsNothing()
+    {
+        using var dbContext = CreateDbContext();
+        var node = CreateNode() with { RevokedAt = DateTimeOffset.UtcNow };
+        dbContext.RegisteredNodes.Add(node);
+        dbContext.Set<ReleaseRing>().Add(CreateRing("stable", "AllEnrolled", null, "2.0.0"));
+        await dbContext.SaveChangesAsync();
+
+        var decision = await CreateService(dbContext).ResolveAsync(
+            node.Id, "1.0.0", "stable", "2.0.0", CancellationToken.None);
+
+        Assert.Equal(ReleaseGateDecision.None, decision);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_BetaWithoutExplicitRingGetsNothing()
+    {
+        using var dbContext = CreateDbContext();
+        var node = CreateNode();
+        dbContext.RegisteredNodes.Add(node);
+        await dbContext.SaveChangesAsync();
+
+        var decision = await CreateService(dbContext).ResolveAsync(
+            node.Id, "1.0.0", "beta", "2.0.0-beta.1", CancellationToken.None);
+
+        Assert.Equal(ReleaseGateDecision.None, decision);
     }
 
     private static RegisteredNode CreateNode(string appVersion = "1.0.0")

@@ -38,7 +38,7 @@ interface TermLabelProps {
   children: ReactNode;
 }
 
-// Etiqueta con su ayuda al lado: <TermLabel term="nodo">Nodos</TermLabel>.
+// Etiqueta con su ayuda al lado: <TermLabel term="estado">Estado</TermLabel>.
 export function TermLabel({ term, children }: TermLabelProps) {
   return (
     <span className="inline-flex items-center gap-1.5">
