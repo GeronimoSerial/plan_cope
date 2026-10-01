@@ -22,6 +22,7 @@ interface QuestionListProps {
   errors: Record<string, string>;
   disabled?: boolean;
   onReorder: (activeId: string, overId: string) => void;
+  onMove: (id: string, direction: -1 | 1) => void;
   onUpdate: (id: string, next: Question) => void;
   onRemove: (id: string) => void;
   onDuplicate: (id: string) => void;
@@ -34,6 +35,7 @@ export function QuestionList({
   errors,
   disabled = false,
   onReorder,
+  onMove,
   onUpdate,
   onRemove,
   onDuplicate,
@@ -50,12 +52,6 @@ export function QuestionList({
     if (over && active.id !== over.id) {
       onReorder(String(active.id), String(over.id));
     }
-  }
-
-  function moveQuestion(id: string, direction: -1 | 1) {
-    const currentIndex = questions.findIndex(question => question.id === id);
-    const target = questions[currentIndex + direction];
-    if (currentIndex >= 0 && target) onReorder(id, target.id);
   }
 
   return (
@@ -107,7 +103,7 @@ export function QuestionList({
                   errors={errors}
                   disabled={disabled}
                   onUpdate={onUpdate}
-                  onMove={moveQuestion}
+                  onMove={onMove}
                   onRemove={onRemove}
                   onDuplicate={onDuplicate}
                 />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import Image from "next/image";
 import { XIcon } from "lucide-react";
 import {
@@ -21,7 +21,6 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { TermHint } from "../help/term-hint";
 import { callCentral } from "../../_lib/api/client";
 
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024;
@@ -46,19 +45,10 @@ interface QuestionEditorProps {
 
 export function QuestionEditor({ question, versionId, errors, disabled = false, onChange }: QuestionEditorProps) {
   const uid = useId();
-  const promptRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   const [moreOptionsOpen, setMoreOptionsOpen] = useState(Boolean(question.help?.trim()));
-
-  useEffect(() => {
-    const textarea = promptRef.current;
-    if (textarea) {
-      textarea.style.height = "auto";
-      textarea.style.height = `${textarea.scrollHeight}px`;
-    }
-  }, [question.prompt]);
 
   function patchCommon(patch: Partial<{ prompt: string; help: string | undefined; required: boolean; score: number }>) {
     onChange({ ...question, ...patch } as Question);
@@ -100,10 +90,9 @@ export function QuestionEditor({ question, versionId, errors, disabled = false, 
         <Field data-invalid={errors.prompt ? true : undefined} className="gap-1">
           <FieldLabel htmlFor={`${uid}-prompt`}>Enunciado</FieldLabel>
           <Textarea
-            ref={promptRef}
             id={`${uid}-prompt`}
             rows={2}
-            className="min-h-16 resize-none overflow-hidden"
+            className="min-h-16 resize-none"
             value={question.prompt ?? ""}
             disabled={disabled}
             onChange={event => patchCommon({ prompt: event.target.value })}
@@ -203,7 +192,6 @@ export function QuestionEditor({ question, versionId, errors, disabled = false, 
             <Field className="sm:col-span-2">
               <div className="flex items-center gap-1.5">
                 <FieldLabel htmlFor={`scoring-policy-${question.id}`}>Regla de puntaje</FieldLabel>
-                <TermHint term="puntos" />
               </div>
               <Select
                 value={question.scoringPolicy ?? "AllOrNothing"}

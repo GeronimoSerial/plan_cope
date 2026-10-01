@@ -13,6 +13,7 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { TermHint } from "../help/term-hint";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -143,8 +144,11 @@ export const QuestionCard = memo(function QuestionCard({
               </SelectContent>
             </Select>
             <Field className="w-16 gap-1">
-              <FieldLabel htmlFor={`question-${question.id}-score`} className="text-xs">Pts</FieldLabel>
-              <Input id={`question-${question.id}-score`} className="h-8 px-2" type="number" min={0} step={1} value={question.score} disabled={disabled} aria-label={`Puntos de la pregunta ${index + 1}`} onChange={event => onUpdate(question.id, { ...question, score: Number(event.target.value) } as Question)} />
+              <div className="flex items-center gap-1">
+                <FieldLabel htmlFor={`question-${question.id}-score`} className="text-xs">Pts</FieldLabel>
+                <TermHint term="puntos" />
+              </div>
+              <Input id={`question-${question.id}-score`} className="h-8 px-2" type="number" min={0} step={1} value={question.score} disabled={disabled} aria-label={`Pts, pregunta ${index + 1}`} onChange={event => onUpdate(question.id, { ...question, score: Number(event.target.value) } as Question)} />
             </Field>
             <div className="flex items-center gap-1.5">
               <Checkbox id={`question-${question.id}-required`} checked={question.required} disabled={disabled} onCheckedChange={checked => onUpdate(question.id, { ...question, required: checked === true } as Question)} />

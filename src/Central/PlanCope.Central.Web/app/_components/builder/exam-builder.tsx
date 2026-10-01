@@ -237,6 +237,15 @@ export function ExamBuilder({
     });
   }, []);
 
+  const moveQuestion = useCallback((id: string, direction: -1 | 1) => {
+    setDocument(current => {
+      const from = current.questions.findIndex(question => question.id === id);
+      const to = from + direction;
+      if (from < 0 || to < 0 || to >= current.questions.length) return current;
+      return { ...current, questions: arrayMove(current.questions, from, to) };
+    });
+  }, []);
+
   function requestNavigation(href: string) {
     if (!intercept(() => router.push(href))) {
       router.push(href);
@@ -427,6 +436,7 @@ export function ExamBuilder({
             errors={errors}
             disabled={isReadOnly}
             onReorder={reorderQuestion}
+            onMove={moveQuestion}
             onUpdate={updateQuestion}
             onRemove={removeQuestion}
             onDuplicate={duplicateQuestion}
