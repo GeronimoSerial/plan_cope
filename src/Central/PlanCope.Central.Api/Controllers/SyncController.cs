@@ -282,7 +282,9 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
             attempt.StudentLastName,
             attempt.DocumentLast4,
             attempt.VerificationSource,
-            verifiedAt));
+            verifiedAt,
+            attempt.DocumentHmac,
+            attempt.OffRoster));
 
         var receivedAnswers = new List<ReceivedSubmissionAnswer>();
         if (payload.TryGetProperty("answers", out var answersElement) && answersElement.ValueKind == JsonValueKind.Array)

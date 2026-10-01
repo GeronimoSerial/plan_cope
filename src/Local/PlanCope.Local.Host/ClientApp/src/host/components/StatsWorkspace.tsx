@@ -28,6 +28,8 @@ function formatElapsedSeconds(updatedAt: number, now: number): number {
 
 export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspaceProps) {
   const api = useMemo(() => new ApiClient(apiBaseUrl), [apiBaseUrl]);
+  const [activeCue, setActiveCue] = useState(cue);
+  const [schools, setSchools] = useState<{ code: string; name: string }[]>([]);
   const [schoolYearFilter, setSchoolYearFilter] = useState(schoolYear ?? "");
   const [courseFilter, setCourseFilter] = useState("");
   const [examFilter, setExamFilter] = useState("");
@@ -44,6 +46,14 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
   const [now, setNow] = useState(Date.now());
   const hasLoadedStats = useRef(false);
 
+  useEffect(() => { setActiveCue(cue); }, [cue]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void api.getSchools(controller.signal).then(setSchools).catch(() => undefined);
+    return () => controller.abort();
+  }, [api]);
+
   useEffect(() => {
     if (schoolYear && schoolYear !== schoolYearFilter) {
       setIsLoading(true);
@@ -53,7 +63,8 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
 
   useEffect(() => {
     const controller = new AbortController();
-    void api.getStatsFilterOptions(cue, controller.signal)
+    if (!activeCue) return () => controller.abort();
+    void api.getStatsFilterOptions(activeCue, controller.signal)
       .then(options => setFilterOptions(options))
       .catch(exception => {
         if (!controller.signal.aborted) {
@@ -61,7 +72,7 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
         }
       });
     return () => controller.abort();
-  }, [api, cue]);
+  }, [api, activeCue]);
 
   useEffect(() => {
     let disposed = false;
@@ -77,8 +88,8 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
       setError(null);
       try {
         const [courses, exams] = await Promise.all([
-          api.getCourseStats(cue, schoolYearFilter || undefined, controller.signal),
-          api.getExamStats(cue, schoolYearFilter || undefined, courseFilter || undefined, controller.signal)
+          api.getCourseStats(activeCue, schoolYearFilter || undefined, controller.signal),
+          api.getExamStats(activeCue, schoolYearFilter || undefined, courseFilter || undefined, controller.signal)
         ]);
         if (!controller.signal.aborted) {
           setCourseStats(courses);
@@ -123,7 +134,7 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
       requestController?.abort();
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [api, cue, schoolYearFilter, courseFilter, manualRefreshKey]);
+  }, [api, activeCue, schoolYearFilter, courseFilter, manualRefreshKey]);
 
   useEffect(() => {
     if (updatedAt === null) return;
@@ -145,8 +156,8 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
     setReportError(null);
     try {
       const status = await openStatsReport(
-        { cue, schoolYear: schoolYearFilter || undefined, course: courseFilter || undefined, exam: examFilter || undefined },
-        () => api.getStatsHtmlReport(cue, schoolYearFilter || undefined, courseFilter || undefined, examFilter || undefined)
+        { cue: activeCue, schoolYear: schoolYearFilter || undefined, course: courseFilter || undefined, exam: examFilter || undefined },
+        () => api.getStatsHtmlReport(activeCue, schoolYearFilter || undefined, courseFilter || undefined, examFilter || undefined)
       );
       setReportStatus(status);
     } catch (exception) {
@@ -158,8 +169,8 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
     setReportStatus(null);
     setReportError(null);
     try {
-      const blob = await api.getStatsExportCsv(cue, schoolYearFilter || undefined);
-      downloadBlob(blob, `estadisticas-${cue.replace(/[^a-zA-Z0-9_-]/g, "_")}.csv`);
+      const blob = await api.getStatsExportCsv(activeCue, schoolYearFilter || undefined);
+      downloadBlob(blob, `estadisticas-${activeCue.replace(/[^a-zA-Z0-9_-]/g, "_")}.csv`);
       setReportStatus("Archivo CSV descargado.");
     } catch (exception) {
       setReportError(exception instanceof Error ? exception.message : "No se pudo descargar el archivo CSV.");
@@ -167,11 +178,22 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
   };
 
   return (
-    <section className="panel">
+    <section className="panel node-workspace-panel stats-workspace-panel">
       <h2>Estadísticas</h2>
       <p className="stats-live-copy">Pantalla en vivo. El informe HTML es una captura e indica cuándo se generó.</p>
 
       <div className="stats-filters">
+        <label htmlFor="stats-school-filter">Escuela
+          <select id="stats-school-filter" value={activeCue} onChange={event => {
+            hasLoadedStats.current = false;
+            setSchoolYearFilter("");
+            setCourseFilter("");
+            setExamFilter("");
+            setActiveCue(event.target.value);
+          }}>
+            {schools.map(school => <option key={school.code} value={school.code}>{school.name} · {school.code}</option>)}
+          </select>
+        </label>
         <label htmlFor="stats-school-year-filter">Año lectivo
           <select id="stats-school-year-filter" value={schoolYearFilter} onChange={event => {
             setIsLoading(true);
@@ -232,11 +254,12 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
           {examStats.map(exam => (
             <details key={exam.examVersionId}>
               <summary>{exam.examCode} v{exam.versionNumber} — {displayAttemptCount(exam.attemptCount)} intentos</summary>
-              <div className="table-wrap"><table>
+              <div className="table-wrap stats-block-table-wrap"><table className="stats-block-table">
                 <thead><tr><th>Bloque</th><th>Correctas</th><th>Parciales</th><th>Incorrectas</th><th>En blanco</th><th>No corregibles</th></tr></thead>
-                <tbody>{exam.blocks.map(block => (
+                <tbody>{exam.blocks.map((block, index) => (
                   <tr key={block.blockId}>
-                    <td>{block.blockId}</td><td>{block.correctCount}</td><td>{block.partialCount}</td><td>{block.incorrectCount}</td><td>{block.blankCount}</td><td>{block.ungradableCount}</td>
+                    <td><div className="stats-block-label"><strong>Pregunta {(block.orderIndex ?? index) + 1}</strong>{block.title && <span title={block.title}>{block.title}</span>}</div></td>
+                    <td>{block.correctCount}</td><td>{block.partialCount}</td><td>{block.incorrectCount}</td><td>{block.blankCount}</td><td>{block.ungradableCount}</td>
                   </tr>
                 ))}</tbody>
               </table></div>

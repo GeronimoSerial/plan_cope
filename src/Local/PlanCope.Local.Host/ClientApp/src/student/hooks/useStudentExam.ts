@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { LocalExamBlock } from "../../shared/api-types";
 import {
   type AnswerMap,
@@ -24,6 +24,23 @@ export function useStudentExam() {
   const [error, setError] = useState("");
   const [notFoundPrompt, setNotFoundPrompt] = useState<{ message: string; hint: string } | null>(null);
   const [isBusy, setIsBusy] = useState(false);
+  const [sessionStatus, setSessionStatus] = useState("active");
+
+  useEffect(() => {
+    if (!attemptId || confirmationCode) return;
+    let cancelled = false;
+    let timeout: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const session = await api.getSessionStatus(sessionCode.trim());
+        if (!cancelled) setSessionStatus(session.status);
+        if (session.status === "closed") return;
+      } catch { /* Retry while the student is taking the exam. */ }
+      if (!cancelled) timeout = setTimeout(poll, 2500);
+    };
+    void poll();
+    return () => { cancelled = true; clearTimeout(timeout); };
+  }, [api, attemptId, confirmationCode, sessionCode]);
 
   const runBusy = useCallback(async (action: () => Promise<void>) => {
     setIsBusy(true);
@@ -104,6 +121,7 @@ export function useStudentExam() {
       setConfirmationCode(null);
       setSubmittedAt(null);
       setStatus("");
+      setSessionStatus("active");
     });
   }, [api, resolution, runBusy, sessionCode]);
 
@@ -145,6 +163,7 @@ export function useStudentExam() {
     resolution,
     sessionCode,
     status,
+    sessionStatus,
     submittedAt,
     attemptStudentName: resolution?.student.displayName ?? null,
     resolveStudent,

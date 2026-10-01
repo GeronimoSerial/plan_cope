@@ -38,6 +38,7 @@ export function StudentApp() {
           missingRequired={exam.missingRequired}
           isBusy={exam.isBusy}
           status={exam.status}
+          sessionStatus={exam.sessionStatus}
           error={exam.error}
           studentName={exam.attemptStudentName}
           onAnswerChange={exam.setAnswer}

@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Shared\PlanCope.Shared.Contracts\PlanCope.Shared.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Shared\PlanCope.Shared.Domain\PlanCope.Shared.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>

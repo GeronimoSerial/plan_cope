@@ -1025,6 +1025,10 @@ namespace PlanCope.Central.Migrations.Migrations
                         .HasMaxLength(4)
                         .HasColumnType("character varying(4)");
 
+                    b.Property<string>("DocumentHmac")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<int?>("GePersonId")
                         .HasColumnType("integer");
 
@@ -1032,6 +1036,9 @@ namespace PlanCope.Central.Migrations.Migrations
                         .IsRequired()
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
+
+                    b.Property<bool>("OffRoster")
+                        .HasColumnType("boolean");
 
                     b.Property<DateTimeOffset>("ReceivedAt")
                         .HasColumnType("timestamp with time zone");

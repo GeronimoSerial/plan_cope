@@ -27,7 +27,36 @@ public sealed record LocalDeliverySession(
     string? RosterSnapshotId = null,
     string? RosterSectionId = null);
 
-public sealed record LocalSessionProgress(string SessionId, string AccessCode, int ExpectedStudentCount, int StartedCount, int SubmittedCount, int InProgressCount)
+public sealed record LocalSessionStudentProgress(
+    string Id,
+    string DisplayName,
+    string? MaskedDocument,
+    string Status,
+    string? StartedAt,
+    string? SubmittedAt,
+    string? AttemptId,
+    // Reserved for session-close behavior added in a later batch.
+    string? SubmissionReason,
+    // Reserved for teacher-added students added in a later batch.
+    bool OffRoster);
+
+public sealed record LocalSessionProgress(
+    string SessionId,
+    string AccessCode,
+    int ExpectedStudentCount,
+    int StartedCount,
+    int SubmittedCount,
+    int InProgressCount,
+    IReadOnlyList<LocalSessionStudentProgress> Students,
+    string? GradeLabel,
+    string? Course,
+    string? Division,
+    string? Shift,
+    string? Level,
+    double? AverageScorePercent = null,
+    bool HasRoster = false,
+    int OffRosterSubmittedCount = 0,
+    int OffRosterInProgressCount = 0)
 {
     public int CompletionPercentage => ExpectedStudentCount <= 0 ? 0 : Math.Min(100, (int)Math.Round(SubmittedCount * 100.0 / ExpectedStudentCount));
 }
@@ -47,7 +76,19 @@ public sealed record StudentAttempt(
     string? StudentLastName = null,
     string? DocumentLast4 = null,
     string? VerificationSource = null,
-    string? VerifiedAt = null);
+    string? VerifiedAt = null,
+    string? ExtraStudentId = null,
+    string? DocumentHmac = null,
+    bool OffRoster = false);
+
+public sealed record SessionExtraStudent(
+    string Id,
+    string SessionId,
+    string DocumentHmac,
+    string DocumentLast4,
+    string FirstName,
+    string LastName,
+    string CreatedAt);
 
 public sealed record SubmissionAnswer(string Id, string StudentAttemptId, string BlockId, string AnswerJson, string CreatedAt);
 

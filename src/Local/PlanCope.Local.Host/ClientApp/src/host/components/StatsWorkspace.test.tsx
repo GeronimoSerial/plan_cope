@@ -35,6 +35,30 @@ describe("StatsWorkspace", () => {
     expect(html).toContain("Todavía no hay intentos entregados");
   });
 
+  it("shows ordered question labels and prompts instead of block identifiers", async () => {
+    const blockId = "1f37ed04-5275-4e47-90c0-14d5e18ff1ae";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const body = url.includes("/api/stats/filters?")
+        ? { schoolYears: ["2026"], courses: [], exams: [] }
+        : url.includes("/api/stats/course?")
+          ? [{ course: "6", attemptCount: 2, averageScorePercent: 75 }]
+          : url.includes("/api/stats/exam?")
+            ? [{ examVersionId: "exam-v1", examCode: "BIO", versionNumber: 1, attemptCount: 2, averageScorePercent: 75, blocks: [{ blockId, orderIndex: 2, title: "¿Cuál es la función principal de las raíces?", correctCount: 1, partialCount: 0, incorrectCount: 1, blankCount: 0, ungradableCount: 0 }] }]
+            : [];
+      return { ok: true, json: async () => body };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await renderComponent();
+
+    expect(container?.querySelector(".stats-workspace-panel")).not.toBeNull();
+    expect(container?.querySelector(".stats-block-table")).not.toBeNull();
+    expect(container?.textContent).toContain("Pregunta 3");
+    expect(container?.textContent).toContain("¿Cuál es la función principal de las raíces?");
+    expect(container?.textContent).not.toContain(blockId);
+  });
+
   it("sends selected filters to the host and shows the report result", async () => {
     installFetchMock();
     const listeners = new Set<(event: MessageEvent) => void>();
@@ -145,10 +169,10 @@ describe("StatsWorkspace", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     await renderComponent();
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
 
     await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
 
     await act(async () => {
       pendingRequests.splice(0).forEach(resolve => resolve());
@@ -157,7 +181,7 @@ describe("StatsWorkspace", () => {
     });
     await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
 
-    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
     expect(container?.textContent).toContain("Actualizado hace 15s");
   });
 
@@ -165,14 +189,14 @@ describe("StatsWorkspace", () => {
     vi.useFakeTimers();
     const fetchMock = installFetchMock();
     await renderComponent();
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
 
     await act(async () => {
       Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
       document.dispatchEvent(new Event("visibilitychange"));
       await vi.advanceTimersByTimeAsync(30000);
     });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
 
     await act(async () => {
       Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
@@ -180,13 +204,13 @@ describe("StatsWorkspace", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 
   it("refreshes immediately when requested manually", async () => {
     const fetchMock = installFetchMock();
     await renderComponent();
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
 
     await act(async () => {
       findButton("Actualizar ahora").click();
@@ -194,7 +218,7 @@ describe("StatsWorkspace", () => {
       await Promise.resolve();
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 
   async function renderComponent(): Promise<void> {

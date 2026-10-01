@@ -18,6 +18,8 @@ public sealed record UpdateSessionStatusRequest(string Status);
 
 public sealed record ResolveStudentRequest(string Document);
 
+public sealed record AddSessionExtraStudentRequest(string Document, string FirstName, string LastName);
+
 public sealed record ResolvedStudentDto(
     string DisplayName,
     string MaskedDocument,

@@ -40,6 +40,12 @@ public interface IAttemptRepository
 {
     Task CreateResolutionAsync(StudentResolution resolution, CancellationToken cancellationToken = default);
 
+    Task<bool> AddExtraStudentAsync(SessionExtraStudent student, CancellationToken cancellationToken = default);
+
+    Task<SessionExtraStudent?> FindExtraStudentAsync(string sessionId, string documentHmac, CancellationToken cancellationToken = default);
+
+    Task<bool> RemoveExtraStudentAsync(string sessionId, string studentId, CancellationToken cancellationToken = default);
+
     Task<NominalAttemptStartResult> StartNominalAttemptAsync(
         string deliverySessionId,
         string tokenHash,
@@ -47,6 +53,8 @@ public interface IAttemptRepository
         CancellationToken cancellationToken = default);
 
     Task CreateAsync(StudentAttempt attempt, CancellationToken cancellationToken = default);
+
+    Task<bool> CreateIfSessionActiveAsync(StudentAttempt attempt, CancellationToken cancellationToken = default);
 
     Task<StudentAttempt?> GetByIdAsync(string id, CancellationToken cancellationToken = default);
 
@@ -66,7 +74,8 @@ public interface IAttemptRepository
         string confirmationCode,
         SyncOutbox outbox,
         GradingOutcome gradingOutcome,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? submissionReason = null);
 
     Task<bool> PreserveUnsubmittedWithOutboxAsync(
         string id,
@@ -79,10 +88,11 @@ public interface IAttemptRepository
 public sealed record StudentResolution(
     string Id,
     string DeliverySessionId,
-    string RosterSnapshotId,
-    string RosterSectionId,
-    string RosterStudentId,
-    int GePersonId,
+    string? RosterSnapshotId,
+    string? RosterSectionId,
+    string? RosterStudentId,
+    int? GePersonId,
+    string? ExtraStudentId,
     string FirstName,
     string LastName,
     string DocumentLast4,
@@ -93,6 +103,7 @@ public sealed record StudentResolution(
 public enum NominalAttemptStartStatus
 {
     Started,
+    SessionNotActive,
     ResolutionNotFound,
     ResolutionExpired,
     ResolutionUsed,

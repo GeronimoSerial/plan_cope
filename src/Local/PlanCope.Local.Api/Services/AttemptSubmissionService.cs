@@ -19,7 +19,7 @@ public sealed class AttemptSubmissionService(
 {
     private static readonly JsonSerializerOptions SyncJsonOptions = new(JsonSerializerDefaults.Web);
 
-    public async Task<AttemptSubmitResult> SubmitAsync(string attemptId, bool allowInactiveSession = false, CancellationToken cancellationToken = default)
+    public async Task<AttemptSubmitResult> SubmitAsync(string attemptId, bool allowInactiveSession = false, CancellationToken cancellationToken = default, string? submissionReason = null)
     {
         var attempt = await attemptRepository.GetByIdAsync(attemptId, cancellationToken);
         if (attempt is null) return new(false, null, "Attempt not found.");
@@ -59,7 +59,7 @@ public sealed class AttemptSubmissionService(
         }, SyncJsonOptions);
         var submitted = await attemptRepository.SubmitWithOutboxAsync(attemptId, submittedAt, confirmationCode, new SyncOutbox(
             Guid.NewGuid().ToString(), SyncEventTypes.AttemptSubmitted, "student_attempt", attemptId, Guid.NewGuid().ToString(),
-            payload, "pending", 0, null, null, submittedAt, null), grading, cancellationToken);
+            payload, "pending", 0, null, null, submittedAt, null), grading, cancellationToken, submissionReason);
         if (!submitted) return new(false, null, "Attempt was submitted concurrently.");
         await statsRollupRepository.UpsertForAttemptAsync(attemptId, cancellationToken);
         return new(true, new SubmitAttemptResponse(attemptId, confirmationCode, submittedAt), null);
@@ -153,6 +153,8 @@ public sealed class AttemptSubmissionService(
         if (examVersion is null) return GradingOutcome.Ungradable(gradedAt);
         var blocksById = blocks.ToDictionary(block => block.Id);
         var answerKeyByRemoteBlock = answerKeys.ToDictionary(key => key.RemoteBlockId);
+        if (blocks.Count == 0 || blocks.Any(block => !answerKeyByRemoteBlock.ContainsKey(block.RemoteBlockId)))
+            return GradingOutcome.Ungradable(gradedAt);
         var gradableBlocks = blocks.Select(block =>
         {
             var key = answerKeyByRemoteBlock.GetValueOrDefault(block.RemoteBlockId);

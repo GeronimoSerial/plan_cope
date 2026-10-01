@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Dapper;
@@ -112,6 +113,8 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
         {
             var blocksSql = @"
                 SELECT rb.block_id            AS BlockId,
+                       COALESCE(leb.order_index, -1) AS OrderIndex,
+                       leb.config_json          AS ConfigJson,
                        SUM(rb.correct_count)    AS CorrectCount,
                        SUM(rb.partial_count)    AS PartialCount,
                        SUM(rb.incorrect_count)  AS IncorrectCount,
@@ -119,10 +122,13 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
                        SUM(rb.ungradable_count) AS UngradableCount
                 FROM stats_rollup_blocks rb
                 JOIN stats_rollups sr ON sr.id = rb.rollup_id
+                LEFT JOIN local_exam_blocks leb
+                  ON leb.local_exam_version_id = sr.exam_version_id
+                 AND (leb.id = rb.block_id OR leb.remote_block_id = rb.block_id)
                 WHERE " + BuildRollupsFilters(schoolYear, course) + @"
                   AND sr.exam_version_id = @ExamVersionId
-                GROUP BY rb.block_id
-                ORDER BY rb.block_id";
+                GROUP BY rb.block_id, leb.order_index, leb.config_json
+                ORDER BY leb.order_index, rb.block_id";
 
             var blockIds = (await connection.QueryAsync<string>(new CommandDefinition(
                 "SELECT DISTINCT rb.block_id FROM stats_rollup_blocks rb JOIN stats_rollups sr ON sr.id = rb.rollup_id WHERE " + BuildRollupsFilters(schoolYear, course) + " AND sr.exam_version_id = @ExamVersionId",
@@ -136,7 +142,8 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
                       new { Cue = cue, SchoolYear = schoolYear, Course = course, ExamVersionId = row.ExamVersionId },
                       cancellationToken: cancellationToken)))
                   .Select(block => new BlockStatDto(
-                      block.BlockId, (int)block.CorrectCount, (int)block.PartialCount,
+                      block.BlockId, block.OrderIndex >= 0 ? checked((int)block.OrderIndex) : null, ExtractBlockTitle(block.ConfigJson),
+                      (int)block.CorrectCount, (int)block.PartialCount,
                       (int)block.IncorrectCount, (int)block.BlankCount, (int)block.UngradableCount))
                   .ToList();
 
@@ -293,9 +300,36 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
         public double ScoreMaxSum { get; set; }
     }
 
+    private static string? ExtractBlockTitle(string? configJson)
+    {
+        if (string.IsNullOrWhiteSpace(configJson)) return null;
+        try
+        {
+            using var document = JsonDocument.Parse(configJson);
+            if (document.RootElement.ValueKind != JsonValueKind.Object) return null;
+            foreach (var propertyName in new[] { "question", "prompt", "title" })
+            {
+                if (document.RootElement.TryGetProperty(propertyName, out var property)
+                    && property.ValueKind == JsonValueKind.String
+                    && !string.IsNullOrWhiteSpace(property.GetString()))
+                {
+                    return property.GetString()!.Trim();
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // Older or malformed exam content can still contribute statistics without a title.
+        }
+
+        return null;
+    }
+
     private sealed class BlockStatRow
     {
         public string BlockId { get; set; } = string.Empty;
+        public long OrderIndex { get; set; } = -1;
+        public string? ConfigJson { get; set; }
         public long CorrectCount { get; set; }
         public long PartialCount { get; set; }
         public long IncorrectCount { get; set; }

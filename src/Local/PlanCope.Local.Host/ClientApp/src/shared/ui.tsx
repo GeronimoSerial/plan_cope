@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 
 type FieldProps = {
   label: string;
@@ -39,9 +39,11 @@ type SelectInputProps = {
 type ButtonProps = {
   children: ReactNode;
   disabled?: boolean;
-  variant?: "primary" | "secondary";
+  variant?: "primary" | "secondary" | "danger";
   onClick: () => void;
 };
+
+type Tone = "neutral" | "success" | "warning" | "danger" | "info";
 
 export function Field({ label, error, children }: FieldProps) {
   return (
@@ -108,6 +110,41 @@ export function SectionTitle({ title, description }: { title: string; descriptio
     <div className="section-title">
       <h2>{title}</h2>
       {description && <p>{description}</p>}
+    </div>
+  );
+}
+
+export function Badge({ children, tone = "neutral", large = false }: { children: ReactNode; tone?: Tone; large?: boolean }) {
+  return <span className={`badge badge-${tone}${large ? " badge-lg" : ""}`}>{children}</span>;
+}
+
+export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <section className={`card${className ? ` ${className}` : ""}`}>{children}</section>;
+}
+
+export function DataTable({ children, label }: { children: ReactNode; label?: string }) {
+  return <div className="data-table-wrap" aria-label={label}>{children}</div>;
+}
+
+export function Dialog({ children, title, actions, labelledBy }: { children: ReactNode; title: string; actions?: ReactNode; labelledBy?: string }) {
+  const generatedId = useId();
+  const titleId = labelledBy ?? `${generatedId}-title`;
+  return (
+    <div className="dialog-backdrop">
+      <section className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <h2 className="dialog-title" id={titleId}>{title}</h2>
+        <div>{children}</div>
+        {actions && <div className="dialog-actions">{actions}</div>}
+      </section>
+    </div>
+  );
+}
+
+export function MessageBar({ children, title, tone = "info" }: { children: ReactNode; title?: string; tone?: Exclude<Tone, "neutral"> }) {
+  return (
+    <div className={`messagebar messagebar-${tone}`} role={tone === "danger" ? "alert" : "status"}>
+      {title && <strong className="messagebar-title">{title}</strong>}
+      {children}
     </div>
   );
 }

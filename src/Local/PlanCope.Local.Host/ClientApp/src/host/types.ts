@@ -89,7 +89,19 @@ export type LocalSession = {
   schoolYear?: string | null;
   rosterSnapshotId?: string | null;
   rosterSectionId?: string | null;
+  schoolName?: string;
+  examTitle?: string;
+  gradeLabel?: string | null;
+  submittedCount?: number;
+  inProgressCount?: number;
+  offRosterSubmittedCount?: number;
+  offRosterInProgressCount?: number;
 };
+
+export type LocalSchool = { code: string; name: string; hasReadyRoster: boolean };
+export type SessionHistoryPage = { items: LocalSession[]; page: number; pageSize: number; totalCount: number };
+
+export type SessionCloseSummary = { submitted: number; failed: number };
 
 export type RosterSnapshot = {
   id: string;
@@ -126,7 +138,31 @@ export type SessionProgress = {
   startedCount: number;
   submittedCount: number;
   inProgressCount: number;
+  offRosterSubmittedCount: number;
+  offRosterInProgressCount: number;
   completionPercentage: number;
+  students: SessionStudentProgress[];
+  gradeLabel: string | null;
+  course: string | null;
+  division: string | null;
+  shift: string | null;
+  level: string | null;
+  averageScorePercent?: number | null;
+  hasRoster?: boolean;
+};
+
+export type SessionStudentProgress = {
+  id: string;
+  displayName: string;
+  maskedDocument: string | null;
+  status: "not_started" | "in_progress" | "submitted";
+  startedAt: string | null;
+  submittedAt: string | null;
+  attemptId: string | null;
+  /** Reserved for teacher-close submission behavior. */
+  submissionReason: string | null;
+  /** Reserved for teacher-added students. */
+  offRoster: boolean;
 };
 
 export type FormErrors = {

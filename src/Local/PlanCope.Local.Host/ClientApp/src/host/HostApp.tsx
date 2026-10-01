@@ -1,16 +1,15 @@
 import { useEffect, useState } from "react";
 import { AppShell } from "./components/AppShell";
-import { SchoolGate } from "./components/SchoolGate";
 import { SessionsWorkspace } from "./components/SessionsWorkspace";
 import { StatsWorkspace } from "./components/StatsWorkspace";
 import { useDeliverySession } from "./hooks/useDeliverySession";
 import { useHostContext } from "./hooks/useHostContext";
 import { ActivationScreen, shouldShowActivation } from "./activation/ActivationScreen";
+import { isValidCue } from "./domain/cue";
 
 export function HostApp() {
   const hostContext = useHostContext();
   const delivery = useDeliverySession(hostContext);
-  const [isSchoolConfirmed, setIsSchoolConfirmed] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [activationInProgress, setActivationInProgress] = useState(false);
   const [activationRetryAvailable, setActivationRetryAvailable] = useState(false);
@@ -18,7 +17,13 @@ export function HostApp() {
   const [revalidationDaysRemaining, setRevalidationDaysRemaining] = useState<number | null>(null);
   const [expiryPending, setExpiryPending] = useState(false);
   const [localClockWarning, setLocalClockWarning] = useState(false);
-  const [activeTab, setActiveTab] = useState<"sessions" | "stats">("sessions");
+  const [activeTab, setActiveTab] = useState<"home" | "history" | "stats">("home");
+  const clearManualCue = () => delivery.sessionForm.updateForm("cue", "");
+  const changeTab = (tab: "home" | "history" | "stats") => {
+    clearManualCue();
+    delivery.activeSession.returnToSessions();
+    setActiveTab(tab);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -64,31 +69,8 @@ export function HostApp() {
       activationInProgress={activationInProgress} retryAvailable={activationRetryAvailable} />;
   }
 
-  if (!isSchoolConfirmed) {
-    return (
-      <>
-        {localClockWarning && <p className="sync-warning" role="alert">La fecha y hora de este equipo son incorrectas. Corregilas para mantener la revalidación al día.</p>}
-        {expiryPending && <p className="sync-warning" role="status">La revalidación está vencida. Finalizá y enviá la evaluación en curso; no inicies otra sesión.</p>}
-        {!expiryPending && revalidationDaysRemaining !== null && revalidationDaysRemaining <= 5 && (
-          <p className="sync-warning" role="status" aria-live="polite">
-            Conectate a internet para revalidar el equipo. Quedan {revalidationDaysRemaining} {revalidationDaysRemaining === 1 ? "día" : "días"}.
-          </p>
-        )}
-        <SchoolGate
-          cue={delivery.sessionForm.form.cue}
-          schoolName={delivery.sessionForm.schoolName}
-          hasRoster={delivery.roster.snapshot?.status.toLowerCase() === "ready" && delivery.roster.sections.length > 0}
-          isLoadingRoster={delivery.roster.isLoading}
-          rosterError={delivery.roster.error}
-          onCueChange={value => delivery.sessionForm.updateForm("cue", value)}
-          onContinue={() => setIsSchoolConfirmed(true)}
-        />
-      </>
-    );
-  }
-
   return (
-    <AppShell status={delivery.status} apiBaseUrl={hostContext.apiBaseUrl} appVersion={hostContext.appVersion}>
+    <AppShell status={delivery.status} apiBaseUrl={hostContext.apiBaseUrl} appVersion={hostContext.appVersion} activeTab={activeTab} onTabChange={changeTab}>
       {localClockWarning && <p className="sync-warning" role="alert">La fecha y hora de este equipo son incorrectas. Corregilas para mantener la revalidación al día.</p>}
       {expiryPending && <p className="sync-warning" role="status">La revalidación está vencida. Finalizá y enviá la evaluación en curso; no inicies otra sesión.</p>}
       {!expiryPending && revalidationDaysRemaining !== null && revalidationDaysRemaining <= 5 && (
@@ -96,31 +78,19 @@ export function HostApp() {
           Conectate a internet para revalidar el equipo. Quedan {revalidationDaysRemaining} {revalidationDaysRemaining === 1 ? "día" : "días"}.
         </p>
       )}
-      <div className="mode-tabs">
-        <button
-          type="button"
-          className={activeTab === "sessions" ? "mode-tab mode-tab-active" : "mode-tab"}
-          onClick={() => setActiveTab("sessions")}
-        >
-          Sesiones
-        </button>
-        <button
-          type="button"
-          className={activeTab === "stats" ? "mode-tab mode-tab-active" : "mode-tab"}
-          onClick={() => setActiveTab("stats")}
-        >
-          Estadísticas
-        </button>
-      </div>
-      {activeTab === "sessions" ? (
-        <SessionsWorkspace delivery={delivery} />
-      ) : (
+      {activeTab !== "stats" ? (
+        <SessionsWorkspace delivery={delivery} apiBaseUrl={hostContext.apiBaseUrl} tab={activeTab} expiryPending={expiryPending} onStats={() => { delivery.activeSession.returnToSessions(); setActiveTab("stats"); }} onReturnHome={() => setActiveTab("home")} />
+      ) : delivery.activeSession.session ? <SessionsWorkspace delivery={delivery} apiBaseUrl={hostContext.apiBaseUrl} tab="home" expiryPending={expiryPending} onStats={() => { delivery.activeSession.returnToSessions(); setActiveTab("stats"); }} onReturnHome={() => setActiveTab("home")} /> : (
         <StatsWorkspace
           apiBaseUrl={hostContext.apiBaseUrl}
-          cue={delivery.sessionForm.form.cue}
+          cue={resolveStatsCue(delivery.sessionForm.form.cue, delivery.activeSession.schools.map(school => school.code))}
           schoolYear={delivery.roster.snapshot?.schoolYear}
         />
       )}
     </AppShell>
   );
+}
+
+export function resolveStatsCue(cue: string, schoolCodes: readonly string[]): string {
+  return isValidCue(cue) ? cue : schoolCodes[0] ?? "";
 }

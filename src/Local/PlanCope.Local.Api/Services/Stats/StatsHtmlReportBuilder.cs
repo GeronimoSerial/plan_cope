@@ -110,15 +110,18 @@ public sealed class StatsHtmlReportBuilder
 
     private static void AppendBlockSections(StringBuilder html, IReadOnlyList<ExamStatsDto> exams)
     {
-        var rows = exams.SelectMany(exam => exam.Blocks.Select(block => (Exam: exam, Block: block))).ToList();
+        var rows = exams.SelectMany(exam => exam.Blocks.Select((block, index) => (
+            Exam: exam,
+            Block: block,
+            QuestionNumber: (block.OrderIndex ?? index) + 1))).ToList();
         if (rows.Count == 0) return;
         var maxTotal = Math.Max(1, rows.Max(row => row.Block.CorrectCount + row.Block.PartialCount + row.Block.IncorrectCount + row.Block.BlankCount));
         html.Append("<section><h2>Dificultad por bloque</h2><div class=\"chart-wrap\"><svg class=\"stacked-bars\" viewBox=\"0 0 760 ").Append(Math.Max(80, rows.Count * 42 + 12).ToString(CultureInfo.InvariantCulture)).Append("\" role=\"img\" aria-label=\"Resultados correctos, parciales, incorrectos y en blanco por bloque\">");
         var index = 0;
-        foreach (var (exam, block) in rows)
+        foreach (var (exam, block, questionNumber) in rows)
         {
             var y = 6 + index * 42;
-            html.Append("<text x=\"0\" y=\"").Append((y + 18).ToString(CultureInfo.InvariantCulture)).Append("\">").Append(E($"{exam.ExamCode} · {block.BlockId}")).Append("</text>");
+            html.Append("<text x=\"0\" y=\"").Append((y + 18).ToString(CultureInfo.InvariantCulture)).Append("\">").Append(E($"{exam.ExamCode} · Pregunta {questionNumber}")).Append("</text>");
             var x = 230.0;
             foreach (var segment in new[] { (block.CorrectCount, "#168b7b"), (block.PartialCount, "#e4a32a"), (block.IncorrectCount, "#d7685a"), (block.BlankCount, "#aebfc2") })
             {
@@ -133,9 +136,11 @@ public sealed class StatsHtmlReportBuilder
         }
         html.Append("</svg></div><p class=\"legend\"><span>Correctas</span><span>Parciales</span><span>Incorrectas</span><span>En blanco</span></p></section>");
         html.Append("<section><h2>Resultados por bloque</h2><div class=\"table-wrap\"><table><thead><tr><th>Examen · bloque</th><th>Correctas</th><th>Parciales</th><th>Incorrectas</th><th>En blanco</th><th>No corregibles</th></tr></thead><tbody>");
-        foreach (var (exam, block) in rows)
+        foreach (var (exam, block, questionNumber) in rows)
         {
-            html.Append("<tr><td>").Append(E($"{exam.ExamCode} · {block.BlockId}")).Append("</td><td>").Append(block.CorrectCount.ToString(CultureInfo.InvariantCulture)).Append("</td><td>").Append(block.PartialCount.ToString(CultureInfo.InvariantCulture)).Append("</td><td>").Append(block.IncorrectCount.ToString(CultureInfo.InvariantCulture)).Append("</td><td>").Append(block.BlankCount.ToString(CultureInfo.InvariantCulture)).Append("</td><td>").Append(block.UngradableCount.ToString(CultureInfo.InvariantCulture)).Append("</td></tr>");
+            html.Append("<tr><td>").Append(E($"{exam.ExamCode} v{exam.VersionNumber} · Pregunta {questionNumber}"));
+            if (!string.IsNullOrWhiteSpace(block.Title)) html.Append("<small class=\"muted\"> — ").Append(E(block.Title)).Append("</small>");
+            html.Append("</td><td>").Append(block.CorrectCount.ToString(CultureInfo.InvariantCulture)).Append("</td><td>").Append(block.PartialCount.ToString(CultureInfo.InvariantCulture)).Append("</td><td>").Append(block.IncorrectCount.ToString(CultureInfo.InvariantCulture)).Append("</td><td>").Append(block.BlankCount.ToString(CultureInfo.InvariantCulture)).Append("</td><td>").Append(block.UngradableCount.ToString(CultureInfo.InvariantCulture)).Append("</td></tr>");
         }
         html.Append("</tbody></table></div><p class=\"muted\">Cada fila representa los resultados agregados de un bloque.</p></section>");
     }

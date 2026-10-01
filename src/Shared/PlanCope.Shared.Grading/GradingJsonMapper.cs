@@ -49,7 +49,7 @@ public static class GradingJsonMapper
         switch (type)
         {
             case BlockType.MultipleChoice:
-                return new SubmittedAnswer { SelectedOptionIds = ReadStringArray(answer.Value) };
+                return new SubmittedAnswer { SelectedOptionIds = ReadOptionIds(answer.Value) };
             case BlockType.TrueFalse:
                 return new SubmittedAnswer { SelectedBoolean = ReadBoolean(answer.Value) };
             default:
@@ -98,6 +98,16 @@ public static class GradingJsonMapper
         }
 
         return result;
+    }
+
+    private static IReadOnlyList<string> ReadOptionIds(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.String && element.GetString() is { } optionId)
+        {
+            return string.IsNullOrWhiteSpace(optionId) ? Array.Empty<string>() : [optionId];
+        }
+
+        return ReadStringArray(element);
     }
 
     private static bool? ReadBoolean(JsonElement element)

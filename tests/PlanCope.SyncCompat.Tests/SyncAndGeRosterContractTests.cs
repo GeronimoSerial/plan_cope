@@ -2,12 +2,36 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using PlanCope.Shared.Contracts.Serialization;
 using PlanCope.Shared.Contracts.Sync;
+using PlanCope.Shared.Domain.Local;
 using Xunit;
 
 namespace PlanCope.SyncCompat.Tests;
 
 public sealed class SyncAndGeRosterContractTests
 {
+    [Fact]
+    public void Attempt_payload_supports_off_roster_identity_and_old_payload_defaults()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var attempt = new StudentAttempt(
+            "attempt-extra", "session-1", "EXTRA:extra-1", "submitted", "2026-10-01T10:00:00Z",
+            "2026-10-01T10:10:00Z", 1, "ABC123", null, null, "Bruno", "Díaz", "5432",
+            "teacher_added", "2026-10-01T10:00:00Z", "extra-1", new string('a', 64), true);
+
+        var json = JsonSerializer.Serialize(attempt, options);
+        var roundTrip = JsonSerializer.Deserialize<StudentAttempt>(json, options);
+        Assert.Equal(attempt, roundTrip);
+        using var parsed = JsonDocument.Parse(json);
+        Assert.Equal(new string('a', 64), parsed.RootElement.GetProperty("documentHmac").GetString());
+        Assert.True(parsed.RootElement.GetProperty("offRoster").GetBoolean());
+
+        const string oldAttemptJson = """{"id":"old","deliverySessionId":"session-1","studentCode":"GE:1","status":"submitted","startedAt":"2026-10-01T10:00:00Z","submittedAt":"2026-10-01T10:10:00Z","localSequence":1,"confirmationCode":"OLD123"}""";
+        var oldAttempt = JsonSerializer.Deserialize<StudentAttempt>(oldAttemptJson, options);
+        Assert.NotNull(oldAttempt);
+        Assert.Null(oldAttempt!.DocumentHmac);
+        Assert.False(oldAttempt.OffRoster);
+    }
+
     private static JsonElement JsonElementOf(string json)
     {
         using var doc = JsonDocument.Parse(json);

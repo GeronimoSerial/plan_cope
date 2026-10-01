@@ -60,6 +60,7 @@ export function QuestionNav({ blocks, answers }: QuestionNavProps) {
   const navRef = useRef<HTMLElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(DEFAULT_VIEWPORT_HEIGHT);
+  const [currentBlockId, setCurrentBlockId] = useState<string | null>(null);
 
   useEffect(() => {
     const nav = navRef.current;
@@ -67,6 +68,33 @@ export function QuestionNav({ blocks, answers }: QuestionNavProps) {
       setViewportHeight(nav.clientHeight || DEFAULT_VIEWPORT_HEIGHT);
     }
   }, []);
+
+  useEffect(() => {
+    const answerBlocks = blocks.filter(isAnswerBlock);
+    if (answerBlocks.length === 0 || typeof IntersectionObserver === "undefined") {
+      setCurrentBlockId(null);
+      return;
+    }
+
+    const observer = new IntersectionObserver(entries => {
+      const current = entries.find(entry => entry.isIntersecting);
+      if (current) {
+        setCurrentBlockId(current.target.id);
+      }
+    }, {
+      rootMargin: "-30% 0px -69% 0px",
+      threshold: 0
+    });
+
+    for (const block of answerBlocks) {
+      const element = document.getElementById(block.id);
+      if (element) {
+        observer.observe(element);
+      }
+    }
+
+    return () => observer.disconnect();
+  }, [blocks]);
 
   const navItems = useMemo(
     () => blocks.map((block, index) => ({ block, index })).filter(({ block }) => isAnswerBlock(block)),
@@ -123,6 +151,7 @@ export function QuestionNav({ blocks, answers }: QuestionNavProps) {
                 type="button"
                 className={`student-question-nav-item ${statusClass}`}
                 aria-label={`Pregunta ${number}: ${statusLabel}`}
+                aria-current={currentBlockId === block.id ? "location" : undefined}
                 onClick={() => scrollBlockIntoView(block.id)}
               >
                 <span className="student-nav-number">{number}</span>

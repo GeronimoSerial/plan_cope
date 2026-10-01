@@ -2,7 +2,9 @@ import type {
   CreateSessionRequest,
   LocalSession,
   RosterResponse,
-  SessionProgress
+  SessionProgress,
+  LocalSchool,
+  SessionHistoryPage
 } from "../types";
 import type { ApiErrorPayload, LocalExam } from "../../shared/api-types";
 
@@ -28,7 +30,7 @@ export type PullExamsResult = {
 };
 
 export type CourseStatDto = { course: string; attemptCount: number | string; averageScorePercent: number | string };
-export type BlockStatDto = { blockId: string; correctCount: number; partialCount: number; incorrectCount: number; blankCount: number; ungradableCount: number };
+export type BlockStatDto = { blockId: string; orderIndex: number | null; title: string | null; correctCount: number; partialCount: number; incorrectCount: number; blankCount: number; ungradableCount: number };
 export type ExamStatDto = { examVersionId: string; examCode: string; versionNumber: number; attemptCount: number | string; averageScorePercent: number | string; blocks: BlockStatDto[] };
 export type StatsFilterOptionsDto = { schoolYears: string[]; courses: string[]; exams: { examVersionId: string; examCode: string; versionNumber: number }[] };
 
@@ -68,12 +70,42 @@ export class ApiClient {
     return this.get<LocalSession[]>("/api/sessions/active", signal);
   }
 
+  getSessionHistory(filters: { schoolCode?: string; status?: string; page?: number; pageSize?: number }, signal?: AbortSignal): Promise<SessionHistoryPage> {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters)) if (value !== undefined && value !== "") query.set(key, String(value));
+    return this.get<SessionHistoryPage>(`/api/sessions/history?${query.toString()}`, signal);
+  }
+
+  getSchools(signal?: AbortSignal): Promise<LocalSchool[]> {
+    return this.get<LocalSchool[]>("/api/schools", signal);
+  }
+
   getSession(idOrAccessCode: string, signal?: AbortSignal): Promise<LocalSession> {
     return this.get<LocalSession>(`/api/sessions/${encodeURIComponent(idOrAccessCode)}`, signal);
   }
 
   getSessionProgress(accessCode: string, signal?: AbortSignal): Promise<SessionProgress> {
     return this.get<SessionProgress>(`/api/sessions/${encodeURIComponent(accessCode)}/progress`, signal);
+  }
+
+  updateSessionStatus(id: string, status: "active" | "paused" | "closed"): Promise<{ submitted: number; failed: number } | void> {
+    return this.request(`/api/sessions/${encodeURIComponent(id)}/status`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status })
+    });
+  }
+
+  addExtraStudent(sessionId: string, request: { document: string; firstName: string; lastName: string }): Promise<{ id: string }> {
+    return this.post<{ id: string }>(`/api/sessions/${encodeURIComponent(sessionId)}/extra-students`, request);
+  }
+
+  async removeExtraStudent(sessionId: string, studentId: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/api/sessions/${encodeURIComponent(sessionId)}/extra-students/${encodeURIComponent(studentId)}`, { method: "DELETE" });
+    if (!response.ok) throw new Error(await readApiError(response));
+  }
+
+  async discardSession(id: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/api/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!response.ok) throw new Error(await readApiError(response));
   }
 
   getCourseStats(cue: string, schoolYear: string | undefined, signal?: AbortSignal): Promise<CourseStatDto[]> {
@@ -140,6 +172,7 @@ export class ApiClient {
       throw new Error(await readApiError(response));
     }
 
+    if (response.status === 204) return undefined as T;
     return response.json() as Promise<T>;
   }
 }

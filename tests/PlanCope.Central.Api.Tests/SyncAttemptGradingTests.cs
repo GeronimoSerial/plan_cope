@@ -256,6 +256,35 @@ public sealed class SyncAttemptGradingTests
         Assert.Equal(0, await dbContext.CentralAttemptResults.CountAsync());
     }
 
+    [Fact]
+    public async Task Off_roster_attempt_identity_is_accepted_and_stored()
+    {
+        using var dbContext = CreateDbContext();
+        const string attemptId = "attempt-off-roster";
+        var original = CreateAttemptItem("key-off-roster", attemptId, examVersionRemoteId: null, Array.Empty<object>());
+        var payloadNode = System.Text.Json.Nodes.JsonNode.Parse(original.Payload.GetRawText())!;
+        var attempt = payloadNode["attempt"]!;
+        attempt["documentHmac"] = new string('a', 64);
+        attempt["documentLast4"] = "5432";
+        attempt["studentFirstName"] = "Bruno";
+        attempt["studentLastName"] = "Díaz";
+        attempt["offRoster"] = true;
+        var payload = JsonSerializer.SerializeToElement(payloadNode);
+        var item = original with { Payload = payload, Checksum = SyncPayloadChecksum.Calculate(payload) };
+
+        var response = await PushAsync(dbContext, item);
+
+        Assert.Equal(1, response.Received);
+        Assert.Equal("accepted", response.Results[0].Status);
+        var received = await dbContext.ReceivedStudentAttempts.SingleAsync(x => x.RemoteLocalId == attemptId);
+        Assert.Equal(new string('a', 64), received.DocumentHmac);
+        Assert.Equal("5432", received.DocumentLast4);
+        Assert.Equal("Bruno", received.StudentFirstName);
+        Assert.Equal("Díaz", received.StudentLastName);
+        Assert.True(received.OffRoster);
+        Assert.Null(received.RosterStudentId);
+    }
+
     private static void SeedExam(
         PlanCopeDbContext dbContext,
         Exam exam,

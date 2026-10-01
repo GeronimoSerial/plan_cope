@@ -80,6 +80,8 @@ public static class StatsEndpoints
                 blocks = exam.Blocks.Select(block => new
                 {
                     block.BlockId,
+                    block.OrderIndex,
+                    block.Title,
                     block.CorrectCount,
                     block.PartialCount,
                     block.IncorrectCount,

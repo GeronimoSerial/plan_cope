@@ -18,6 +18,231 @@ namespace PlanCope.Local.Api.Tests;
 public sealed class LocalSessionFlowTests
 {
     [Fact]
+    public async Task Node_sessions_include_school_exam_grade_and_counters_and_history_filters_paginate()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "student-a", 501, "12.345.678", "Ana", "Pérez");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "student-b", 502, "23.456.789", "Luis", "Gómez");
+        factory.SetSchoolName("180055400", "Escuela Norte");
+        var open = await CreateRosterSessionAsync(client);
+        var secondResponse = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
+            LocalApiFactory.ExamVersionId, "180055401", "6 B", null, "Operador", 4, null));
+        var second = await secondResponse.Content.ReadFromJsonAsync<LocalDeliverySession>();
+        Assert.NotNull(second);
+        Assert.Equal(HttpStatusCode.OK, (await client.PutAsJsonAsync($"/api/sessions/{second!.Id}/status", new UpdateSessionStatusRequest("closed"))).StatusCode);
+
+        factory.SeedAttempt(open.Id, "active-attempt", "student-a", 501, "in_progress", "2026-10-01T10:10:00Z");
+        var active = await client.GetFromJsonAsync<JsonElement>("/api/sessions/active?schoolCode=1800-55400");
+        var activeItem = Assert.Single(active.EnumerateArray());
+        Assert.Equal("Escuela Norte", activeItem.GetProperty("schoolName").GetString());
+        Assert.Equal("Matematica 6", activeItem.GetProperty("examTitle").GetString());
+        Assert.Equal("6° A · Turno mañana", activeItem.GetProperty("gradeLabel").GetString());
+        Assert.Equal("snapshot-a", activeItem.GetProperty("rosterSnapshotId").GetString());
+        Assert.Equal("section-a", activeItem.GetProperty("rosterSectionId").GetString());
+        Assert.Equal(0, activeItem.GetProperty("submittedCount").GetInt32());
+        Assert.Equal(1, activeItem.GetProperty("inProgressCount").GetInt32());
+
+        var page = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history?page=1&pageSize=1");
+        Assert.Equal(2, page.GetProperty("totalCount").GetInt32());
+        Assert.Single(page.GetProperty("items").EnumerateArray());
+        var beyondEnd = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history?page=3&pageSize=1");
+        Assert.Equal(2, beyondEnd.GetProperty("totalCount").GetInt32());
+        Assert.Empty(beyondEnd.GetProperty("items").EnumerateArray());
+        var filtered = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history?schoolCode=180055400&status=active");
+        Assert.Equal(1, filtered.GetProperty("totalCount").GetInt32());
+        Assert.Equal(open.Id, filtered.GetProperty("items")[0].GetProperty("id").GetString());
+
+        var schoolsResponse = await client.GetAsync("/api/schools");
+        Assert.True(schoolsResponse.IsSuccessStatusCode, await schoolsResponse.Content.ReadAsStringAsync());
+        var schools = (await schoolsResponse.Content.ReadFromJsonAsync<JsonElement>()).Clone();
+        Assert.Contains(schools.EnumerateArray(), school => school.GetProperty("code").GetString() == "180055400" && school.GetProperty("hasReadyRoster").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Closed_session_progress_remains_available_for_read_only_summary()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        var session = await CreateSessionAsync(client);
+        Assert.Equal(HttpStatusCode.OK, (await client.PutAsJsonAsync($"/api/sessions/{session.Id}/status", new UpdateSessionStatusRequest("closed"))).StatusCode);
+        var response = await client.GetAsync($"/api/sessions/{session.Id}/progress");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var progress = await response.Content.ReadFromJsonAsync<LocalSessionProgress>();
+        Assert.NotNull(progress);
+        Assert.Equal(session.Id, progress!.SessionId);
+    }
+
+    [Fact]
+    public async Task Progress_returns_roster_students_with_mixed_statuses_and_grade_label()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "student-a", 501, "12.345.678", "Ana", "Pérez");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "student-b", 502, "23.456.789", "Luis", "Gómez");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "student-c", 503, "34.567.890", "Marta", "Rodríguez");
+        var session = await CreateRosterSessionAsync(client);
+        factory.SeedAttempt(session.Id, "attempt-a", "student-a", 501, "in_progress", "2026-10-01T10:00:00Z");
+        factory.SeedAttempt(session.Id, "attempt-b", "student-b", 502, "submitted", "2026-10-01T10:01:00Z", "2026-10-01T10:20:00Z");
+        factory.SeedAttempt(session.Id, "attempt-off-roster", null, 999, "submitted", "2026-10-01T10:02:00Z", "2026-10-01T10:21:00Z", "No", "Incluido");
+
+        var progress = await client.GetFromJsonAsync<LocalSessionProgress>($"/api/sessions/{session.AccessCode}/progress");
+
+        Assert.NotNull(progress);
+        Assert.True(progress!.HasRoster);
+        Assert.Equal(3, progress.StartedCount);
+        Assert.Equal(2, progress.SubmittedCount);
+        Assert.Equal(1, progress.InProgressCount);
+        Assert.Equal("6° A · Turno mañana", progress.GradeLabel);
+        Assert.Equal("6º", progress.Course);
+        Assert.Equal("A", progress.Division);
+        Assert.Equal("Mañana", progress.Shift);
+        Assert.Equal("Primario", progress.Level);
+        Assert.Collection(progress.Students,
+            student => { Assert.Equal("student-b", student.Id); Assert.Equal("Gómez, Luis", student.DisplayName); Assert.Equal("submitted", student.Status); Assert.Equal("**.***.5678", student.MaskedDocument); },
+            student => { Assert.Equal("attempt-off-roster", student.Id); Assert.Equal("Incluido, No", student.DisplayName); Assert.Equal("submitted", student.Status); },
+            student => { Assert.Equal("student-a", student.Id); Assert.Equal("Pérez, Ana", student.DisplayName); Assert.Equal("in_progress", student.Status); },
+            student => { Assert.Equal("student-c", student.Id); Assert.Equal("Rodríguez, Marta", student.DisplayName); Assert.Equal("not_started", student.Status); Assert.Null(student.AttemptId); });
+        Assert.All(progress.Students, student => { Assert.Null(student.SubmissionReason); Assert.False(student.OffRoster); });
+    }
+
+    [Fact]
+    public async Task Roster_completion_excludes_teacher_added_submissions_and_reports_them_separately()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
+        for (var index = 0; index < 20; index++)
+        {
+            var studentId = $"student-{index:D2}";
+            factory.SeedRosterStudent("snapshot-a", "section-a", studentId, 500 + index,
+                $"1000000{index:D2}", $"Nombre{index:D2}", $"Apellido{index:D2}");
+        }
+
+        var session = await CreateRosterSessionAsync(client, expectedStudentCount: 20);
+        for (var index = 0; index < 19; index++)
+        {
+            factory.SeedAttempt(session.Id, $"attempt-{index:D2}", $"student-{index:D2}", 500 + index,
+                "submitted", "2026-10-01T10:00:00Z", "2026-10-01T10:20:00Z");
+        }
+
+        var extraResponse = await client.PostAsJsonAsync($"/api/sessions/{session.Id}/extra-students",
+            new AddSessionExtraStudentRequest("98.765.432", "Bruno", "Díaz"));
+        Assert.Equal(HttpStatusCode.Created, extraResponse.StatusCode);
+        var extraId = (await extraResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString()!;
+        factory.SeedAttempt(session.Id, "attempt-extra", null, 999, "submitted", "2026-10-01T10:02:00Z",
+            "2026-10-01T10:21:00Z", "Bruno", "Díaz", extraId);
+
+        var progress = await client.GetFromJsonAsync<LocalSessionProgress>($"/api/sessions/{session.AccessCode}/progress");
+        Assert.NotNull(progress);
+        Assert.Equal(20, progress!.ExpectedStudentCount);
+        Assert.Equal(19, progress.StartedCount);
+        Assert.Equal(19, progress.SubmittedCount);
+        Assert.Equal(95, progress.CompletionPercentage);
+        Assert.Equal(1, progress.OffRosterSubmittedCount);
+
+        var active = await client.GetFromJsonAsync<JsonElement>("/api/sessions/active");
+        var activeItem = Assert.Single(active.EnumerateArray());
+        Assert.Equal(19, activeItem.GetProperty("submittedCount").GetInt32());
+        Assert.Equal(1, activeItem.GetProperty("offRosterSubmittedCount").GetInt32());
+        Assert.Equal(0, activeItem.GetProperty("offRosterInProgressCount").GetInt32());
+
+        var history = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history");
+        var historyItem = Assert.Single(history.GetProperty("items").EnumerateArray());
+        Assert.Equal(19, historyItem.GetProperty("submittedCount").GetInt32());
+        Assert.Equal(1, historyItem.GetProperty("offRosterSubmittedCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task Progress_sorts_accented_surnames_using_argentine_spanish_collation()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "student-z", 510, "12.345.670", "Zoe", "Zapata");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "student-a", 511, "12.345.671", "Alba", "Álvarez");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "student-n", 512, "12.345.672", "Nora", "Ñandú");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "student-o", 513, "12.345.673", "Olga", "Órdenes");
+        var session = await CreateRosterSessionAsync(client);
+
+        var progress = await client.GetFromJsonAsync<LocalSessionProgress>($"/api/sessions/{session.AccessCode}/progress");
+
+        Assert.NotNull(progress);
+        Assert.Equal(new[] { "Álvarez, Alba", "Ñandú, Nora", "Órdenes, Olga", "Zapata, Zoe" },
+            progress!.Students.Select(student => student.DisplayName));
+    }
+
+    [Fact]
+    public async Task Progress_non_nominal_lists_attempts_only_and_uses_exam_grade_metadata()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        var session = await CreateSessionAsync(client);
+        var started = await StartAttemptAsync(client, session.AccessCode);
+
+        var progress = await client.GetFromJsonAsync<LocalSessionProgress>($"/api/sessions/{session.AccessCode}/progress");
+
+        Assert.NotNull(progress);
+        Assert.Equal("6° A", progress!.GradeLabel);
+        Assert.Equal("6", progress.Course);
+        Assert.Equal("A", progress.Division);
+        Assert.Null(progress.Shift);
+        var student = Assert.Single(progress.Students);
+        Assert.Equal(started.Attempt.Id, student.Id);
+        Assert.Equal(started.Attempt.Id, student.AttemptId);
+        Assert.Equal("in_progress", student.Status);
+        Assert.Null(student.MaskedDocument);
+    }
+
+    [Fact]
+    public async Task Progress_nominal_with_empty_roster_returns_empty_student_list_and_section_grade()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "temporary-student", 600, "56.789.012", "Eva", "Prueba");
+        factory.SetRosterSection("section-a", "4", "B", "Tarde", "Primario");
+        var session = await CreateRosterSessionAsync(client);
+        factory.DeleteRosterStudents("section-a");
+
+        var progress = await client.GetFromJsonAsync<LocalSessionProgress>($"/api/sessions/{session.AccessCode}/progress");
+
+        Assert.NotNull(progress);
+        Assert.Empty(progress!.Students);
+        Assert.Equal("4° B · Turno tarde", progress.GradeLabel);
+        Assert.Equal("4", progress.Course);
+        Assert.Equal("Tarde", progress.Shift);
+    }
+
+    [Theory]
+    [InlineData("6", "A", "Mañana", "6° A · Turno mañana")]
+    [InlineData("6º", " A ", " TARDE ", "6° A · Turno tarde")]
+    [InlineData("Primario", null, null, "Primario")]
+    [InlineData(null, "B", null, "B")]
+    [InlineData(null, null, "Noche", "Turno noche")]
+    [InlineData(null, null, null, null)]
+    public void Grade_label_formatter_formats_available_parts(string? course, string? division, string? shift, string? expected)
+    {
+        Assert.Equal(expected, PlanCope.Local.Api.Services.GradeLabelFormatter.Format(course, division, shift));
+    }
+
+    [Fact]
     public async Task Session_attempt_submit_flow_writes_pending_outbox_item()
     {
         using var factory = new LocalApiFactory();
@@ -183,7 +408,7 @@ public sealed class LocalSessionFlowTests
     }
 
     [Fact]
-    public async Task Saving_answers_and_submitting_on_closed_session_are_rejected()
+    public async Task Closing_session_submits_attempt_and_rejects_later_changes()
     {
         using var factory = new LocalApiFactory();
         using var client = factory.CreateClient();
@@ -194,18 +419,20 @@ public sealed class LocalSessionFlowTests
         var started = await StartAttemptAsync(client, session.AccessCode);
 
         var closeResponse = await client.PutAsJsonAsync($"/api/sessions/{session.Id}/status", new UpdateSessionStatusRequest("closed"));
-        Assert.Equal(HttpStatusCode.NoContent, closeResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, closeResponse.StatusCode);
+        using var closeSummary = JsonDocument.Parse(await closeResponse.Content.ReadAsStringAsync());
+        Assert.Equal(1, closeSummary.RootElement.GetProperty("submitted").GetInt32());
+        Assert.Equal(0, closeSummary.RootElement.GetProperty("failed").GetInt32());
 
         var answerResponse = await SaveAnswersAsync(client, started.Attempt.Id, factory.QuestionBlockId, "42");
         Assert.Equal(HttpStatusCode.BadRequest, answerResponse.StatusCode);
         var answerBody = await answerResponse.Content.ReadAsStringAsync();
-        Assert.Contains("cerrada", answerBody, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("pausada", answerBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("intento ya no admite cambios", answerBody, StringComparison.OrdinalIgnoreCase);
 
         var submitResponse = await client.PostAsync($"/api/attempts/{started.Attempt.Id}/submit", null);
         Assert.Equal(HttpStatusCode.BadRequest, submitResponse.StatusCode);
         var submitBody = await submitResponse.Content.ReadAsStringAsync();
-        Assert.Contains("cerrada", submitBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ya fue enviado", submitBody, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("pausada", submitBody, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -376,6 +603,88 @@ public sealed class LocalSessionFlowTests
     }
 
     [Fact]
+    public async Task Teacher_added_off_roster_student_can_resolve_start_and_sync_without_plain_document()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "roster-student-a", 501, "12.345.678", "Ana", "Pérez");
+        var session = await CreateRosterSessionAsync(client);
+
+        var rosterDni = await client.PostAsJsonAsync($"/api/sessions/{session.Id}/extra-students",
+            new AddSessionExtraStudentRequest("12.345.678", "Otra", "Persona"));
+        Assert.Equal(HttpStatusCode.Conflict, rosterDni.StatusCode);
+        Assert.Contains("Ese DNI ya figura en el padrón de la sección.", await rosterDni.Content.ReadAsStringAsync());
+
+        var addedResponse = await client.PostAsJsonAsync($"/api/sessions/{session.Id}/extra-students",
+            new AddSessionExtraStudentRequest("98.765.432", "  Bruno ", "  Díaz  "));
+        Assert.Equal(HttpStatusCode.Created, addedResponse.StatusCode);
+        var added = await addedResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var extraId = added.GetProperty("id").GetString()!;
+        Assert.Equal("Bruno", added.GetProperty("firstName").GetString());
+        Assert.Equal("Díaz", added.GetProperty("lastName").GetString());
+        Assert.True(added.GetProperty("offRoster").GetBoolean());
+        Assert.DoesNotContain("98765432", await addedResponse.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        var duplicateExtra = await client.PostAsJsonAsync($"/api/sessions/{session.Id}/extra-students",
+            new AddSessionExtraStudentRequest("98765432", "Otro", "Nombre"));
+        Assert.Equal(HttpStatusCode.Conflict, duplicateExtra.StatusCode);
+
+        var removableResponse = await client.PostAsJsonAsync($"/api/sessions/{session.Id}/extra-students",
+            new AddSessionExtraStudentRequest("87.654.321", "Carla", "Rojas"));
+        var removable = await removableResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var removableId = removable.GetProperty("id").GetString();
+        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/api/sessions/{session.Id}/extra-students/{removableId}")).StatusCode);
+
+        var unknown = await client.PostAsJsonAsync($"/api/sessions/{session.AccessCode}/student-resolution", new ResolveStudentRequest("87.654.321"));
+        Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
+        Assert.Contains("¿Revisaste bien el DNI?", await unknown.Content.ReadAsStringAsync());
+
+        var resolutionResponse = await client.PostAsJsonAsync($"/api/sessions/{session.AccessCode}/student-resolution", new ResolveStudentRequest("98.765.432"));
+        Assert.Equal(HttpStatusCode.OK, resolutionResponse.StatusCode);
+        var resolution = await resolutionResponse.Content.ReadFromJsonAsync<ResolveStudentResponse>();
+        Assert.NotNull(resolution);
+        Assert.Equal("Díaz, Bruno", resolution!.Student.DisplayName);
+        Assert.Equal("**.***.5432", resolution.Student.MaskedDocument);
+
+        var progress = await client.GetFromJsonAsync<LocalSessionProgress>($"/api/sessions/{session.AccessCode}/progress");
+        var extraRow = Assert.Single(progress!.Students, student => student.Id == extraId);
+        Assert.Equal("not_started", extraRow.Status);
+        Assert.True(extraRow.OffRoster);
+
+        var start = await client.PostAsJsonAsync($"/api/sessions/{session.AccessCode}/attempts", new StartAttemptRequest(ResolutionToken: resolution.ResolutionToken));
+        Assert.Equal(HttpStatusCode.Created, start.StatusCode);
+        var started = await start.Content.ReadFromJsonAsync<StartAttemptResponse>();
+        Assert.NotNull(started);
+        Assert.True(started!.Attempt.OffRoster);
+        Assert.Null(started.Attempt.RosterStudentId);
+
+        var secondResolution = await client.PostAsJsonAsync($"/api/sessions/{session.AccessCode}/student-resolution", new ResolveStudentRequest("98765432"));
+        var secondToken = (await secondResolution.Content.ReadFromJsonAsync<ResolveStudentResponse>())!.ResolutionToken;
+        var duplicateStart = await client.PostAsJsonAsync($"/api/sessions/{session.AccessCode}/attempts", new StartAttemptRequest(ResolutionToken: secondToken));
+        Assert.Equal(HttpStatusCode.Conflict, duplicateStart.StatusCode);
+
+        var submit = await client.PostAsync($"/api/attempts/{started.Attempt.Id}/submit", null);
+        Assert.Equal(HttpStatusCode.OK, submit.StatusCode);
+        using var connection = factory.CreateConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT payload_json FROM sync_outbox WHERE aggregate_id = $attemptId;";
+        command.Parameters.AddWithValue("$attemptId", started.Attempt.Id);
+        using var reader = command.ExecuteReader();
+        Assert.True(reader.Read());
+        using var payload = JsonDocument.Parse(reader.GetString(0));
+        var syncedAttempt = payload.RootElement.GetProperty("attempt");
+        Assert.True(syncedAttempt.GetProperty("offRoster").GetBoolean());
+        Assert.Equal("bruno", syncedAttempt.GetProperty("studentFirstName").GetString()?.ToLowerInvariant());
+        Assert.Equal(64, syncedAttempt.GetProperty("documentHmac").GetString()?.Length);
+        Assert.DoesNotContain("98765432", reader.GetString(0), StringComparison.Ordinal);
+
+        var removeStarted = await client.DeleteAsync($"/api/sessions/{session.Id}/extra-students/{extraId}");
+        Assert.Equal(HttpStatusCode.Conflict, removeStarted.StatusCode);
+    }
+
+    [Fact]
     public async Task Nominal_resolution_cannot_be_reused_or_started_twice()
     {
         using var factory = new LocalApiFactory();
@@ -510,6 +819,127 @@ public sealed class LocalSessionFlowTests
         Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Conflict);
     }
 
+    [Fact]
+    public async Task Closing_active_or_paused_session_submits_each_in_progress_attempt_once_with_reason()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        var session = await CreateSessionAsync(client);
+        var attempt = await StartAttemptAsync(client, session.AccessCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await SaveAnswersAsync(client, attempt.Attempt.Id, factory.QuestionBlockId, "42")).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PutAsJsonAsync($"/api/sessions/{session.Id}/status", new UpdateSessionStatusRequest("paused"))).StatusCode);
+
+        var close = await client.PutAsJsonAsync($"/api/sessions/{session.Id}/status", new UpdateSessionStatusRequest("closed"));
+        Assert.Equal(HttpStatusCode.OK, close.StatusCode);
+        using var result = JsonDocument.Parse(await close.Content.ReadAsStringAsync());
+        Assert.Equal(1, result.RootElement.GetProperty("submitted").GetInt32());
+        Assert.Equal(0, result.RootElement.GetProperty("failed").GetInt32());
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PutAsJsonAsync($"/api/sessions/{session.Id}/status", new UpdateSessionStatusRequest("closed"))).StatusCode);
+
+        using var connection = factory.CreateConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT status, submission_reason FROM student_attempts WHERE id = $id;";
+        command.Parameters.AddWithValue("$id", attempt.Attempt.Id);
+        using var reader = command.ExecuteReader();
+        Assert.True(reader.Read());
+        Assert.Equal("submitted", reader.GetString(0));
+        Assert.Equal("closed_by_teacher", reader.GetString(1));
+        reader.Close();
+        command.CommandText = "SELECT payload_json FROM sync_outbox WHERE aggregate_id = $id;";
+        using (var payload = JsonDocument.Parse((string)command.ExecuteScalar()!))
+        {
+            var syncedAnswers = payload.RootElement.GetProperty("answers").EnumerateArray().ToArray();
+            Assert.Single(syncedAnswers);
+            Assert.Equal("\"42\"", syncedAnswers[0].GetProperty("answerJson").GetString());
+        }
+        command.CommandText = "SELECT COUNT(*) FROM sync_outbox WHERE aggregate_id = $id;";
+        Assert.Equal(1L, (long)command.ExecuteScalar()!);
+        command.CommandText = "SELECT COUNT(*) FROM attempt_results WHERE student_attempt_id = $id;";
+        Assert.Equal(1L, (long)command.ExecuteScalar()!);
+        var progress = await client.GetFromJsonAsync<LocalSessionProgress>($"/api/sessions/{session.AccessCode}/progress");
+        Assert.Equal("closed_by_teacher", Assert.Single(progress!.Students).SubmissionReason);
+        Assert.Null(progress.AverageScorePercent);
+    }
+
+    [Fact]
+    public async Task Session_discard_is_allowed_only_before_first_attempt()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        var empty = await CreateSessionAsync(client);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/api/sessions/{empty.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/sessions/{empty.Id}")).StatusCode);
+
+        var used = await CreateSessionAsync(client);
+        await StartAttemptAsync(client, used.AccessCode);
+        var response = await client.DeleteAsync($"/api/sessions/{used.Id}");
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Contains("ya ingresaron alumnos", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Attempt_start_racing_with_close_is_submitted_or_rejected()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        var session = await CreateSessionAsync(client);
+
+        var startTask = client.PostAsync($"/api/sessions/{session.AccessCode}/attempts", null);
+        var closeTask = client.PutAsJsonAsync($"/api/sessions/{session.Id}/status", new UpdateSessionStatusRequest("closed"));
+        await Task.WhenAll(startTask, closeTask);
+
+        var start = await startTask;
+        var close = await closeTask;
+        Assert.Equal(HttpStatusCode.OK, close.StatusCode);
+        using var summary = JsonDocument.Parse(await close.Content.ReadAsStringAsync());
+        Assert.Equal(0, summary.RootElement.GetProperty("failed").GetInt32());
+
+        if (start.StatusCode == HttpStatusCode.Created)
+        {
+            var started = await start.Content.ReadFromJsonAsync<StartAttemptResponse>();
+            Assert.NotNull(started);
+            using var connection = factory.CreateConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT status FROM student_attempts WHERE id = $id;";
+            command.Parameters.AddWithValue("$id", started!.Attempt.Id);
+            Assert.Equal("submitted", command.ExecuteScalar());
+            Assert.Equal(1, summary.RootElement.GetProperty("submitted").GetInt32());
+        }
+        else
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, start.StatusCode);
+            Assert.Equal(0, summary.RootElement.GetProperty("submitted").GetInt32());
+        }
+    }
+
+    [Fact]
+    public async Task Concurrent_close_requests_have_one_winner_and_no_false_failures()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        var session = await CreateSessionAsync(client);
+        await StartAttemptAsync(client, session.AccessCode);
+
+        var closes = await Task.WhenAll(
+            client.PutAsJsonAsync($"/api/sessions/{session.Id}/status", new UpdateSessionStatusRequest("closed")),
+            client.PutAsJsonAsync($"/api/sessions/{session.Id}/status", new UpdateSessionStatusRequest("closed")));
+
+        Assert.Single(closes, response => response.StatusCode == HttpStatusCode.OK);
+        Assert.Single(closes, response => response.StatusCode == HttpStatusCode.BadRequest);
+        var successfulClose = closes.Single(response => response.StatusCode == HttpStatusCode.OK);
+        using var summary = JsonDocument.Parse(await successfulClose.Content.ReadAsStringAsync());
+        Assert.Equal(0, summary.RootElement.GetProperty("failed").GetInt32());
+        Assert.Equal(1, summary.RootElement.GetProperty("submitted").GetInt32());
+    }
+
     private static async Task<LocalDeliverySession> CreateSessionAsync(HttpClient client)
     {
         var response = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
@@ -526,6 +956,17 @@ public sealed class LocalSessionFlowTests
         Assert.NotNull(session);
         Assert.False(string.IsNullOrWhiteSpace(session.AccessCode));
         return session;
+    }
+
+    private static async Task<LocalDeliverySession> CreateRosterSessionAsync(HttpClient client, int expectedStudentCount = 2)
+    {
+        var response = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
+            LocalApiFactory.ExamVersionId, "180055400", "6 A", null, "Operador", expectedStudentCount, null,
+            "2026", "snapshot-a", "section-a"));
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var session = await response.Content.ReadFromJsonAsync<LocalDeliverySession>();
+        Assert.NotNull(session);
+        return session!;
     }
 
     private static async Task<StartAttemptResponse> StartAttemptAsync(HttpClient client, string accessCode)
@@ -625,6 +1066,16 @@ public sealed class LocalSessionFlowTests
             transaction.Commit();
         }
 
+        public void SetSchoolName(string cue, string name)
+        {
+            using var connection = CreateConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE schools SET name = $name WHERE cue = $cue;";
+            command.Parameters.AddWithValue("$name", name);
+            command.Parameters.AddWithValue("$cue", cue);
+            command.ExecuteNonQuery();
+        }
+
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.ConfigureAppConfiguration(configuration =>
@@ -656,6 +1107,50 @@ public sealed class LocalSessionFlowTests
             command.Parameters.AddWithValue("$last4", "5678");
             command.Parameters.AddWithValue("$first", firstName);
             command.Parameters.AddWithValue("$last", lastName);
+            command.ExecuteNonQuery();
+        }
+
+        public void SeedAttempt(string sessionId, string attemptId, string? rosterStudentId, int gePersonId, string status, string startedAt, string? submittedAt = null, string? firstName = null, string? lastName = null, string? extraStudentId = null)
+        {
+            using var connection = CreateConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO student_attempts (id, delivery_session_id, student_code, status, started_at, submitted_at, local_sequence,
+                    roster_student_id, ge_person_id, student_first_name, student_last_name, document_last4, extra_student_id)
+                VALUES ($id, $session, $id, $status, $started, $submitted, 1, $roster, $person, $first, $last, '9876', $extra);
+                """;
+            command.Parameters.AddWithValue("$id", attemptId);
+            command.Parameters.AddWithValue("$session", sessionId);
+            command.Parameters.AddWithValue("$status", status);
+            command.Parameters.AddWithValue("$started", startedAt);
+            command.Parameters.AddWithValue("$submitted", (object?)submittedAt ?? DBNull.Value);
+            command.Parameters.AddWithValue("$roster", (object?)rosterStudentId ?? DBNull.Value);
+            command.Parameters.AddWithValue("$person", gePersonId);
+            command.Parameters.AddWithValue("$first", (object?)firstName ?? DBNull.Value);
+            command.Parameters.AddWithValue("$last", (object?)lastName ?? DBNull.Value);
+            command.Parameters.AddWithValue("$extra", (object?)extraStudentId ?? DBNull.Value);
+            command.ExecuteNonQuery();
+        }
+
+        public void SetRosterSection(string sectionId, string? course, string? division, string? shift, string? level)
+        {
+            using var connection = CreateConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE local_roster_sections SET course = $course, division = $division, shift = $shift, level = $level WHERE id = $id;";
+            command.Parameters.AddWithValue("$course", (object?)course ?? DBNull.Value);
+            command.Parameters.AddWithValue("$division", (object?)division ?? DBNull.Value);
+            command.Parameters.AddWithValue("$shift", (object?)shift ?? DBNull.Value);
+            command.Parameters.AddWithValue("$level", (object?)level ?? DBNull.Value);
+            command.Parameters.AddWithValue("$id", sectionId);
+            command.ExecuteNonQuery();
+        }
+
+        public void DeleteRosterStudents(string sectionId)
+        {
+            using var connection = CreateConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = "DELETE FROM local_roster_students WHERE section_id = $id;";
+            command.Parameters.AddWithValue("$id", sectionId);
             command.ExecuteNonQuery();
         }
 
