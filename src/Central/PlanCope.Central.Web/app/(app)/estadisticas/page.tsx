@@ -22,7 +22,7 @@ export default async function StatsPage() {
     <>
       <PageHeader
         title="Estadísticas"
-        description="Los datos los envían los nodos al sincronizar."
+        description="Los datos llegan al sincronizar los equipos."
       />
       <StatsPanel initialSchools={schools} />
     </>

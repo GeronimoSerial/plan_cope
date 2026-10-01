@@ -79,6 +79,19 @@ public sealed class UpdateServiceTests
     }
 
     [Fact]
+    public async Task CheckForUpdatesAsync_DoesNotDownloadUntilDownloadIsRequested()
+    {
+        var backend = new FakeUpdateBackend();
+        var service = new UpdateService(backend, UpdateChannel.Stable);
+
+        var result = await service.CheckForUpdatesAsync();
+
+        Assert.True(result.UpdateAvailable);
+        Assert.Equal(0, backend.DownloadCalls);
+        Assert.Equal(0, backend.ApplyCalls);
+    }
+
+    [Fact]
     public async Task DownloadUpdateAsync_MatchingChecksum_MarksUpdateReadyAndAllowsApply()
     {
         var payload = System.Text.Encoding.UTF8.GetBytes("intact-update-package-bytes");
@@ -222,6 +235,8 @@ public sealed class UpdateServiceTests
 
         public int ApplyCalls { get; private set; }
 
+        public int DownloadCalls { get; private set; }
+
         public string? ReceivedExpectedSha256 { get; private set; }
 
         public bool UpdateAvailable { get; set; } = true;
@@ -252,6 +267,7 @@ public sealed class UpdateServiceTests
 
         public Task<bool> DownloadUpdatesAsync(string expectedSha256, CancellationToken cancellationToken)
         {
+            DownloadCalls++;
             ReceivedExpectedSha256 = expectedSha256;
 
             if (DownloadPayload is not null)

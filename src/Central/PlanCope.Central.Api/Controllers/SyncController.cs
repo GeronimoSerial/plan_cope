@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using FluentValidation;
+using Npgsql;
 using PlanCope.Central.Api.Data;
 using PlanCope.Central.Api.Services;
 using PlanCope.Central.Api.Sync;
@@ -61,8 +62,6 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
         // Materialize the cursor as a DateTimeOffset so the comparison stays translatable to SQL:
         // EF cannot translate `x.PublishedAt.Value.UtcTicks` and would throw on real PostgreSQL.
         var cursorInstant = new DateTimeOffset(ParseCursor(cursor), TimeSpan.Zero);
-        var schoolIds = await ResolveNodeSchoolIdsAsync(normalizedNodeId, cancellationToken);
-
         var candidates = await dbContext.PublicationPackages
             .Where(x => x.Status == "Published" && x.PublishedAt != null && x.PublishedAt > cursorInstant)
             .OrderBy(x => x.PublishedAt)
@@ -73,10 +72,8 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
         var hasMore = candidates.Count > normalizedLimit;
         var page = candidates.Take(normalizedLimit).ToList();
 
-        // The cursor always advances past every candidate examined on this call, including packages
-        // skipped because this node is not a target: a non-targeted node must not rescan them
-        // forever, and the advance can never jump over a package it still has to receive because
-        // candidates are examined in published-at order.
+        // Every published package is available to every node, so the cursor advances through the
+        // page returned by the package query.
         var nextCursor = page.Count == 0
             ? (cursor ?? "0")
             : (page[^1].PublishedAt ?? page[^1].CreatedAt).UtcTicks.ToString();
@@ -87,15 +84,6 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
 
         foreach (var package in page)
         {
-            var targets = await dbContext.PublicationTargets
-                .Where(x => x.PublicationPackageId == package.Id)
-                .ToListAsync(cancellationToken);
-
-            if (!IsDeliveredToNode(targets, normalizedNodeId, schoolIds))
-            {
-                continue;
-            }
-
             var payload = await BuildPayloadAsync(package, cancellationToken);
             items.Add(new SyncItem(
                 "publication_package",
@@ -180,7 +168,7 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
         return Ok(new PushResponse(accepted, results.Count - accepted, results));
     }
 
-    private async Task<PushItemResult> AcceptItemAsync(string nodeId, PushItem item, CancellationToken cancellationToken)
+    private async Task<PushItemResult> AcceptItemAsync(string nodeId, PushItem item, CancellationToken cancellationToken, int retryCount = 0)
     {
         var existing = await dbContext.SyncInbox
             .AsNoTracking()
@@ -200,6 +188,13 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
             }
 
             await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+            if (dbContext.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL" &&
+                item.EventType is SyncEventTypes.AttemptSubmitted)
+            {
+                await dbContext.Database.ExecuteSqlRawAsync(
+                    $"SELECT pg_advisory_xact_lock({CentralStatsRollupService.AdvisoryLockNamespace}, {CentralStatsRollupService.AdvisoryLockKey});",
+                    cancellationToken);
+            }
             dbContext.SyncInbox.Add(new SyncInbox(
                 Guid.NewGuid().ToString("N"),
                 nodeId,
@@ -214,7 +209,7 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
 
             if (item.EventType is SyncEventTypes.AttemptSubmitted)
             {
-                await AddAttemptAsync(item, payload.RootElement, cancellationToken);
+                await AddAttemptAsync(nodeId, item, payload.RootElement, cancellationToken);
             }
 
             await dbContext.SaveChangesAsync(cancellationToken);
@@ -222,7 +217,7 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
             dbContext.ChangeTracker.Clear();
             return new PushItemResult(item.IdempotencyKey, "accepted", null);
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException exception)
         {
             dbContext.ChangeTracker.Clear();
             var nowExisting = await dbContext.SyncInbox
@@ -230,6 +225,11 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
                 .SingleOrDefaultAsync(x => x.IdempotencyKey == item.IdempotencyKey, cancellationToken);
             if (nowExisting is null)
             {
+                if (retryCount == 0 && IsUniqueViolation(exception))
+                {
+                    return await AcceptItemAsync(nodeId, item, cancellationToken, retryCount + 1);
+                }
+
                 return new PushItemResult(item.IdempotencyKey, "failed", "The item could not be persisted.");
             }
 
@@ -242,7 +242,7 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
         }
     }
 
-    private async Task AddAttemptAsync(PushItem item, JsonElement payload, CancellationToken cancellationToken)
+    private async Task AddAttemptAsync(string nodeId, PushItem item, JsonElement payload, CancellationToken cancellationToken)
     {
         if (!payload.TryGetProperty("attempt", out var attemptElement))
         {
@@ -262,10 +262,11 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
         DateTimeOffset? verifiedAt = ParseOptionalDate(attempt.VerifiedAt);
         var receivedAt = DateTimeOffset.UtcNow;
         var receivedAttemptId = Guid.NewGuid().ToString("N");
+        var centralSessionId = UpsertDeliverySession(nodeId, payload, receivedAt);
         dbContext.ReceivedStudentAttempts.Add(new ReceivedStudentAttempt(
             receivedAttemptId,
             attempt.Id,
-            attempt.DeliverySessionId,
+            centralSessionId ?? attempt.DeliverySessionId,
             attempt.StudentCode,
             attempt.Status,
             startedAt,
@@ -311,6 +312,66 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
         {
             await RecomputeGradeAsync(receivedAttemptId, examVersionRemoteId, receivedAnswers, cancellationToken);
         }
+    }
+
+    private string? UpsertDeliverySession(string nodeId, JsonElement payload, DateTimeOffset receivedAt)
+    {
+        if (!payload.TryGetProperty("deliverySession", out var sessionElement) ||
+            sessionElement.ValueKind is not JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var id = ReadOptionalString(sessionElement, "id");
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return null;
+        }
+
+        var schoolCueValue = ReadOptionalString(sessionElement, "schoolCue");
+        var schoolCue = CueCode.TryNormalize(schoolCueValue, out var normalizedCue) ? normalizedCue : null;
+        var startedAt = ParseOptionalDate(ReadOptionalString(sessionElement, "startedAt"));
+        var closedAt = ParseOptionalDate(ReadOptionalString(sessionElement, "closedAt"));
+        var existing = dbContext.DeliverySessions.Local.FirstOrDefault(session =>
+            session.SourceNodeId == nodeId && session.RemoteLocalId == id);
+        existing ??= dbContext.DeliverySessions.SingleOrDefault(session =>
+            session.SourceNodeId == nodeId && session.RemoteLocalId == id);
+        var incomingStatus = ReadOptionalString(sessionElement, "status");
+        var closed = existing?.Status.Equals("closed", StringComparison.OrdinalIgnoreCase) == true ||
+            closedAt is not null || string.Equals(incomingStatus, "closed", StringComparison.OrdinalIgnoreCase);
+        var session = new CentralDeliverySession(
+            existing?.Id ?? Guid.NewGuid().ToString("N"),
+            id,
+            existing?.SchoolId ?? schoolCue,
+            existing?.ExamVersionId ?? ReadOptionalString(sessionElement, "examVersionId"),
+            existing?.ClassroomCode ?? ReadOptionalString(sessionElement, "classroomCode"),
+            existing?.CommissionCode ?? ReadOptionalString(sessionElement, "commissionCode"),
+            closed ? "closed" : existing?.Status ?? incomingStatus ?? "open",
+            existing?.StartedAt ?? startedAt,
+            existing?.EndedAt ?? closedAt,
+            receivedAt,
+            existing?.CreatedAt ?? receivedAt,
+            nodeId);
+        if (existing is null)
+        {
+            dbContext.DeliverySessions.Add(session);
+        }
+        else
+        {
+            dbContext.Entry(existing).CurrentValues.SetValues(session);
+        }
+
+        return session.Id;
+    }
+
+    private static bool IsUniqueViolation(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation }) return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -486,114 +547,6 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
             assets.Select(ToPublishedDto).ToList(),
             targets.Select(static target => new PublicationTargetDto(target.TargetType, target.TargetId)).ToList(),
             ScoringPolicy: "AllOrNothing");
-    }
-
-    /// <summary>
-    /// Resolves the set of school identifiers a node can match against a <c>school</c> publication
-    /// target: the node's explicit SchoolId (if any), its enrolment CUE, and the internal School id
-    /// for that CUE when a school row exists. Nodes enrol by CUE, so a school target may legitimately
-    /// carry either a School id or a CUE.
-    /// </summary>
-    private async Task<HashSet<string>> ResolveNodeSchoolIdsAsync(string nodeId, CancellationToken cancellationToken)
-    {
-        var schoolIds = new HashSet<string>(StringComparer.Ordinal);
-        var node = await dbContext.RegisteredNodes
-            .AsNoTracking()
-            .SingleOrDefaultAsync(x => x.Id == nodeId, cancellationToken);
-        if (node is null)
-        {
-            return schoolIds;
-        }
-
-        // Universal PCOPE keys are not attached to an individual school. Empty CUE is
-        // the persisted marker for that scope and lets the node receive every publication.
-        if (string.IsNullOrWhiteSpace(node.Cue))
-        {
-            var schools = await dbContext.Schools.AsNoTracking()
-                .Select(static school => new { school.Id, school.Cue, school.Annex }).ToListAsync(cancellationToken);
-            return schools.SelectMany(static school => new[]
-                {
-                    school.Id,
-                    CueCode.TryFromSchool(school.Cue, school.Annex, out var canonicalCue)
-                        ? canonicalCue
-                        : school.Cue.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    school.Cue.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                })
-                .ToHashSet(StringComparer.Ordinal);
-        }
-
-        if (!string.IsNullOrWhiteSpace(node.SchoolId))
-        {
-            schoolIds.Add(node.SchoolId);
-        }
-
-        if (string.IsNullOrWhiteSpace(node.Cue))
-        {
-            return schoolIds;
-        }
-
-        schoolIds.Add(node.Cue);
-        if (CueCode.TryNormalize(node.Cue, out var normalizedNodeCue))
-        {
-            var cue = long.Parse(normalizedNodeCue, System.Globalization.CultureInfo.InvariantCulture);
-            var baseCue = long.Parse(normalizedNodeCue[..7], System.Globalization.CultureInfo.InvariantCulture);
-            var annex = int.Parse(normalizedNodeCue[7..], System.Globalization.CultureInfo.InvariantCulture);
-            var schools = await dbContext.Schools
-                .AsNoTracking()
-                .Where(x => x.Cue == cue || (x.Cue == baseCue && (x.Annex ?? 0) == annex))
-                .Select(static school => new { school.Id, school.Cue, school.Annex })
-                .ToListAsync(cancellationToken);
-            foreach (var school in schools.Where(candidate =>
-                         CueCode.TryFromSchool(candidate.Cue, candidate.Annex, out var normalized) && normalized == normalizedNodeCue))
-            {
-                if (!string.IsNullOrWhiteSpace(school.Id)) schoolIds.Add(school.Id);
-            }
-        }
-        else if (long.TryParse(node.Cue, System.Globalization.NumberStyles.None,
-                     System.Globalization.CultureInfo.InvariantCulture, out var legacyCue))
-        {
-            var legacySchoolId = await dbContext.Schools.AsNoTracking()
-                .Where(school => school.Cue == legacyCue)
-                .Select(static school => school.Id)
-                .FirstOrDefaultAsync(cancellationToken);
-            if (!string.IsNullOrWhiteSpace(legacySchoolId)) schoolIds.Add(legacySchoolId);
-        }
-
-        return schoolIds;
-    }
-
-    /// <summary>
-    /// A package with no <c>node</c>/<c>school</c> targets is delivered to every node, including an
-    /// unknown nodeId. A package with at least one such target is delivered only to a node matching
-    /// one of them. grade/subject/division targets describe the exam and never filter delivery.
-    /// </summary>
-    private static bool IsDeliveredToNode(IReadOnlyList<PublicationTarget> targets, string nodeId, HashSet<string> schoolIds)
-    {
-        var deliveryTargets = targets
-            .Where(target => PublicationTargetTypes.DeliveryFilterTypes.Contains(target.TargetType, StringComparer.OrdinalIgnoreCase))
-            .ToList();
-        if (deliveryTargets.Count == 0)
-        {
-            return true;
-        }
-
-        foreach (var target in deliveryTargets)
-        {
-            if (string.Equals(target.TargetType, PublicationTargetTypes.Node, StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(target.TargetId, nodeId, StringComparison.Ordinal))
-            {
-                return true;
-            }
-
-            if (string.Equals(target.TargetType, PublicationTargetTypes.School, StringComparison.OrdinalIgnoreCase) &&
-                !string.IsNullOrWhiteSpace(target.TargetId) &&
-                schoolIds.Contains(target.TargetId))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /// <summary>

@@ -76,6 +76,11 @@ public sealed class LocalSessionFlowTests
         using var payload = JsonDocument.Parse(reader.GetString(3));
         Assert.Equal("submitted", payload.RootElement.GetProperty("attempt").GetProperty("status").GetString());
         Assert.Single(payload.RootElement.GetProperty("answers").EnumerateArray());
+        var deliverySession = payload.RootElement.GetProperty("deliverySession");
+        Assert.Equal(session.Id, deliverySession.GetProperty("id").GetString());
+        Assert.Equal("180055400", deliverySession.GetProperty("schoolCue").GetString());
+        Assert.Equal("remote-test-matematica-6-v1", deliverySession.GetProperty("examVersionId").GetString());
+        Assert.True(deliverySession.TryGetProperty("sectionId", out _));
     }
 
     [Fact]

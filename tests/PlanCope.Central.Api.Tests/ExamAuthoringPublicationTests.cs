@@ -78,7 +78,7 @@ public sealed class ExamAuthoringPublicationTests
 
         var publish = await controller.PublishVersion(
             versionId,
-            new PublishExamVersionRequest(null, null),
+            new PublishExamVersionRequest(null, null, ["legacy-node"], ["legacy-school"]),
             CancellationToken.None);
         Assert.IsType<OkObjectResult>(publish.Result);
 
@@ -92,6 +92,10 @@ public sealed class ExamAuthoringPublicationTests
             target.TargetType == PublicationTargetTypes.Grade && target.TargetId == "primaria-1");
         Assert.Contains(published.Targets!, target =>
             target.TargetType == PublicationTargetTypes.Grade && target.TargetId == "secundaria-1");
+        Assert.DoesNotContain(published.Targets!, target =>
+            target.TargetType is PublicationTargetTypes.Node or PublicationTargetTypes.School);
+        Assert.DoesNotContain(await dbContext.PublicationTargets.ToListAsync(), target =>
+            target.TargetType is PublicationTargetTypes.Node or PublicationTargetTypes.School);
         Assert.Equal(0, published.PulledByNodeCount);
 
         var duplicatePublish = await controller.PublishVersion(

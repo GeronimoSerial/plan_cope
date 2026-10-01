@@ -56,6 +56,10 @@ namespace PlanCope.Central.Migrations.Migrations
                     b.Property<int>("MaxActivations")
                         .HasColumnType("integer");
 
+                    b.Property<string>("HolderName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<string>("Note")
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)");
@@ -266,6 +270,10 @@ namespace PlanCope.Central.Migrations.Migrations
                     b.Property<string>("SchoolId")
                         .HasColumnType("text");
 
+                    b.Property<string>("SourceNodeId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<DateTimeOffset?>("StartedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -279,7 +287,7 @@ namespace PlanCope.Central.Migrations.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("RemoteLocalId")
+                    b.HasIndex("SourceNodeId", "RemoteLocalId")
                         .IsUnique();
 
                     b.ToTable("delivery_sessions", "sync");

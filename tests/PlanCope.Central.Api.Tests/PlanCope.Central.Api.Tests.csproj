@@ -12,9 +12,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="Fixtures\releases.stable.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="Velopack" />
   </ItemGroup>
 
   <ItemGroup>

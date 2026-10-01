@@ -34,7 +34,6 @@ const sectionLabels: Record<string, string> = {
   escuelas: "Escuelas",
   usuarios: "Usuarios",
   claves: "Claves de activación",
-  nodos: "Nodos",
   estadisticas: "Estadísticas",
   descargas: "Descargas"
 };

@@ -18,7 +18,7 @@ public sealed class InitialActivationDownloadExceptionTests
     [InlineData("push")]
     [InlineData("exam")]
     [InlineData("roster")]
-    public async Task Any_download_stage_exception_clears_activation_in_progress(string stage)
+    public async Task Any_download_stage_exception_leaves_activation_pending_for_retry(string stage)
     {
         var databasePath = Path.Combine(Path.GetTempPath(), $"plancope-download-{Guid.NewGuid():N}.db");
         try
@@ -46,11 +46,13 @@ public sealed class InitialActivationDownloadExceptionTests
                     "pending", 0, null, null, DateTimeOffset.UtcNow.ToString("O"), null));
             var download = new InitialActivationDownloadService(outbox,
                 new ThrowingPushService(), new StubExamPullService(stage == "exam"),
-                new StubRosterPullService(stage == "roster"), revalidation);
+                new StubRosterPullService(stage == "roster"), revalidation, NullLogger<InitialActivationDownloadService>.Instance);
 
-            await Assert.ThrowsAsync<IOException>(() => download.DownloadAllAsync());
+            var result = await download.DownloadAllAsync();
 
-            Assert.False(await revalidation.IsActivationInProgressAsync());
+            Assert.False(result.Success);
+            Assert.Contains("Reintentá la descarga", result.Error);
+            Assert.True(await revalidation.IsActivationInProgressAsync());
         }
         finally
         {

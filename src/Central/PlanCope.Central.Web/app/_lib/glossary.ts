@@ -12,19 +12,12 @@ export interface GlossaryEntry {
   source: string;
 }
 
-// Source: docs/central/exam-publishing-contract.md §6; app/_components/nodes/node-registry-panel.tsx
 // Source: docs/reference-profile.md §1 (PlanCope es una app de escritorio que corre en cada escuela).
 export const glossary = {
-  nodo: {
-    label: "Nodo",
-    definition:
-      "PlanCope instalado en una computadora de la escuela: entrega exámenes sin internet y sincroniza con Central.",
-    source: "docs/central/exam-publishing-contract.md"
-  },
   "clave-activacion": {
     label: "Clave de activación",
     definition:
-      "Código universal que emite Central para enrolar una computadora como nodo; no está atado a una escuela y admite un máximo de activaciones.",
+      "Código universal que emite Central para activar equipos; no está atado a una escuela y admite un máximo de activaciones.",
     source: "docs/activation-passphrase.md"
   },
   cue: {
@@ -48,7 +41,7 @@ export const glossary = {
   "padron-escolar": {
     label: "Padrón escolar",
     definition:
-      "Listado de alumnos y divisiones de una sola escuela. El nodo lo importa al activarse con su CUE.",
+      "Listado de alumnos y divisiones de una sola escuela. El equipo lo importa al activarse con su CUE.",
     source: "docs/roster-release.md"
   },
   rol: {
@@ -87,7 +80,7 @@ export const glossary = {
   "rol-operador": {
     label: "Operador",
     definition:
-      "Rol de operación diaria en la escuela: activa el equipo y busca exámenes nuevos en el nodo.",
+      "Rol de operación diaria en la escuela: activa el equipo y busca exámenes nuevos.",
     source: "app/_lib/roles.ts; docs/local/exam-delivery.md"
   },
   examen: {
@@ -134,13 +127,13 @@ export const glossary = {
   },
   "estado-publicado": {
     label: "Publicado",
-    definition: "Versión ya publicada: queda inmutable y los nodos la reciben al sincronizar.",
+    definition: "Versión ya publicada: queda inmutable y los equipos la reciben al sincronizar.",
     source: "src/Shared/PlanCope.Shared.Contracts/Exams/ExamContracts.cs"
   },
   "estado-reemplazada": {
     label: "Reemplazada",
     definition:
-      "Versión publicada que dejó de ser la actual porque una versión posterior la reemplazó en los nodos.",
+      "Versión publicada que dejó de ser la actual porque una versión posterior la reemplazó en los equipos.",
     source: "app/_lib/exams/version-state.ts; docs/central/exam-publishing-contract.md"
   },
   "basada-en": {
@@ -151,19 +144,14 @@ export const glossary = {
   publicar: {
     label: "Publicar",
     definition:
-      "Enviar una versión terminada a los nodos como paquete. Una versión publicada ya no se puede editar.",
+      "Enviar una versión terminada a todos los equipos. Una versión publicada ya no se puede editar.",
     source: "docs/central/exam-publishing-contract.md"
   },
   sincronizacion: {
     label: "Sincronización",
     definition:
-      "Conexión periódica (unos 30 segundos) en la que el nodo descarga exámenes publicados y sube lo pendiente.",
+      "Conexión periódica (unos 30 segundos) en la que los equipos descargan exámenes publicados y suben lo pendiente.",
     source: "docs/central/exam-publishing-contract.md; docs/local/exam-delivery.md"
-  },
-  "recibido-por-nodos": {
-    label: "Recibido por N nodos",
-    definition: "Cantidad de nodos que ya descargaron la última versión publicada de este examen.",
-    source: "docs/central/exam-publishing-contract.md"
   },
   "regla-puntaje": {
     label: "Regla de puntaje",

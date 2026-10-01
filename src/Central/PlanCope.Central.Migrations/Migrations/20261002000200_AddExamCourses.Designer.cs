@@ -13,7 +13,7 @@ using PlanCope.Central.Api.Data;
 namespace PlanCope.Central.Migrations.Migrations
 {
     [DbContext(typeof(PlanCopeDbContext))]
-    [Migration("20261001041746_AddExamCourses")]
+    [Migration("20261002000200_AddExamCourses")]
     partial class AddExamCourses
     {
         /// <inheritdoc />

@@ -7,7 +7,7 @@ using PlanCope.Central.Api.Data;
 namespace PlanCope.Central.Migrations.Migrations;
 
 [DbContext(typeof(PlanCopeDbContext))]
-[Migration("20260930120000_RemoveUnsupportedExamBlockTypes")]
+[Migration("20261002000000_RemoveUnsupportedExamBlockTypes")]
 public sealed class RemoveUnsupportedExamBlockTypes : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)

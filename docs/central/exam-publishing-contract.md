@@ -65,9 +65,9 @@ response:
 | `ready_to_publish` | At least one version has `blockCount >= 1`, but no version is published. |
 | `published`        | A version was published and a `PublicationPackage` exists.              |
 
-There is no fourth "reaching nodes" state. Delivery is observable separately: `pulledByNodeCount`
-counts how many nodes actually received the latest published package (see §6), and the node's own
-`/api/sync/status` reports its last pull time.
+There is no fourth "reaching nodes" state. `pulledByNodeCount` remains available in the API summary
+for compatibility and counts nodes that pulled the latest package (see §6); the Central Web UI
+does not display it.
 
 Companion fields on `ExamSummaryDto` (all additive; older consumers ignore them):
 
@@ -78,7 +78,7 @@ Companion fields on `ExamSummaryDto` (all additive; older consumers ignore them)
 | `publishedVersionId`     | `string?`                             | Latest published version (by `versionNumber`), or null.               |
 | `publishedVersionNumber` | `int?`                                | Number of that version, or null.                                      |
 | `publishedAt`            | ISO-8601 `string?`                    | `ExamVersion.PublishedAt`, or null.                                   |
-| `targets`                | `{targetType,targetId}[]?`            | Target scope of the latest published package. `[]` = all nodes.       |
+| `targets`                | `{targetType,targetId}[]?`            | Descriptive grade/subject/division metadata; new publications do not contain delivery targets. |
 | `pulledByNodeCount`      | `int?`                                | Nodes that received the latest package; null if not published.        |
 
 `versionCount` is now `1` immediately after create (it was `0` before this change).
@@ -277,16 +277,14 @@ Request:
 ```json
 {
   "subject": "Matemática",
-  "division": null,
-  "nodeIds": ["node_a1"],
-  "schoolIds": ["1001"]
+  "division": null
 }
 ```
 
 - `grade` tags are derived from the exam's selected courses.
 - `subject`, `division` are descriptive metadata (see §4).
-- `nodeIds` / `schoolIds` are optional delivery filters. Omit both (or send empty arrays) for
-  "all nodes".
+- Legacy `nodeIds` and `schoolIds` request fields are deprecated, accepted, and ignored. Every
+  published exam is delivered to every node.
 
 Response `200`:
 
@@ -297,16 +295,16 @@ Response `200`:
   "packageVersion": 1,
   "checksum": "sha256-...",
   "targets": [
-    { "targetType": "grade", "targetId": "secundaria-1" },
-    { "targetType": "node", "targetId": "node_a1" },
-    { "targetType": "school", "targetId": "1001" }
+    { "targetType": "grade", "targetId": "primaria-6" },
+    { "targetType": "subject", "targetId": "Matemática" }
   ]
 }
 ```
 
 Effects: creates `publication.packages` row with `Status = "Published"`, writes
-`publication.targets`, and sets the version status to `Published` with `publishedAt`. Published
-versions become immutable and can only be published once.
+`publication.targets` for descriptive grade/subject/division metadata only, and sets the version
+status to `Published` with `publishedAt`. Published versions become immutable and can only be
+published once. New publishes do not write node or school delivery targets.
 
 Publishing runs as one database transaction. A unique constraint permits one package per exam
 version, so simultaneous publish requests can produce one `200` response and one `409` response;
@@ -378,46 +376,24 @@ Publication is append-only: publishing never mutates or deletes an earlier packa
 
 ---
 
-## 4. Targeting semantics
+## 4. Publication metadata and delivery
 
-Target types:
+| `targetType` | Meaning |
+| ------------ | ------- |
+| `grade`      | Course tags derived from the exam’s selected `courses`. Descriptive metadata. |
+| `subject`    | Subject. Descriptive metadata. |
+| `division`   | Division. Descriptive metadata. |
+| `node`       | Legacy target retained on packages already published. |
+| `school`     | Legacy target retained on packages already published. |
 
-| `targetType` | Delivery filter? | Meaning                                                        |
-| ------------ | ---------------- | -------------------------------------------------------------- |
-| `grade`      | No               | Course/grade the exam is for. Descriptive metadata.            |
-| `subject`    | No               | Subject. Descriptive metadata.                                 |
-| `division`   | No               | Division. Descriptive metadata.                                |
-| `node`       | **Yes**          | `targetId` is a registered node id.                            |
-| `school`     | **Yes**          | `targetId` is a School id **or** a school CUE.                 |
-
-Decision (verified against `BuildTargets` in `ExamsController.cs`): publish always writes at least a
-`grade` target, so "a package with targets is filtered" cannot mean every target type filters —
-otherwise no package would ever reach a node. Therefore only `node` and `school` are treated as
-delivery filters. `grade`/`subject`/`division` describe the exam (the node stores them as metadata
-when it imports the package) but never restrict which nodes receive it.
-
-Delivery rules in `GET /api/sync/pull`:
-
-- A package with **no** `node`/`school` targets is delivered to **every** node, including a node id
-  that Central does not know (an unenrolled or not-yet-roster node).
-- A package with at least one `node`/`school` target is delivered **only** to a node that matches at
-  least one of them.
-- `node` matches when `targetId` equals the requesting `nodeId` exactly.
-- `school` matches when `targetId` equals any of the node's school identifiers: the node's
-  `RegisteredNode.SchoolId` (if set), the node's enrolment `Cue`, or the internal `School.Id` whose
-  `Cue` equals the node's CUE. Nodes enrol by CUE, so both the School id and the CUE are accepted.
-
----
+Every published package is delivered to every node, including packages that already have legacy
+`node` or `school` target rows. Sync pull ignores those stored rows when deciding delivery. Existing
+target rows and checksums are not rewritten. Grade, subject and division remain package metadata.
 
 ## 5. Cursor semantics
 
-`pull` returns `nextCursor` as the published-at ticks of the **last candidate examined** in the
-page — not only of the last item delivered. This is deliberate:
-
-- Packages skipped because the node is not a target still advance the cursor, so a non-targeted node
-  does not rescan them forever.
-- Candidates are examined in `(publishedAt, id)` order and the cursor only ever advances to the end
-  of the examined page, so a package the node must receive can never be jumped over.
+`pull` returns `nextCursor` as the published-at ticks of the last package in the page. Every
+published package in that page is delivered.
 
 `hasMore = true` means more candidates exist past the returned cursor; the node should call again
 immediately. Nodes pass `nextCursor` back verbatim.
@@ -450,8 +426,8 @@ compatibility metadata and is not part of the package checksum.
 ### 6.1 Node identity binding (D6)
 
 `SyncController` resolves the node id with `NodeAccessAuth.TryGetNodeId(User, out var nodeId)` and
-uses that claim for targeting, `ResolveNodeSchoolIdsAsync` and `RecordPullProgressAsync` (the
-`(nodeId, "package:{packageId}")` delivery markers that feed `pulledByNodeCount`). Consequences:
+uses that claim for identity and `RecordPullProgressAsync` (the `(nodeId,
+"package:{packageId}")` delivery markers that feed `pulledByNodeCount`). Consequences:
 
 - A user/operator bearer token (`token_type != node_access`) is rejected with `403` on both
   `pull` and `push` — the token is valid, just not privileged for node sync.
@@ -481,6 +457,9 @@ no published package, and `0` when published but not yet pulled.
 - `exam.versions.source_version_id` — nullable column added by the
   `AddExamVersionSourceVersion` EF migration. It stores the version a draft copy was created from;
   `basedOnVersionNumber` is resolved from it at read time.
+
+Registered nodes receive every school/year roster through `/api/sync/rosters/index` and
+`/api/sync/roster/{cue}/{schoolYear}`. Enrollment CUE does not restrict roster delivery.
 
 The `publishedAt` / `supersededAt` / `isCurrent` / `basedOnVersionNumber` DTO fields are computed on
 read; only `source_version_id` is persisted by this change.

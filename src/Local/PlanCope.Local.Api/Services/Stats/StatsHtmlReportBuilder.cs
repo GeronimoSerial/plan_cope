@@ -28,7 +28,7 @@ public sealed class StatsHtmlReportBuilder
         html.Append("<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Informe estadístico · ")
             .Append(E(data.SchoolName)).Append("</title><style>")
             .Append(Styles).Append("</style></head><body><main class=\"report\">");
-        html.Append("<header class=\"hero\"><p class=\"eyebrow\">Informe estadístico</p><h1>").Append(E(data.SchoolName)).Append("</h1><p class=\"muted\">CUE ").Append(E(data.Cue)).Append("</p><div class=\"meta\"><span>Año lectivo: <strong>").Append(E(schoolYear ?? "Todos")).Append("</strong></span><span>Generado: <strong>").Append(E(generatedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture))).Append("</strong></span><span>Filtros: <strong>").Append(E(FilterLabel(course, examVersionId, exams))).Append("</strong></span></div></header>");
+        html.Append("<header class=\"hero\"><p class=\"eyebrow\">Informe estadístico</p><h1>").Append(E(data.SchoolName)).Append("</h1><p class=\"muted\">CUE ").Append(E(data.Cue)).Append("</p><div class=\"meta\"><span>Año lectivo: <strong>").Append(E(schoolYear ?? "Todos")).Append("</strong></span><span>Informe al <strong>").Append(E(generatedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture))).Append("</strong></span><span>Filtros: <strong>").Append(E(FilterLabel(course, examVersionId, exams))).Append("</strong></span></div></header>");
 
         html.Append("<section class=\"kpis\" aria-label=\"Indicadores principales\">");
         Tile(html, "Exámenes aplicados", data.DeliveredExamCount.ToString(CultureInfo.InvariantCulture));

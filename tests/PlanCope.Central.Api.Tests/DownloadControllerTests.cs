@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using PlanCope.Central.Api.Controllers;
 using PlanCope.Central.Api.Services;
@@ -139,7 +140,7 @@ public sealed class DownloadControllerTests
     {
         var client = new HttpClient(handler) { BaseAddress = new Uri("https://api.github.com/") };
         var options = Options.Create(new InstallerStorageOptions { Repo = "acme/installers", Token = "t" });
-        return new GitHubReleaseInstallerStorage(client, options, NullLogger<GitHubReleaseInstallerStorage>.Instance);
+        return new GitHubReleaseInstallerStorage(client, options, NullLogger<GitHubReleaseInstallerStorage>.Instance, new MemoryCache(new MemoryCacheOptions()));
     }
 
     private sealed class FakeGitHubHandler(string releasesJson, byte[] assetBytes) : HttpMessageHandler

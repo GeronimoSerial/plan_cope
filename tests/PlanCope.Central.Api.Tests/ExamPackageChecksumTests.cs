@@ -33,4 +33,23 @@ public sealed class ExamPackageChecksumTests
         var second = ExamPackageChecksum.Compute(MakeExam(), MakeVersion(), MakeBlocks("AllOrNothing"), [], [], [], null);
         Assert.Equal(first, second);
     }
+
+    [Fact]
+    public void Compute_ContinuesToIncludeStoredTargetsInLegacyPackageChecksums()
+    {
+        var withNodeTarget = ExamPackageChecksum.Compute(
+            MakeExam(), MakeVersion(), MakeBlocks("AllOrNothing"), [],
+            [], [new PublicationTargetDto("grade", "primaria-6")], null);
+        var withDifferentNodeTarget = ExamPackageChecksum.Compute(
+            MakeExam(), MakeVersion(), MakeBlocks("AllOrNothing"), [],
+            [], [new PublicationTargetDto("grade", "secundaria-1")], null);
+
+        Assert.NotEqual(withNodeTarget, withDifferentNodeTarget);
+    }
+
+    private static JsonElement JsonElementOf(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.Clone();
+    }
 }

@@ -43,7 +43,6 @@ export interface ExamSummary {
   publishedVersionNumber?: number | null;
   publishedAt?: string | null;
   targets?: PublicationTarget[] | null;
-  pulledByNodeCount?: number | null;
 }
 
 export interface CreateExamRequest {

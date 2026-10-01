@@ -75,19 +75,6 @@ export function formatPublishedAt(value: string | null | undefined): string {
   return dateFormatter.format(date);
 }
 
-export function formatReceivedBy(count: number | null | undefined): string {
-  if (count === null || count === undefined) {
-    return "";
-  }
-  if (count <= 0) {
-    return "Ningún nodo lo recibió todavía";
-  }
-  if (count === 1) {
-    return "Recibido por 1 nodo";
-  }
-  return `Recibido por ${count} nodos`;
-}
-
 function normalizeForSearch(value: string): string {
   return value
     .normalize("NFD")

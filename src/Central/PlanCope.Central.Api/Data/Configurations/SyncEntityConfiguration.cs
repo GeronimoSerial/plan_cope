@@ -38,6 +38,7 @@ public sealed class ActivationKeyConfiguration : IEntityTypeConfiguration<Activa
         builder.Property(static x => x.RevokedReason).HasMaxLength(256);
         builder.Property(static x => x.ScopeCue).HasMaxLength(32);
         builder.Property(static x => x.Note).HasMaxLength(512);
+        builder.Property(static x => x.HolderName).HasMaxLength(200);
         builder.HasIndex(static x => x.KeyHash).IsUnique();
         builder.HasIndex(static x => x.KeyPrefix);
         builder.HasIndex(static x => x.ScopeCue);
@@ -71,8 +72,9 @@ public sealed class CentralDeliverySessionConfiguration : IEntityTypeConfigurati
         builder.HasKey(static x => x.Id);
         builder.Property(static x => x.Id).HasMaxLength(64).IsRequired();
         builder.Property(static x => x.RemoteLocalId).HasMaxLength(128).IsRequired();
+        builder.Property(static x => x.SourceNodeId).HasMaxLength(64);
         builder.Property(static x => x.Status).HasMaxLength(32).IsRequired();
-        builder.HasIndex(static x => x.RemoteLocalId).IsUnique();
+        builder.HasIndex(static x => new { x.SourceNodeId, x.RemoteLocalId }).IsUnique();
     }
 }
 

@@ -17,10 +17,9 @@ public static class ExamPublicationStates
 }
 
 /// <summary>
-/// Target type vocabulary shared by publish (writer) and sync pull (reader).
-/// <c>grade</c>, <c>subject</c> and <c>division</c> are descriptive metadata: they describe the
-/// audience of the exam but are NOT delivery filters. Only <c>node</c> and <c>school</c> filter
-/// which nodes receive a package; see docs/central/exam-publishing-contract.md.
+/// Target types stored on publication packages. Grade, subject and division describe the exam.
+/// Node and school values are retained for compatibility with already-published packages; sync
+/// delivery no longer filters on them.
 /// </summary>
 public static class PublicationTargetTypes
 {
@@ -30,6 +29,7 @@ public static class PublicationTargetTypes
     public const string Node = "node";
     public const string School = "school";
 
+    /// <summary>Legacy node/school target types; retained for source compatibility.</summary>
     public static readonly IReadOnlyList<string> DeliveryFilterTypes = [Node, School];
 }
 
@@ -116,6 +116,8 @@ public sealed record UpsertBlockRequest(int OrderIndex, BlockType BlockType, str
 
 public sealed record CreateAssetRequest(string FileName, string MimeType, string ContentBase64);
 
+/// <param name="NodeIds">Deprecated and ignored. Published exams are delivered to every node.</param>
+/// <param name="SchoolIds">Deprecated and ignored. Published exams are delivered to every node.</param>
 public sealed record PublishExamVersionRequest(
     string? Subject,
     string? Division,

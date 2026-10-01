@@ -315,7 +315,7 @@ export function ExamBuilder({
         </p>
 
         <p className="text-sm text-muted-foreground">
-          Armá las preguntas y definí la regla de puntaje de cada pregunta de opción múltiple. Al guardar y publicar, los nodos lo reciben en la próxima
+          Armá las preguntas y definí la regla de puntaje de cada pregunta de opción múltiple. Al guardar y publicar, los equipos lo reciben en la próxima
           sincronización.
         </p>
       </header>

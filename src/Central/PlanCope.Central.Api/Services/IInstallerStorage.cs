@@ -19,7 +19,28 @@ public interface IInstallerStorage
     /// carries the encrypted roster bundle). The caller owns and must dispose the result.
     /// </summary>
     Task<InstallerDownload?> GetLatestDownloadAsync(string channel, CancellationToken cancellationToken);
+
+    Task<UpdateReleaseFeed?> GetUpdateReleaseFeedAsync(string channel, CancellationToken cancellationToken);
+
+    Task<InstallerDownload?> GetUpdatePackageDownloadAsync(
+        string channel,
+        string version,
+        string fileName,
+        CancellationToken cancellationToken);
 }
+
+public sealed record UpdateReleaseFeed(string Channel, string LatestVersion, IReadOnlyList<UpdateReleaseAsset> Assets);
+
+public sealed record UpdateReleaseAsset(
+    string PackageId,
+    string Version,
+    int Type,
+    string FileName,
+    string SHA1,
+    string SHA256,
+    long Size,
+    string? NotesMarkdown,
+    string? NotesHTML);
 
 public sealed record InstallerReference(string Version, string Channel, Uri DownloadUrl, string Sha256, DateTimeOffset PublishedAt);
 

@@ -12,9 +12,8 @@ namespace PlanCope.Central.Api.Controllers;
 /// <summary>
 /// Administration surface over release rings. Rings are universal infrastructure — Channel is the
 /// partition key (e.g. "stable"/"beta"), not a school — so there is no CUE filtering here: every
-/// operation, including the list, requires the Admin role and gets Forbid() otherwise. Version,
-/// Channel, Sha256 and DownloadUrl are set
-/// once at creation; only the rollout policy (RolloutMode/RolloutPercentage) is updatable, and
+/// operation, including the list, requires the Admin role and gets Forbid() otherwise. Version
+/// and Channel identify the release override; only the rollout policy is separately updatable, and
 /// rings are never deleted because ReleaseGateService resolves the newest row per channel.
 /// </summary>
 [ApiController]
@@ -55,27 +54,9 @@ public sealed class ReleaseRingsAdminController(PlanCopeDbContext dbContext) : C
             return BadRequest("Body is required.");
         }
 
-        if (string.IsNullOrWhiteSpace(request.Version) ||
-            string.IsNullOrWhiteSpace(request.Channel) ||
-            string.IsNullOrWhiteSpace(request.Sha256) ||
-            string.IsNullOrWhiteSpace(request.DownloadUrl))
+        if (string.IsNullOrWhiteSpace(request.Version) || string.IsNullOrWhiteSpace(request.Channel))
         {
-            return BadRequest("Version, Channel, Sha256 and DownloadUrl are required.");
-        }
-
-        if (request.Sha256.Length != 64 || !request.Sha256.All(Uri.IsHexDigit))
-        {
-            return BadRequest("Sha256 must be exactly 64 hexadecimal characters.");
-        }
-
-        // Case-insensitive input, canonical lowercase storage: the stored row and the audit
-        // payload both get the normalized form.
-        var normalizedSha256 = request.Sha256.ToLowerInvariant();
-
-        if (!Uri.TryCreate(request.DownloadUrl, UriKind.Absolute, out var downloadUri) ||
-            downloadUri.Scheme != Uri.UriSchemeHttps)
-        {
-            return BadRequest("DownloadUrl must be an absolute https URL.");
+            return BadRequest("Version and Channel are required.");
         }
 
         var rolloutError = ValidateRollout(request.RolloutMode, request.RolloutPercentage, out var rolloutPercentage);
@@ -94,8 +75,8 @@ public sealed class ReleaseRingsAdminController(PlanCopeDbContext dbContext) : C
             Guid.NewGuid(),
             request.Version,
             request.Channel,
-            normalizedSha256,
-            request.DownloadUrl,
+            string.Empty,
+            string.Empty,
             request.RolloutMode,
             rolloutPercentage,
             DateTimeOffset.UtcNow,
@@ -111,8 +92,6 @@ public sealed class ReleaseRingsAdminController(PlanCopeDbContext dbContext) : C
                 ringId = ring.Id,
                 version = ring.Version,
                 channel = ring.Channel,
-                sha256 = ring.Sha256,
-                downloadUrl = ring.DownloadUrl,
                 rolloutMode = ring.RolloutMode,
                 rolloutPercentage = ring.RolloutPercentage
             });
@@ -150,8 +129,8 @@ public sealed class ReleaseRingsAdminController(PlanCopeDbContext dbContext) : C
             return BadRequest(rolloutError);
         }
 
-        // Version, Channel, Sha256, DownloadUrl, CreatedAt and CreatedBy are immutable: the
-        // update covers the rollout policy only.
+        // Version, Channel, CreatedAt and CreatedBy are immutable: the update covers the rollout
+        // policy only. Legacy package metadata columns are unused by update serving.
         dbContext.Entry(ring).CurrentValues.SetValues(ring with
         {
             RolloutMode = request.RolloutMode,
@@ -176,8 +155,8 @@ public sealed class ReleaseRingsAdminController(PlanCopeDbContext dbContext) : C
 
     /// <summary>
     /// Whether the caller may administer release rings. Release rings are universal
-    /// infrastructure (a ReleaseRing carries no CUE) and set the DownloadUrl/Sha256 that every
-    /// enrolled node installs, so this is Admin-only: there is no roster-scope fallback path.
+    /// infrastructure (a ReleaseRing carries no CUE), so this is Admin-only: there is no
+    /// roster-scope fallback path.
     /// </summary>
     private bool IsAdmin()
     {
