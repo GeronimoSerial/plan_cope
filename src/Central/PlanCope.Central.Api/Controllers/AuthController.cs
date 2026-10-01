@@ -36,7 +36,8 @@ public sealed class AuthController(PlanCopeDbContext dbContext, ITokenService to
 
         var rosterScope = string.Equals(role, "RosterProvince", StringComparison.Ordinal) ? "province" : "school";
         IReadOnlyList<string> rosterCues = rosterScope == "province" ? [] : cues;
-        var profile = new UserProfileDto(user.Id, user.FullName, role, null, rosterScope, rosterCues);
+        var profile = TokenService.ApplyEffectiveRosterScope(
+            new UserProfileDto(user.Id, user.FullName, role, null, rosterScope, rosterCues));
 
         return Ok(new LoginResponse(
             tokenService.CreateAccessToken(profile),
@@ -87,7 +88,8 @@ public sealed class AuthController(PlanCopeDbContext dbContext, ITokenService to
 
         var rosterScope = string.Equals(role, "RosterProvince", StringComparison.Ordinal) ? "province" : "school";
         IReadOnlyList<string> rosterCues = rosterScope == "province" ? [] : cues;
-        var profile = new UserProfileDto(user.Id, user.FullName, role, null, rosterScope, rosterCues);
+        var profile = TokenService.ApplyEffectiveRosterScope(
+            new UserProfileDto(user.Id, user.FullName, role, null, rosterScope, rosterCues));
 
         return Ok(new LoginResponse(
             tokenService.CreateAccessToken(profile),
