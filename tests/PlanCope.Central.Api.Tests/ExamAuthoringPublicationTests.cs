@@ -204,6 +204,11 @@ public sealed class ExamAuthoringPublicationTests
         var exam = await CreateExamAsync(controller, "EXA-ASSET-VALIDATION");
         var versionId = exam.InitialVersionId!;
 
+        var longFileName = await controller.CreateAsset(versionId,
+            new CreateAssetRequest($"/tmp/{new string('a', 257)}.png", "image/png", Convert.ToBase64String([1, 2, 3])), CancellationToken.None);
+        var longFileNameError = Assert.IsType<BadRequestObjectResult>(longFileName.Result);
+        Assert.Equal("El nombre del archivo no puede superar los 256 caracteres.", longFileNameError.Value);
+
         var unsupported = await controller.CreateAsset(versionId,
             new CreateAssetRequest("vector.svg", "image/svg+xml", Convert.ToBase64String([1, 2, 3])), CancellationToken.None);
         Assert.Equal(StatusCodes.Status400BadRequest, Assert.IsAssignableFrom<ObjectResult>(unsupported.Result).StatusCode);
