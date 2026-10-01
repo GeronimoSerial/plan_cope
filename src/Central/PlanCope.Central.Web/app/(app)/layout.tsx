@@ -21,13 +21,16 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         >
           Saltar al contenido
         </a>
-        <SidebarProvider>
-          <AppSidebar />
-          <div className="flex min-w-0 flex-1 flex-col">
-            <AppHeader user={user} />
-            <main id="contenido" className="flex-1 p-4 md:p-6">
-              {children}
-            </main>
+        <SidebarProvider className="central-frame h-svh min-h-0 overflow-hidden">
+          <AppHeader user={user} />
+          <div className="central-workspace">
+            <AppSidebar />
+            <div className="central-main-column">
+              <main id="contenido" className="central-main">
+                {children}
+              </main>
+              <footer className="central-footer"><div className="central-footer__inner">Ministerio de Educación · Gobierno de Corrientes</div></footer>
+            </div>
           </div>
         </SidebarProvider>
       </TooltipProvider>
