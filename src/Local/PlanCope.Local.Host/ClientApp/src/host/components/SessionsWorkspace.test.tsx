@@ -79,6 +79,17 @@ describe("SessionsWorkspace", () => {
     expect(state.createSession).toHaveBeenCalledOnce();
   });
 
+  it("shows the revoked-node 423 message in the create-session flow", () => {
+    const state = delivery([]);
+    state.error = "Este equipo fue dado de baja. Cargá una clave nueva para crear sesiones.";
+    const view = render(state);
+
+    act(() => button(view, "Nueva sesión").click());
+    act(() => view.querySelector<HTMLButtonElement>(".school-choice")!.click());
+
+    expect(view.querySelector('[role="alert"]')?.textContent).toBe(state.error);
+  });
+
   it("refreshes the local catalog on focus and every minute while the session form is open", async () => {
     vi.useFakeTimers();
     const state = delivery([]);
