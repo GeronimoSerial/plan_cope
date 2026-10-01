@@ -140,7 +140,7 @@ function ActiveSessionContent({ progress, session, sessionLink, onStatusChange, 
                   <tr key={student.id} className={highlightedIds.includes(student.id) ? "student-row-submitted" : undefined}>
                     <td data-label="Nombre">{student.displayName} {student.offRoster && <span className="student-off-roster-badge">Fuera de padrón</span>}</td>
                     <td data-label="DNI">{student.maskedDocument ?? "—"}</td>
-                    <td data-label="Estado"><span className={`student-status student-status-${student.status}`}>{STATUS_LABELS[student.status]}</span></td>
+                    <td data-label="Estado"><span className={`student-status ${student.submissionReason === "closed_by_teacher" ? "student-status-closed" : `student-status-${student.status}`}`}>{student.submissionReason === "closed_by_teacher" ? "Entregado por cierre" : STATUS_LABELS[student.status]}</span></td>
                     <td data-label="Entregó">{student.submissionReason === "closed_by_teacher" ? "Entregado por cierre" : student.status === "submitted" ? formatSubmissionTime(student.submittedAt) : "—"}</td>
                     {onRemoveExtraStudent && <td data-label="Acciones">{student.offRoster && !student.attemptId && !isClosed && <button type="button" className="button button-secondary" disabled={isBusy} onClick={() => void onRemoveExtraStudent(student.id).catch(() => undefined)}>Quitar</button>}</td>}
                   </tr>
