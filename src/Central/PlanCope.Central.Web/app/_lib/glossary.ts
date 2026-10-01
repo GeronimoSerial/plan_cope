@@ -86,7 +86,7 @@ export const glossary = {
   examen: {
     label: "Examen",
     definition:
-      "Prueba con un código y un título que agrupa versiones. Cada versión tiene preguntas y una regla de puntaje.",
+      "Prueba con un código y un título que agrupa versiones. Cada versión tiene preguntas con sus reglas de puntaje.",
     source: "docs/central/exam-publishing-contract.md"
   },
   version: {
@@ -207,7 +207,7 @@ export const glossary = {
   },
   "stats-parciales": {
     label: "Parciales",
-    definition: "Respuestas que obtuvieron puntaje parcial según la regla de puntaje de la versión.",
+    definition: "Respuestas que obtuvieron puntaje parcial según la regla de puntaje de cada pregunta.",
     source: "src/Central/PlanCope.Central.Api/Controllers/StatsController.cs"
   },
   "stats-incorrectas": {

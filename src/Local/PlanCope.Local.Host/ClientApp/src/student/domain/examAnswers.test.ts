@@ -16,7 +16,7 @@ function makeBlock(overrides: Partial<LocalExamBlock> = {}): LocalExamBlock {
     localExamVersionId: "local-version-1",
     remoteBlockId: `remote-${id}`,
     orderIndex: 0,
-    blockType: "Text",
+    blockType: "MultipleChoice",
     configJson: "{}",
     validationJson: undefined,
     ...overrides
@@ -37,25 +37,19 @@ afterEach(() => {
 
 describe("questionNumberFor", () => {
   const blocks = [
-    makeBlock({ id: "text-1", blockType: "Text" }),
     makeBlock({ id: "mc-1", blockType: "MultipleChoice" }),
-    makeBlock({ id: "image-1", blockType: "Image" }),
     makeBlock({ id: "tf-1", blockType: "TrueFalse" })
   ];
 
-  it("returns null for non-answer blocks and 1-based ordinal position for answer blocks", () => {
-    expect(questionNumberFor(blocks, 0)).toBeNull();
-    expect(questionNumberFor(blocks, 1)).toBe(1);
-    expect(questionNumberFor(blocks, 2)).toBeNull();
-    expect(questionNumberFor(blocks, 3)).toBe(2);
+  it("returns a 1-based ordinal position for each question", () => {
+    expect(questionNumberFor(blocks, 0)).toBe(1);
+    expect(questionNumberFor(blocks, 1)).toBe(2);
   });
 });
 
 describe("collectAnswers", () => {
   const blocks = [
-    makeBlock({ id: "text-1", blockType: "Text" }),
     makeBlock({ id: "mc-1", blockType: "MultipleChoice" }),
-    makeBlock({ id: "image-1", blockType: "Image" }),
     makeBlock({ id: "tf-1", blockType: "TrueFalse" })
   ];
 
@@ -76,17 +70,14 @@ describe("collectAnswers", () => {
 
 describe("findMissingRequiredAnswers", () => {
   const blocks = [
-    makeBlock({ id: "text-1", blockType: "Text", validationJson: '{"required":true}' }),
-    makeBlock({ id: "image-1", blockType: "Image", validationJson: '{"required":true}' }),
     makeBlock({ id: "mc-1", blockType: "MultipleChoice", validationJson: '{"required":true}' }),
     makeBlock({ id: "tf-1", blockType: "TrueFalse", validationJson: '{"required":true}' }),
-    makeBlock({ id: "sa-1", blockType: "Essay", validationJson: '{"required":false}' }),
-    makeBlock({ id: "mc-2", blockType: "MultipleChoice", validationJson: '{"required":true}' })
+    makeBlock({ id: "mc-2", blockType: "MultipleChoice", validationJson: '{"required":false}' })
   ];
 
   it("returns exactly the required, unanswered answer block ids", () => {
     const missing = findMissingRequiredAnswers(blocks, { "mc-1": "A", "mc-2": "   " });
-    expect(missing).toEqual(new Set(["tf-1", "mc-2"]));
+    expect(missing).toEqual(new Set(["tf-1"]));
   });
 
   it("excludes a required-and-answered block", () => {
@@ -94,17 +85,11 @@ describe("findMissingRequiredAnswers", () => {
     expect(missing.has("mc-1")).toBe(false);
   });
 
-  it("never includes a non-required unanswered block", () => {
+  it("never includes a non-required unanswered question", () => {
     const missing = findMissingRequiredAnswers(blocks, {});
-    expect(missing.has("sa-1")).toBe(false);
     expect(missing.has("mc-1")).toBe(true);
   });
 
-  it("ignores text/image blocks even when marked required", () => {
-    const missing = findMissingRequiredAnswers(blocks, {});
-    expect(missing.has("text-1")).toBe(false);
-    expect(missing.has("image-1")).toBe(false);
-  });
 });
 
 describe("getInitialSessionCode", () => {

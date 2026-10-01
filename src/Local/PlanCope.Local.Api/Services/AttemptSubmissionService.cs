@@ -157,7 +157,7 @@ public sealed class AttemptSubmissionService(
         {
             var key = answerKeyByRemoteBlock.GetValueOrDefault(block.RemoteBlockId);
             return GradingJsonMapper.MapBlock(block.Id, block.BlockType,
-                key is null ? null : (decimal?)key.ScoreValue, ParseJsonElement(key?.CorrectAnswerJson));
+                key is null ? null : (decimal?)key.ScoreValue, ParseJsonElement(key?.CorrectAnswerJson), ParseJsonElement(block.ConfigJson));
         }).ToList();
         var mappedAnswers = new Dictionary<string, SubmittedAnswer>();
         foreach (var submitted in submittedAnswers)
@@ -171,7 +171,6 @@ public sealed class AttemptSubmissionService(
             var result = new GradingEngine().Grade(new ExamVersion
             {
                 ExamVersionId = examVersion.Id,
-                DeclaredScoringPolicy = ScoringPolicyParser.Parse(examVersion.ScoringPolicy),
                 Blocks = gradableBlocks
             }, mappedAnswers);
             return GradingOutcome.Graded(result, gradedAt);

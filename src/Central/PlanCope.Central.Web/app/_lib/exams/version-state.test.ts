@@ -22,7 +22,6 @@ function version(overrides: Partial<ExamVersion> & Pick<ExamVersion, "id" | "ver
     blocks: [],
     answerKeys: [],
     assets: [],
-    scoringPolicy: null,
     blockCount: 0,
     canPublish: false,
     isCurrent: false,

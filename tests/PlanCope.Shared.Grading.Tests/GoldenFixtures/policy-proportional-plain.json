@@ -1,32 +1,68 @@
 {
   "ExamVersion": {
     "ExamVersionId": "fixture-policy-plain",
-    "DeclaredScoringPolicy": 2,
     "Blocks": [
       {
         "BlockId": "b1",
         "Type": 2,
         "ScoreMax": 6,
-        "AnswerKey": { "CorrectOptionIds": ["a", "b"] }
+        "AnswerKey": {
+          "CorrectOptionIds": [
+            "a",
+            "b"
+          ]
+        },
+        "AllowsMultipleAnswers": true,
+        "ScoringPolicy": 2
       },
       {
         "BlockId": "b2",
         "Type": 2,
         "ScoreMax": 6,
-        "AnswerKey": { "CorrectOptionIds": ["a", "b"] }
+        "AnswerKey": {
+          "CorrectOptionIds": [
+            "a",
+            "b"
+          ]
+        },
+        "AllowsMultipleAnswers": true,
+        "ScoringPolicy": 2
       },
       {
         "BlockId": "b3",
         "Type": 2,
         "ScoreMax": 6,
-        "AnswerKey": { "CorrectOptionIds": ["a", "b"] }
+        "AnswerKey": {
+          "CorrectOptionIds": [
+            "a",
+            "b"
+          ]
+        },
+        "AllowsMultipleAnswers": true,
+        "ScoringPolicy": 2
       }
     ]
   },
   "Answers": {
-    "b1": { "SelectedOptionIds": ["a"] },
-    "b2": { "SelectedOptionIds": ["a", "b"] },
-    "b3": { "SelectedOptionIds": ["a", "b", "c", "d"] }
+    "b1": {
+      "SelectedOptionIds": [
+        "a"
+      ]
+    },
+    "b2": {
+      "SelectedOptionIds": [
+        "a",
+        "b"
+      ]
+    },
+    "b3": {
+      "SelectedOptionIds": [
+        "a",
+        "b",
+        "c",
+        "d"
+      ]
+    }
   },
   "Expected": {
     "ExamVersionId": "fixture-policy-plain",

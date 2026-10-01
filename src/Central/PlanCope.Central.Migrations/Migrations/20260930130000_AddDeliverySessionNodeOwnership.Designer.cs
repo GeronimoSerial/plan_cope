@@ -1698,7 +1698,7 @@ namespace PlanCope.Central.Migrations.Migrations
                     b.Navigation("Sections");
                 });
 #pragma warning restore 612, 618
-        
+
         }
     }
 }

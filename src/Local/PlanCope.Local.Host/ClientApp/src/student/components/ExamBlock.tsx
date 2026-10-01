@@ -17,30 +17,18 @@ export function ExamBlock({ block, number, value, isMissing, onChange }: ExamBlo
   const titleId = `question-title-${block.id}`;
   const errorId = `question-error-${block.id}`;
 
-  if (kind === "text") {
-    const config = parseConfig<{ content?: string }>(block);
-    return <section className="student-question student-copy">{config.content}</section>;
-  }
-
-  if (kind === "image") {
-    const config = parseConfig<{ assetId?: string; alt?: string; caption?: string }>(block);
-    return (
-      <section className="student-question">
-        <img
-          className="student-image"
-          src={`/api/assets/${encodeURIComponent(config.assetId ?? "")}`}
-          alt={config.alt ?? config.caption ?? "Imagen del examen"}
-        />
-        {config.caption && <p className="student-caption">{config.caption}</p>}
-      </section>
-    );
-  }
-
   if (kind === "multiple_choice") {
-    const config = parseConfig<{ question?: string; options?: Array<{ value: string; label: string }> }>(block);
+    const config = parseConfig<{ question?: string; imageAssetId?: string; options?: Array<{ value: string; label: string }> }>(block);
     return (
       <section className="student-question">
         <QuestionTitle id={titleId} number={number} text={config.question ?? ""} required={isRequired} />
+        {config.imageAssetId && (
+          <img
+            src={`/api/assets/${encodeURIComponent(config.imageAssetId)}`}
+            alt={config.question ?? "Imagen de la pregunta"}
+            className="student-question-image"
+          />
+        )}
         <fieldset
           className="student-options"
           aria-labelledby={titleId}
@@ -66,10 +54,17 @@ export function ExamBlock({ block, number, value, isMissing, onChange }: ExamBlo
   }
 
   if (kind === "true_false") {
-    const config = parseConfig<{ question?: string }>(block);
+    const config = parseConfig<{ question?: string; imageAssetId?: string }>(block);
     return (
       <section className="student-question">
         <QuestionTitle id={titleId} number={number} text={config.question ?? ""} required={isRequired} />
+        {config.imageAssetId && (
+          <img
+            src={`/api/assets/${encodeURIComponent(config.imageAssetId)}`}
+            alt={config.question ?? "Imagen de la pregunta"}
+            className="student-question-image"
+          />
+        )}
         <fieldset
           className="student-options"
           aria-labelledby={titleId}
@@ -97,20 +92,5 @@ export function ExamBlock({ block, number, value, isMissing, onChange }: ExamBlo
     );
   }
 
-  const config = parseConfig<{ prompt?: string }>(block);
-  return (
-    <section className="student-question">
-      <QuestionTitle id={titleId} number={number} text={config.prompt ?? ""} required={isRequired} />
-      <textarea
-        id={`answer-${block.id}`}
-        rows={5}
-        value={value}
-        aria-labelledby={titleId}
-        aria-describedby={isMissing ? errorId : undefined}
-        aria-invalid={isMissing}
-        onChange={event => onChange(event.target.value)}
-      />
-      {isMissing && <p id={errorId} className="student-error" role="alert">Esta respuesta es obligatoria.</p>}
-    </section>
-  );
+  throw new Error(`Unsupported exam block type: ${String(block.blockType)}`);
 }

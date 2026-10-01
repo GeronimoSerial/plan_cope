@@ -11,7 +11,6 @@ public sealed class BlankVsIncorrectTests
         var exam = new ExamVersion
         {
             ExamVersionId = "blank-vs-incorrect",
-            DeclaredScoringPolicy = ScoringPolicy.AllOrNothing,
             Blocks = new[]
             {
                 new GradableBlock

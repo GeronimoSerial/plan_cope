@@ -10,5 +10,4 @@ public sealed record GradingAnswerKey
 
     public bool? CorrectBoolean { get; init; }
 
-    public IReadOnlyList<string> AcceptedAnswers { get; init; } = Array.Empty<string>();
 }

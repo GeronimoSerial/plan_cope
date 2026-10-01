@@ -50,37 +50,30 @@ def seed_exam(base, token):
         "code": EXAM_CODE,
         "title": "Examen de muestra para revisar Central",
         "description": "Contenido ficticio de desarrollo; no usar en una toma real.",
-        "level": "Primaria",
+        "courses": ["primaria-6"],
         "area": "Demostración",
         "subject": "Matemática",
     })
     version = request(base, f"/api/exams/{exam['id']}/versions", token=token, method="POST", payload={
         "schemaVersion": 1,
         "metadata": {"title": exam["title"], "grade": "6", "division": "Demo", "subject": "Matemática"},
-        "scoringPolicy": "AllOrNothing",
     })
     request(base, f"/api/exams/versions/{version['id']}/document", token=token, method="PUT", payload={
         "metadata": {"title": exam["title"], "grade": "6", "division": "Demo", "subject": "Matemática"},
-        "scoringPolicy": "AllOrNothing",
         "blocks": [
-            {"orderIndex": 0, "blockType": "Text", "title": "Bienvenida", "description": None,
-             "config": {"content": "Examen ficticio para revisar el sistema Central."},
-             "validation": {"required": False}, "correctAnswer": None, "scoreValue": 0},
-            {"orderIndex": 1, "blockType": "MultipleChoice", "title": "Suma", "description": None,
-             "config": {"question": "¿Cuánto es 18 + 24?", "multiple": False,
+            {"orderIndex": 0, "blockType": "MultipleChoice", "title": "Suma", "description": None,
+             "config": {"question": "¿Cuánto es 18 + 24?", "multiple": True,
+                        "scoringPolicy": "ProportionalPlain",
                         "options": [{"value": "38", "label": "38"}, {"value": "42", "label": "42"},
                                     {"value": "44", "label": "44"}]},
              "validation": {"required": True}, "correctAnswer": ["42"], "scoreValue": 1},
-            {"orderIndex": 2, "blockType": "TrueFalse", "title": "Múltiplos", "description": None,
+            {"orderIndex": 1, "blockType": "TrueFalse", "title": "Múltiplos", "description": None,
              "config": {"question": "El número 9 es múltiplo de 3."},
              "validation": {"required": True}, "correctAnswer": True, "scoreValue": 1},
-            {"orderIndex": 3, "blockType": "ShortAnswer", "title": "Explicación", "description": None,
-             "config": {"prompt": "Explicá cómo resolverías 15 × 4."},
-             "validation": {"required": True}, "correctAnswer": None, "scoreValue": 0},
         ],
     })
     request(base, f"/api/exams/versions/{version['id']}/publish", token=token, method="POST", payload={
-        "subject": "Matemática", "grade": "6", "division": "Demo",
+        "subject": "Matemática", "division": "Demo",
     })
     print(f"Examen publicado: {EXAM_CODE} ({exam['id']})")
     return exam["id"]

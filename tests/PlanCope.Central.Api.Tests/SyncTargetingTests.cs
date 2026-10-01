@@ -200,7 +200,7 @@ public sealed class SyncTargetingTests
             $"CODE-{packageId}",
             "Exam",
             Description: null,
-            Level: null,
+            Courses: [],
             Area: null,
             Subject: "Matematica",
             Status: "Published",
@@ -220,8 +220,7 @@ public sealed class SyncTargetingTests
             PublishedBy: null,
             PublishedAt: publishedAt,
             CreatedAt: publishedAt,
-            UpdatedAt: publishedAt,
-            ScoringPolicy: null));
+            UpdatedAt: publishedAt));
         dbContext.PublicationPackages.Add(new PublicationPackage(
             packageId,
             versionId,

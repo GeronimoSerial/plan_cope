@@ -24,7 +24,6 @@ export default function Loading() {
               <TableHead>Versión</TableHead>
               <TableHead>Estado</TableHead>
               <TableHead>Bloques</TableHead>
-              <TableHead className="hidden md:table-cell">Regla de puntaje</TableHead>
               <TableHead className="hidden md:table-cell">Publicada</TableHead>
               <TableHead className="text-right">Acciones</TableHead>
             </TableRow>
@@ -43,9 +42,6 @@ export default function Loading() {
                 </TableCell>
                 <TableCell>
                   <Skeleton className="h-4 w-8" />
-                </TableCell>
-                <TableCell className="hidden md:table-cell">
-                  <Skeleton className="h-4 w-28" />
                 </TableCell>
                 <TableCell className="hidden md:table-cell">
                   <Skeleton className="h-4 w-24" />

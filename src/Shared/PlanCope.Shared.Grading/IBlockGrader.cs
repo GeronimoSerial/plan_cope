@@ -9,5 +9,5 @@ public interface IBlockGrader
 {
     BlockType BlockType { get; }
 
-    BlockResult Grade(GradableBlock block, SubmittedAnswer? answer, ScoringPolicy? policy);
+    BlockResult Grade(GradableBlock block, SubmittedAnswer? answer);
 }

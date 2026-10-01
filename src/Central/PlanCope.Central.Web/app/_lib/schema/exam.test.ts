@@ -12,6 +12,7 @@ function baseDoc(questions: ExamDocument["questions"]): ExamDocument {
     schemaVersion: 1,
     code: "MAT-2026-01",
     title: "Examen de prueba",
+    courses: ["primaria-1"],
     questions
   };
 }
@@ -37,6 +38,12 @@ describe("examDocumentSchema", () => {
   it("rechaza un examen sin preguntas", () => {
     const result = examDocumentSchema.safeParse(baseDoc([]));
     expect(result.success).toBe(false);
+  });
+
+  it("requires at least one known course", () => {
+    const valid = baseDoc([]);
+    expect(examDocumentSchema.safeParse({ ...valid, courses: [] }).success).toBe(false);
+    expect(examDocumentSchema.safeParse({ ...valid, courses: ["curso-inexistente"] }).success).toBe(false);
   });
 
   it("rechaza opción única con dos respuestas correctas", () => {
@@ -93,14 +100,17 @@ describe("examDocumentSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("acepta verdadero/falso y texto libre", () => {
+  it("acepta verdadero/falso", () => {
     const result = examDocumentSchema.safeParse(
       baseDoc([
-        { id: "q1", type: "true_false", prompt: "El 7 es primo", required: true, score: 1, correctAnswer: true },
-        { id: "q2", type: "free_text", prompt: "Definí par", required: false, score: 2 }
+        { id: "q1", type: "true_false", prompt: "El 7 es primo", required: true, score: 1, correctAnswer: true }
       ])
     );
     expect(result.success).toBe(true);
+  });
+
+  it.each(["free_text", "text_block", "image_block"])("rechaza el tipo eliminado %s", type => {
+    expect(examDocumentSchema.safeParse(baseDoc([{ id: "q", type, prompt: "Pregunta" }])).success).toBe(false);
   });
 });
 

@@ -6,82 +6,58 @@ namespace PlanCope.Shared.Grading.Tests;
 public sealed class MissingPolicyTests
 {
     [Fact]
-    public void Grade_throws_when_no_policy_resolves_for_a_multiple_choice_block()
+    public void Missing_multiple_choice_policy_defaults_to_all_or_nothing()
     {
         var exam = new ExamVersion
         {
             ExamVersionId = "no-policy",
-            DeclaredScoringPolicy = null,
             Blocks = new[]
             {
                 new GradableBlock
                 {
-                    BlockId = "mc",
-                    Type = BlockType.MultipleChoice,
-                    ScoreMax = 10,
-                    AnswerKey = new GradingAnswerKey { CorrectOptionIds = new[] { "a" } }
+                    BlockId = "mc", Type = BlockType.MultipleChoice, AllowsMultipleAnswers = true, ScoreMax = 10,
+                    AnswerKey = new GradingAnswerKey { CorrectOptionIds = new[] { "a", "b" } }
                 }
             }
         };
-
-        var exception = Assert.Throws<UngradableExamException>(
-            () => new GradingEngine().Grade(exam, new Dictionary<string, SubmittedAnswer>()));
-
-        Assert.Contains("no scoring policy resolved", exception.Message, StringComparison.OrdinalIgnoreCase);
+        var result = new GradingEngine().Grade(exam, new Dictionary<string, SubmittedAnswer>
+        {
+            ["mc"] = new() { SelectedOptionIds = new[] { "a" } }
+        });
+        Assert.Equal(0m, result.Score);
+        Assert.Equal(BlockOutcome.Incorrect, Assert.Single(result.Blocks).Outcome);
     }
 
     [Fact]
-    public void Override_policy_rescues_an_exam_without_a_declared_policy()
+    public void Each_multiple_choice_block_uses_its_own_policy()
     {
-        var exam = new ExamVersion
+        var blocks = new[]
         {
-            ExamVersionId = "override-rescue",
-            DeclaredScoringPolicy = null,
-            Blocks = new[]
-            {
-                new GradableBlock
-                {
-                    BlockId = "mc",
-                    Type = BlockType.MultipleChoice,
-                    ScoreMax = 10,
-                    AnswerKey = new GradingAnswerKey { CorrectOptionIds = new[] { "a" } }
-                }
-            }
+            new GradableBlock { BlockId = "plain", Type = BlockType.MultipleChoice, AllowsMultipleAnswers = true, ScoringPolicy = ScoringPolicy.ProportionalPlain, ScoreMax = 6, AnswerKey = new() { CorrectOptionIds = new[] { "a", "b" } } },
+            new GradableBlock { BlockId = "penalised", Type = BlockType.MultipleChoice, AllowsMultipleAnswers = true, ScoringPolicy = ScoringPolicy.ProportionalPenalised, ScoreMax = 6, AnswerKey = new() { CorrectOptionIds = new[] { "a", "b" } } }
         };
-
-        var result = new GradingEngine().Grade(
-            exam,
-            new Dictionary<string, SubmittedAnswer> { ["mc"] = new() { SelectedOptionIds = new[] { "a" } } },
-            overridePolicy: ScoringPolicy.AllOrNothing);
-
-        Assert.Equal(ScoringPolicy.AllOrNothing, result.ScoringPolicy);
-        Assert.Equal(10m, result.Score);
+        var result = new GradingEngine().Grade(new ExamVersion { Blocks = blocks }, new Dictionary<string, SubmittedAnswer>
+        {
+            ["plain"] = new() { SelectedOptionIds = new[] { "a", "c" } },
+            ["penalised"] = new() { SelectedOptionIds = new[] { "a", "c" } }
+        });
+        Assert.Equal(3m, result.Blocks.Single(block => block.BlockId == "plain").Score);
+        Assert.Equal(0m, result.Blocks.Single(block => block.BlockId == "penalised").Score);
     }
 
     [Fact]
-    public void Exam_without_multiple_choice_blocks_grades_without_a_policy()
+    public void Single_choice_ignores_a_configured_partial_policy()
     {
-        var exam = new ExamVersion
+        var block = new GradableBlock
         {
-            ExamVersionId = "no-mc",
-            DeclaredScoringPolicy = null,
-            Blocks = new[]
-            {
-                new GradableBlock
-                {
-                    BlockId = "tf",
-                    Type = BlockType.TrueFalse,
-                    ScoreMax = 5,
-                    AnswerKey = new GradingAnswerKey { CorrectBoolean = true }
-                }
-            }
+            BlockId = "single", Type = BlockType.MultipleChoice, AllowsMultipleAnswers = false,
+            ScoringPolicy = ScoringPolicy.ProportionalPlain, ScoreMax = 10,
+            AnswerKey = new() { CorrectOptionIds = new[] { "a", "b" } }
         };
-
-        var result = new GradingEngine().Grade(
-            exam,
-            new Dictionary<string, SubmittedAnswer> { ["tf"] = new() { SelectedBoolean = true } });
-
-        Assert.Equal(5m, result.Score);
-        Assert.Null(result.ScoringPolicy);
+        var result = new GradingEngine().Grade(new ExamVersion { Blocks = new[] { block } }, new Dictionary<string, SubmittedAnswer>
+        {
+            ["single"] = new() { SelectedOptionIds = new[] { "a" } }
+        });
+        Assert.Equal(0m, result.Score);
     }
 }

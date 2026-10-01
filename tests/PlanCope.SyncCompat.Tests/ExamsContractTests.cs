@@ -42,7 +42,7 @@ public sealed class ExamsContractTests
             "ex-1",
             "EXA-2026-01",
             "Matemática · Primer Año",
-            "Secundario",
+            ["secundaria-2"],
             "Matemática",
             "Números y Operaciones",
             "Approved",
@@ -55,7 +55,7 @@ public sealed class ExamsContractTests
         AssertHasProperty(root, "id");
         AssertHasProperty(root, "code");
         AssertHasProperty(root, "title");
-        AssertHasProperty(root, "level");
+        AssertHasProperty(root, "courses");
         AssertHasProperty(root, "area");
         AssertHasProperty(root, "subject");
         AssertHasProperty(root, "status");
@@ -90,16 +90,16 @@ public sealed class ExamsContractTests
                     BlockType.MultipleChoice,
                     "Pregunta 1",
                     "¿Cuánto es 2 + 2?",
-                    JsonElementOf("""{"options":["A","B","C","D"],"answerIndex":1}"""),
+                    JsonElementOf("""{"multiple":true,"scoringPolicy":"ProportionalPlain","options":["A","B","C","D"],"answerIndex":1}"""),
                     JsonElementOf("""{"shuffled":true}""")),
                 new BlockDto(
                     "blk-2",
                     "ev-101",
                     1,
-                    BlockType.ShortAnswer,
+                    BlockType.TrueFalse,
                     "Pregunta 2",
-                    "Escriba la capital de Francia",
-                    JsonElementOf("""{"maxLength":120}"""),
+                    "La capital de Francia es París.",
+                    JsonElementOf("""{"question":"La capital de Francia es París."}"""),
                     null),
             },
             new[]
@@ -113,7 +113,7 @@ public sealed class ExamsContractTests
                 new AnswerKeyDto(
                     "ak-2",
                     "blk-2",
-                    JsonElementOf("""{"keywords":["París","Paris"]}"""),
+                    JsonElementOf("""{"boolean":true}"""),
                     2m,
                     null),
             },
@@ -135,8 +135,7 @@ public sealed class ExamsContractTests
                     4096,
                     "sha256-bbb",
                     "exams/ev-101/audio.wav"),
-            },
-            "ProportionalPenalised");
+            });
 
         var json = Serialize(sample, PlanCopeJsonSerializerContext.Default.ExamVersionDto);
 
@@ -151,7 +150,6 @@ public sealed class ExamsContractTests
         AssertHasProperty(root, "blocks");
         AssertHasProperty(root, "answerKeys");
         AssertHasProperty(root, "assets");
-        AssertHasProperty(root, "scoringPolicy");
         AssertHasProperty(root, "blockCount");
         AssertHasProperty(root, "canPublish");
         AssertHasProperty(root, "publishBlockedReason");
@@ -159,6 +157,7 @@ public sealed class ExamsContractTests
         AssertHasProperty(root, "supersededAt");
         AssertHasProperty(root, "isCurrent");
         AssertHasProperty(root, "basedOnVersionNumber");
+        Assert.False(root.TryGetProperty("scoringPolicy", out _));
 
         AssertCanonicalRoundTrip(sample, PlanCopeJsonSerializerContext.Default.ExamVersionDto);
     }
@@ -261,10 +260,10 @@ public sealed class ExamsContractTests
                     "blk-1",
                     "ev-101",
                     0,
-                    BlockType.Text,
+                    BlockType.MultipleChoice,
                     "Consigna",
                     "Lea con atención",
-                    JsonElementOf("""{"minWords":10}"""),
+                    JsonElementOf("""{"question":"Lea con atención","multiple":true,"scoringPolicy":"ProportionalPlain"}"""),
                     null),
             },
             new[]
@@ -272,7 +271,7 @@ public sealed class ExamsContractTests
                 new AnswerKeyDto(
                     "ak-1",
                     "blk-1",
-                    JsonElementOf("""{"text":"respuesta libre"}"""),
+                    JsonElementOf("""["B"]"""),
                     3m,
                     null),
             },
@@ -292,7 +291,7 @@ public sealed class ExamsContractTests
                 new PublicationTargetDto("School", "sch-7"),
                 new PublicationTargetDto("Global", null),
             },
-            "ProportionalPenalised");
+            ScoringPolicy: "AllOrNothing");
 
         var json = Serialize(sample, PlanCopeJsonSerializerContext.Default.PublishedExamPackageDto);
 
@@ -311,7 +310,8 @@ public sealed class ExamsContractTests
         AssertHasProperty(root, "answerKeys");
         AssertHasProperty(root, "assets");
         AssertHasProperty(root, "targets");
-        AssertHasProperty(root, "scoringPolicy");
+        Assert.Equal("AllOrNothing", root.GetProperty("scoringPolicy").GetString());
+        Assert.Equal("ProportionalPlain", root.GetProperty("blocks")[0].GetProperty("config").GetProperty("scoringPolicy").GetString());
 
         AssertCanonicalRoundTrip(sample, PlanCopeJsonSerializerContext.Default.PublishedExamPackageDto);
     }
@@ -365,7 +365,7 @@ public sealed class ExamsContractTests
             "EXA-2026-02",
             "Lengua · Segundo Año",
             "Evaluación de comprensión lectora",
-            "Secundario",
+            ["secundaria-2"],
             "Lengua",
             "Literatura");
 
@@ -376,7 +376,7 @@ public sealed class ExamsContractTests
         AssertHasProperty(root, "code");
         AssertHasProperty(root, "title");
         AssertHasProperty(root, "description");
-        AssertHasProperty(root, "level");
+        AssertHasProperty(root, "courses");
         AssertHasProperty(root, "area");
         AssertHasProperty(root, "subject");
 
@@ -388,8 +388,7 @@ public sealed class ExamsContractTests
     {
         var sample = new CreateExamVersionRequest(
             1,
-            JsonElementOf("""{"generatedBy":"teacher01","notes":"borrador"}"""),
-            "ProportionalPenalised");
+            JsonElementOf("""{"generatedBy":"teacher01","notes":"borrador"}"""));
 
         var json = Serialize(sample, PlanCopeJsonSerializerContext.Default.CreateExamVersionRequest);
 
@@ -397,9 +396,9 @@ public sealed class ExamsContractTests
         var root = doc.RootElement;
         AssertHasProperty(root, "schemaVersion");
         AssertHasProperty(root, "metadata");
-        AssertHasProperty(root, "scoringPolicy");
         AssertHasProperty(root, "sourceVersionId");
         AssertHasProperty(root, "empty");
+        Assert.False(root.TryGetProperty("scoringPolicy", out _));
 
         AssertCanonicalRoundTrip(sample, PlanCopeJsonSerializerContext.Default.CreateExamVersionRequest);
     }
@@ -411,7 +410,7 @@ public sealed class ExamsContractTests
             "EXA-2026-01",
             "Matemática · Primer Año",
             "Evaluación de comprensión lectora",
-            "Secundario",
+            ["secundaria-1"],
             "Matemática",
             "Literatura");
 
@@ -422,7 +421,7 @@ public sealed class ExamsContractTests
         AssertHasProperty(root, "code");
         AssertHasProperty(root, "title");
         AssertHasProperty(root, "description");
-        AssertHasProperty(root, "level");
+        AssertHasProperty(root, "courses");
         AssertHasProperty(root, "area");
         AssertHasProperty(root, "subject");
 
@@ -434,10 +433,10 @@ public sealed class ExamsContractTests
     {
         var sample = new UpsertBlockRequest(
             4,
-            BlockType.ShortAnswer,
+            BlockType.TrueFalse,
             "Pregunta 5",
-            "Desarrolle la respuesta",
-            JsonElementOf("""{"maxLength":200}"""),
+            "Marque verdadero o falso",
+            JsonElementOf("""{"question":"La Tierra es redonda."}"""),
             JsonElementOf("""{"allowBlank":false}"""));
 
         var json = Serialize(sample, PlanCopeJsonSerializerContext.Default.UpsertBlockRequest);
@@ -473,14 +472,13 @@ public sealed class ExamsContractTests
     [Fact]
     public void PublishExamVersionRequest_round_trips_through_source_generated_context()
     {
-        var sample = new PublishExamVersionRequest("Matemática", "1°", "A", ["node-old"], ["school-old"]);
+        var sample = new PublishExamVersionRequest("Matemática", "A", ["node-old"], ["school-old"]);
 
         var json = Serialize(sample, PlanCopeJsonSerializerContext.Default.PublishExamVersionRequest);
 
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
         AssertHasProperty(root, "subject");
-        AssertHasProperty(root, "grade");
         AssertHasProperty(root, "division");
         AssertHasProperty(root, "nodeIds");
         AssertHasProperty(root, "schoolIds");
@@ -533,15 +531,14 @@ public sealed class ExamsContractTests
                     1m),
                 new DocumentBlockDto(
                     1,
-                    BlockType.Image,
-                    "Imagen 1",
-                    null,
-                    JsonElementOf("""{"assetId":"as-1","width":640}"""),
+                    BlockType.TrueFalse,
+                    "Pregunta 2",
+                    "La Tierra es redonda.",
+                    JsonElementOf("""{"question":"La Tierra es redonda."}"""),
                     null,
                     null,
                     null),
-            },
-            "ProportionalPenalised");
+            });
 
         var json = Serialize(sample, PlanCopeJsonSerializerContext.Default.ReplaceExamDocumentRequest);
 
@@ -549,7 +546,7 @@ public sealed class ExamsContractTests
         var root = doc.RootElement;
         AssertHasProperty(root, "metadata");
         AssertHasProperty(root, "blocks");
-        AssertHasProperty(root, "scoringPolicy");
+        Assert.False(root.TryGetProperty("scoringPolicy", out _));
 
         AssertCanonicalRoundTrip(sample, PlanCopeJsonSerializerContext.Default.ReplaceExamDocumentRequest);
     }

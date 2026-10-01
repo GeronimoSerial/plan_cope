@@ -109,9 +109,9 @@ public sealed class CentralStatsPostgresIntegrationTests
     private static async Task SeedAsync(PlanCopeDbContext dbContext)
     {
         dbContext.Exams.Add(new Exam("postgres-exam-1", "PG-EXAM-1", "PostgreSQL Integration Exam", null,
-            "Primario", "Matematica", "Numeros", "Approved", null, Now, Now));
+            ["primaria-6"], "Matematica", "Numeros", "Approved", null, Now, Now));
         dbContext.ExamVersions.Add(new PlanCope.Shared.Domain.Central.ExamVersion(ExamVersionId, "postgres-exam-1", 1, 1, "Approved", null,
-            null, null, null, null, null, Now, Now, "AllOrNothing"));
+            null, null, null, null, null, Now, Now));
         dbContext.ExamBlocks.Add(new ExamBlock(BlockId, ExamVersionId, 0, BlockType.MultipleChoice, "Question",
             "Choose B", JsonDocument.Parse("""{"options":["A","B"]}"""), null, Now, Now));
         dbContext.AnswerKeys.Add(new AnswerKey("postgres-answer-key-1", BlockId,

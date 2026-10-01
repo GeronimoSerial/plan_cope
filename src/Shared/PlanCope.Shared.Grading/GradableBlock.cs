@@ -13,5 +13,9 @@ public sealed record GradableBlock
 
     public decimal ScoreMax { get; init; }
 
+    public bool AllowsMultipleAnswers { get; init; }
+
+    public ScoringPolicy? ScoringPolicy { get; init; }
+
     public GradingAnswerKey AnswerKey { get; init; } = new();
 }

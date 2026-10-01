@@ -7,8 +7,7 @@ namespace PlanCope.Local.Api.Data.Repositories;
 
 /// <summary>
 /// The grading outcome persisted atomically with an attempt submission. Status is
-/// <c>"graded"</c> when the engine produced a full result, or <c>"ungradable"</c> when no
-/// scoring policy could be resolved and the attempt must be re-graded later.
+/// <c>"graded"</c> when the engine produced a full result, or <c>"ungradable"</c> when the exam contains an unsupported block type and the attempt cannot be graded.
 /// </summary>
 public sealed record GradingOutcome(
     string Status,

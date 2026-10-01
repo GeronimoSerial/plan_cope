@@ -375,12 +375,17 @@ namespace PlanCope.Central.Migrations.Migrations
                         .HasColumnType("character varying(64)");
 
                     b.Property<string>("Area")
-                        .HasColumnType("text");
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
 
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
+
+                    b.Property<string[]>("Courses")
+                        .IsRequired()
+                        .HasColumnType("text[]");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -389,9 +394,6 @@ namespace PlanCope.Central.Migrations.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Description")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Level")
                         .HasColumnType("text");
 
                     b.Property<string>("Status")
@@ -675,10 +677,6 @@ namespace PlanCope.Central.Migrations.Migrations
                     b.Property<int>("SchemaVersion")
                         .HasColumnType("integer");
 
-                    b.Property<string>("ScoringPolicy")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
                     b.Property<string>("SourceVersionId")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
@@ -833,42 +831,6 @@ namespace PlanCope.Central.Migrations.Migrations
                     b.ToTable("roster_students", "roster");
                 });
 
-            modelBuilder.Entity("PlanCope.Shared.Domain.Central.GradingPolicyAssignment", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<DateTimeOffset>("AssignedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("AssignedBy")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("ExamVersionId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("Note")
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<string>("ScoringPolicy")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ExamVersionId")
-                        .IsUnique();
-
-                    b.ToTable("grading_policies", "exam");
-                });
-
             modelBuilder.Entity("PlanCope.Shared.Domain.Central.Locality", b =>
                 {
                     b.Property<string>("Id")
@@ -1005,10 +967,10 @@ namespace PlanCope.Central.Migrations.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ExamVersionId", "PackageVersion")
+                    b.HasIndex("ExamVersionId")
                         .IsUnique();
 
-                    b.HasIndex("ExamVersionId")
+                    b.HasIndex("ExamVersionId", "PackageVersion")
                         .IsUnique();
 
                     b.ToTable("packages", "publication");

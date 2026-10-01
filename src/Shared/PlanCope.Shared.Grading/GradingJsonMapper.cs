@@ -13,13 +13,25 @@ public static class GradingJsonMapper
     /// <summary>
     /// Builds a gradable block from its JSON answer key, defaulting an unset score to one point.
     /// </summary>
-    public static GradableBlock MapBlock(string blockId, BlockType type, decimal? scoreValue, JsonElement? correctAnswer)
+    public static GradableBlock MapBlock(string blockId, BlockType type, decimal? scoreValue, JsonElement? correctAnswer, JsonElement? config = null)
     {
+        var hasConfig = config.HasValue && config.Value.ValueKind == JsonValueKind.Object;
+        var configElement = hasConfig ? config!.Value : default;
+        var allowsMultipleAnswers = type == BlockType.MultipleChoice &&
+            hasConfig && configElement.TryGetProperty("multiple", out var multiple) && multiple.ValueKind == JsonValueKind.True;
+        ScoringPolicy? scoringPolicy = null;
+        if (allowsMultipleAnswers && configElement.TryGetProperty("scoringPolicy", out var policyValue) && policyValue.ValueKind == JsonValueKind.String)
+        {
+            scoringPolicy = ScoringPolicyParser.Parse(policyValue.GetString());
+        }
+
         return new GradableBlock
         {
             BlockId = blockId,
             Type = type,
             ScoreMax = scoreValue ?? 1m,
+            AllowsMultipleAnswers = allowsMultipleAnswers,
+            ScoringPolicy = scoringPolicy,
             AnswerKey = MapAnswerKey(type, correctAnswer)
         };
     }
@@ -40,8 +52,6 @@ public static class GradingJsonMapper
                 return new SubmittedAnswer { SelectedOptionIds = ReadStringArray(answer.Value) };
             case BlockType.TrueFalse:
                 return new SubmittedAnswer { SelectedBoolean = ReadBoolean(answer.Value) };
-            case BlockType.ShortAnswer:
-                return new SubmittedAnswer { Text = ReadString(answer.Value) };
             default:
                 return null;
         }
@@ -60,8 +70,6 @@ public static class GradingJsonMapper
                 return new GradingAnswerKey { CorrectOptionIds = ReadStringArray(correctAnswer.Value) };
             case BlockType.TrueFalse:
                 return new GradingAnswerKey { CorrectBoolean = ReadBoolean(correctAnswer.Value) };
-            case BlockType.ShortAnswer:
-                return new GradingAnswerKey { AcceptedAnswers = ReadAcceptedAnswers(correctAnswer.Value) };
             default:
                 return new GradingAnswerKey();
         }
@@ -99,16 +107,4 @@ public static class GradingJsonMapper
             : null;
     }
 
-    private static string? ReadString(JsonElement element)
-    {
-        return element.ValueKind == JsonValueKind.String ? element.GetString() : null;
-    }
-
-    private static IReadOnlyList<string> ReadAcceptedAnswers(JsonElement element)
-    {
-        return element.ValueKind == JsonValueKind.Object &&
-               element.TryGetProperty("accepted", out var accepted)
-            ? ReadStringArray(accepted)
-            : Array.Empty<string>();
-    }
 }

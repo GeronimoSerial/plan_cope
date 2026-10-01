@@ -1,31 +1,60 @@
 {
   "ExamVersion": {
     "ExamVersionId": "fixture-mc",
-    "DeclaredScoringPolicy": 2,
     "Blocks": [
       {
         "BlockId": "b1",
         "Type": 2,
         "ScoreMax": 9,
-        "AnswerKey": { "CorrectOptionIds": ["a", "b", "c"] }
+        "AnswerKey": {
+          "CorrectOptionIds": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        "AllowsMultipleAnswers": true,
+        "ScoringPolicy": 2
       },
       {
         "BlockId": "b2",
         "Type": 2,
         "ScoreMax": 5,
-        "AnswerKey": { "CorrectOptionIds": ["x"] }
+        "AnswerKey": {
+          "CorrectOptionIds": [
+            "x"
+          ]
+        },
+        "AllowsMultipleAnswers": true,
+        "ScoringPolicy": 2
       },
       {
         "BlockId": "b3",
         "Type": 2,
         "ScoreMax": 4,
-        "AnswerKey": { "CorrectOptionIds": ["z"] }
+        "AnswerKey": {
+          "CorrectOptionIds": [
+            "z"
+          ]
+        },
+        "AllowsMultipleAnswers": true,
+        "ScoringPolicy": 2
       }
     ]
   },
   "Answers": {
-    "b1": { "SelectedOptionIds": ["a", "b"] },
-    "b2": { "SelectedOptionIds": ["x", "y"] }
+    "b1": {
+      "SelectedOptionIds": [
+        "a",
+        "b"
+      ]
+    },
+    "b2": {
+      "SelectedOptionIds": [
+        "x",
+        "y"
+      ]
+    }
   },
   "Expected": {
     "ExamVersionId": "fixture-mc",

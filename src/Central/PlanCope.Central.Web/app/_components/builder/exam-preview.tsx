@@ -1,19 +1,20 @@
 "use client";
 
 import type { ExamDocument } from "../../_lib/schema/exam";
+import { courseLabel } from "../../_lib/exams/catalog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Textarea } from "@/components/ui/textarea";
 
 interface ExamPreviewProps {
   document: ExamDocument;
+  versionId: string;
 }
 
-// Vista previa de solo lectura: muestra el examen como lo veria el estudiante.
-export function ExamPreview({ document }: ExamPreviewProps) {
-  const meta = [document.subject, document.level, document.area].filter(Boolean).join(" · ");
+// Read-only preview showing the exam as a student will see it.
+export function ExamPreview({ document, versionId }: ExamPreviewProps) {
+  const meta = [document.subject, (document.courses ?? []).map(courseLabel).join(", "), document.area].filter(Boolean).join(" · ");
 
   return (
     <Card>
@@ -38,6 +39,13 @@ export function ExamPreview({ document }: ExamPreviewProps) {
                   {"required" in question && question.required && <span className="text-destructive"> *</span>}
                 </span>
               </div>
+              {question.imageAssetId && (
+                <img
+                  src={`/api/central/exams/versions/${encodeURIComponent(versionId)}/assets/${encodeURIComponent(question.imageAssetId)}`}
+                  alt={question.prompt}
+                  className="max-h-80 max-w-full rounded-md object-contain"
+                />
+              )}
               {question.help && <p className="text-xs text-muted-foreground">{question.help}</p>}
 
               {(question.type === "single_choice" || question.type === "multiple_choice") && (
@@ -68,15 +76,6 @@ export function ExamPreview({ document }: ExamPreviewProps) {
                 </RadioGroup>
               )}
 
-              {question.type === "free_text" && (
-                <Textarea disabled placeholder="Respuesta del estudiante" maxLength={question.maxLength} />
-              )}
-
-              {question.type === "image_block" && (
-                <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-                  Imagen: {question.assetId || "(sin recurso)"}
-                </p>
-              )}
             </li>
           ))}
         </ol>

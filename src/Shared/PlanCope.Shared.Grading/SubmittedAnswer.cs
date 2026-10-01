@@ -9,5 +9,4 @@ public sealed record SubmittedAnswer
 
     public bool? SelectedBoolean { get; init; }
 
-    public string? Text { get; init; }
 }
