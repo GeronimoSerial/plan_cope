@@ -30,6 +30,8 @@ public sealed class CentralAttemptGradingService(
         CancellationToken cancellationToken,
         bool updateRollup = true)
     {
+        AttemptResult? gradedResult = null;
+        string? gradedExamVersionId = null;
         try
         {
             if (string.IsNullOrWhiteSpace(examVersionRemoteId))
@@ -94,19 +96,26 @@ public sealed class CentralAttemptGradingService(
                 JsonDocument.Parse(JsonSerializer.Serialize(result.Blocks, BlocksJsonOptions)),
                 DateTimeOffset.UtcNow), cancellationToken);
 
-            if (updateRollup)
-            {
-                await statsRollupService.UpsertForAttemptAsync(receivedAttemptId, result, examVersion.Id, cancellationToken);
-            }
+            gradedResult = result;
+            gradedExamVersionId = examVersion.Id;
         }
         catch (UngradableExamException exception)
         {
             await StoreUngradableAsync(receivedAttemptId, exception.Message, cancellationToken);
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (Exception exception) when (exception is not OperationCanceledException
+                                          and not DbUpdateException and not System.Data.Common.DbException)
         {
             logger?.LogWarning(exception, "Central could not grade attempt {AttemptId}; it is stored as ungradable.", receivedAttemptId);
             await StoreUngradableAsync(receivedAttemptId, $"Grading failed: {exception.Message}", cancellationToken);
+        }
+
+        // The rollup runs only after a successful grade and outside the grading catch: it saves
+        // changes itself, so storage failures (e.g. the SyncInbox idempotency unique violation)
+        // must propagate to the caller instead of being recorded as an ungradable attempt.
+        if (updateRollup && gradedResult is not null && gradedExamVersionId is not null)
+        {
+            await statsRollupService.UpsertForAttemptAsync(receivedAttemptId, gradedResult, gradedExamVersionId, cancellationToken);
         }
     }
 
