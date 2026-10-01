@@ -51,6 +51,7 @@ public static class StatsEndpoints
             return Results.Ok(stats.Select(course => new
             {
                 course.Course,
+                course.Sections,
                 attemptCount = Render(course.AttemptCount),
                 averageScorePercent = Render(course.AverageScorePercent)
             }).ToArray());
@@ -76,6 +77,7 @@ public static class StatsEndpoints
                 exam.ExamCode,
                 exam.Title,
                 exam.Courses,
+                exam.Sections,
                 exam.VersionNumber,
                 attemptCount = Render(exam.AttemptCount),
                 averageScorePercent = Render(exam.AverageScorePercent),

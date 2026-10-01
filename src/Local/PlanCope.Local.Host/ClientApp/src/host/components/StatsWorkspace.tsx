@@ -33,12 +33,39 @@ function formatSubmissionDate(value: string): string {
   return `${getPart("day")}/${getPart("month")}/${getPart("year")}`;
 }
 
-function searchableCourse(value: string): string[] {
+const gradeAliases: Record<string, string[]> = {
+  "1": ["primero", "1ro", "1er"],
+  "2": ["segundo", "2do"],
+  "3": ["tercero", "3ro", "3er"],
+  "4": ["cuarto", "4to"],
+  "5": ["quinto", "5to"],
+  "6": ["sexto", "6to"],
+  "7": ["septimo", "7mo"],
+  "8": ["octavo", "8vo"],
+  "9": ["noveno", "9no"],
+  "10": ["decimo", "10mo"],
+  "11": ["undecimo", "11mo"],
+  "12": ["duodecimo", "12mo"]
+};
+
+function searchableCourse(value: string, sections: string[] = []): string[] {
   const label = displayCourse(value);
   const grade = normalizeSearch(value);
-  if (!/^\d{1,2}$/.test(grade)) return [value, label];
-  const ordinal = grade === "6" ? "sexto" : `${grade}to`;
-  return [value, label, `${grade}a`, `${grade} a`, `${grade}to a`, `${ordinal} a`];
+  const aliases = gradeAliases[grade] ?? [];
+  const divisionLabels = sections.flatMap(section => {
+    const division = normalizeSearch(section).replace(/\s+/g, "");
+    return division ? [`${grade}${division}`, `${grade} ${division}`, ...aliases.map(alias => `${alias} ${division}`)] : [];
+  });
+  return [value, label, ...aliases, ...divisionLabels];
+}
+
+function matchesSearch(fields: string[], tokens: string[], allowGradeOnlyDivision = false): boolean {
+  const normalized = normalizeSearch(fields.join(" "));
+  return tokens.every(token => {
+    if (normalized.includes(token)) return true;
+    const gradeAndDivision = allowGradeOnlyDivision ? token.match(/^(\d{1,2})[a-z]$/) : null;
+    return gradeAndDivision ? normalized.split(" ").includes(gradeAndDivision[1]) : false;
+  });
 }
 
 export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspaceProps) {
@@ -167,12 +194,13 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
 
   const hasAttempts = examStats.some(exam => typeof exam.attemptCount === "number" ? exam.attemptCount > 0 : Number(exam.attemptCount) > 0);
   const searchTokens = tokenizeSearch(searchQuery.slice(0, 100));
-  const matchesSearch = (fields: string[]) => searchTokens.every(token => normalizeSearch(fields.join(" ")).includes(token));
-  const visibleCourses = courseStats.filter(stat => matchesSearch(searchableCourse(stat.course)));
-  const visibleExams = examStats.filter(exam => matchesSearch([
-    exam.title ?? "", exam.examCode, `${exam.examCode} v${exam.versionNumber}`,
-    ...(exam.courses ?? []).flatMap(searchableCourse)
-  ]));
+  const visibleCourses = courseStats.filter(stat => matchesSearch(searchableCourse(stat.course, stat.sections), searchTokens, !stat.sections?.length));
+  const visibleExams = examStats.filter(exam => {
+    const courseFields = exam.sections?.length
+      ? exam.sections.flatMap(section => searchableCourse(section.course, [section.division]))
+      : (exam.courses ?? []).flatMap(course => searchableCourse(course));
+    return matchesSearch([exam.title ?? "", exam.examCode, `${exam.examCode} v${exam.versionNumber}`, ...courseFields], searchTokens, !exam.sections?.length);
+  });
 
   const handleRefresh = () => {
     setIsRefreshing(true);

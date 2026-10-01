@@ -60,7 +60,7 @@ public sealed class StatsEndpointsAggregationTests
 
             LocalApiFactory.Execute(connection, transaction, """
                 INSERT INTO local_roster_sections (id, snapshot_id, ge_section_id, course, division, level, shift)
-                VALUES ('sec-6', 'snap-1', NULL, '6', NULL, NULL, NULL);
+                VALUES ('sec-6', 'snap-1', NULL, '6', 'B', NULL, NULL);
                 """);
 
             LocalApiFactory.Execute(connection, transaction, """
@@ -186,6 +186,7 @@ public sealed class StatsEndpointsAggregationTests
             Assert.Equal(attemptsPerSession, course.AttemptCount.GetInt32());
             Assert.Equal(JsonValueKind.Number, course.AverageScorePercent.ValueKind);
             Assert.InRange(course.AverageScorePercent.GetDouble(), expectedAveragePercent - 0.01, expectedAveragePercent + 0.01);
+            Assert.Equal(expectedCourse == "6" ? new[] { "B" } : Array.Empty<string>(), course.Sections);
         }
 
         var examResponse = await client.GetAsync("/api/stats/exam?cue=123456789&schoolYear=2026");
@@ -202,6 +203,7 @@ public sealed class StatsEndpointsAggregationTests
             Assert.Equal(attemptsPerSession, exam.AttemptCount.GetInt32());
             Assert.Equal(JsonValueKind.Number, exam.AverageScorePercent.ValueKind);
             Assert.InRange(exam.AverageScorePercent.GetDouble(), expectedAveragePercent - 0.01, expectedAveragePercent + 0.01);
+            Assert.Equal(expectedExamVersionId == "exam-a" ? new[] { new ExamSectionResponse("6", "B") } : Array.Empty<ExamSectionResponse>(), exam.Sections);
 
             var block = Assert.Single(exam.Blocks);
             Assert.Equal("blk-1", block.BlockId);
@@ -289,13 +291,16 @@ public sealed class StatsEndpointsAggregationTests
 
     private sealed record SchoolStatsResponse(JsonElement AttemptCount, JsonElement AverageScorePercent);
 
-    private sealed record CourseStatsResponse(string Course, JsonElement AttemptCount, JsonElement AverageScorePercent);
+    private sealed record CourseStatsResponse(string Course, IReadOnlyList<string> Sections, JsonElement AttemptCount, JsonElement AverageScorePercent);
 
     private sealed record ExamStatsResponse(
         string ExamVersionId,
+        IReadOnlyList<ExamSectionResponse> Sections,
         JsonElement AttemptCount,
         JsonElement AverageScorePercent,
         IReadOnlyList<BlockStatsResponse> Blocks);
+
+    private sealed record ExamSectionResponse(string Course, string Division);
 
     private sealed record BlockStatsResponse(
         string BlockId,

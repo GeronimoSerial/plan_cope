@@ -22,7 +22,10 @@ public sealed record SchoolStatsDto(
 public sealed record CourseStatsDto(
     string Course,
     SuppressibleValue<int> AttemptCount,
-    SuppressibleValue<double> AverageScorePercent);
+    SuppressibleValue<double> AverageScorePercent,
+    IReadOnlyList<string>? Sections = null);
+
+public sealed record ExamSectionDto(string Course, string Division);
 
 public sealed record ExamStatsDto(
     string ExamVersionId,
@@ -32,7 +35,8 @@ public sealed record ExamStatsDto(
     SuppressibleValue<double> AverageScorePercent,
     IReadOnlyList<BlockStatDto> Blocks,
     string? Title = null,
-    IReadOnlyList<string>? Courses = null);
+    IReadOnlyList<string>? Courses = null,
+    IReadOnlyList<ExamSectionDto>? Sections = null);
 
 public sealed record StatsReportAttemptDto(
     string? StudentName,

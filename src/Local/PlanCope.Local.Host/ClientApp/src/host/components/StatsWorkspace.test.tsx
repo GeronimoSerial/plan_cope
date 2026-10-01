@@ -111,13 +111,74 @@ describe("StatsWorkspace", () => {
     await act(async () => {
       if (search) {
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-        setter?.call(search, "6to a");
+        setter?.call(search, "6b");
         search.dispatchEvent(new Event("input", { bubbles: true }));
       }
       await Promise.resolve();
     });
     expect(container?.textContent).toContain("MAT-6");
     expect(container?.textContent).not.toContain("BIO-7");
+  });
+
+  it("matches a division suffix only when section data contains that division", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const body = url.includes("/api/schools?withAttempts=true")
+        ? [{ code: "123456789", name: "Escuela Test", submittedAttemptCount: 1, lastSubmittedAt: "2026-09-30T10:12:00Z" }]
+        : url.includes("/api/stats/filters?")
+          ? { schoolYears: ["2026"], courses: ["6"], exams: [] }
+          : url.includes("/api/stats/course?")
+            ? [{ course: "6", sections: ["B"], attemptCount: 1, averageScorePercent: 80 }]
+            : [{ examVersionId: "math-v1", examCode: "MAT-6", courses: ["6"], sections: [{ course: "6", division: "B" }], versionNumber: 1, attemptCount: 1, averageScorePercent: 80, blocks: [] }];
+      return { ok: true, json: async () => body };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await renderComponent();
+    const search = container?.querySelector<HTMLInputElement>("#stats-search");
+    const setSearch = async (value: string) => act(async () => {
+      if (search) {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(search, value);
+        search.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      await Promise.resolve();
+    });
+    await setSearch("6b");
+    expect(container?.textContent).toContain("MAT-6");
+    await setSearch("6a");
+    expect(container?.textContent).not.toContain("MAT-6");
+    expect(container?.textContent).toContain("Sin resultados para la búsqueda.");
+  });
+
+  it.each(["1ro", "3er", "7mo"])("searches course %s using its Spanish grade alias", async alias => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const body = url.includes("/api/schools?withAttempts=true")
+        ? [{ code: "123456789", name: "Escuela Test", submittedAttemptCount: 3, lastSubmittedAt: "2026-09-30T10:12:00Z" }]
+        : url.includes("/api/stats/filters?")
+          ? { schoolYears: ["2026"], courses: ["1", "3", "7"], exams: [] }
+          : url.includes("/api/stats/course?")
+            ? ["1", "3", "7"].map(course => ({ course, attemptCount: 1, averageScorePercent: 80 }))
+            : ["1", "3", "7"].map(course => ({ examVersionId: `exam-${course}`, examCode: `MAT-${course}`, courses: [course], versionNumber: 1, attemptCount: 1, averageScorePercent: 80, blocks: [] }));
+      return { ok: true, json: async () => body };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await renderComponent();
+    const search = container?.querySelector<HTMLInputElement>("#stats-search");
+    await act(async () => {
+      if (search) {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(search, alias);
+        search.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      await Promise.resolve();
+    });
+
+    const expectedGrade = alias.startsWith("1") ? "1" : alias.startsWith("3") ? "3" : "7";
+    expect(container?.textContent).toContain(`MAT-${expectedGrade}`);
+    for (const otherGrade of ["1", "3", "7"].filter(grade => grade !== expectedGrade)) {
+      expect(container?.textContent).not.toContain(`MAT-${otherGrade}`);
+    }
   });
 
   it("shows the school empty state and disables exports when there are no submitted attempts", async () => {

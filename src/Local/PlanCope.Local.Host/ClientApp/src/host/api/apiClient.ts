@@ -30,9 +30,9 @@ export type PullExamsResult = {
   lastPullAt: string | null;
 };
 
-export type CourseStatDto = { course: string; attemptCount: number | string; averageScorePercent: number | string };
+export type CourseStatDto = { course: string; sections?: string[]; attemptCount: number | string; averageScorePercent: number | string };
 export type BlockStatDto = { blockId: string; orderIndex: number | null; title: string | null; correctCount: number; partialCount: number; incorrectCount: number; blankCount: number; ungradableCount: number };
-export type ExamStatDto = { examVersionId: string; examCode: string; title?: string | null; courses?: string[]; versionNumber: number; attemptCount: number | string; averageScorePercent: number | string; blocks: BlockStatDto[] };
+export type ExamStatDto = { examVersionId: string; examCode: string; title?: string | null; courses?: string[]; sections?: { course: string; division: string }[]; versionNumber: number; attemptCount: number | string; averageScorePercent: number | string; blocks: BlockStatDto[] };
 export type StatsFilterOptionsDto = { schoolYears: string[]; courses: string[]; exams: { examVersionId: string; examCode: string; versionNumber: number }[] };
 
 export class ApiClient {

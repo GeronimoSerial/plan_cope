@@ -161,6 +161,20 @@ public sealed class LocalSessionFlowTests
         factory.SetSchoolName("180055407", "Escuela Alfa 16");
         var section16 = await CreateRosterSessionForSectionAsync(client, "180055407", "grade-16-snapshot", "grade-16");
 
+        var ordinalSessions = new List<(string Query, LocalDeliverySession Session)>();
+        foreach (var (cue, snapshot, section, course, query) in new[]
+        {
+            ("180055408", "grade-1-snapshot", "grade-1", "1°", "1ro"),
+            ("180055409", "grade-3-snapshot", "grade-3", "3°", "3er"),
+            ("180055410", "grade-7-snapshot", "grade-7", "7°", "7mo")
+        })
+        {
+            factory.SeedRoster(cue, "2026", snapshot, section, "Ready");
+            factory.SeedRosterStudent(snapshot, section, $"{section}-student", 700 + ordinalSessions.Count, $"70.000.00{ordinalSessions.Count}", "Alumno", "Curso");
+            factory.SetSectionCourse(section, course);
+            ordinalSessions.Add((query, await CreateRosterSessionForSectionAsync(client, cue, snapshot, section)));
+        }
+
         foreach (var query in new[] { "6a", "6 a", "6° A", "6to a", "sexto a" })
         {
             var page = await client.GetFromJsonAsync<JsonElement>($"/api/sessions/history?q={Uri.EscapeDataString(query)}");
@@ -175,6 +189,15 @@ public sealed class LocalSessionFlowTests
         var grade16 = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history?q=16a");
         Assert.Equal(section16.Id, grade16.GetProperty("items")[0].GetProperty("id").GetString());
         Assert.DoesNotContain(grade16.GetProperty("items").EnumerateArray(), item => item.GetProperty("id").GetString() == sectionA.Id);
+        var grade6b = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history?q=6b");
+        Assert.Equal(1, grade6b.GetProperty("totalCount").GetInt32());
+        Assert.Equal(sectionB.Id, grade6b.GetProperty("items")[0].GetProperty("id").GetString());
+        foreach (var (query, session) in ordinalSessions)
+        {
+            var page = await client.GetFromJsonAsync<JsonElement>($"/api/sessions/history?q={Uri.EscapeDataString(query)}");
+            Assert.Equal(1, page.GetProperty("totalCount").GetInt32());
+            Assert.Equal(session.Id, page.GetProperty("items")[0].GetProperty("id").GetString());
+        }
     }
 
     [Fact]
