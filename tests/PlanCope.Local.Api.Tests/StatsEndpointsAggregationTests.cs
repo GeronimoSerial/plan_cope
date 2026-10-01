@@ -177,6 +177,16 @@ public sealed class StatsEndpointsAggregationTests
             Assert.Equal(0, block.BlankCount);
             Assert.Equal(0, block.UngradableCount);
         }
+
+        var reportResponse = await client.GetAsync("/api/stats/report.html?cue=123456789&schoolYear=2026");
+        Assert.Equal(HttpStatusCode.OK, reportResponse.StatusCode);
+        Assert.Equal("text/html", reportResponse.Content.Headers.ContentType?.MediaType);
+        Assert.Contains("informe-estadistico-123456789-", reportResponse.Content.Headers.ContentDisposition?.FileName);
+        var report = await reportResponse.Content.ReadAsStringAsync();
+        Assert.Contains("<!doctype html>", report);
+        Assert.Contains("Escuela Test", report);
+        Assert.Contains("Distribución de puntajes", report);
+        Assert.Contains("Resultados por bloque", report);
     }
 
     private static async Task EnsureInitializedAsync(HttpClient client)
