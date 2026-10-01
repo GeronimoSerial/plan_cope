@@ -22,6 +22,7 @@ ENV NODE_ENV=production \
     PORT=3000
 COPY --from=build --chown=node:node /app/src/Central/PlanCope.Central.Web/.next/standalone ./
 COPY --from=build --chown=node:node /app/src/Central/PlanCope.Central.Web/.next/static ./src/Central/PlanCope.Central.Web/.next/static
+COPY --from=build --chown=node:node /app/src/Central/PlanCope.Central.Web/public ./src/Central/PlanCope.Central.Web/public
 USER node
 EXPOSE 3000
 CMD ["node", "src/Central/PlanCope.Central.Web/server.js"]
