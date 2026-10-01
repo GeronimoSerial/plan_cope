@@ -113,9 +113,14 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         const string sql = """
             SELECT s.id AS Id, CAST(COALESCE(MAX(activity_at), s.start_at) AS TEXT) AS LastActivityAt
             FROM delivery_sessions s LEFT JOIN (
-                SELECT a.delivery_session_id, a.started_at AS activity_at FROM student_attempts a
-                UNION ALL SELECT a.delivery_session_id, a.submitted_at FROM student_attempts a WHERE a.submitted_at IS NOT NULL
-                UNION ALL SELECT a.delivery_session_id, answer.created_at FROM student_attempts a JOIN submission_answers answer ON answer.student_attempt_id = a.id
+                SELECT a.delivery_session_id, a.started_at AS activity_at
+                FROM student_attempts a JOIN delivery_sessions active ON active.id = a.delivery_session_id AND active.status IN ('active', 'paused')
+                UNION ALL SELECT a.delivery_session_id, a.submitted_at FROM student_attempts a
+                    JOIN delivery_sessions active ON active.id = a.delivery_session_id AND active.status IN ('active', 'paused')
+                    WHERE a.submitted_at IS NOT NULL
+                UNION ALL SELECT a.delivery_session_id, answer.created_at FROM student_attempts a
+                    JOIN delivery_sessions active ON active.id = a.delivery_session_id AND active.status IN ('active', 'paused')
+                    JOIN submission_answers answer ON answer.student_attempt_id = a.id
             ) activity ON activity.delivery_session_id = s.id
             WHERE s.status IN ('active', 'paused') GROUP BY s.id;
             """;

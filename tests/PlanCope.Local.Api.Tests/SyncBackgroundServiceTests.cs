@@ -123,7 +123,7 @@ public sealed class SyncBackgroundServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Does_not_start_a_second_heartbeat_while_one_is_in_flight()
+    public async Task Heartbeat_request_is_awaited_by_background_worker()
     {
         await SeedActiveSessionAsync();
         await SeedSyncStateAsync("central_url", CentralUrl);
@@ -176,6 +176,41 @@ public sealed class SyncBackgroundServiceTests : IDisposable
         Assert.Contains(handler.Paths, path => path.StartsWith("/api/sync/pull", StringComparison.Ordinal));
         var session = await new SessionRepository(connectionFactory).GetByIdAsync("session-active");
         Assert.Equal("active", session?.Status);
+    }
+
+    [Fact]
+    public async Task Active_activity_query_ignores_attempt_history_for_closed_sessions()
+    {
+        await SeedActiveSessionAsync();
+        await new SessionRepository(connectionFactory).CreateAsync(new LocalDeliverySession(
+            Id: "session-closed",
+            ExamVersionId: "exam-version-1",
+            SchoolCode: "180055400",
+            ClassroomCode: null,
+            CommissionCode: null,
+            StartedBy: "user-1",
+            StartAt: DateTimeOffset.UtcNow.AddHours(-4).ToString("O"),
+            EndAt: DateTimeOffset.UtcNow.AddHours(-3).ToString("O"),
+            Status: "closed",
+            ConfigJson: null,
+            AccessCode: "CLOSED1",
+            ExpectedStudentCount: 1,
+            SchoolYear: "2026",
+            RosterSnapshotId: null,
+            RosterSectionId: null));
+        using (var connection = connectionFactory.CreateOpenConnection())
+        {
+            await connection.ExecuteAsync("""
+                INSERT INTO student_attempts (id, delivery_session_id, student_code, status, started_at, submitted_at, local_sequence, confirmation_code, submission_reason)
+                VALUES ('closed-attempt', 'session-closed', 'student-closed', 'submitted', @StartedAt, @SubmittedAt, 1, 'AB12CD34', 'session_closed');
+                """, new { StartedAt = DateTimeOffset.UtcNow.AddHours(-4).ToString("O"), SubmittedAt = DateTimeOffset.UtcNow.ToString("O") });
+        }
+
+        var activity = await new SessionRepository(connectionFactory).GetActiveLastActivityAsync();
+
+        Assert.Contains("session-active", activity.Keys);
+        Assert.DoesNotContain("session-closed", activity.Keys);
+        Assert.True(activity["session-active"] < DateTimeOffset.UtcNow.AddMinutes(-5));
     }
 
     [Fact]

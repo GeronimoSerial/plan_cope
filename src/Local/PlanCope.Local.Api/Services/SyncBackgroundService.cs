@@ -36,7 +36,10 @@ public sealed class SyncBackgroundService(
     // Consecutive probe-failure counter; reset to 0 on any probe success.
     private int attempt;
     private DateTimeOffset lastHeartbeatAttemptAt = DateTimeOffset.MinValue;
-    private bool heartbeatInFlight;
+    private DateTimeOffset lastActiveActivityLookupAt = DateTimeOffset.MinValue;
+    private IReadOnlyDictionary<string, DateTimeOffset?> cachedLastActivityBySession =
+        new Dictionary<string, DateTimeOffset?>(StringComparer.Ordinal);
+    private static readonly TimeSpan ActiveActivityLookupInterval = TimeSpan.FromMinutes(3);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -63,9 +66,9 @@ public sealed class SyncBackgroundService(
                 {
                 var activeSessions = await sessionRepository.GetActiveAsync(stoppingToken);
                 var now = DateTimeOffset.UtcNow;
-                var heartbeatInterval = TimeSpan.FromSeconds(Math.Clamp(configuration.GetValue("SessionHeartbeat:IntervalSeconds", 180), 30, 3600));
+                var heartbeatInterval = TimeSpan.FromSeconds(Math.Clamp(configuration.GetValue("SessionHeartbeat:IntervalSeconds", 180), 30, 300));
                 if (configuration.GetValue("SessionHeartbeat:Enabled", true) && activeSessions.Count > 0 &&
-                    now - lastHeartbeatAttemptAt >= heartbeatInterval && !heartbeatInFlight)
+                    now - lastHeartbeatAttemptAt >= heartbeatInterval)
                 {
                     var syncOffline = await ReadStateStringAsync(syncStateRepository, "sync_offline", stoppingToken);
                     var nextAttemptAt = await ReadStateStringAsync(syncStateRepository, "sync_next_attempt_at", stoppingToken);
@@ -76,7 +79,6 @@ public sealed class SyncBackgroundService(
                         !string.Equals(activationExpired, "true", StringComparison.OrdinalIgnoreCase);
                     if (activationValid && now >= backoffUntil)
                     {
-                        heartbeatInFlight = true;
                         lastHeartbeatAttemptAt = now;
                         try
                         {
@@ -110,10 +112,6 @@ public sealed class SyncBackgroundService(
                         {
                             logger.LogDebug(exception, "Session heartbeat failed; it will be attempted at the next interval.");
                         }
-                        finally
-                        {
-                            heartbeatInFlight = false;
-                        }
                     }
                 }
 
@@ -121,7 +119,12 @@ public sealed class SyncBackgroundService(
                 // active session stops blocking normal sync after the configured stale window; it
                 // remains open in Local until an operator closes it.
                 var staleAfter = TimeSpan.FromHours(Math.Clamp(configuration.GetValue("SessionHeartbeat:StaleSessionHours", 2), 1, 24));
-                var lastActivityBySession = await sessionRepository.GetActiveLastActivityAsync(stoppingToken);
+                if (now - lastActiveActivityLookupAt >= ActiveActivityLookupInterval)
+                {
+                    cachedLastActivityBySession = await sessionRepository.GetActiveLastActivityAsync(stoppingToken);
+                    lastActiveActivityLookupAt = now;
+                }
+                var lastActivityBySession = cachedLastActivityBySession;
                 var blocksSync = activeSessions.Any(session =>
                     !lastActivityBySession.TryGetValue(session.Id, out var lastActivity) ||
                     lastActivity is null || now - lastActivity.Value <= staleAfter);
@@ -228,7 +231,8 @@ public sealed class SyncBackgroundService(
                 DateTimeOffset.TryParse(snapshot.StartAt, out var startedAt) ? startedAt : DateTimeOffset.UtcNow,
                 DateTimeOffset.TryParse(snapshot.LastActivityAt, out var lastActivityAt) ? lastActivityAt : null,
                 System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ??
-                typeof(SyncBackgroundService).Assembly.GetName().Version?.ToString()))
+                typeof(SyncBackgroundService).Assembly.GetName().Version?.ToString(),
+                DateTimeOffset.UtcNow))
         };
         request.Headers.TryAddWithoutValidation("Priority", "u=7");
         request.Headers.Add("X-Node-Id", nodeId);
