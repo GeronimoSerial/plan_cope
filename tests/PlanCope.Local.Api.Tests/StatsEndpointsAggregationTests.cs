@@ -126,6 +126,17 @@ public sealed class StatsEndpointsAggregationTests
             await repository.RebuildAllAsync();
         }
 
+        using (var scope = factory.Services.CreateScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IStatsQueryRepository>();
+            var filterOptions = await repository.GetReportFilterOptionsAsync("123456789");
+            Assert.Contains("2026", filterOptions.SchoolYears);
+            Assert.Contains("6", filterOptions.Courses);
+            Assert.Contains("7", filterOptions.Courses);
+            Assert.Contains(filterOptions.Exams, exam => exam.ExamVersionId == "exam-a" && exam.ExamCode == "MAT-6" && exam.VersionNumber == 1L);
+            Assert.Contains(filterOptions.Exams, exam => exam.ExamVersionId == "exam-b" && exam.ExamCode == "LEN-6" && exam.VersionNumber == 1L);
+        }
+
         var jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
 
         var schoolResponse = await client.GetAsync("/api/stats/school?cue=123456789&schoolYear=2026");

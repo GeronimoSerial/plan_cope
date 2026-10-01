@@ -49,7 +49,7 @@ public sealed record StatsReportDataDto(
     int ExpectedStudentCount);
 
 public sealed record StatsFilterOptionsDto(IReadOnlyList<string> SchoolYears, IReadOnlyList<string> Courses, IReadOnlyList<ExamFilterOptionDto> Exams);
-public sealed record ExamFilterOptionDto(string ExamVersionId, string ExamCode, int VersionNumber);
+public sealed record ExamFilterOptionDto(string ExamVersionId, string ExamCode, long VersionNumber);
 
 public interface IStatsQueryRepository
 {
