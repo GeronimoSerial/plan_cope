@@ -71,34 +71,29 @@ export function QuestionNav({ blocks, answers }: QuestionNavProps) {
 
   useEffect(() => {
     const answerBlocks = blocks.filter(isAnswerBlock);
-    const updateCurrentQuestion = () => {
-      if (answerBlocks.length === 0) {
-        setCurrentBlockId(null);
-        return;
+    if (answerBlocks.length === 0 || typeof IntersectionObserver === "undefined") {
+      setCurrentBlockId(null);
+      return;
+    }
+
+    const observer = new IntersectionObserver(entries => {
+      const current = entries.find(entry => entry.isIntersecting);
+      if (current) {
+        setCurrentBlockId(current.target.id);
       }
+    }, {
+      rootMargin: "-30% 0px -69% 0px",
+      threshold: 0
+    });
 
-      const readingLine = Math.min(window.innerHeight * 0.3, 220);
-      const visibleItems = answerBlocks
-        .map(block => ({ block, element: document.getElementById(block.id) }))
-        .filter((item): item is { block: LocalExamBlock; element: HTMLElement } => item.element instanceof HTMLElement)
-        .map(item => ({ ...item, rect: item.element.getBoundingClientRect() }));
-      const next = visibleItems.find(item => item.rect.top <= readingLine && item.rect.bottom > readingLine)
-        ?? visibleItems.find(item => item.rect.top > readingLine);
-
-      if (next) {
-        setCurrentBlockId(next.block.id);
-      } else {
-        setCurrentBlockId(answerBlocks.at(-1)?.id ?? null);
+    for (const block of answerBlocks) {
+      const element = document.getElementById(block.id);
+      if (element) {
+        observer.observe(element);
       }
-    };
+    }
 
-    updateCurrentQuestion();
-    window.addEventListener("scroll", updateCurrentQuestion, { passive: true });
-    window.addEventListener("resize", updateCurrentQuestion);
-    return () => {
-      window.removeEventListener("scroll", updateCurrentQuestion);
-      window.removeEventListener("resize", updateCurrentQuestion);
-    };
+    return () => observer.disconnect();
   }, [blocks]);
 
   const navItems = useMemo(

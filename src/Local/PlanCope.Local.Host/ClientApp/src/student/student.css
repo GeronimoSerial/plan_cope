@@ -32,7 +32,11 @@
 }
 .student-brand-copy p { margin: var(--s-1) 0 0; color: var(--ink-soft); font-size: var(--t-micro); font-weight: 600; }
 .student-content { width: 100%; max-width: var(--measure); padding: var(--s-6) var(--gutter); }
-.student-page :focus-visible { outline: 2px solid var(--marker); outline-offset: 2px; }
+.student-page :focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px var(--marker);
+}
 
 .student-gate { display: grid; min-height: min(68vh, 620px); place-items: center; padding: var(--s-5) 0; }
 .student-card {
@@ -200,7 +204,11 @@
 .student-option:hover { border-color: var(--ink-soft); background: var(--fill); }
 .student-option input { flex: none; width: 20px; height: 20px; margin: 0; accent-color: var(--accent); }
 .student-option:has(input:checked) { border-color: var(--accent); border-left: 4px solid var(--accent); background: var(--accent-tint); }
-.student-option:has(input:focus-visible) { outline: 2px solid var(--marker); outline-offset: 2px; }
+.student-option:has(input:focus-visible) {
+  outline: 3px solid var(--ink);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px var(--marker);
+}
 .student-question textarea {
   width: 100%;
   min-height: 120px;
