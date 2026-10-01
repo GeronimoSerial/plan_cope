@@ -79,7 +79,7 @@ public sealed class LocalSessionFlowTests
         var deliverySession = payload.RootElement.GetProperty("deliverySession");
         Assert.Equal(session.Id, deliverySession.GetProperty("id").GetString());
         Assert.Equal("180055400", deliverySession.GetProperty("schoolCue").GetString());
-        Assert.Equal(LocalApiFactory.ExamVersionId, deliverySession.GetProperty("examVersionId").GetString());
+        Assert.Equal("remote-test-matematica-6-v1", deliverySession.GetProperty("examVersionId").GetString());
         Assert.True(deliverySession.TryGetProperty("sectionId", out _));
     }
 

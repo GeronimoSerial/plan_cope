@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -227,7 +228,14 @@ public sealed class CentralLocalStatsEquivalenceTests
         var item = new PushItem("idem-equiv-1", "attempt_submitted", "student_attempt",
             "attempt-equiv-1-local", payload, SyncPayloadChecksum.Calculate(payload), Now.ToString("O"));
         var controller = new SyncController(dbContext, new CentralStatsRollupService(dbContext));
-        SyncTestPrincipals.BindNode(controller, "node-equiv-1");
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(
+                    new[] { new Claim("token_type", "node_access"), new Claim("node_id", "node-equiv-1") }, "test"))
+            }
+        };
         var response = await controller.Push(new PushRequest("node-equiv-1", new[] { item }), "node-equiv-1",
             new PushRequestValidator(), CancellationToken.None);
         Assert.Equal("accepted", Assert.IsType<PushResponse>(Assert.IsType<OkObjectResult>(response.Result).Value).Results.Single().Status);
@@ -258,6 +266,7 @@ public sealed class CentralLocalStatsEquivalenceTests
         return new DbContextOptionsBuilder<PlanCopeDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
             .UseInternalServiceProvider(InMemoryServices)
+            .ConfigureWarnings(warnings => warnings.Ignore(InMemoryEventId.TransactionIgnoredWarning))
             .Options;
     }
 
