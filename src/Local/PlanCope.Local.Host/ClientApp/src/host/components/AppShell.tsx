@@ -63,6 +63,7 @@ export function AppShell({ status, apiBaseUrl, appVersion, sessionContext, activ
                   onCheckForUpdates={update.checkForUpdates}
                   onDownloadUpdate={update.downloadUpdate}
                   onDeferUpdate={update.deferUpdate}
+                  onApplyUpdate={update.applyUpdate}
                 />
               </div>
             </div>
@@ -71,8 +72,12 @@ export function AppShell({ status, apiBaseUrl, appVersion, sessionContext, activ
       </header>
 
       <main className="app-content">
+<<<<<<< HEAD
         {sessionContext && <div className="session-context" aria-label="Escuela de la sesión"><strong>{sessionContext.schoolName}</strong>{sessionContext.schoolName !== `CUE ${sessionContext.schoolCode}` && <span>CUE {sessionContext.schoolCode}</span>}</div>}
         <div className="workspace">{children}</div>
+=======
+        <div className="workspace" id="sesiones">{children}</div>
+>>>>>>> origin/main
       </main>
       <footer className="footer">
         <span className="footer-status" role="status" aria-live="polite">{status}</span>

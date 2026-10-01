@@ -45,6 +45,15 @@ The bootstrapper creates only the user, the `Admin` role (if missing), and the r
 It does not create `UserSchoolAssignment`, `Province`, `Department`, `Locality`, or `School` rows
 — roster scope is real-data work handled separately.
 
+## Effective roster scope
+
+Tokens use the user's effective roster scope. A profile with `roster_scope=school` and no assigned
+CUEs is issued as `roster_scope=province`, which grants access to all schools. A school-scoped
+profile with one or more assigned CUEs remains `roster_scope=school` and receives those CUEs as
+`roster_cue` claims. Login and refresh return the same effective scope as their tokens. This keeps
+statistics, schools, users, and activation administration aligned with the assignments shown in
+the user administration page (`Todas las escuelas` when no CUE is assigned).
+
 ## Logging
 
 - `Information` when a new administrator is created (email address only).

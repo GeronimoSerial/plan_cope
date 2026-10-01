@@ -189,6 +189,7 @@
 .student-question-number { display: inline-flex; min-width: 1.75rem; min-height: 1.75rem; align-items: center; justify-content: center; margin-right: var(--s-2); border-radius: var(--r-xs); background: var(--action); color: #fff; font-size: var(--t-small); font-weight: 700; vertical-align: .08em; }
 .student-image { display: block; max-width: 100%; height: auto; margin: var(--s-2) 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--card); }
 .student-caption { margin: var(--s-2) 0 0; color: var(--ink-soft); font-size: var(--t-small); }
+.student-question-image { display: block; width: auto; max-width: 100%; height: auto; max-height: min(50vh, 420px); margin: var(--s-3) 0 0; border-radius: 6px; object-fit: contain; }
 .student-options { display: grid; min-width: 0; gap: var(--s-2); margin: var(--s-3) 0 0; border: 0; padding: 0; }
 .student-option-legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .student-option {

@@ -41,6 +41,17 @@ public sealed class TokenService(IOptions<AuthOptions> options) : ITokenService
         return CreateToken(claims, TimeSpan.FromDays(_options.RefreshTokenDays));
     }
 
+    public static UserProfileDto ApplyEffectiveRosterScope(UserProfileDto user)
+    {
+        if (string.Equals(user.RosterScope, "school", StringComparison.OrdinalIgnoreCase) &&
+            user.RosterCues.Count == 0)
+        {
+            return user with { RosterScope = "province", RosterCues = [] };
+        }
+
+        return user;
+    }
+
     public ClaimsPrincipal ValidateRefreshToken(string refreshToken)
     {
         var principal = new JwtSecurityTokenHandler().ValidateToken(refreshToken, CreateValidationParameters(), out _);
@@ -91,6 +102,7 @@ public sealed class TokenService(IOptions<AuthOptions> options) : ITokenService
 
     private static List<Claim> CreateBaseClaims(UserProfileDto user)
     {
+        user = ApplyEffectiveRosterScope(user);
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub, user.Id),

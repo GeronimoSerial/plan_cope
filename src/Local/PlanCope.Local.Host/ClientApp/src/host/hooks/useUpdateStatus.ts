@@ -27,9 +27,10 @@ export function useUpdateStatus() {
   const checkForUpdates = useMemo(() => () => postHostMessage({ type: "host:checkForUpdates" }), []);
   const downloadUpdate = useMemo(() => () => postHostMessage({ type: "host:downloadUpdate" }), []);
   const deferUpdate = useMemo(() => () => postHostMessage({ type: "host:deferUpdate" }), []);
+  const applyUpdate = useMemo(() => () => postHostMessage({ type: "host:applyUpdate" }), []);
 
   return useMemo(
-    () => ({ status, checkForUpdates, downloadUpdate, deferUpdate }),
-    [status, checkForUpdates, downloadUpdate, deferUpdate]
+    () => ({ status, checkForUpdates, downloadUpdate, deferUpdate, applyUpdate }),
+    [status, checkForUpdates, downloadUpdate, deferUpdate, applyUpdate]
   );
 }

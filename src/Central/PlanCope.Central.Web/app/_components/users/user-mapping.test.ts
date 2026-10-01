@@ -77,8 +77,8 @@ describe("buildCreateUserPayload", () => {
 });
 
 describe("formatCues", () => {
-  it("muestra un guión cuando no hay CUEs", () => {
-    expect(formatCues([])).toBe("—");
+  it("muestra todas las escuelas cuando no hay CUEs asignados", () => {
+    expect(formatCues([])).toBe("Todas las escuelas");
   });
 
   it("une los CUEs con coma y espacio", () => {
