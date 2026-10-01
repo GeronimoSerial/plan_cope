@@ -21,14 +21,13 @@ namespace PlanCope.Central.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/sync")]
-public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central.Api.Services.CentralStatsRollupService statsRollupService) : ControllerBase
+public sealed class SyncController(
+    PlanCopeDbContext dbContext,
+    CentralStatsRollupService statsRollupService,
+    ILogger<SyncController>? logger = null,
+    CentralAttemptGradingService? attemptGradingService = null) : ControllerBase
 {
     private static readonly JsonSerializerOptions SyncJsonOptions = new(JsonSerializerDefaults.Web);
-
-    private static readonly JsonSerializerOptions BlocksJsonOptions = new()
-    {
-        Converters = { new JsonStringEnumConverter() }
-    };
 
     [HttpGet("pull")]
     public async Task<ActionResult<PullResponse>> Pull([FromQuery] string? nodeId, [FromQuery] string? cursor, [FromQuery] int limit = 50, CancellationToken cancellationToken = default)
@@ -240,6 +239,12 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
             dbContext.ChangeTracker.Clear();
             return new PushItemResult(item.IdempotencyKey, "failed", exception.Message);
         }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger?.LogError(exception, "Central failed to accept sync item {IdempotencyKey} from node {NodeId}.", item.IdempotencyKey, nodeId);
+            dbContext.ChangeTracker.Clear();
+            return new PushItemResult(item.IdempotencyKey, "failed", exception.Message);
+        }
     }
 
     private async Task AddAttemptAsync(string nodeId, PushItem item, JsonElement payload, CancellationToken cancellationToken)
@@ -310,10 +315,8 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
         }
 
         var examVersionRemoteId = ReadOptionalString(payload, "examVersionRemoteId");
-        if (examVersionRemoteId is not null)
-        {
-            await RecomputeGradeAsync(receivedAttemptId, examVersionRemoteId, receivedAnswers, cancellationToken);
-        }
+        var grader = attemptGradingService ?? new CentralAttemptGradingService(dbContext, statsRollupService, logger: null);
+        await grader.RecomputeAsync(receivedAttemptId, examVersionRemoteId, receivedAnswers, cancellationToken);
     }
 
     private string? UpsertDeliverySession(string nodeId, JsonElement payload, DateTimeOffset receivedAt)
@@ -353,7 +356,9 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
             existing?.EndedAt ?? closedAt,
             receivedAt,
             existing?.CreatedAt ?? receivedAt,
-            nodeId);
+            nodeId,
+            existing?.SchoolYear ?? ReadOptionalString(sessionElement, "schoolYear"),
+            existing?.Course ?? ReadOptionalString(sessionElement, "course"));
         if (existing is null)
         {
             dbContext.DeliverySessions.Add(session);
@@ -374,99 +379,6 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
         }
 
         return false;
-    }
-
-    /// <summary>
-    /// Independently recomputes the attempt grade from Central's own exam definition and adds a
-    /// <see cref="CentralAttemptResult"/> to the same change-set as the attempt itself. An unknown
-    /// <paramref name="examVersionRemoteId"/> is treated exactly like an absent one: no grade, no
-    /// row, no failed push — Central never guesses a policy or fabricates a grade.
-    /// </summary>
-    private async Task RecomputeGradeAsync(
-        string receivedAttemptId,
-        string examVersionRemoteId,
-        IReadOnlyList<ReceivedSubmissionAnswer> answers,
-        CancellationToken cancellationToken)
-    {
-        var examVersion = await dbContext.ExamVersions
-            .SingleOrDefaultAsync(x => x.Id == examVersionRemoteId, cancellationToken);
-        if (examVersion is null)
-        {
-            return;
-        }
-
-        var blocks = await dbContext.ExamBlocks
-            .Where(x => x.ExamVersionId == examVersion.Id)
-            .OrderBy(x => x.OrderIndex)
-            .ToListAsync(cancellationToken);
-        var blockIds = blocks.Select(static x => x.Id).ToList();
-        var answerKeys = await dbContext.AnswerKeys
-            .Where(x => blockIds.Contains(x.ExamBlockId))
-            .ToListAsync(cancellationToken);
-        var answerKeyByBlockId = answerKeys.ToDictionary(static x => x.ExamBlockId);
-
-        var gradableBlocks = new List<GradableBlock>(blocks.Count);
-        foreach (var block in blocks)
-        {
-            var answerKey = answerKeyByBlockId.TryGetValue(block.Id, out var key) ? key : null;
-            gradableBlocks.Add(GradingJsonMapper.MapBlock(
-                block.Id,
-                block.BlockType,
-                answerKey?.ScoreValue,
-                answerKey is null ? null : ToJsonElement(answerKey.CorrectAnswer),
-                block.Config.RootElement));
-        }
-
-        var blocksById = blocks.ToDictionary(static x => x.Id);
-        var submitted = new Dictionary<string, SubmittedAnswer>();
-        foreach (var received in answers)
-        {
-            if (!blocksById.TryGetValue(received.BlockId, out var block))
-            {
-                continue;
-            }
-
-            var mapped = GradingJsonMapper.MapSubmittedAnswer(block.BlockType, received.Answer.RootElement);
-            if (mapped is not null)
-            {
-                submitted[received.BlockId] = mapped;
-            }
-        }
-
-        try
-        {
-            var result = new GradingEngine().Grade(new GradingExamVersion
-            {
-                ExamVersionId = examVersion.Id,
-                Blocks = gradableBlocks
-            }, submitted);
-
-            dbContext.CentralAttemptResults.Add(new CentralAttemptResult(
-                Guid.NewGuid().ToString("N"),
-                receivedAttemptId,
-                result.GradingSchemaVersion,
-                result.ScoringPolicy?.ToString(),
-                "graded",
-                result.Score,
-                result.ScoreMax,
-                JsonDocument.Parse(JsonSerializer.Serialize(result.Blocks, BlocksJsonOptions)),
-                DateTimeOffset.UtcNow));
-
-            await statsRollupService.UpsertForAttemptAsync(receivedAttemptId, result, examVersion.Id, cancellationToken);
-        }
-        catch (UngradableExamException)
-        {
-            dbContext.CentralAttemptResults.Add(new CentralAttemptResult(
-                Guid.NewGuid().ToString("N"),
-                receivedAttemptId,
-                GradingSchemaVersion.Current,
-                null,
-                "ungradable",
-                null,
-                null,
-                null,
-                DateTimeOffset.UtcNow));
-        }
     }
 
     private static DateTimeOffset? ParseOptionalDate(string? value) =>

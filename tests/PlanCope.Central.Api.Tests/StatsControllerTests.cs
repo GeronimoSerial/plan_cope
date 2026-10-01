@@ -6,8 +6,10 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using PlanCope.Central.Api.Auth;
 using PlanCope.Central.Api.Controllers;
+using PlanCope.Shared.Contracts.Auth;
 using PlanCope.Central.Api.Data;
 using PlanCope.Shared.Domain;
 using PlanCope.Shared.Domain.Central;
@@ -90,6 +92,8 @@ public sealed class StatsControllerTests
         var options = CreateOptions();
         using var dbContext = new PlanCopeDbContext(options);
         await SeedRollupAsync(dbContext, "180000100", "2026", "Matematica", "ev-1", attemptCount: 10, scoreSum: 8, scoreMaxSum: 10);
+        dbContext.Schools.Add(new School("school-stats-1", "180000100", 180000100, null, "Escuela Datos", "locality-1", "Active", null, Now, Now));
+        await dbContext.SaveChangesAsync();
 
         using var scope = CreateAuthScope();
         var controller = CreateController(
@@ -103,6 +107,32 @@ public sealed class StatsControllerTests
         using var json = ToJson(ok.Value);
         var cues = json.RootElement.EnumerateArray().Select(row => row.GetProperty("cue").GetString()).ToList();
         Assert.Contains("180000100", cues);
+        Assert.Equal("Escuela Datos", json.RootElement.EnumerateArray().Single().GetProperty("schoolName").GetString());
+    }
+
+    [Fact]
+    public async Task GetSchools_ZeroCueSchoolToken_SeesAllSchools()
+    {
+        using var dbContext = new PlanCopeDbContext(CreateOptions());
+        await SeedRollupAsync(dbContext, "180000100", "2026", "Matematica", "ev-1", 10, 8, 10);
+        await SeedRollupAsync(dbContext, "180000200", "2026", "Lengua", "ev-2", 10, 7, 10);
+
+        var tokenService = new TokenService(Options.Create(new AuthOptions
+        {
+            SigningKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }));
+        var token = tokenService.CreateAccessToken(new UserProfileDto("user-0-cue", "Sin escuelas", "Viewer", null, "school", []));
+        var principal = new ClaimsPrincipal(new ClaimsIdentity(new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler()
+            .ReadJwtToken(token).Claims, "test"));
+
+        using var scope = CreateAuthScope();
+        var controller = CreateController(dbContext, scope.ServiceProvider.GetRequiredService<IAuthorizationService>(), principal);
+        var result = await controller.GetSchools(null, null, CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(result);
+        using var json = ToJson(ok.Value);
+        var cues = json.RootElement.EnumerateArray().Select(row => row.GetProperty("cue").GetString()).Order().ToArray();
+        Assert.Equal(new[] { "180000100", "180000200" }, cues);
     }
 
     [Fact]

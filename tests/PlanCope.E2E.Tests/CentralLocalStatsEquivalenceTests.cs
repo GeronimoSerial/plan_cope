@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using Dapper;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -15,12 +16,15 @@ using PlanCope.Central.Api.Data;
 using PlanCope.Central.Api.Services;
 using PlanCope.Local.Api.Data;
 using PlanCope.Local.Api.Data.Repositories;
+using PlanCope.Local.Api.Services;
 using PlanCope.Shared.Domain;
 using PlanCope.Shared.Domain.Central;
+using PlanCope.Shared.Domain.Local;
 using PlanCope.Shared.Contracts.Sync;
 using PlanCope.Shared.Infrastructure.Validation;
 using PlanCope.Shared.Grading;
 using PlanCope.TestSupport;
+using CentralExamVersion = PlanCope.Shared.Domain.Central.ExamVersion;
 using Xunit;
 
 namespace PlanCope.E2E.Tests;
@@ -56,6 +60,94 @@ public sealed class CentralLocalStatsEquivalenceTests
 
         Assert.Equal(central.AttemptCount, localAttemptCount);
         Assert.Equal(central.AverageScorePercent, localAverageScorePercent, 3);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Local_submission_from_a_created_session_reaches_central_rollups_and_stats(bool rosterLoaded)
+    {
+        using var localDatabase = new LocalStatsDatabase();
+        var localFactory = localDatabase.CreateConnectionFactory();
+        const string localVersionId = "local-normal-session-version";
+        const string attemptId = "local-normal-session-attempt";
+        var localExams = new LocalExamRepository(localFactory);
+        await localExams.UpsertImportedExamAsync(
+            new LocalExamVersion(localVersionId, ExamVersionId, "MAT-NORMAL", 1, "checksum", "{}", 1, Now.ToString("O")),
+            [new LocalExamBlock("blk-1", localVersionId, "blk-1", 0, BlockType.MultipleChoice, "{\"options\":[\"A\",\"B\"]}", null)],
+            [],
+            [new LocalAnswerKey("key-1", localVersionId, "blk-1", "[\"B\"]", 10d)]);
+
+        var sessionId = $"session-{rosterLoaded.ToString().ToLowerInvariant()}";
+        var session = new LocalDeliverySession(sessionId, localVersionId, Cue, null, null, "operator", Now.ToString("O"), null,
+            "active", null, $"CODE{(rosterLoaded ? "A" : "B")}", 1,
+            rosterLoaded ? SchoolYear : null,
+            rosterLoaded ? "local-snapshot" : null,
+            rosterLoaded ? "local-section" : null);
+        if (rosterLoaded)
+        {
+            using var connection = localFactory.CreateOpenConnection();
+            connection.Execute("INSERT OR IGNORE INTO schools (cue, created_at) VALUES (@Cue, @Now);", new { Cue, Now = Now.ToString("O") });
+            connection.Execute("INSERT INTO local_roster_snapshots (id, cue, school_year, fetched_at, checksum, section_count, student_count, status) VALUES ('local-snapshot', @Cue, @SchoolYear, @Now, 'local-checksum', 1, 1, 'current');",
+                new { Cue, SchoolYear, Now = Now.ToString("O") });
+            connection.Execute("INSERT INTO local_roster_sections (id, snapshot_id, course, division) VALUES ('local-section', 'local-snapshot', @Course, 'A');", new { Course });
+        }
+        await new SessionRepository(localFactory).CreateAsync(session);
+
+        var attempts = new AttemptRepository(localFactory);
+        await attempts.CreateAsync(new StudentAttempt(attemptId, sessionId, "student-1", "in_progress", Now.ToString("O"), null, 1, null));
+        await attempts.UpsertAnswersAsync(attemptId, [new SubmissionAnswer("answer-1", attemptId, "blk-1", "[\"B\"]", Now.ToString("O"))]);
+        var outbox = new OutboxRepository(localFactory);
+        var submitter = new AttemptSubmissionService(
+            attempts,
+            new SessionRepository(localFactory),
+            localExams,
+            new StatsRollupRepository(localFactory, NullLogger<StatsRollupRepository>.Instance),
+            localFactory,
+            NullLogger<AttemptSubmissionService>.Instance);
+        Assert.True((await submitter.SubmitAsync(attemptId)).Success);
+        var pending = await outbox.GetPendingBatchAsync(10, DateTimeOffset.UtcNow.AddMinutes(1).ToString("O"));
+        var outboxItem = Assert.Single(pending);
+        using var payloadDocument = JsonDocument.Parse(outboxItem.PayloadJson);
+        var payload = payloadDocument.RootElement.Clone();
+
+        using var central = new PlanCopeDbContext(CreateOptions());
+        central.Schools.Add(new School("normal-session-school", "CUE-180000100", 180000100, null, "Escuela Normal", "locality-1", "Active", null, Now, Now));
+        central.Exams.Add(new Exam("normal-session-exam", "MAT-NORMAL", "Matemática", null, [], null, null, "Approved", null, Now, Now));
+        central.ExamVersions.Add(new CentralExamVersion(ExamVersionId, "normal-session-exam", 1, 1, "Approved", null, null, null, null, null, null, Now, Now));
+        central.ExamBlocks.Add(new ExamBlock("blk-1", ExamVersionId, 0, BlockType.MultipleChoice, "Pregunta", "18 + 24", JsonDocument.Parse("{\"options\":[\"A\",\"B\"]}"), null, Now, Now));
+        central.AnswerKeys.Add(new AnswerKey("normal-session-key", "blk-1", JsonDocument.Parse("[\"B\"]"), 10m, null, Now, Now));
+        if (rosterLoaded)
+        {
+            central.GeRosterSnapshots.Add(new GeRosterSnapshot
+            {
+                Id = "local-snapshot", Cue = Cue, SchoolYear = SchoolYear, FetchedAt = Now, Checksum = "local-checksum", SectionCount = 1, StudentCount = 1, Status = "current"
+            });
+            central.GeRosterSections.Add(new GeRosterSection { Id = "local-section", SnapshotId = "local-snapshot", Course = Course, Division = "A" });
+        }
+        await central.SaveChangesAsync();
+
+        var pushItem = new PushItem(outboxItem.IdempotencyKey, outboxItem.EventType, outboxItem.AggregateType,
+            outboxItem.AggregateId, payload, SyncPayloadChecksum.Calculate(payload), outboxItem.CreatedAt);
+        var sync = new SyncController(central, new CentralStatsRollupService(central));
+        sync.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(
+                    [new Claim("token_type", "node_access"), new Claim("node_id", "local-normal-node")], "test"))
+            }
+        };
+        var pushed = await sync.Push(new PushRequest("local-normal-node", [pushItem]), "local-normal-node", new PushRequestValidator(), CancellationToken.None);
+        Assert.Equal("accepted", Assert.IsType<PushResponse>(Assert.IsType<OkObjectResult>(pushed.Result).Value).Results.Single().Status);
+        Assert.Single(await central.ExamRollups.ToListAsync());
+
+        using var authScope = CreateAuthScope();
+        var stats = CreateController(central, authScope.ServiceProvider.GetRequiredService<IAuthorizationService>(),
+            Principal(new Claim("roster_scope", "province")));
+        var statsResult = await stats.GetSchools(null, null, CancellationToken.None);
+        using var statsJson = ToJson(Assert.IsType<OkObjectResult>(statsResult).Value);
+        Assert.Contains(statsJson.RootElement.EnumerateArray(), row => row.GetProperty("cue").GetString() == Cue);
     }
 
     private static async Task<SchoolStatsDto> ReadLocalSchoolStatsAsync()
