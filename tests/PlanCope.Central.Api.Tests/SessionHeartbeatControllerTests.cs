@@ -101,6 +101,35 @@ public sealed class SessionHeartbeatControllerTests
     }
 
     [Fact]
+    public async Task Consecutive_heartbeats_from_a_clock_thirty_minutes_behind_still_update_counts()
+    {
+        using var db = CreateDbContext();
+        await SeedNodeAsync(db, "node-A", "180055400");
+        var controller = new SessionHeartbeatController(db);
+        Bind(controller, "node_access", "node-A");
+        var sentAt = DateTimeOffset.UtcNow.AddMinutes(-30);
+
+        Assert.IsType<OkObjectResult>(await controller.Receive(Request("session-1", "180055400") with
+        {
+            SentAt = sentAt,
+            JoinedCount = 4,
+            InProgressCount = 4
+        }, "node-A", CancellationToken.None));
+        Assert.IsType<OkObjectResult>(await controller.Receive(Request("session-1", "180055400") with
+        {
+            SentAt = sentAt,
+            JoinedCount = 5,
+            InProgressCount = 3,
+            SubmittedCount = 2
+        }, "node-A", CancellationToken.None));
+
+        var session = await db.DeliverySessions.SingleAsync();
+        Assert.Equal(5, session.JoinedCount);
+        Assert.Equal(3, session.InProgressCount);
+        Assert.Equal(2, session.SubmittedCount);
+    }
+
+    [Fact]
     public async Task Admin_list_marks_old_nonclosed_heartbeats_as_sin_senal()
     {
         using var db = CreateDbContext();

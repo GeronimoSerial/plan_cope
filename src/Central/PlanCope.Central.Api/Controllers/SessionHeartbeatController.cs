@@ -39,11 +39,11 @@ public sealed class SessionHeartbeatController(PlanCopeDbContext dbContext) : Co
             session.SourceNodeId == claimNodeId && session.RemoteLocalId == request.SessionId, cancellationToken);
         if (existing?.Status == "closed") return Conflict(new { error = "The session is already closed." });
         var reportedSentAt = request.SentAt == default ? now : request.SentAt;
-        if (existing?.LastHeartbeatAt is { } previousHeartbeat && previousHeartbeat >= reportedSentAt)
-            return Ok(new { receivedAt = previousHeartbeat });
         var sentAt = reportedSentAt >= now.AddMinutes(-10) && reportedSentAt <= now.AddMinutes(10)
             ? reportedSentAt
             : now;
+        if (existing?.LastHeartbeatAt is { } previousHeartbeat && previousHeartbeat >= sentAt)
+            return Ok(new { receivedAt = previousHeartbeat });
         var session = new CentralDeliverySession(
             existing?.Id ?? Guid.NewGuid().ToString("N"), request.SessionId, cue,
             existing?.ExamVersionId ?? request.ExamVersionId, existing?.ClassroomCode, existing?.CommissionCode,
@@ -62,9 +62,9 @@ public sealed class SessionHeartbeatController(PlanCopeDbContext dbContext) : Co
             dbContext.Entry(session).State = EntityState.Detached;
             var raced = await dbContext.DeliverySessions.SingleOrDefaultAsync(item =>
                 item.SourceNodeId == claimNodeId && item.RemoteLocalId == request.SessionId, cancellationToken);
-            if (raced is null) return Ok(new { receivedAt = sentAt });
+            if (raced is null) throw;
             if (raced.Status == "closed") return Conflict(new { error = "The session is already closed." });
-            if (raced.LastHeartbeatAt is null || raced.LastHeartbeatAt < reportedSentAt)
+            if (raced.LastHeartbeatAt is null || raced.LastHeartbeatAt < sentAt)
             {
                 var retry = session with { Id = raced.Id, CreatedAt = raced.CreatedAt, Course = raced.Course };
                 dbContext.Entry(raced).CurrentValues.SetValues(retry);
