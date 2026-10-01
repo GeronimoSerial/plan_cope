@@ -1,7 +1,13 @@
 import { FormEvent, useEffect, useState } from "react";
 import type { NativeBridge } from "../types";
 
-type ActivationScreenProps = { apiBaseUrl: string; bridge?: NativeBridge };
+type ActivationScreenProps = {
+  apiBaseUrl: string;
+  bridge?: NativeBridge;
+  isLocked?: boolean;
+  activationInProgress?: boolean;
+  retryAvailable?: boolean;
+};
 type ErrorResponse = { error?: string; detail?: string };
 type DownloadProgress = { phase: string; completed: number; total: number; skipped: number };
 
@@ -38,21 +44,32 @@ export function isValidActivationKeyFormat(value: string): boolean {
   return normalized.slice(20) === checksum;
 }
 
-export function shouldShowActivation(isActivated: boolean): boolean {
-  return !isActivated;
+export function shouldShowActivation(isActivated: boolean, activationInProgress = false): boolean {
+  return !isActivated || activationInProgress;
 }
 
 export function canRetryActivationDownload(status: unknown): boolean {
-  return typeof status === "object" && status !== null && "activationInProgress" in status &&
-    (status as { activationInProgress?: unknown }).activationInProgress === true;
+  return typeof status === "object" && status !== null &&
+    "isLocked" in status && (status as { isLocked?: unknown }).isLocked !== true &&
+    "activationInProgress" in status && (status as { activationInProgress?: unknown }).activationInProgress === true &&
+    "retryAvailable" in status && (status as { retryAvailable?: unknown }).retryAvailable === true;
 }
 
-export function ActivationScreen({ apiBaseUrl, bridge = window.chrome?.webview }: ActivationScreenProps) {
+export function ActivationScreen({
+  apiBaseUrl,
+  bridge = typeof window !== "undefined" ? window.chrome?.webview : undefined,
+  isLocked = false,
+  activationInProgress = false,
+  retryAvailable: initialRetryAvailable = false
+}: ActivationScreenProps) {
   const [activationKey, setActivationKey] = useState("");
   const [submitted, setSubmitted] = useState(false);
-  const [retryAvailable, setRetryAvailable] = useState(false);
+  const [retryAvailable, setRetryAvailable] = useState(
+    activationInProgress && !isLocked && initialRetryAvailable
+  );
   const [error, setError] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
+  const showRetry = !isLocked && retryAvailable;
 
   useEffect(() => {
     let cancelled = false;
@@ -60,11 +77,13 @@ export function ActivationScreen({ apiBaseUrl, bridge = window.chrome?.webview }
       try {
         const response = await fetch(`${apiBaseUrl}/api/activation/status`);
         const data = response.ok ? await response.json() as {
+          isLocked?: unknown;
           activationInProgress?: unknown;
+          retryAvailable?: unknown;
           downloadProgress?: DownloadProgress | null;
         } : null;
         if (!cancelled && data) {
-          if (canRetryActivationDownload(data)) setRetryAvailable(true);
+          setRetryAvailable(canRetryActivationDownload(data));
           setDownloadProgress(data.downloadProgress ?? null);
         }
       } catch { /* The key form remains available if status cannot be read. */ }
@@ -75,7 +94,7 @@ export function ActivationScreen({ apiBaseUrl, bridge = window.chrome?.webview }
       cancelled = true;
       if (interval !== undefined) window.clearInterval(interval);
     };
-  }, [apiBaseUrl, submitted]);
+  }, [apiBaseUrl, submitted, isLocked, activationInProgress, initialRetryAvailable]);
 
   const activate = async (event: FormEvent) => {
     event.preventDefault();
@@ -94,7 +113,8 @@ export function ActivationScreen({ apiBaseUrl, bridge = window.chrome?.webview }
         setSubmitted(false);
         return;
       }
-      bridge?.postMessage({ type: "host:activationComplete" });
+      if (bridge) bridge.postMessage({ type: "host:activationComplete" });
+      else window.location.reload();
     } catch {
       setError("No se pudo conectar con Central. Verificá la conexión a internet e intentá nuevamente.");
       setSubmitted(false);
@@ -113,7 +133,8 @@ export function ActivationScreen({ apiBaseUrl, bridge = window.chrome?.webview }
         setSubmitted(false);
         return;
       }
-      bridge?.postMessage({ type: "host:activationComplete" });
+      if (bridge) bridge.postMessage({ type: "host:activationComplete" });
+      else window.location.reload();
     } catch {
       setError("No se pudo conectar con Central. Verificá la conexión a internet e intentá nuevamente.");
       setSubmitted(false);
@@ -124,9 +145,9 @@ export function ActivationScreen({ apiBaseUrl, bridge = window.chrome?.webview }
     <form className="gate-card activation-card" onSubmit={activate}>
       <p className="eyebrow">Activación del equipo</p>
       <h1>Activar Plan Cope Local</h1>
-      {retryAvailable ? <>
+      {showRetry ? <>
         <p>La clave ya fue validada. Reintentá la descarga para terminar la activación de este equipo.</p>
-        <button type="button" disabled={submitted || !bridge} onClick={retryDownload}>
+        <button type="button" disabled={submitted} onClick={retryDownload}>
           {submitted ? "Descargando datos…" : "Reintentar descarga"}
         </button>
       </> : <>
@@ -140,7 +161,7 @@ export function ActivationScreen({ apiBaseUrl, bridge = window.chrome?.webview }
       </>}
       {submitted && <p role="status" aria-live="polite">{activationProgressMessage(downloadProgress) ?? "Validando la clave y descargando escuelas, listas y evaluaciones. No cierres la aplicación."}</p>}
       {error && <p role="alert">{error}</p>}
-      {!bridge && <p role="alert">La activación sólo está disponible dentro de la aplicación de escritorio.</p>}
+      {!bridge && !showRetry && <p role="alert">La activación sólo está disponible dentro de la aplicación de escritorio.</p>}
     </form>
   </main>;
 }

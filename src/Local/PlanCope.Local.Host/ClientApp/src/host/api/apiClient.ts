@@ -30,6 +30,7 @@ export type PullExamsResult = {
 export type CourseStatDto = { course: string; attemptCount: number | string; averageScorePercent: number | string };
 export type BlockStatDto = { blockId: string; correctCount: number; partialCount: number; incorrectCount: number; blankCount: number; ungradableCount: number };
 export type ExamStatDto = { examVersionId: string; examCode: string; versionNumber: number; attemptCount: number | string; averageScorePercent: number | string; blocks: BlockStatDto[] };
+export type StatsFilterOptionsDto = { schoolYears: string[]; courses: string[]; exams: { examVersionId: string; examCode: string; versionNumber: number }[] };
 
 export class ApiClient {
   constructor(private readonly baseUrl: string) {}
@@ -45,7 +46,7 @@ export class ApiClient {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",
-      signal
+      ...(isAbortSignal(signal) ? { signal } : {})
     });
     return (await response.json()) as PullExamsResult;
   }
@@ -94,8 +95,21 @@ export class ApiClient {
     return `${this.baseUrl}/api/stats/export.csv?${query.toString()}`;
   }
 
+  getStatsFilterOptions(cue: string, signal?: AbortSignal): Promise<StatsFilterOptionsDto> {
+    const query = new URLSearchParams({ cue });
+    return this.get<StatsFilterOptionsDto>(`/api/stats/filters?${query.toString()}`, signal);
+  }
+
+  getStatsHtmlReportUrl(cue: string, schoolYear?: string, course?: string, exam?: string): string {
+    const query = new URLSearchParams({ cue });
+    if (schoolYear) query.set("schoolYear", schoolYear);
+    if (course) query.set("course", course);
+    if (exam) query.set("exam", exam);
+    return `${this.baseUrl}/api/stats/report.html?${query.toString()}`;
+  }
+
   private async get<T>(path: string, signal?: AbortSignal): Promise<T> {
-    return this.request<T>(path, { method: "GET", signal });
+    return this.request<T>(path, { method: "GET", ...(isAbortSignal(signal) ? { signal } : {}) });
   }
 
   private async post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
@@ -103,7 +117,7 @@ export class ApiClient {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-      signal
+      ...(isAbortSignal(signal) ? { signal } : {})
     });
   }
 
@@ -116,6 +130,10 @@ export class ApiClient {
 
     return response.json() as Promise<T>;
   }
+}
+
+function isAbortSignal(value: unknown): value is AbortSignal {
+  return typeof AbortSignal !== "undefined" && value instanceof AbortSignal;
 }
 
 async function readApiError(response: Response): Promise<string> {

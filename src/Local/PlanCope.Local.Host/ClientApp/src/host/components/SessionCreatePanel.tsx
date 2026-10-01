@@ -81,7 +81,7 @@ export function SessionCreatePanel({
         <ActionButton
           variant="secondary"
           disabled={isBusy || syncPull.isPulling}
-          onClick={syncPull.pullExamsNow}
+          onClick={() => void syncPull.pullExamsNow()}
         >
           {syncPull.isPulling ? "Buscando…" : "Buscar exámenes nuevos"}
         </ActionButton>

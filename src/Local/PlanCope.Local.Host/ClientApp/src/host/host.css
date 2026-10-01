@@ -184,6 +184,89 @@
   border: 1px solid var(--border);
 }
 
+.stats-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 16px 0;
+}
+
+.stats-filters label {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.stats-filters select {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  color: var(--ink);
+}
+
+.stats-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 24px;
+}
+
+.stats-actions .button {
+  display: inline-flex;
+  width: auto;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.stats-empty-state {
+  padding: 20px;
+  border: 1px dashed var(--border);
+  background: var(--surface-muted);
+}
+
+.stats-empty-state h3,
+.stats-empty-state p {
+  margin: 0;
+}
+
+.stats-empty-state p {
+  margin-top: 6px;
+  color: var(--muted);
+}
+
+.panel table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.panel th,
+.panel td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel th {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.panel details {
+  margin-top: 14px;
+}
+
+.panel summary {
+  padding: 10px 0;
+  cursor: pointer;
+  font-weight: 700;
+}
+
 .right-stack {
   display: grid;
   grid-template-rows: auto 1fr;
@@ -819,6 +902,14 @@
 }
 
 @media (max-width: 768px) {
+  .stats-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .stats-actions .button {
+    flex: 1 1 auto;
+  }
+
   .app-shell {
     padding: 14px 16px;
   }

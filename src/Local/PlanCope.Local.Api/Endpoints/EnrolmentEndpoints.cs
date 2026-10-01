@@ -122,8 +122,11 @@ public static class EnrolmentEndpoints
             CancellationToken ct) =>
         {
             var identity = await nodeIdentityRepository.GetAsync(ct);
-            if (identity?.CredentialState != "active" ||
+            if (identity is null || identity.CredentialState != "active" ||
                 !await revalidationService.IsActivationInProgressAsync(ct) ||
+                identity?.RevocationStage == "locked" ||
+                await revalidationService.IsExpiredAsync(ct) ||
+                await revalidationService.IsExpiryPendingAsync(ct) ||
                 string.IsNullOrWhiteSpace(await ReadStateStringAsync(syncStateRepository, "node_id", ct)) ||
                 string.IsNullOrWhiteSpace(await ReadStateStringAsync(syncStateRepository, "central_access_token", ct)) ||
                 string.IsNullOrWhiteSpace(await ReadStateStringAsync(syncStateRepository, "central_refresh_token", ct)))
@@ -134,7 +137,7 @@ public static class EnrolmentEndpoints
             await WriteDownloadProgressAsync(syncStateRepository, "exams", 0, 1, 0, ct);
             var result = await initialDownloadService.DownloadAllAsync(ct);
             return result.Success
-                ? Results.Ok(new { nodeId = identity.NodeId })
+                ? Results.Ok(new { nodeId = identity!.NodeId })
                 : Results.Json(new
                 {
                     error = result.Error ?? "No se pudieron descargar los datos iniciales. Reintentá cuando vuelva la conexión."
