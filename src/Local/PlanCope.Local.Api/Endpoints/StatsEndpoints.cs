@@ -1,7 +1,9 @@
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using PlanCope.Local.Api.Data.Repositories;
 using PlanCope.Shared.Domain;
+using PlanCope.Local.Api.Services.Stats;
 
 namespace PlanCope.Local.Api.Endpoints;
 
@@ -85,6 +87,45 @@ public static class StatsEndpoints
                     block.UngradableCount
                 }).ToArray()
             }).ToArray());
+        });
+
+        endpoints.MapGet("/api/stats/filters", async Task<IResult> (
+            string cue,
+            IStatsQueryRepository statsQueryRepository,
+            CancellationToken cancellationToken) =>
+        {
+            if (string.IsNullOrWhiteSpace(cue))
+            {
+                return Results.BadRequest(new { error = "cue es obligatorio." });
+            }
+
+            return Results.Ok(await statsQueryRepository.GetReportFilterOptionsAsync(cue, cancellationToken));
+        });
+
+        endpoints.MapGet("/api/stats/report.html", async Task<IResult> (
+            string cue,
+            string? schoolYear,
+            string? course,
+            string? exam,
+            IStatsQueryRepository statsQueryRepository,
+            StatsHtmlReportBuilder reportBuilder,
+            CancellationToken cancellationToken) =>
+        {
+            if (string.IsNullOrWhiteSpace(cue))
+            {
+                return Results.BadRequest(new { error = "cue es obligatorio." });
+            }
+
+            var data = await statsQueryRepository.GetReportDataAsync(cue, schoolYear, course, exam, cancellationToken);
+            var allExams = await statsQueryRepository.GetExamStatsAsync(cue, RosterScope, schoolYear, course, cancellationToken);
+            var exams = string.IsNullOrWhiteSpace(exam)
+                ? allExams
+                : allExams.Where(item => item.ExamVersionId == exam).ToArray();
+            var generatedAt = DateTimeOffset.UtcNow;
+            var html = reportBuilder.Build(data, exams, schoolYear, course, exam, generatedAt, RosterScope);
+            var filenameCue = Regex.Replace(cue, "[^A-Za-z0-9_-]", "_");
+            var filename = $"informe-estadistico-{filenameCue}-{generatedAt:yyyyMMdd}.html";
+            return Results.File(Encoding.UTF8.GetBytes(html), "text/html; charset=utf-8", filename);
         });
 
         endpoints.MapGet("/api/stats/export.csv", async Task<IResult> (

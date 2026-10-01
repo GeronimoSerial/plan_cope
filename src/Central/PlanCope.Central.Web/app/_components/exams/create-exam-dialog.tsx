@@ -29,7 +29,6 @@ function mapCreateExamError(error: unknown): string {
 }
 
 export function CreateExamButton({ canEditExams }: { canEditExams: boolean }) {
-  if (!canEditExams) return null;
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState("");
@@ -37,6 +36,8 @@ export function CreateExamButton({ canEditExams }: { canEditExams: boolean }) {
   const [errors, setErrors] = useState<CreateExamErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+
+  if (!canEditExams) return null;
 
   function resetForm() {
     setCode("");

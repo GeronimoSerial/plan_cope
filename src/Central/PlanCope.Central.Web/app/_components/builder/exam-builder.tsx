@@ -121,7 +121,9 @@ export function ExamBuilder({
   );
 
   const documentRef = useRef(document);
-  documentRef.current = document;
+  useEffect(() => {
+    documentRef.current = document;
+  }, [document]);
 
   const save = useCallback(async (): Promise<boolean> => {
     const current = documentRef.current;

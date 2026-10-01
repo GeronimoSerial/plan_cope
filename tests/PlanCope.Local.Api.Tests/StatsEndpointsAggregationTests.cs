@@ -177,6 +177,51 @@ public sealed class StatsEndpointsAggregationTests
             Assert.Equal(0, block.BlankCount);
             Assert.Equal(0, block.UngradableCount);
         }
+
+        var reportResponse = await client.GetAsync("/api/stats/report.html?cue=123456789&schoolYear=2026");
+        Assert.Equal(HttpStatusCode.OK, reportResponse.StatusCode);
+        Assert.Equal("text/html", reportResponse.Content.Headers.ContentType?.MediaType);
+        Assert.Contains("informe-estadistico-123456789-", reportResponse.Content.Headers.ContentDisposition?.FileName);
+        var report = await reportResponse.Content.ReadAsStringAsync();
+        Assert.Contains("<!doctype html>", report);
+        Assert.Contains("Escuela Test", report);
+        Assert.Contains("Distribución de puntajes", report);
+        Assert.Contains("Resultados por bloque", report);
+
+        var filteredReportResponse = await client.GetAsync("/api/stats/report.html?cue=123456789&schoolYear=2026&exam=exam-a");
+        Assert.Equal(HttpStatusCode.OK, filteredReportResponse.StatusCode);
+        var filteredReport = await filteredReportResponse.Content.ReadAsStringAsync();
+        Assert.Contains("MAT-6", filteredReport);
+        Assert.DoesNotContain("LEN-6", filteredReport);
+
+        var sanitizedFilenameResponse = await client.GetAsync("/api/stats/report.html?cue=12%2F34%3F");
+        Assert.True(sanitizedFilenameResponse.StatusCode == HttpStatusCode.OK, await sanitizedFilenameResponse.Content.ReadAsStringAsync());
+        Assert.Contains("informe-estadistico-12_34_-", sanitizedFilenameResponse.Content.Headers.ContentDisposition?.FileName);
+
+        using var updateConnection = factory.CreateConnection();
+        using var updateTransaction = updateConnection.BeginTransaction();
+        LocalApiFactory.Execute(updateConnection, updateTransaction,
+            "UPDATE attempt_results SET score = @score WHERE student_attempt_id = 'attempt-0'",
+            ("@score", 9.0));
+        updateTransaction.Commit();
+        using (var scope = factory.Services.CreateScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IStatsQueryRepository>();
+            var reportData = await repository.GetReportDataAsync("123456789", "2026", "6", "exam-a");
+            Assert.Contains(reportData.Attempts, attempt => attempt.ScorePercent == 100d);
+        }
+
+        using var lowerUpdateTransaction = updateConnection.BeginTransaction();
+        LocalApiFactory.Execute(updateConnection, lowerUpdateTransaction,
+            "UPDATE attempt_results SET score = @score WHERE student_attempt_id = 'attempt-0'",
+            ("@score", -9.0));
+        lowerUpdateTransaction.Commit();
+        using (var scope = factory.Services.CreateScope())
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IStatsQueryRepository>();
+            var reportData = await repository.GetReportDataAsync("123456789", "2026", "6", "exam-a");
+            Assert.Contains(reportData.Attempts, attempt => attempt.ScorePercent == 0d);
+        }
     }
 
     private static async Task EnsureInitializedAsync(HttpClient client)
