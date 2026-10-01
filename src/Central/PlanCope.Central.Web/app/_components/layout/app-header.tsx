@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
 import { useNavigationGuard } from "./navigation-guard";
@@ -76,48 +77,62 @@ export function AppHeader({ user }: AppHeaderProps) {
   }
 
   return (
-    <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center gap-2 border-b bg-background px-4 md:px-6">
-      <SidebarTrigger className="-ml-1" />
-      <div aria-hidden="true" className="mx-1 h-5 w-px shrink-0 bg-border" />
-      {ancestor ? (
-        <div className="min-w-0 flex-1 overflow-hidden">
-          <Breadcrumb>
-            <BreadcrumbList className="flex-nowrap">
-              <BreadcrumbItem>
-                <BreadcrumbLink
-                  render={<Link href={ancestor.href} />}
-                  onClick={event => {
-                    event.preventDefault();
-                    if (!intercept(() => router.push(ancestor.href))) router.push(ancestor.href);
-                  }}
-                >
-                  {ancestor.label}
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
+    <header className="central-header">
+      <div className="central-ribbon" aria-hidden="true"><span /><span /><span /><span /><span /></div>
+      <div className="central-signature">
+        <div className="central-signature__inner">
+          <Link href="/dashboard" aria-label="PlanCope Central, inicio">
+            <Image className="central-logo" src="/marca/logo-educacion-h.svg" width={300} height={60} priority alt="Gobierno de Corrientes - Ministerio de Educación" />
+          </Link>
+          <span className="central-reparticiones">MINISTERIO DE EDUCACIÓN<br />DIRECCIÓN DE PLANEAMIENTO E INVESTIGACIÓN EDUCATIVA</span>
+          <span className="central-province">Provincia de Corrientes<br />República Argentina</span>
         </div>
-      ) : <div className="flex-1" aria-hidden="true" />}
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          render={<Button variant="ghost" size="icon" className="rounded-full" aria-label="Menú de usuario" />}
-        >
-          <Avatar size="sm">
-            <AvatarFallback>{initials(user.displayName) || "U"}</AvatarFallback>
-          </Avatar>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
-          <div className="flex min-w-0 flex-col gap-0.5 px-1.5 py-1.5">
-            <span className="truncate text-sm font-medium">{user.displayName}</span>
-            <span className="truncate text-xs text-muted-foreground">{roleLabel(user.role)}</span>
-          </div>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" disabled={loading} onClick={requestLogout}>
-            <LogOut />
-            {loading ? "Saliendo…" : "Cerrar sesión"}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      </div>
+      <div className="central-band">
+        <div className="central-band__inner">
+          <SidebarTrigger aria-label="Alternar navegación" />
+          <Link className="central-brand" href="/dashboard">Plan COPE · Central</Link>
+          {ancestor ? (
+            <div className="min-w-0 flex-1 overflow-hidden">
+              <Breadcrumb>
+                <BreadcrumbList className="flex-nowrap">
+                  <BreadcrumbItem>
+                    <BreadcrumbLink
+                      render={<Link href={ancestor.href} />}
+                      onClick={event => {
+                        event.preventDefault();
+                        if (!intercept(() => router.push(ancestor.href))) router.push(ancestor.href);
+                      }}
+                    >
+                      {ancestor.label}
+                    </BreadcrumbLink>
+                  </BreadcrumbItem>
+                </BreadcrumbList>
+              </Breadcrumb>
+            </div>
+          ) : <div className="flex-1" aria-hidden="true" />}
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={<Button variant="ghost" size="icon" aria-label="Menú de usuario" />}
+            >
+              <Avatar size="sm">
+                <AvatarFallback>{initials(user.displayName) || "U"}</AvatarFallback>
+              </Avatar>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <div className="flex min-w-0 flex-col gap-0.5 px-1.5 py-1.5">
+                <span className="truncate text-sm font-medium">{user.displayName}</span>
+                <span className="truncate text-xs text-muted-foreground">{roleLabel(user.role)}</span>
+              </div>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" disabled={loading} onClick={requestLogout}>
+                <LogOut />
+                {loading ? "Saliendo…" : "Cerrar sesión"}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
     </header>
   );
 }
