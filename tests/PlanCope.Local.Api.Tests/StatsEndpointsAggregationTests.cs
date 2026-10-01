@@ -60,7 +60,7 @@ public sealed class StatsEndpointsAggregationTests
 
             LocalApiFactory.Execute(connection, transaction, """
                 INSERT INTO local_roster_sections (id, snapshot_id, ge_section_id, course, division, level, shift)
-                VALUES ('sec-6', 'snap-1', NULL, '6', 'B', NULL, NULL);
+                VALUES ('sec-6', 'snap-1', NULL, '6', 'B', NULL, 'Mañana');
                 """);
 
             LocalApiFactory.Execute(connection, transaction, """
@@ -139,6 +139,7 @@ public sealed class StatsEndpointsAggregationTests
             Assert.Contains("6", filterOptions.Courses);
             Assert.Contains("7", filterOptions.Courses);
             Assert.Contains(filterOptions.Sections ?? Array.Empty<StatsFilterSectionOption>(), section => section.Course == "6" && section.Division == "B");
+            Assert.Contains(filterOptions.Sections ?? Array.Empty<StatsFilterSectionOption>(), section => section.Course == "6" && section.Division == "B" && section.Shift == "Mañana");
             Assert.Contains(filterOptions.Exams, exam => exam.ExamVersionId == "exam-a" && exam.ExamCode == "MAT-6" && exam.VersionNumber == 1L);
             Assert.Contains(filterOptions.Exams, exam => exam.ExamVersionId == "exam-b" && exam.ExamCode == "LEN-6" && exam.VersionNumber == 1L);
         }
@@ -160,6 +161,14 @@ public sealed class StatsEndpointsAggregationTests
             var filterExam = Assert.Single(filterJson.RootElement.GetProperty("exams").EnumerateArray(), exam => exam.GetProperty("examVersionId").GetString() == "exam-a");
             Assert.Equal(JsonValueKind.Number, filterExam.GetProperty("versionNumber").ValueKind);
             Assert.Equal(1, filterExam.GetProperty("versionNumber").GetInt32());
+        }
+
+        var examSectionResponse = await client.GetAsync("/api/stats/exam?cue=123456789&schoolYear=2026&course=6");
+        Assert.Equal(HttpStatusCode.OK, examSectionResponse.StatusCode);
+        using (var examSectionJson = JsonDocument.Parse(await examSectionResponse.Content.ReadAsStringAsync()))
+        {
+            var sections = examSectionJson.RootElement.EnumerateArray().Single(exam => exam.GetProperty("examVersionId").GetString() == "exam-a").GetProperty("sections");
+            Assert.Contains(sections.EnumerateArray(), section => section.GetProperty("division").GetString() == "B" && section.GetProperty("shift").GetString() == "Mañana");
         }
 
         var schoolResponse = await client.GetAsync("/api/stats/school?cue=123456789&schoolYear=2026");

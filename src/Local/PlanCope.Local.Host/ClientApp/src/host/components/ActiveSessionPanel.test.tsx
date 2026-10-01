@@ -55,6 +55,7 @@ describe("ActiveSessionPanel", () => {
     const view = render(progress());
 
     expect(view.textContent).toContain("6° A · Turno mañana");
+    expect(view.textContent).toContain("Compartí el código o el enlace con los estudiantes.");
     expect(view.querySelector(".session-grade-label strong")?.textContent).toBe("Escuela Norte");
     expect(view.querySelector(".session-grade-label")?.textContent).toContain("CUE 123456789");
     expect(view.textContent).toContain("Entregaron0 / 2");

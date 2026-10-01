@@ -25,7 +25,7 @@ public sealed record CourseStatsDto(
     SuppressibleValue<double> AverageScorePercent,
     IReadOnlyList<string>? Sections = null);
 
-public sealed record ExamSectionDto(string Course, string Division);
+public sealed record ExamSectionDto(string Course, string Division, string? Shift = null);
 
 public sealed record ExamStatsDto(
     string ExamVersionId,

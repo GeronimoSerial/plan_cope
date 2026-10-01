@@ -51,7 +51,7 @@ export function SessionCreatePanel({
   useEffect(() => { if (selectedSection) setSelectedGrade(selectedSection.course ?? ""); }, [selectedSection?.course]);
 
   return (
-    <section className="panel">
+    <section className="panel session-create-panel">
       <SectionTitle
         title="Nueva sesión"
         description="Elegí una sección y un examen."
@@ -70,14 +70,14 @@ export function SessionCreatePanel({
           {formErrors.rosterSectionId && <span className="field-error">{formErrors.rosterSectionId}</span>}
         </div>
 
-        <Field label="Examen" error={formErrors.selectedExamId}>
+        <div className="exam-selector-field"><Field label="Examen" error={formErrors.selectedExamId}>
           <SelectInput
             value={selectedExamId}
             options={examOptions}
             emptyLabel={isLoadingExams ? "Cargando exámenes…" : "Sin exámenes disponibles"}
             onChange={onSelectedExamChange}
           />
-        </Field>
+        </Field></div>
       </div>
 
       <div className="exam-pull">

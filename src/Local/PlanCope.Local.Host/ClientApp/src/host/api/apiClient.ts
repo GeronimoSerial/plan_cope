@@ -32,7 +32,7 @@ export type PullExamsResult = {
 
 export type CourseStatDto = { course: string; sections?: string[]; attemptCount: number | string; averageScorePercent: number | string };
 export type BlockStatDto = { blockId: string; orderIndex: number | null; title: string | null; correctCount: number; partialCount: number; incorrectCount: number; blankCount: number; ungradableCount: number };
-export type ExamStatDto = { examVersionId: string; examCode: string; title?: string | null; courses?: string[]; sections?: { course: string; division: string }[]; versionNumber: number; attemptCount: number | string; averageScorePercent: number | string; blocks: BlockStatDto[] };
+export type ExamStatDto = { examVersionId: string; examCode: string; title?: string | null; courses?: string[]; sections?: { course: string; division: string; shift?: string | null }[]; versionNumber: number; attemptCount: number | string; averageScorePercent: number | string; blocks: BlockStatDto[] };
 export type StatsFilterOptionsDto = { schoolYears: string[]; courses: string[]; sections?: { course: string; division: string; shift?: string | null }[]; exams: { examVersionId: string; examCode: string; versionNumber: number }[] };
 
 export class ApiClient {
@@ -71,7 +71,7 @@ export class ApiClient {
     return this.get<LocalSession[]>("/api/sessions/active", signal);
   }
 
-  getSessionHistory(filters: { schoolCode?: string; status?: string; course?: string; division?: string; q?: string; page?: number; pageSize?: number }, signal?: AbortSignal): Promise<SessionHistoryPage> {
+  getSessionHistory(filters: { schoolCode?: string; status?: string; course?: string; division?: string; shift?: string; q?: string; page?: number; pageSize?: number }, signal?: AbortSignal): Promise<SessionHistoryPage> {
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries(filters)) if (value !== undefined && value !== "") query.set(key, String(value));
     return this.get<SessionHistoryPage>(`/api/sessions/history?${query.toString()}`, signal);

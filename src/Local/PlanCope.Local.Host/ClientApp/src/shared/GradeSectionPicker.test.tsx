@@ -27,6 +27,7 @@ describe("GradeSectionPicker", () => {
     expect([...selects[0].options].map(option => option.text)).toEqual(["Elegí un grado", "2°", "10°", "Sala de 4"]);
     act(() => { selects[0].value = "2°"; selects[0].dispatchEvent(new Event("change", { bubbles: true })); });
     expect([...selects[1].options].map(option => option.text)).toEqual(["Todas las secciones", "A · Mañana", "A · Tarde", "B"]);
+    expect(selects[1].options[1].value).not.toBe(selects[1].options[2].value);
     act(() => { selects[0].value = "10°"; selects[0].dispatchEvent(new Event("change", { bubbles: true })); });
     expect(selects[1].value).toBe("A");
   });
@@ -37,5 +38,22 @@ describe("GradeSectionPicker", () => {
     expect(element.querySelector<HTMLOptionElement>('select[aria-label="Grado"] option')?.text).toBe("Todos los grados");
     expect(element.querySelector<HTMLOptionElement>('select[aria-label="Sección"] option')?.text).toBe("Todas las secciones");
     expect(element.querySelector<HTMLSelectElement>('select[aria-label="Sección"]')?.disabled).toBe(true);
+  });
+
+  it("keeps roster section ids as the values returned for session creation", () => {
+    const element = document.createElement("div"); document.body.append(element); root = createRoot(element);
+    function Harness() {
+      const [grade, setGrade] = useState(""); const [section, setSection] = useState("");
+      return <GradeSectionPicker sections={[
+        { course: "6", division: "A", shift: "Mañana", value: "roster-morning" },
+        { course: "6", division: "A", shift: "Tarde", value: "roster-afternoon" }
+      ]} grade={grade} section={section} onGradeChange={setGrade} onSectionChange={setSection} />;
+    }
+    act(() => root?.render(<Harness />));
+    const grade = element.querySelector<HTMLSelectElement>('select[aria-label="Grado"]')!;
+    const section = element.querySelector<HTMLSelectElement>('select[aria-label="Sección"]')!;
+    act(() => { grade.value = "6"; grade.dispatchEvent(new Event("change", { bubbles: true })); });
+    act(() => { section.value = "roster-afternoon"; section.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect(section.value).toBe("roster-afternoon");
   });
 });
