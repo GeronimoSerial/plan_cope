@@ -13,16 +13,65 @@ public sealed class NodeCredentialRefresher(
     INodeIdentityRepository nodeIdentityRepository)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly SemaphoreSlim RefreshLock = new(1, 1);
 
     public async Task<bool> TryRefreshAsync(CancellationToken cancellationToken)
     {
+        return await TryRefreshCoreAsync(force: false, rejectedAccessToken: null, cancellationToken);
+    }
+
+    public Task<bool> TryRefreshAfterUnauthorizedAsync(string? rejectedAccessToken, CancellationToken cancellationToken) =>
+        TryRefreshCoreAsync(force: true, rejectedAccessToken, cancellationToken);
+
+    public Task<bool> TryRefreshForRevalidationAsync(CancellationToken cancellationToken) =>
+        TryRefreshCoreAsync(force: true, rejectedAccessToken: null, cancellationToken);
+
+    private async Task<bool> TryRefreshCoreAsync(bool force, string? rejectedAccessToken, CancellationToken cancellationToken)
+    {
+        var originalRefreshToken = await ReadStateStringAsync("central_refresh_token", cancellationToken);
+        var originalAccessToken = await ReadStateStringAsync("central_access_token", cancellationToken);
         var centralUrl = await ReadStateStringAsync("central_url", cancellationToken);
-        var refreshToken = await ReadStateStringAsync("central_refresh_token", cancellationToken);
-        if (string.IsNullOrWhiteSpace(centralUrl) || string.IsNullOrWhiteSpace(refreshToken))
+        if (string.IsNullOrWhiteSpace(centralUrl) || string.IsNullOrWhiteSpace(originalRefreshToken))
         {
             return false;
         }
 
+        await RefreshLock.WaitAsync(cancellationToken);
+        try
+        {
+            centralUrl = await ReadStateStringAsync("central_url", cancellationToken);
+            var refreshToken = await ReadStateStringAsync("central_refresh_token", cancellationToken);
+            var accessToken = await ReadStateStringAsync("central_access_token", cancellationToken);
+            if (string.IsNullOrWhiteSpace(centralUrl) || string.IsNullOrWhiteSpace(refreshToken)) return false;
+
+            // Another caller may have rotated this single-use token while this caller waited.
+            // A newer credential means its refresh already succeeded; never submit the old one.
+            if (!string.Equals(refreshToken, originalRefreshToken, StringComparison.Ordinal) ||
+                !string.Equals(accessToken, originalAccessToken, StringComparison.Ordinal) ||
+                (rejectedAccessToken is not null && !string.Equals(accessToken, rejectedAccessToken, StringComparison.Ordinal)))
+            {
+                return true;
+            }
+
+            if (!force)
+            {
+                var expiryText = await ReadStateStringAsync("central_access_token_expires_at", cancellationToken);
+                if (!DateTimeOffset.TryParse(expiryText, out var expiry) || expiry > DateTimeOffset.UtcNow.AddMinutes(2))
+                {
+                    return true;
+                }
+            }
+
+            return await RefreshFromCentralAsync(centralUrl, refreshToken, cancellationToken);
+        }
+        finally
+        {
+            RefreshLock.Release();
+        }
+    }
+
+    private async Task<bool> RefreshFromCentralAsync(string centralUrl, string refreshToken, CancellationToken cancellationToken)
+    {
         var client = httpClientFactory.CreateClient(nameof(NodeCredentialRefresher));
         client.BaseAddress = new Uri(centralUrl.Trim().TrimEnd('/') + "/");
         HttpResponseMessage response;

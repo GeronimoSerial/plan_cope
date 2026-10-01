@@ -35,7 +35,8 @@ export function AppShell({ status, apiBaseUrl, appVersion, children }: AppShellP
           appVersion={appVersion}
           status={update.status}
           onCheckForUpdates={update.checkForUpdates}
-          onConfirmRestart={update.confirmRestart}
+          onDownloadUpdate={update.downloadUpdate}
+          onDeferUpdate={update.deferUpdate}
         />
         <SyncStatusIndicator status={sync} />
       </footer>

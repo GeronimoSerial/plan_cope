@@ -4,10 +4,11 @@ type UpdateStatusProps = {
   appVersion?: string;
   status: UpdateStatusData;
   onCheckForUpdates: () => void;
-  onConfirmRestart: () => void;
+  onDownloadUpdate: () => void;
+  onDeferUpdate: () => void;
 };
 
-export function UpdateStatus({ appVersion, status, onCheckForUpdates, onConfirmRestart }: UpdateStatusProps) {
+export function UpdateStatus({ appVersion, status, onCheckForUpdates, onDownloadUpdate, onDeferUpdate }: UpdateStatusProps) {
   const { state, targetVersion, message } = status;
   const isChecking = state === "checking";
 
@@ -42,6 +43,27 @@ export function UpdateStatus({ appVersion, status, onCheckForUpdates, onConfirmR
         <p role="status">Descargando actualización{targetVersion ? ` ${targetVersion}` : ""}</p>
       )}
 
+      {state === "updateAvailable" && (
+        <div className="update-prompt-backdrop" role="presentation">
+          <section className="update-prompt" role="dialog" aria-modal="true" aria-labelledby="update-prompt-title">
+            <h2 id="update-prompt-title">Hay una nueva versión {targetVersion} disponible. ¿Querés actualizar?</h2>
+            <div className="update-prompt-actions">
+              <button type="button" onClick={onDownloadUpdate}>Actualizar</button>
+              <button type="button" onClick={onDeferUpdate}>Más tarde</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {state === "updateAvailablePendingSession" && (
+        <>
+          <p role="status">
+            Hay una nueva versión {targetVersion} disponible. La consulta se mostrará al finalizar la sesión activa.
+          </p>
+          {checkForUpdatesButton}
+        </>
+      )}
+
       {state === "integrityFailed" && (
         <>
           <p role="status">
@@ -55,13 +77,8 @@ export function UpdateStatus({ appVersion, status, onCheckForUpdates, onConfirmR
         <p role="status">Actualización lista. Se aplicará al finalizar la sesión activa.</p>
       )}
 
-      {state === "readyToApply" && (
-        <>
-          <p role="status">Actualización lista para instalar.</p>
-          <button type="button" onClick={onConfirmRestart}>
-            Reiniciar y actualizar
-          </button>
-        </>
+      {state === "readyToRestart" && (
+        <p role="status">Actualización lista. Reiniciando…</p>
       )}
     </div>
   );

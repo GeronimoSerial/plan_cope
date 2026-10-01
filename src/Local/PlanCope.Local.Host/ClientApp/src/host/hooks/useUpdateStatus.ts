@@ -25,10 +25,11 @@ export function useUpdateStatus() {
   }, [webview]);
 
   const checkForUpdates = useMemo(() => () => postHostMessage({ type: "host:checkForUpdates" }), []);
-  const confirmRestart = useMemo(() => () => postHostMessage({ type: "host:confirmRestart" }), []);
+  const downloadUpdate = useMemo(() => () => postHostMessage({ type: "host:downloadUpdate" }), []);
+  const deferUpdate = useMemo(() => () => postHostMessage({ type: "host:deferUpdate" }), []);
 
   return useMemo(
-    () => ({ status, checkForUpdates, confirmRestart }),
-    [status, checkForUpdates, confirmRestart]
+    () => ({ status, checkForUpdates, downloadUpdate, deferUpdate }),
+    [status, checkForUpdates, downloadUpdate, deferUpdate]
   );
 }

@@ -21,4 +21,16 @@ public sealed class NotConfiguredInstallerStorage(ILogger<NotConfiguredInstaller
         logger.LogWarning("Installer repo/token is not configured — set PLANCOPE_PRIVATE_INSTALLER_REPO / INSTALLER_REPO_TOKEN.");
         return Task.FromResult<InstallerDownload?>(null);
     }
+
+    public Task<UpdateReleaseFeed?> GetUpdateReleaseFeedAsync(string channel, CancellationToken cancellationToken)
+    {
+        logger.LogWarning("Installer repo/token is not configured — set PLANCOPE_PRIVATE_INSTALLER_REPO / INSTALLER_REPO_TOKEN.");
+        return Task.FromResult<UpdateReleaseFeed?>(null);
+    }
+
+    public Task<InstallerDownload?> GetUpdatePackageDownloadAsync(string channel, string version, string fileName, CancellationToken cancellationToken)
+    {
+        logger.LogWarning("Installer repo/token is not configured — set PLANCOPE_PRIVATE_INSTALLER_REPO / INSTALLER_REPO_TOKEN.");
+        return Task.FromResult<InstallerDownload?>(null);
+    }
 }

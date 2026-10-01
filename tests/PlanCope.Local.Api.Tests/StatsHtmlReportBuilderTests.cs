@@ -17,6 +17,7 @@ public sealed class StatsHtmlReportBuilderTests
         var html = builder.Build(data, [], "2026", null, null, DateTimeOffset.Parse("2026-09-30T12:00:00Z"));
 
         Assert.Contains("Escuela &lt;script&gt;alert(1)&lt;/script&gt;", html);
+        Assert.Contains("Informe al", html);
         Assert.Contains("Ana &lt;img src=x onerror=alert(1)&gt;", html);
         Assert.Contains("6&lt;/text&gt;&lt;script&gt;alert(2)&lt;/script&gt;", html);
         Assert.DoesNotContain("<script>alert(1)</script>", html);
