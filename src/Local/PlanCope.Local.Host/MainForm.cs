@@ -49,6 +49,7 @@ public partial class MainForm : Form
     private string? _updateFileName;
     private string? _updateMessage;
     private bool _updateCheckInProgress;
+    private bool _pendingSessionUpdatePrompt;
     private readonly System.Windows.Forms.Timer _sessionGateTimer = new() { Interval = 30000, Enabled = false };
     private readonly System.Windows.Forms.Timer _updateCheckTimer = new() { Interval = 4 * 60 * 60 * 1000, Enabled = false };
     private string? _updateFeedUrl;
@@ -269,9 +270,9 @@ public partial class MainForm : Form
         if (_updateCheckInProgress || _updateState is "updateAvailable" or "downloading" or "readyPendingSessionClose" or "readyToRestart") return;
         if (_updateService is null)
         {
-            _updateState = "idle";
+            _updateState = manual ? "error" : "idle";
             _updateTargetVersion = null;
-            _updateMessage = null;
+            _updateMessage = manual ? "La búsqueda de actualizaciones no está configurada para este equipo." : null;
             PushUpdateStatus();
             return;
         }
@@ -298,12 +299,20 @@ public partial class MainForm : Form
             _updateTargetVersion = result.TargetVersion;
             _updateSha256 = result.Sha256;
             _updateFileName = result.FileName;
+            if (await HasActiveSessionAsync())
+            {
+                _pendingSessionUpdatePrompt = true;
+                _updateState = "updateAvailablePendingSession";
+                StartSessionGatePolling();
+            }
             PushUpdateStatus();
         }
-        catch (Exception exception)
+        catch (Exception)
         {
             _updateState = manual ? "error" : "idle";
-            _updateMessage = manual ? exception.Message : null;
+            _updateMessage = manual
+                ? "No se pudo verificar si hay actualizaciones. Revisá la conexión y la configuración de Central."
+                : null;
             PushUpdateStatus();
         }
         finally
@@ -317,6 +326,8 @@ public partial class MainForm : Form
         if (_updateService is null || string.IsNullOrWhiteSpace(_updateSha256)) return;
         try
         {
+            _pendingSessionUpdatePrompt = false;
+            _updateAccessToken = ReadCentralAccessToken();
             _updateState = "downloading";
             _updateMessage = null;
             PushUpdateStatus();
@@ -342,10 +353,10 @@ public partial class MainForm : Form
 
             await EvaluateSessionGateAsync();
         }
-        catch (Exception exception)
+        catch (Exception)
         {
             _updateState = "error";
-            _updateMessage = exception.Message;
+            _updateMessage = "No se pudo descargar la actualización. Revisá la conexión e intentá buscar de nuevo.";
             PushUpdateStatus();
         }
     }
@@ -354,10 +365,20 @@ public partial class MainForm : Form
     {
         if (await HasActiveSessionAsync())
         {
-            _updateState = "readyPendingSessionClose";
+            _updateState = _pendingSessionUpdatePrompt ? "updateAvailablePendingSession" : "readyPendingSessionClose";
             _updateMessage = null;
             PushUpdateStatus();
             StartSessionGatePolling();
+            return;
+        }
+
+        if (_pendingSessionUpdatePrompt)
+        {
+            _pendingSessionUpdatePrompt = false;
+            _updateState = "updateAvailable";
+            _updateMessage = null;
+            PushUpdateStatus();
+            StopSessionGatePolling();
             return;
         }
 
@@ -365,7 +386,12 @@ public partial class MainForm : Form
         _updateMessage = null;
         PushUpdateStatus();
         StopSessionGatePolling();
-        _updateService?.TryApplyAndRestart(userConfirmedRestart: true);
+        if (_updateService?.TryApplyAndRestart(userConfirmedRestart: true) != true)
+        {
+            _updateState = "error";
+            _updateMessage = "No se pudo reiniciar para completar la actualización. Volvé a buscar actualizaciones para reintentar.";
+            PushUpdateStatus();
+        }
     }
 
     private void StartSessionGatePolling()

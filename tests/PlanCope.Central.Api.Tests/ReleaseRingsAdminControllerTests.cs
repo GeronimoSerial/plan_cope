@@ -48,8 +48,6 @@ public sealed class ReleaseRingsAdminControllerTests
             new ReleaseRingCreateRequest(
                 "2.0.0",
                 "stable",
-                Sha256Of("2.0.0"),
-                "https://downloads.example.test/stable/2.0.0",
                 "AllEnrolled",
                 null),
             CancellationToken.None);
@@ -80,8 +78,6 @@ public sealed class ReleaseRingsAdminControllerTests
             new ReleaseRingCreateRequest(
                 "2.5.0",
                 "beta",
-                Sha256Of("2.5.0"),
-                "https://downloads.example.test/beta/2.5.0",
                 "PercentageOfEnrolled",
                 25),
             CancellationToken.None);
@@ -113,8 +109,6 @@ public sealed class ReleaseRingsAdminControllerTests
             new ReleaseRingCreateRequest(
                 "2.5.0",
                 "stable",
-                Sha256Of("2.5.0"),
-                "https://downloads.example.test/stable/2.5.0",
                 "PercentageOfEnrolled",
                 rolloutPercentage),
             CancellationToken.None);
@@ -141,8 +135,6 @@ public sealed class ReleaseRingsAdminControllerTests
             new ReleaseRingCreateRequest(
                 "2.5.0",
                 "stable",
-                Sha256Of("2.5.0"),
-                "https://downloads.example.test/stable/2.5.0",
                 rolloutMode,
                 null),
             CancellationToken.None);
@@ -154,24 +146,8 @@ public sealed class ReleaseRingsAdminControllerTests
         Assert.False(await verify.AuditLogs.AnyAsync());
     }
 
-    [Theory]
-    // Too short: 10 hex characters instead of 64.
-    [InlineData("0123456789", "https://downloads.example.test/stable/2.5.0")]
-    // Right length (64) but not hex: ends in "g".
-    [InlineData(
-        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdeg",
-        "https://downloads.example.test/stable/2.5.0")]
-    // http:// instead of https://.
-    [InlineData(
-        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        "http://downloads.example.test/stable/2.5.0")]
-    // Relative path instead of an absolute URL.
-    [InlineData(
-        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        "/stable/2.5.0")]
-    public async Task Admin_CreateReleaseRing_InvalidSha256OrDownloadUrl_ReturnsBadRequest(
-        string sha256,
-        string downloadUrl)
+    [Fact]
+    public async Task Admin_CreateReleaseRing_DoesNotRequirePackageMetadata()
     {
         var options = CreateOptions();
 
@@ -182,26 +158,21 @@ public sealed class ReleaseRingsAdminControllerTests
             new ReleaseRingCreateRequest(
                 "2.5.0",
                 "stable",
-                sha256,
-                downloadUrl,
                 "AllEnrolled",
                 null),
             CancellationToken.None);
 
-        Assert.IsType<BadRequestObjectResult>(created.Result);
-
-        // The rejection happens before any write: a fresh context on the same database sees no rows.
+        Assert.Equal(StatusCodes.Status201Created, Assert.IsType<ObjectResult>(created.Result).StatusCode);
         using var verify = CreateDbContext(options);
-        Assert.False(await verify.ReleaseRings.AnyAsync());
-        Assert.False(await verify.AuditLogs.AnyAsync());
+        var stored = await verify.ReleaseRings.SingleAsync();
+        Assert.Equal(string.Empty, stored.Sha256);
+        Assert.Equal(string.Empty, stored.DownloadUrl);
     }
 
     [Fact]
-    public async Task Admin_CreateReleaseRing_UppercaseSha256_NormalizedToLowercase()
+    public async Task Admin_CreateReleaseRing_UsesReleaseVersionAndChannelAsItsPackageReference()
     {
         var options = CreateOptions();
-        var expectedSha256 = Sha256Of("2.5.0");
-        var uppercaseSha256 = expectedSha256.ToUpperInvariant();
 
         using var dbContext = CreateDbContext(options);
         var controller = CreateController(dbContext, AdminPrincipal());
@@ -210,8 +181,6 @@ public sealed class ReleaseRingsAdminControllerTests
             new ReleaseRingCreateRequest(
                 "2.5.0",
                 "stable",
-                uppercaseSha256,
-                "https://downloads.example.test/stable/2.5.0",
                 "AllEnrolled",
                 null),
             CancellationToken.None);
@@ -219,12 +188,13 @@ public sealed class ReleaseRingsAdminControllerTests
         var createdResult = Assert.IsType<ObjectResult>(created.Result);
         Assert.Equal(StatusCodes.Status201Created, createdResult.StatusCode);
         var dto = Assert.IsType<ReleaseRingSummaryDto>(createdResult.Value);
-        Assert.Equal(expectedSha256, dto.Sha256);
+        Assert.Equal("2.5.0", dto.Version);
+        Assert.Equal("stable", dto.Channel);
 
         using var verify = CreateDbContext(options);
         var stored = await verify.ReleaseRings.SingleAsync();
-        Assert.Equal(expectedSha256, stored.Sha256);
-        Assert.All(stored.Sha256, character => Assert.False(char.IsUpper(character)));
+        Assert.Equal(string.Empty, stored.Sha256);
+        Assert.Equal(string.Empty, stored.DownloadUrl);
     }
 
     [Fact]
@@ -246,7 +216,7 @@ public sealed class ReleaseRingsAdminControllerTests
         var stored = await verify.ReleaseRings.SingleAsync(candidate => candidate.Id == seeded.Id);
         Assert.Equal("PercentageOfEnrolled", stored.RolloutMode);
         Assert.Equal(30, stored.RolloutPercentage);
-        // Version, Channel, Sha256 and DownloadUrl are immutable: the update never touches them.
+        // Version and Channel are immutable: the update only changes rollout policy.
         Assert.Equal(seeded.Version, stored.Version);
         Assert.Equal(seeded.Channel, stored.Channel);
         Assert.Equal(seeded.Sha256, stored.Sha256);
@@ -296,8 +266,6 @@ public sealed class ReleaseRingsAdminControllerTests
             new ReleaseRingCreateRequest(
                 "2.0.0",
                 "stable",
-                Sha256Of("2.0.0"),
-                "https://downloads.example.test/stable/2.0.0",
                 "AllEnrolled",
                 null),
             CancellationToken.None);
@@ -358,8 +326,6 @@ public sealed class ReleaseRingsAdminControllerTests
             new ReleaseRingCreateRequest(
                 "9.9.9",
                 "stable",
-                Sha256Of("9.9.9"),
-                "https://downloads.example.test/stable/9.9.9",
                 "AllEnrolled",
                 null),
             CancellationToken.None);

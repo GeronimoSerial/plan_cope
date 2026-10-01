@@ -7,12 +7,17 @@ using PlanCope.Shared.Domain.Central;
 namespace PlanCope.Central.Api.Services;
 
 /// <summary>
-/// Decides whether a registered node may install a release version by resolving the newest
-/// <c>release_rings</c> row for the requested channel and applying that ring's rollout policy.
+/// Resolves the rollout override for a registered node. When the channel has no release-ring
+/// override, the latest published channel release is offered to all enrolled nodes.
 /// </summary>
 public sealed class ReleaseGateService(PlanCopeDbContext dbContext) : IReleaseGateService
 {
-    public async Task<ReleaseGateDecision> ResolveAsync(string nodeId, string currentVersion, string channel, CancellationToken cancellationToken)
+    public async Task<ReleaseGateDecision> ResolveAsync(
+        string nodeId,
+        string currentVersion,
+        string channel,
+        string? latestPublishedVersion,
+        CancellationToken cancellationToken)
     {
         var node = await dbContext.RegisteredNodes
             .AsNoTracking()
@@ -29,7 +34,15 @@ public sealed class ReleaseGateService(PlanCopeDbContext dbContext) : IReleaseGa
             .OrderByDescending(x => x.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
 
-        if (ring is null || string.Equals(ring.Version, currentVersion, StringComparison.Ordinal))
+        if (ring is null)
+        {
+            return !string.IsNullOrWhiteSpace(latestPublishedVersion) &&
+                   !string.Equals(latestPublishedVersion, currentVersion, StringComparison.Ordinal)
+                ? new ReleaseGateDecision(true, latestPublishedVersion)
+                : ReleaseGateDecision.None;
+        }
+
+        if (string.Equals(ring.Version, currentVersion, StringComparison.Ordinal))
         {
             return ReleaseGateDecision.None;
         }
@@ -45,7 +58,7 @@ public sealed class ReleaseGateService(PlanCopeDbContext dbContext) : IReleaseGa
         };
 
         return eligible
-            ? new ReleaseGateDecision(true, ring.Version, ring.DownloadUrl, ring.Sha256)
+            ? new ReleaseGateDecision(true, ring.Version)
             : ReleaseGateDecision.None;
     }
 

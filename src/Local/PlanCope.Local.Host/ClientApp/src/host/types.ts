@@ -20,6 +20,7 @@ export type UpdateStatusState =
   | "checking"
   | "upToDate"
   | "updateAvailable"
+  | "updateAvailablePendingSession"
   | "downloading"
   | "integrityFailed"
   | "readyPendingSessionClose"

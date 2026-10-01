@@ -49,6 +49,13 @@ describe("UpdateStatus", () => {
     expect(html).toContain("Más tarde");
   });
 
+  it("defers the update prompt without blocking an active session", () => {
+    const html = render({ state: "updateAvailablePendingSession", targetVersion: "2.0.0" });
+    expect(html).toContain("La consulta se mostrará al finalizar la sesión activa.");
+    expect(html).not.toContain('role="dialog"');
+    expect(html).toContain("Buscar actualizaciones");
+  });
+
   it("renders the integrity failure message with a retry button", () => {
     const html = render({ state: "integrityFailed" });
     expect(html).toContain("verificación de integridad");

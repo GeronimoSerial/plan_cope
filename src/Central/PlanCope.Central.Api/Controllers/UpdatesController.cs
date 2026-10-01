@@ -18,7 +18,10 @@ namespace PlanCope.Central.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/updates")]
-public sealed class UpdatesController(IReleaseGateService releaseGate, PlanCopeDbContext dbContext) : ControllerBase
+public sealed class UpdatesController(
+    IReleaseGateService releaseGate,
+    IInstallerStorage updateStorage,
+    PlanCopeDbContext dbContext) : ControllerBase
 {
     private const string PackageId = "PlanCope.Local.Host";
 
@@ -39,7 +42,23 @@ public sealed class UpdatesController(IReleaseGateService releaseGate, PlanCopeD
             return Forbid();
         }
 
-        var decision = await releaseGate.ResolveAsync(nodeId, localVersion ?? string.Empty, channel, cancellationToken);
+        if (!updateStorage.IsConfigured)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = "Update storage is not configured." });
+        }
+
+        var releaseFeed = await updateStorage.GetUpdateReleaseFeedAsync(channel, cancellationToken).ConfigureAwait(false);
+        if (releaseFeed is null)
+        {
+            return JsonBody("""{"Assets":[]}""");
+        }
+
+        var decision = await releaseGate.ResolveAsync(
+            nodeId,
+            localVersion ?? string.Empty,
+            channel,
+            releaseFeed.LatestVersion,
+            cancellationToken);
 
         if (!decision.MayInstall)
         {
@@ -48,21 +67,20 @@ public sealed class UpdatesController(IReleaseGateService releaseGate, PlanCopeD
             return JsonBody("""{"Assets":[]}""");
         }
 
-        var feed = new ReleaseFeedDto(new[]
-        {
-            new ReleaseAssetDto(
-                PackageId,
-                decision.TargetVersion ?? string.Empty,
-                Type: 1,
-                FileName: LastPathSegment(decision.DownloadUrl),
-                SHA1: string.Empty,
-                SHA256: decision.Sha256 ?? string.Empty,
-                Size: 0,
-                NotesMarkdown: null,
-                NotesHTML: null)
-        });
+        var asset = releaseFeed.Assets.FirstOrDefault(candidate =>
+            candidate.PackageId == PackageId && candidate.Type == 1 && candidate.Version == decision.TargetVersion);
+        if (asset is null) return JsonBody("""{"Assets":[]}""");
 
-        return JsonBody(JsonSerializer.Serialize(feed));
+        return JsonBody(JsonSerializer.Serialize(new ReleaseFeedDto([new ReleaseAssetDto(
+            asset.PackageId,
+            asset.Version,
+            asset.Type,
+            asset.FileName,
+            asset.SHA1,
+            asset.SHA256,
+            asset.Size,
+            asset.NotesMarkdown,
+            asset.NotesHTML)])));
     }
 
     /// <summary>
@@ -103,17 +121,6 @@ public sealed class UpdatesController(IReleaseGateService releaseGate, PlanCopeD
         StatusCode = StatusCodes.Status200OK
     };
 
-    private static string LastPathSegment(string? downloadUrl)
-    {
-        if (string.IsNullOrWhiteSpace(downloadUrl))
-        {
-            return string.Empty;
-        }
-
-        var trimmed = downloadUrl.TrimEnd('/');
-        var lastSlash = trimmed.LastIndexOf('/');
-        return lastSlash >= 0 ? trimmed[(lastSlash + 1)..] : trimmed;
-    }
 }
 
 /// <summary>

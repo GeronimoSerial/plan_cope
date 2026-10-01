@@ -55,6 +55,15 @@ export function UpdateStatus({ appVersion, status, onCheckForUpdates, onDownload
         </div>
       )}
 
+      {state === "updateAvailablePendingSession" && (
+        <>
+          <p role="status">
+            Hay una nueva versión {targetVersion} disponible. La consulta se mostrará al finalizar la sesión activa.
+          </p>
+          {checkForUpdatesButton}
+        </>
+      )}
+
       {state === "integrityFailed" && (
         <>
           <p role="status">
