@@ -43,6 +43,19 @@ public sealed class RevocationEnforcer(
 
     public async Task<RevocationEnforcementOutcome> TryAdvanceAsync(CancellationToken cancellationToken = default)
     {
+        await NodeRevocationCoordinator.Gate.WaitAsync(cancellationToken);
+        try
+        {
+            return await TryAdvanceUnderLockAsync(cancellationToken);
+        }
+        finally
+        {
+            NodeRevocationCoordinator.Gate.Release();
+        }
+    }
+
+    private async Task<RevocationEnforcementOutcome> TryAdvanceUnderLockAsync(CancellationToken cancellationToken)
+    {
         var identity = await nodeIdentityRepository.GetAsync(cancellationToken);
         if (identity is null || identity.CredentialState != "revoked")
         {
@@ -70,6 +83,8 @@ public sealed class RevocationEnforcer(
                 return RevocationEnforcementOutcome.DrainIncomplete;
             }
 
+            identity = await ReadRevokedIdentityAsync(cancellationToken);
+            if (identity is null) return RevocationEnforcementOutcome.NotApplicable;
             identity = identity with
             {
                 RevocationStage = StageDrained,
@@ -81,9 +96,15 @@ public sealed class RevocationEnforcer(
 
         if (stage == StageDrained)
         {
+            identity = await ReadRevokedIdentityAsync(cancellationToken);
+            if (identity is null) return RevocationEnforcementOutcome.NotApplicable;
             await WipeRosterCacheAsync(cancellationToken);
+            identity = await ReadRevokedIdentityAsync(cancellationToken);
+            if (identity is null) return RevocationEnforcementOutcome.NotApplicable;
             await ClearLocalNodeIdAsync(cancellationToken);
 
+            identity = await ReadRevokedIdentityAsync(cancellationToken);
+            if (identity is null) return RevocationEnforcementOutcome.NotApplicable;
             identity = identity with
             {
                 RevocationStage = StageWiped,
@@ -92,6 +113,8 @@ public sealed class RevocationEnforcer(
             await nodeIdentityRepository.UpsertAsync(identity, cancellationToken);
         }
 
+        identity = await ReadRevokedIdentityAsync(cancellationToken);
+        if (identity is null) return RevocationEnforcementOutcome.NotApplicable;
         identity = identity with
         {
             RevocationStage = StageLocked,
@@ -100,6 +123,12 @@ public sealed class RevocationEnforcer(
         await nodeIdentityRepository.UpsertAsync(identity, cancellationToken);
 
         return RevocationEnforcementOutcome.Locked;
+    }
+
+    private async Task<NodeIdentity?> ReadRevokedIdentityAsync(CancellationToken cancellationToken)
+    {
+        var identity = await nodeIdentityRepository.GetAsync(cancellationToken);
+        return identity?.CredentialState == "revoked" ? identity : null;
     }
 
     private async Task<bool> TryDrainAsync(CancellationToken cancellationToken)

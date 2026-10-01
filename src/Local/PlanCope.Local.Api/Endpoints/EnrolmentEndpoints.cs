@@ -26,8 +26,6 @@ public static class EnrolmentEndpoints
             HardwareFingerprintService fingerprintService,
             CancellationToken ct) =>
         {
-            var identity = await nodeIdentityRepository.GetAsync(ct);
-
             // Shipped/developer configuration is authoritative; an old persisted URL must never
             // route this installation back to a stale Central host.
             var centralUrl = configuration["Central:BaseUrl"]
@@ -73,33 +71,42 @@ public static class EnrolmentEndpoints
 
             var downloadWasInProgress = string.Equals(
                 await ReadStateStringAsync(syncStateRepository, "activation_in_progress", ct), "true", StringComparison.OrdinalIgnoreCase);
-            await revalidationService.SetActivationInProgressAsync(true, ct);
-            if (!downloadWasInProgress)
-                await UpsertStateStringAsync(syncStateRepository, "last_exam_pull_cursor", "0", ct);
-
-            await UpsertStateStringAsync(syncStateRepository, "node_id", redeemed.NodeId, ct);
-            await UpsertStateStringAsync(syncStateRepository, "central_access_token", redeemed.AccessToken, ct);
-            await UpsertStateStringAsync(syncStateRepository, "central_refresh_token", redeemed.RefreshToken, ct);
-            await UpsertStateStringAsync(syncStateRepository, "central_access_token_expires_at", redeemed.AccessTokenExpiresAt.ToString("O"), ct);
-            await UpsertStateStringAsync(syncStateRepository, "central_refresh_token_expires_at", redeemed.RefreshTokenExpiresAt.ToString("O"), ct);
-            if (redeemed.ServerTime != default)
+            await NodeRevocationCoordinator.Gate.WaitAsync(ct);
+            try
             {
-                await UpsertTrustedServerTimeAsync(syncStateRepository, redeemed.ServerTime, ct);
+                var identity = await nodeIdentityRepository.GetAsync(ct);
+                await revalidationService.SetActivationInProgressAsync(true, ct);
+                if (!downloadWasInProgress)
+                    await UpsertStateStringAsync(syncStateRepository, "last_exam_pull_cursor", "0", ct);
+
+                await UpsertStateStringAsync(syncStateRepository, "node_id", redeemed.NodeId, ct);
+                await UpsertStateStringAsync(syncStateRepository, "central_access_token", redeemed.AccessToken, ct);
+                await UpsertStateStringAsync(syncStateRepository, "central_refresh_token", redeemed.RefreshToken, ct);
+                await UpsertStateStringAsync(syncStateRepository, "central_access_token_expires_at", redeemed.AccessTokenExpiresAt.ToString("O"), ct);
+                await UpsertStateStringAsync(syncStateRepository, "central_refresh_token_expires_at", redeemed.RefreshTokenExpiresAt.ToString("O"), ct);
+                if (redeemed.ServerTime != default)
+                {
+                    await UpsertTrustedServerTimeAsync(syncStateRepository, redeemed.ServerTime, ct);
+                }
+                await UpsertStateStringAsync(syncStateRepository, "revalidation_interval_days", redeemed.RevalidationIntervalDays.ToString(System.Globalization.CultureInfo.InvariantCulture), ct);
+
+                var enrolledIdentity = identity ?? new NodeIdentity(
+                    Guid.NewGuid().ToString("N"), null, null, fingerprint.CompositeHash, fingerprint.ComponentsJson,
+                    null, null, "active", null, null);
+                await nodeIdentityRepository.UpsertAsync(enrolledIdentity with
+                {
+                    NodeId = redeemed.NodeId,
+                    Cue = null,
+                    EnrolledAt = DateTimeOffset.UtcNow.ToString("O"),
+                    CredentialState = "active",
+                    RevocationDetectedAt = null,
+                    RevocationStage = null
+                }, ct);
             }
-            await UpsertStateStringAsync(syncStateRepository, "revalidation_interval_days", redeemed.RevalidationIntervalDays.ToString(System.Globalization.CultureInfo.InvariantCulture), ct);
-
-            var enrolledIdentity = identity ?? new NodeIdentity(
-                Guid.NewGuid().ToString("N"), null, null, fingerprint.CompositeHash, fingerprint.ComponentsJson,
-                null, null, "active", null, null);
-            await nodeIdentityRepository.UpsertAsync(enrolledIdentity with
+            finally
             {
-                NodeId = redeemed.NodeId,
-                Cue = null,
-                EnrolledAt = DateTimeOffset.UtcNow.ToString("O"),
-                CredentialState = "active",
-                RevocationDetectedAt = null,
-                RevocationStage = null
-            }, ct);
+                NodeRevocationCoordinator.Gate.Release();
+            }
 
             // The persisted credentials make a retry safe if Central is temporarily unavailable.
             await WriteDownloadProgressAsync(syncStateRepository, "exams", 0, 1, 0, ct);
