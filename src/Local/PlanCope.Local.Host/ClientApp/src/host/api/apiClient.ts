@@ -95,6 +95,12 @@ export class ApiClient {
     return `${this.baseUrl}/api/stats/export.csv?${query.toString()}`;
   }
 
+  async getStatsExportCsv(cue: string, schoolYear?: string): Promise<Blob> {
+    const response = await fetch(this.getStatsExportCsvUrl(cue, schoolYear));
+    if (!response.ok) throw new Error(await readApiError(response));
+    return response.blob();
+  }
+
   getStatsFilterOptions(cue: string, signal?: AbortSignal): Promise<StatsFilterOptionsDto> {
     const query = new URLSearchParams({ cue });
     return this.get<StatsFilterOptionsDto>(`/api/stats/filters?${query.toString()}`, signal);
@@ -106,6 +112,12 @@ export class ApiClient {
     if (course) query.set("course", course);
     if (exam) query.set("exam", exam);
     return `${this.baseUrl}/api/stats/report.html?${query.toString()}`;
+  }
+
+  async getStatsHtmlReport(cue: string, schoolYear?: string, course?: string, exam?: string): Promise<Blob> {
+    const response = await fetch(this.getStatsHtmlReportUrl(cue, schoolYear, course, exam));
+    if (!response.ok) throw new Error(await readApiError(response));
+    return response.blob();
   }
 
   private async get<T>(path: string, signal?: AbortSignal): Promise<T> {

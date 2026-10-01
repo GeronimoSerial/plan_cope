@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiClient, type CourseStatDto, type ExamStatDto, type StatsFilterOptionsDto } from "../api/apiClient";
+import { downloadBlob, openStatsReport } from "../hostBridge";
 
 type StatsWorkspaceProps = {
   apiBaseUrl: string;
   cue: string;
   schoolYear?: string | null;
 };
+
+const refreshIntervalMs = 15000;
 
 function displayAttemptCount(value: number | string): string {
   return typeof value === "string" ? value : String(value);
@@ -19,6 +22,10 @@ function displayCourse(value: string): string {
   return value === "sin_asignar" ? "Sin curso asignado" : value;
 }
 
+function formatElapsedSeconds(updatedAt: number, now: number): number {
+  return Math.max(0, Math.floor((now - updatedAt) / 1000));
+}
+
 export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspaceProps) {
   const api = useMemo(() => new ApiClient(apiBaseUrl), [apiBaseUrl]);
   const [schoolYearFilter, setSchoolYearFilter] = useState(schoolYear ?? "");
@@ -28,7 +35,14 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
   const [courseStats, setCourseStats] = useState<CourseStatDto[]>([]);
   const [examStats, setExamStats] = useState<ExamStatDto[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [manualRefreshKey, setManualRefreshKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [reportStatus, setReportStatus] = useState<string | null>(null);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+  const [now, setNow] = useState(Date.now());
+  const hasLoadedStats = useRef(false);
 
   useEffect(() => {
     if (schoolYear) setSchoolYearFilter(schoolYear);
@@ -47,36 +61,112 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
   }, [api, cue]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    setIsLoading(true);
-    setError(null);
+    let disposed = false;
+    let timer: number | undefined;
+    let requestController: AbortController | null = null;
 
-    void Promise.all([
-      api.getCourseStats(cue, schoolYearFilter || undefined, controller.signal),
-      api.getExamStats(cue, schoolYearFilter || undefined, courseFilter || undefined, controller.signal)
-    ])
-      .then(([courses, exams]) => {
-        setCourseStats(courses);
-        setExamStats(exams);
-      })
-      .catch(exception => {
+    const refresh = async (manual = false) => {
+      if (disposed || document.visibilityState === "hidden" || requestController) return;
+      requestController = new AbortController();
+      const controller = requestController;
+      if (manual) setIsRefreshing(true);
+      setIsLoading(!hasLoadedStats.current);
+      setError(null);
+      try {
+        const [courses, exams] = await Promise.all([
+          api.getCourseStats(cue, schoolYearFilter || undefined, controller.signal),
+          api.getExamStats(cue, schoolYearFilter || undefined, courseFilter || undefined, controller.signal)
+        ]);
+        if (!controller.signal.aborted) {
+          setCourseStats(courses);
+          setExamStats(exams);
+          hasLoadedStats.current = true;
+          setUpdatedAt(Date.now());
+        }
+      } catch (exception) {
         if (!controller.signal.aborted) {
           setError(exception instanceof Error ? exception.message : "No se pudieron recuperar las estadísticas.");
         }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setIsLoading(false);
-      });
+      } finally {
+        if (requestController === controller) requestController = null;
+        if (!disposed && !controller.signal.aborted) {
+          setIsLoading(false);
+          setIsRefreshing(false);
+          timer = window.setTimeout(() => { void refresh(); }, refreshIntervalMs);
+        }
+      }
+    };
 
-    return () => controller.abort();
-  }, [api, cue, schoolYearFilter, courseFilter]);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        if (timer !== undefined) window.clearTimeout(timer);
+        timer = undefined;
+        requestController?.abort();
+        requestController = null;
+        setIsLoading(false);
+        setIsRefreshing(false);
+      } else {
+        if (timer !== undefined) window.clearTimeout(timer);
+        timer = undefined;
+        void refresh();
+      }
+    };
 
-  const reportUrl = api.getStatsHtmlReportUrl(cue, schoolYearFilter || undefined, courseFilter || undefined, examFilter || undefined);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    void refresh(manualRefreshKey > 0);
+    return () => {
+      disposed = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+      requestController?.abort();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [api, cue, schoolYearFilter, courseFilter, manualRefreshKey]);
+
+  useEffect(() => {
+    if (updatedAt === null) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "hidden") setNow(Date.now());
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [updatedAt]);
+
   const hasAttempts = examStats.some(exam => typeof exam.attemptCount === "number" ? exam.attemptCount > 0 : Number(exam.attemptCount) > 0);
+
+  const handleRefresh = () => {
+    setIsRefreshing(true);
+    setManualRefreshKey(value => value + 1);
+  };
+
+  const handleReport = async () => {
+    setReportStatus(null);
+    setReportError(null);
+    try {
+      const status = await openStatsReport(
+        { cue, schoolYear: schoolYearFilter || undefined, course: courseFilter || undefined, exam: examFilter || undefined },
+        () => api.getStatsHtmlReport(cue, schoolYearFilter || undefined, courseFilter || undefined, examFilter || undefined)
+      );
+      setReportStatus(status);
+    } catch (exception) {
+      setReportError(exception instanceof Error ? exception.message : "No se pudo generar el informe HTML.");
+    }
+  };
+
+  const handleCsvExport = async () => {
+    setReportStatus(null);
+    setReportError(null);
+    try {
+      const blob = await api.getStatsExportCsv(cue, schoolYearFilter || undefined);
+      downloadBlob(blob, `estadisticas-${cue.replace(/[^a-zA-Z0-9_-]/g, "_")}.csv`);
+      setReportStatus("Archivo CSV descargado.");
+    } catch (exception) {
+      setReportError(exception instanceof Error ? exception.message : "No se pudo descargar el archivo CSV.");
+    }
+  };
 
   return (
     <section className="panel">
       <h2>Estadísticas</h2>
+      <p className="stats-live-copy">Pantalla en vivo. El informe HTML es una captura e indica cuándo se generó.</p>
 
       <div className="stats-filters">
         <label htmlFor="stats-school-year-filter">Año lectivo
@@ -102,11 +192,14 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
       </div>
 
       <div className="stats-actions">
-        <a className="button button-primary" href={reportUrl} download>Generar informe HTML</a>
-        <a className="button button-secondary" href={api.getStatsExportCsvUrl(cue, schoolYearFilter || undefined)} download>Descargar CSV</a>
+        <button className="button button-primary" type="button" onClick={handleReport}>Generar informe HTML</button>
+        <button className="button button-secondary" type="button" onClick={() => void handleCsvExport()}>Descargar CSV</button>
+        <button id="stats-refresh-button" className="button button-secondary" type="button" onClick={handleRefresh} disabled={isRefreshing}>Actualizar ahora</button>
       </div>
-
-      {error && <p className="workspace-error">{error}</p>}
+      {updatedAt !== null && <p className="stats-updated" role="status" aria-live="polite">Actualizado hace {formatElapsedSeconds(updatedAt, now)}s</p>}
+      {reportStatus && <p className="stats-report-status" role="status" aria-live="polite">{reportStatus}</p>}
+      {reportError && <p className="workspace-error" role="alert">{reportError}</p>}
+      {error && <p className="workspace-error" role="alert">{error}</p>}
       {isLoading && <p role="status">Cargando estadísticas…</p>}
 
       {!isLoading && !hasAttempts ? (
