@@ -5,7 +5,12 @@ namespace PlanCope.Local.Api.Data;
 
 internal static class LocalSearchText
 {
-    private static readonly string[] Ordinals = ["", "primero", "segundo", "tercero", "cuarto", "quinto", "sexto", "septimo", "octavo", "noveno", "decimo", "undecimo", "duodecimo"];
+    private static readonly string[][] GradeAliases =
+    [
+        [], ["primero", "1ro", "1er"], ["segundo", "2do"], ["tercero", "3ro", "3er"],
+        ["cuarto", "4to"], ["quinto", "5to"], ["sexto", "6to"], ["septimo", "7mo"],
+        ["octavo", "8vo"], ["noveno", "9no"], ["decimo", "10mo"], ["undecimo", "11mo"], ["duodecimo", "12mo"]
+    ];
     private static readonly HashSet<char> Separators = ['°', 'º', '.', '-', '_', '/', ',', '\'', '"', '“', '”', '‘', '’'];
 
     public static string? Fold(string? value)
@@ -43,10 +48,11 @@ internal static class LocalSearchText
     {
         var courseNumber = new string((course ?? "").Where(char.IsDigit).ToArray());
         var normalizedDivision = Fold(division) ?? "";
-        var ordinal = int.TryParse(courseNumber, out var number) && number < Ordinals.Length ? Ordinals[number] : "";
+        var aliases = int.TryParse(courseNumber, out var number) && number < GradeAliases.Length
+            ? string.Join(' ', GradeAliases[number])
+            : "";
         var compact = courseNumber + normalizedDivision.Replace(" ", "", StringComparison.Ordinal);
-        var courseSuffix = courseNumber.Length > 0 ? $"{courseNumber}to" : "";
-        return Fold($"{course} {division} {shift} {courseNumber} {courseSuffix} {ordinal} {compact}");
+        return Fold($"{course} {division} {shift} {courseNumber} {aliases} {compact}");
     }
 
     private static bool TryCourseNumber(string token, out string courseNumber)
@@ -56,14 +62,9 @@ internal static class LocalSearchText
             courseNumber = token;
             return true;
         }
-        if (token.EndsWith("to", StringComparison.Ordinal) && token.Length is > 2 and <= 4 && token[..^2].All(char.IsDigit))
+        for (var number = 1; number < GradeAliases.Length; number++)
         {
-            courseNumber = token[..^2];
-            return true;
-        }
-        for (var number = 1; number < Ordinals.Length; number++)
-        {
-            if (token == Ordinals[number])
+            if (GradeAliases[number].Contains(token, StringComparer.Ordinal))
             {
                 courseNumber = number.ToString(CultureInfo.InvariantCulture);
                 return true;

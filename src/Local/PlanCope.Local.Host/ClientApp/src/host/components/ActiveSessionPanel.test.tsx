@@ -22,7 +22,8 @@ function progress(overrides: Partial<SessionProgress> = {}): SessionProgress {
     sessionId: session.id, accessCode: session.accessCode, expectedStudentCount: 2, startedCount: 1, submittedCount: 0,
     inProgressCount: 1, offRosterSubmittedCount: 0, offRosterInProgressCount: 0, completionPercentage: 0,
     students: [student({ id: "missing", displayName: "Brenda Missing", status: "not_started" }), student({ id: "working", displayName: "Ana Working", status: "in_progress", maskedDocument: "•••456" })],
-    gradeLabel: "6° A · Turno mañana", course: "6°", division: "A", shift: "Mañana", level: "Primario", ...overrides
+    gradeLabel: "6° A · Turno mañana", gradeLabelWithShift: "6° A · Turno mañana", schoolCode: "123456789", schoolName: "Escuela Norte",
+    course: "6°", division: "A", shift: "Mañana", level: "Primario", ...overrides
   };
 }
 
@@ -54,6 +55,8 @@ describe("ActiveSessionPanel", () => {
     const view = render(progress());
 
     expect(view.textContent).toContain("6° A · Turno mañana");
+    expect(view.querySelector(".session-grade-label strong")?.textContent).toBe("Escuela Norte");
+    expect(view.querySelector(".session-grade-label")?.textContent).toContain("CUE 123456789");
     expect(view.textContent).toContain("Entregaron0 / 2");
     expect(view.textContent).toContain("Rindiendo1");
     expect(view.textContent).toContain("Faltan1");
@@ -102,7 +105,7 @@ describe("ActiveSessionPanel", () => {
     expect(view.querySelectorAll("input")).toHaveLength(4);
   });
 
-  it("shows only started students without a roster and hides the missing filter and grade when absent", () => {
+  it("shows only started students without a roster and keeps school and grade context", () => {
     const nonNominalSession = { ...session, rosterSectionId: null, rosterSnapshotId: null };
     const view = render(progress({
       gradeLabel: null,
@@ -111,7 +114,7 @@ describe("ActiveSessionPanel", () => {
 
     expect(view.textContent).toContain("Sesión sin padrón: se muestran solo quienes ingresaron.");
     expect(view.textContent).not.toContain("Faltan");
-    expect(view.textContent).not.toContain("6° A · Turno mañana");
+    expect(view.textContent).toContain("6° A · Turno mañana");
     expect(view.textContent).toContain("Ana Working");
     expect(view.textContent).toContain("Cecilia Done");
     expect(view.textContent).toContain("Entregó");

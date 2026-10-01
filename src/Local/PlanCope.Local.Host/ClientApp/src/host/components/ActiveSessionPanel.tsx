@@ -52,6 +52,8 @@ function ActiveSessionContent({ progress, session, sessionLink, onStatusChange, 
   const completion = progress?.completionPercentage ?? 0;
   const isClosed = session.status === "closed";
   const hasEntered = (progress?.startedCount ?? 0) > 0;
+  const schoolCode = progress?.schoolCode || session.schoolCode;
+  const schoolName = progress?.schoolName || session.schoolName;
 
   useEffect(() => {
     if (previousSessionId.current !== session.id) {
@@ -101,7 +103,10 @@ function ActiveSessionContent({ progress, session, sessionLink, onStatusChange, 
     <aside className="panel session-panel">
       <div className="session-heading">
         <SectionTitle title={isClosed ? "Resumen de la sesión" : "Sesión activa"} description={isClosed ? "La sesión está cerrada y ya no admite cambios." : "Compartí el código o el enlace con los estudiantes."} />
-        {progress?.gradeLabel && <p className="session-grade-label">{progress.gradeLabel}</p>}
+        <p className="session-grade-label"><strong>{schoolName || `CUE ${schoolCode}`}</strong>
+          {schoolCode && schoolName !== `CUE ${schoolCode}` && <span> · CUE {schoolCode}</span>}
+          {(progress?.gradeLabelWithShift || progress?.gradeLabel || session.gradeLabel) && <span> · {progress?.gradeLabelWithShift || progress?.gradeLabel || session.gradeLabel}</span>}
+        </p>
       </div>
 
       {isClosed && <section className="session-close-summary" aria-label="Resumen de cierre">

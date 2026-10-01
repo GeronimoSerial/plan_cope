@@ -22,7 +22,10 @@ public sealed record SchoolStatsDto(
 public sealed record CourseStatsDto(
     string Course,
     SuppressibleValue<int> AttemptCount,
-    SuppressibleValue<double> AverageScorePercent);
+    SuppressibleValue<double> AverageScorePercent,
+    IReadOnlyList<string>? Sections = null);
+
+public sealed record ExamSectionDto(string Course, string Division);
 
 public sealed record ExamStatsDto(
     string ExamVersionId,
@@ -30,7 +33,10 @@ public sealed record ExamStatsDto(
     int VersionNumber,
     SuppressibleValue<int> AttemptCount,
     SuppressibleValue<double> AverageScorePercent,
-    IReadOnlyList<BlockStatDto> Blocks);
+    IReadOnlyList<BlockStatDto> Blocks,
+    string? Title = null,
+    IReadOnlyList<string>? Courses = null,
+    IReadOnlyList<ExamSectionDto>? Sections = null);
 
 public sealed record StatsReportAttemptDto(
     string? StudentName,
@@ -50,7 +56,8 @@ public sealed record StatsReportDataDto(
     int DeliveredExamCount,
     int ExpectedStudentCount);
 
-public sealed record StatsFilterOptionsDto(IReadOnlyList<string> SchoolYears, IReadOnlyList<string> Courses, IReadOnlyList<ExamFilterOptionDto> Exams);
+public sealed record StatsFilterSectionOption(string Course, string Division, string? Shift);
+public sealed record StatsFilterOptionsDto(IReadOnlyList<string> SchoolYears, IReadOnlyList<string> Courses, IReadOnlyList<ExamFilterOptionDto> Exams, IReadOnlyList<StatsFilterSectionOption>? Sections = null);
 public sealed class ExamFilterOptionDto
 {
     public string ExamVersionId { get; set; } = string.Empty;
@@ -67,6 +74,8 @@ public interface IStatsQueryRepository
     Task<IReadOnlyList<ExamStatsDto>> GetExamStatsAsync(string cue, string rosterScope, string? schoolYear, string? course, CancellationToken cancellationToken = default);
 
     Task<StatsReportDataDto> GetReportDataAsync(string cue, string? schoolYear, string? course, string? examVersionId, CancellationToken cancellationToken = default);
+
+    Task<bool> HasSubmittedAttemptsAsync(string cue, CancellationToken cancellationToken = default);
 
     Task<StatsFilterOptionsDto> GetReportFilterOptionsAsync(string cue, CancellationToken cancellationToken = default);
 }
