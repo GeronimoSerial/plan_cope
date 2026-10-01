@@ -6,7 +6,7 @@ import { ActiveSessionPanel } from "./ActiveSessionPanel";
 import { SessionCreatePanel } from "./SessionCreatePanel";
 import { isValidCue, normalizeCueInput } from "../domain/cue";
 import { ActionButton, Badge, Field, SearchableCombobox, TextInput } from "../../shared/ui";
-import { GradeSectionPicker } from "../../shared/GradeSectionPicker";
+import { GradeSectionPicker, sectionOptionValue } from "../../shared/GradeSectionPicker";
 
 type Props = { delivery: DeliverySessionState; apiBaseUrl: string; tab: "home" | "history"; expiryPending: boolean; onStats: () => void; onReturnHome: () => void };
 
@@ -22,12 +22,13 @@ export function SessionsWorkspace({ delivery, apiBaseUrl, tab, expiryPending, on
   const [statusFilter, setStatusFilter] = useState("");
   const [historySections, setHistorySections] = useState<{ course: string; division: string; shift?: string | null }[]>([]);
   const [gradeFilter, setGradeFilter] = useState("");
-  const [divisionFilter, setDivisionFilter] = useState("");
+  const [sectionFilter, setSectionFilter] = useState("");
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [extraStudentError, setExtraStudentError] = useState<string | null>(null);
   const [extraStudentBusy, setExtraStudentBusy] = useState(false);
   const currentSession = activeSession.session;
+  const selectedHistorySection = historySections.find(section => sectionOptionValue(section) === sectionFilter);
   const readySchools = delivery.activeSession.schools.filter(school => school.hasReadyRoster);
   const schoolOptions = delivery.activeSession.schools.map(school => ({ value: school.code, label: school.name, description: `CUE ${school.code}` }));
   useEffect(() => { if (createStep === "schools" && readySchools.length === 1) setSelectedSchool(readySchools[0].code); }, [createStep, readySchools.length]);
@@ -70,11 +71,11 @@ export function SessionsWorkspace({ delivery, apiBaseUrl, tab, expiryPending, on
     const controller = new AbortController();
     setHistoryLoading(true);
     setHistoryError(null);
-    void api.getSessionHistory({ schoolCode: schoolFilter, status: statusFilter, course: gradeFilter, division: divisionFilter, q: historyQuery, page: history.page, pageSize: history.pageSize }, controller.signal)
+    void api.getSessionHistory({ schoolCode: schoolFilter, status: statusFilter, course: gradeFilter, division: selectedHistorySection?.division, shift: selectedHistorySection?.shift ?? undefined, q: historyQuery, page: history.page, pageSize: history.pageSize }, controller.signal)
       .then(result => { if (!controller.signal.aborted) setHistory(result); }).catch(error => { if (!controller.signal.aborted) setHistoryError(error instanceof Error ? error.message : "No se pudo cargar el historial."); })
       .finally(() => { if (!controller.signal.aborted) setHistoryLoading(false); });
     return () => controller.abort();
-  }, [api, tab, currentSession, schoolFilter, statusFilter, gradeFilter, divisionFilter, historyQuery, history.page, history.pageSize]);
+  }, [api, tab, currentSession, schoolFilter, statusFilter, gradeFilter, sectionFilter, selectedHistorySection?.division, selectedHistorySection?.shift, historyQuery, history.page, history.pageSize]);
 
   useEffect(() => {
     if (tab !== "home" || currentSession || createStep !== "form") return;
@@ -113,9 +114,9 @@ export function SessionsWorkspace({ delivery, apiBaseUrl, tab, expiryPending, on
       <label htmlFor="history-status">Estado<select id="history-status" value={statusFilter} onChange={event => { setHistory({ ...history, page: 1 }); setStatusFilter(event.target.value); }}>
         <option value="">Todos</option><option value="active">Abierta</option><option value="paused">Pausada</option><option value="closed">Cerrada</option>
       </select></label>
-      <div className="history-grade-filters"><GradeSectionPicker sections={historySections} grade={gradeFilter} section={divisionFilter}
+      <div className="history-grade-filters"><GradeSectionPicker sections={historySections} grade={gradeFilter} section={sectionFilter}
         onGradeChange={value => { setHistory(current => ({ ...current, page: 1 })); setGradeFilter(value); }}
-        onSectionChange={value => { setHistory(current => ({ ...current, page: 1 })); setDivisionFilter(value); }} filters gradeId="history-grade" sectionId="history-section" /></div>
+        onSectionChange={value => { setHistory(current => ({ ...current, page: 1 })); setSectionFilter(value); }} filters gradeId="history-grade" sectionId="history-section" /></div>
       <div className="history-search"><label className="searchable-combobox-label" htmlFor="history-search">Buscar</label><div className="history-search-control"><input id="history-search" className="control" placeholder="Escuela, examen, código o grado" value={historySearch} onChange={event => { setHistorySearch(event.target.value); setHistory(current => ({ ...current, page: 1 })); }} />{historySearch && <button className="button button-secondary" type="button" aria-label="Limpiar búsqueda" onClick={() => { setHistorySearch(""); setHistory(current => ({ ...current, page: 1 })); }}>Limpiar</button>}</div></div>
     </div>
     {historyError && <p role="alert" className="error-banner">{historyError}</p>}
@@ -129,7 +130,13 @@ export function SessionsWorkspace({ delivery, apiBaseUrl, tab, expiryPending, on
       <span>Página {history.page} · {history.totalCount} sesiones</span><button type="button" className="button button-secondary" disabled={history.page * history.pageSize >= history.totalCount || historyLoading} onClick={() => setHistory({ ...history, page: history.page + 1 })}>Siguiente</button></div>
   </section>;
 
-  if (createStep === "form") return <><div className="stats-actions"><ActionButton variant="secondary" onClick={() => setCreateStep("schools")}>Volver</ActionButton><strong>{sessionForm.schoolName || `CUE ${sessionForm.form.cue}`}</strong></div>{expiryPending && <p className="sync-warning" role="status">La revalidación está vencida. No se puede iniciar una sesión.</p>}{createPanel}</>;
+  if (createStep === "form") return <section className="session-create-workspace">
+    <div className="session-create-header"><ActionButton variant="secondary" onClick={() => setCreateStep("schools")}>Volver</ActionButton>
+      <div className="session-create-school"><strong>{sessionForm.schoolName || `CUE ${sessionForm.form.cue}`}</strong><span>CUE {sessionForm.form.cue}</span></div>
+    </div>
+    {expiryPending && <p className="sync-warning" role="status">La revalidación está vencida. No se puede iniciar una sesión.</p>}
+    {createPanel}
+  </section>;
   if (createStep === "manual") return <section className="panel node-workspace-panel"><h2>Ingresar otro CUE</h2><p>Ingresá el CUE de una escuela con padrón disponible en este equipo.</p>
     <Field label="CUE" error={sessionForm.form.cue && !isValidCue(sessionForm.form.cue) ? "El CUE debe tener 9 dígitos." : undefined}><TextInput value={sessionForm.form.cue} inputMode="numeric" maxLength={9} onChange={value => sessionForm.updateForm("cue", normalizeCueInput(value))} /></Field>
     {delivery.roster.isLoading && <p role="status">Buscando el padrón…</p>}{delivery.roster.error && <p role="alert" className="error-banner">{delivery.roster.error}</p>}

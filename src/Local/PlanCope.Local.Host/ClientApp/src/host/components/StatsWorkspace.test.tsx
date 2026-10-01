@@ -64,6 +64,44 @@ describe("StatsWorkspace", () => {
     expect([...section.options].map(option => option.text)).toEqual(["Todas las secciones", "A"]);
   });
 
+  it("filters exams by the selected shift without entering a loading state or refetching", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const body = url.includes("/api/schools?withAttempts=true")
+        ? [{ code: "123456789", name: "Escuela Test", submittedAttemptCount: 2, lastSubmittedAt: "2026-09-30T10:12:00Z" }]
+        : url.includes("/api/stats/filters?")
+          ? { schoolYears: [], courses: ["6"], sections: [{ course: "6", division: "A", shift: "Mañana" }, { course: "6", division: "A", shift: "Tarde" }], exams: [] }
+          : url.includes("/api/stats/course?")
+            ? [{ course: "6", attemptCount: 2, averageScorePercent: 70 }]
+            : url.includes("/api/stats/exam?")
+              ? [
+                { examVersionId: "morning", examCode: "MAT-M", courses: ["6"], sections: [{ course: "6", division: "A", shift: "Mañana" }], versionNumber: 1, attemptCount: 1, averageScorePercent: 75, blocks: [] },
+                { examVersionId: "afternoon", examCode: "MAT-T", courses: ["6"], sections: [{ course: "6", division: "A", shift: "Tarde" }], versionNumber: 1, attemptCount: 1, averageScorePercent: 65, blocks: [] }
+              ] : [];
+      return { ok: true, json: async () => body };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await renderComponent();
+    await flushEffects();
+
+    const grade = container!.querySelector<HTMLSelectElement>("#stats-course-filter")!;
+    const section = container!.querySelector<HTMLSelectElement>("#stats-section-filter")!;
+    act(() => { grade.value = "6"; grade.dispatchEvent(new Event("change", { bubbles: true })); });
+    await flushEffects();
+    expect([...section.options].map(option => option.text)).toEqual(["Todas las secciones", "A · Mañana", "A · Tarde"]);
+
+    const examCallsBeforeSectionChange = fetchMock.mock.calls.filter(([input]) => String(input).includes("/api/stats/exam?")).length;
+    act(() => { section.value = "A\u001fMañana"; section.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect(container?.textContent).toContain("MAT-M");
+    expect(container?.textContent).not.toContain("MAT-T");
+    expect(container?.textContent).not.toContain("Actualizando estadísticas…");
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).includes("/api/stats/exam?")).length).toBe(examCallsBeforeSectionChange);
+
+    act(() => { section.value = "A\u001fTarde"; section.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect(container?.textContent).toContain("MAT-T");
+    expect(container?.textContent).not.toContain("MAT-M");
+  });
+
   it("shows ordered question labels and prompts instead of block identifiers", async () => {
     const blockId = "1f37ed04-5275-4e47-90c0-14d5e18ff1ae";
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
