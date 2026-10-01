@@ -17,6 +17,9 @@ public sealed class ReceivedSyncAdminController(
     ILogger<ReceivedSyncAdminController>? logger = null,
     CentralAttemptGradingService? attemptGradingService = null) : ControllerBase
 {
+    /// <summary>Attempts regraded per page during reprocessing.</summary>
+    public int RegradePageSize { get; init; } = 250;
+
     [HttpGet]
     public async Task<ActionResult> List([FromQuery] int page = 1, [FromQuery] int pageSize = 50, CancellationToken cancellationToken = default)
     {
@@ -69,27 +72,41 @@ public sealed class ReceivedSyncAdminController(
     public async Task<ActionResult> Reprocess(CancellationToken cancellationToken)
     {
         logger?.LogInformation("Administrator started reprocessing received Central attempts.");
-        var attempts = await dbContext.ReceivedStudentAttempts.AsNoTracking()
-            .OrderBy(attempt => attempt.Id).ToListAsync(cancellationToken);
-        var latestGrades = (await dbContext.CentralAttemptResults.AsNoTracking().ToListAsync(cancellationToken))
-            .GroupBy(result => result.ReceivedStudentAttemptId)
-            .ToDictionary(group => group.Key, group => group.MaxBy(result => result.GradedAt)!);
         var grader = attemptGradingService ?? new CentralAttemptGradingService(dbContext, statsRollupService);
         var reprocessed = 0;
+        string? cursor = null;
 
-        foreach (var attempt in attempts)
+        // Keyset-paged so a large backlog never sits in memory or in one change tracker.
+        while (true)
         {
-            latestGrades.TryGetValue(attempt.Id, out var latestGrade);
-            if (attempt.AttributionStatus == "attributed" && latestGrade?.Status == "graded") continue;
+            cancellationToken.ThrowIfCancellationRequested();
+            var query = dbContext.ReceivedStudentAttempts.AsNoTracking().OrderBy(attempt => attempt.Id);
+            if (cursor is not null) query = query.Where(attempt => string.Compare(attempt.Id, cursor) > 0).OrderBy(attempt => attempt.Id);
+            var attempts = await query.Take(RegradePageSize).ToListAsync(cancellationToken);
+            if (attempts.Count == 0) break;
+            cursor = attempts[^1].Id;
 
-            var examVersionId = await ResolveExamVersionIdAsync(attempt, cancellationToken);
-            var answers = await dbContext.ReceivedSubmissionAnswers.AsNoTracking()
-                .Where(answer => answer.StudentAttemptId == attempt.RemoteLocalId)
-                .ToListAsync(cancellationToken);
-            await grader.RecomputeAsync(attempt.Id, examVersionId, answers, cancellationToken, updateRollup: false);
-            await dbContext.SaveChangesAsync(cancellationToken);
-            dbContext.ChangeTracker.Clear();
-            reprocessed++;
+            var pageIds = attempts.Select(attempt => attempt.Id).ToList();
+            var latestGrades = (await dbContext.CentralAttemptResults.AsNoTracking()
+                    .Where(result => pageIds.Contains(result.ReceivedStudentAttemptId))
+                    .ToListAsync(cancellationToken))
+                .GroupBy(result => result.ReceivedStudentAttemptId)
+                .ToDictionary(group => group.Key, group => group.MaxBy(result => result.GradedAt)!);
+
+            foreach (var attempt in attempts)
+            {
+                latestGrades.TryGetValue(attempt.Id, out var latestGrade);
+                if (attempt.AttributionStatus == "attributed" && latestGrade?.Status == "graded") continue;
+
+                var examVersionId = await ResolveExamVersionIdAsync(attempt, cancellationToken);
+                var answers = await dbContext.ReceivedSubmissionAnswers.AsNoTracking()
+                    .Where(answer => answer.StudentAttemptId == attempt.RemoteLocalId)
+                    .ToListAsync(cancellationToken);
+                await grader.RecomputeAsync(attempt.Id, examVersionId, answers, cancellationToken, updateRollup: false);
+                await dbContext.SaveChangesAsync(cancellationToken);
+                dbContext.ChangeTracker.Clear();
+                reprocessed++;
+            }
         }
 
         try
