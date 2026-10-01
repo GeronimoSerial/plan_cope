@@ -45,8 +45,11 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
   const hasLoadedStats = useRef(false);
 
   useEffect(() => {
-    if (schoolYear) setSchoolYearFilter(schoolYear);
-  }, [schoolYear]);
+    if (schoolYear && schoolYear !== schoolYearFilter) {
+      setIsLoading(true);
+      setSchoolYearFilter(schoolYear);
+    }
+  }, [schoolYear, schoolYearFilter]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -70,7 +73,7 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
       requestController = new AbortController();
       const controller = requestController;
       if (manual) setIsRefreshing(true);
-      setIsLoading(!hasLoadedStats.current);
+      if (!hasLoadedStats.current) setIsLoading(true);
       setError(null);
       try {
         const [courses, exams] = await Promise.all([
@@ -170,14 +173,20 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
 
       <div className="stats-filters">
         <label htmlFor="stats-school-year-filter">Año lectivo
-          <select id="stats-school-year-filter" value={schoolYearFilter} onChange={event => setSchoolYearFilter(event.target.value)}>
+          <select id="stats-school-year-filter" value={schoolYearFilter} onChange={event => {
+            setIsLoading(true);
+            setSchoolYearFilter(event.target.value);
+          }}>
             <option value="">Todos los años</option>
             {filterOptions.schoolYears.map(year => <option key={year} value={year}>{year}</option>)}
           </select>
         </label>
 
         <label htmlFor="stats-course-filter">Curso
-          <select id="stats-course-filter" value={courseFilter} onChange={event => setCourseFilter(event.target.value)}>
+          <select id="stats-course-filter" value={courseFilter} onChange={event => {
+            setIsLoading(true);
+            setCourseFilter(event.target.value);
+          }}>
             <option value="">Todos los cursos</option>
             {filterOptions.courses.map(course => <option key={course} value={course}>{displayCourse(course)}</option>)}
           </select>
@@ -200,9 +209,9 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
       {reportStatus && <p className="stats-report-status" role="status" aria-live="polite">{reportStatus}</p>}
       {reportError && <p className="workspace-error" role="alert">{reportError}</p>}
       {error && <p className="workspace-error" role="alert">{error}</p>}
-      {isLoading && <p role="status">Cargando estadísticas…</p>}
-
-      {!isLoading && !hasAttempts ? (
+      {isLoading ? (
+        <p role="status">{hasLoadedStats.current ? "Actualizando estadísticas…" : "Cargando estadísticas…"}</p>
+      ) : !hasAttempts ? (
         <div className="stats-empty-state">
           <h3>Todavía no hay intentos entregados</h3>
           <p>Cuando los estudiantes entreguen evaluaciones, acá vas a encontrar los resultados por curso y examen. También podés generar un informe HTML vacío para guardar o compartir.</p>

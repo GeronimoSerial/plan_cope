@@ -32,4 +32,27 @@ public sealed class HostNavigationPolicyTests
         Assert.False(HostNavigationPolicy.IsClientAppOrigin(ClientApp, "http://host.plancope.local/path"));
         Assert.False(HostNavigationPolicy.IsClientAppOrigin(ClientApp, "https://host.plancope.local:444/path"));
     }
+
+    [Fact]
+    public void IsAppDownload_allows_only_blob_downloads_created_by_the_client_app()
+    {
+        Assert.True(HostNavigationPolicy.IsAppDownload(ClientApp, "blob:https://host.plancope.local/7f4d"));
+        Assert.False(HostNavigationPolicy.IsAppDownload(ClientApp, "blob:https://example.org/7f4d"));
+        Assert.False(HostNavigationPolicy.IsAppDownload(ClientApp, "https://host.plancope.local/report.html"));
+    }
+
+    [Theory]
+    [InlineData(false, true, true, true)]
+    [InlineData(true, true, true, false)]
+    [InlineData(true, true, false, true)]
+    [InlineData(true, false, false, false)]
+    public void IsFatalNavigationFailure_ignores_cancellation_after_successful_app_load(
+        bool clientAppLoaded,
+        bool isClientAppNavigation,
+        bool operationCanceled,
+        bool expected)
+    {
+        Assert.Equal(expected,
+            HostNavigationPolicy.IsFatalNavigationFailure(clientAppLoaded, isClientAppNavigation, operationCanceled));
+    }
 }

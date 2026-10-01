@@ -149,6 +149,7 @@ public partial class MainForm : Form
         _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
         _webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
         _webView.CoreWebView2.NavigationStarting += OnNavigationStarting;
+        _webView.CoreWebView2.NewWindowRequested += OnNewWindowRequested;
         _webView.CoreWebView2.NavigationCompleted += OnNavigationCompleted;
         _webView.CoreWebView2.DownloadStarting += OnDownloadStarting;
         _clientAppUri = ResolveClientAppUri(_webView.CoreWebView2);
@@ -164,9 +165,9 @@ public partial class MainForm : Form
         }
 
         var action = HostNavigationPolicy.Decide(_clientAppUri, e.Uri, isTopFrame: true);
-        _navigationUris[e.NavigationId] = e.Uri;
         if (action is HostNavigationAction.Allow)
         {
+            _navigationUris[e.NavigationId] = e.Uri;
             return;
         }
 
@@ -184,18 +185,46 @@ public partial class MainForm : Form
         }
     }
 
+    private void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
+    {
+        e.Handled = true;
+        if (_clientAppUri is null) return;
+
+        var action = HostNavigationPolicy.Decide(_clientAppUri, e.Uri, isTopFrame: true);
+        if (action is HostNavigationAction.Allow)
+        {
+            _webView.CoreWebView2.Navigate(e.Uri);
+            return;
+        }
+
+        if (action is HostNavigationAction.OpenExternal && e.IsUserInitiated)
+        {
+            try
+            {
+                OpenUrl(e.Uri);
+            }
+            catch
+            {
+                // The host UI stays available if Windows cannot open the default browser.
+            }
+        }
+    }
+
     private void OnDownloadStarting(object? sender, CoreWebView2DownloadStartingEventArgs e)
     {
-        // Downloads use WebView2's download pipeline and do not represent failed page navigation.
-        // Leave the default download handling in place; NavigationCompleted ignores download failures.
+        if (_clientAppUri is null || !HostNavigationPolicy.IsAppDownload(_clientAppUri, e.DownloadOperation.Uri))
+        {
+            e.Cancel = true;
+        }
     }
 
     private void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
     {
-        var navigationUri = _navigationUris.Remove(e.NavigationId, out var uri) ? uri : _webView.Source?.AbsoluteUri;
+        var navigationUri = _navigationUris.Remove(e.NavigationId, out var uri) ? uri : null;
         var isClientAppNavigation = _clientAppUri is not null && navigationUri is not null
             && HostNavigationPolicy.IsClientAppOrigin(_clientAppUri, navigationUri);
-        if (!e.IsSuccess && (!_clientAppLoaded || isClientAppNavigation))
+        var operationCanceled = e.WebErrorStatus is CoreWebView2WebErrorStatus.OperationCanceled;
+        if (!e.IsSuccess && HostNavigationPolicy.IsFatalNavigationFailure(_clientAppLoaded, isClientAppNavigation, operationCanceled))
         {
             ShowStartupError("No se pudo cargar la interfaz local del host.");
             return;
@@ -223,6 +252,11 @@ public partial class MainForm : Form
 
     private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
+        if (_clientAppUri is null || !HostNavigationPolicy.IsClientAppOrigin(_clientAppUri, e.Source))
+        {
+            return;
+        }
+
         var message = JsonSerializer.Deserialize<HostBridgeMessage>(e.WebMessageAsJson, JsonOptions);
         if (message is null)
         {

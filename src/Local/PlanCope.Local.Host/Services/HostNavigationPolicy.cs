@@ -29,6 +29,16 @@ internal static class HostNavigationPolicy
     internal static bool IsClientAppOrigin(Uri clientAppUri, string destination)
         => Uri.TryCreate(destination, UriKind.Absolute, out var destinationUri) && SameOrigin(clientAppUri, destinationUri);
 
+    internal static bool IsAppDownload(Uri clientAppUri, string downloadUri)
+    {
+        const string blobPrefix = "blob:";
+        return downloadUri.StartsWith(blobPrefix, StringComparison.OrdinalIgnoreCase)
+            && IsClientAppOrigin(clientAppUri, downloadUri[blobPrefix.Length..]);
+    }
+
+    internal static bool IsFatalNavigationFailure(bool clientAppLoaded, bool isClientAppNavigation, bool operationCanceled)
+        => !clientAppLoaded || (isClientAppNavigation && !operationCanceled);
+
     private static bool SameOrigin(Uri left, Uri right)
         => left.Scheme.Equals(right.Scheme, StringComparison.OrdinalIgnoreCase)
             && left.Host.Equals(right.Host, StringComparison.OrdinalIgnoreCase)

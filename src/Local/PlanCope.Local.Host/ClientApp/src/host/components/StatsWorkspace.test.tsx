@@ -87,6 +87,51 @@ describe("StatsWorkspace", () => {
     expect(container?.textContent).toContain("Informe HTML descargado.");
   });
 
+  it("shows a loading state and hides previous rows when a stats filter changes", async () => {
+    const pendingFilteredRequests: (() => void)[] = [];
+    const response = (body: unknown) => ({ ok: true, json: async () => body });
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/stats/filters?")) {
+        return Promise.resolve(response({ schoolYears: ["2025", "2026"], courses: [], exams: [] }));
+      }
+      if (url.includes("schoolYear=2025")) {
+        return new Promise<{ ok: boolean; json: () => Promise<unknown> }>(resolve => {
+          pendingFilteredRequests.push(() => resolve(response(
+            url.includes("/api/stats/course?")
+              ? [{ course: "6", attemptCount: 2, averageScorePercent: 50 }]
+              : [{ examVersionId: "exam-v1", examCode: "BIO", versionNumber: 1, attemptCount: 2, averageScorePercent: 50, blocks: [] }]
+          )));
+        });
+      }
+      return Promise.resolve(response(
+        url.includes("/api/stats/course?")
+          ? [{ course: "6", attemptCount: 1, averageScorePercent: 100 }]
+          : [{ examVersionId: "exam-v1", examCode: "BIO", versionNumber: 1, attemptCount: 1, averageScorePercent: 100, blocks: [] }]
+      ));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await renderComponent();
+    expect(container?.textContent).toContain("BIO v1 — 1 intentos");
+    await act(async () => {
+      root?.render(<StatsWorkspace apiBaseUrl="http://localhost" cue="123456789" schoolYear="2025" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container?.textContent).toContain("Actualizando estadísticas…");
+    expect(container?.textContent).not.toContain("BIO v1 — 1 intentos");
+    expect(pendingFilteredRequests).toHaveLength(2);
+
+    await act(async () => {
+      pendingFilteredRequests.forEach(resolve => resolve());
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(container?.textContent).toContain("BIO v1 — 2 intentos");
+  });
+
   it("polls every 15 seconds and keeps requests sequential", async () => {
     vi.useFakeTimers();
     const pendingRequests: (() => void)[] = [];
