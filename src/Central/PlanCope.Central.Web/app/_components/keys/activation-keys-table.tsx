@@ -1,6 +1,7 @@
 "use client";
 
-import { MoreHorizontal } from "lucide-react";
+import { ChevronDown, ChevronRight, MoreHorizontal } from "lucide-react";
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,7 +18,8 @@ import {
   TableHeader,
   TableRow
 } from "@/components/ui/table";
-import { activationKeyStatus, type ActivationKeyTone } from "./activation-key-mapping";
+import { activationKeyHolderLabel, activationKeyStatus, type ActivationKeyTone } from "./activation-key-mapping";
+import { KeyDevicesRow } from "./key-devices-row";
 import { TermLabel } from "../help/term-hint";
 import type { ActivationKeySummary } from "../../_lib/api/server";
 
@@ -48,7 +50,7 @@ export function ActivationKeysTable({ keys, onRevoke, onReissue, onCreate }: Act
     return (
       <div className="grid justify-items-center gap-3 rounded-xl border py-10 text-center">
         <p className="text-sm text-muted-foreground">
-          Todavía no hay claves. Emití una para activar la primera computadora.
+          Todavía no hay claves. Emití una para activar el primer equipo.
         </p>
         <Button onClick={onCreate}>Nueva clave</Button>
       </div>
@@ -63,22 +65,48 @@ export function ActivationKeysTable({ keys, onRevoke, onReissue, onCreate }: Act
               <TableHead>
                 <TermLabel term="clave-activacion">Clave</TermLabel>
               </TableHead>
-              <TableHead>Emitida</TableHead>
+                <TableHead>A nombre de</TableHead>
+                <TableHead>Emitida</TableHead>
               <TableHead>Vencimiento</TableHead>
-              <TableHead>
-                <TermLabel term="nodo">Activaciones</TermLabel>
-              </TableHead>
+              <TableHead>Activaciones por equipo</TableHead>
               <TableHead>Estado</TableHead>
               <TableHead className="text-right">Acciones</TableHead>
             </TableRow>
         </TableHeader>
         <TableBody>
           {keys.map(key => {
-            const status = activationKeyStatus(key);
-            const revoked = Boolean(key.revokedAt);
             return (
+              <KeyTableRows key={key.id} keyRecord={key} onRevoke={onRevoke} onReissue={onReissue} />
+            );
+          })}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+function KeyTableRows({
+  keyRecord: key,
+  onRevoke,
+  onReissue
+}: {
+  keyRecord: ActivationKeySummary;
+  onRevoke: (key: ActivationKeySummary) => void;
+  onReissue: (key: ActivationKeySummary) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const status = activationKeyStatus(key);
+  const revoked = Boolean(key.revokedAt);
+  return (
+    <>
               <TableRow key={key.id}>
-                <TableCell className="font-mono font-medium">{key.keyPrefix}</TableCell>
+                <TableCell>
+                  <Button variant="ghost" size="icon-sm" aria-label={expanded ? "Ocultar equipos activados" : "Mostrar equipos activados"} onClick={() => setExpanded(value => !value)}>
+                    {expanded ? <ChevronDown /> : <ChevronRight />}
+                  </Button>
+                  <span className="font-mono font-medium">{key.keyPrefix}</span>
+                </TableCell>
+                <TableCell>{activationKeyHolderLabel(key.holderName)}</TableCell>
                 <TableCell>{formatDate(key.issuedAt)}</TableCell>
                 <TableCell className="text-muted-foreground">
                   {key.expiresAt ? formatDate(key.expiresAt) : "Sin vencimiento"}
@@ -109,10 +137,7 @@ export function ActivationKeysTable({ keys, onRevoke, onReissue, onCreate }: Act
                   )}
                 </TableCell>
               </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-    </div>
+              {expanded && <KeyDevicesRow keyRecord={key} />}
+    </>
   );
 }

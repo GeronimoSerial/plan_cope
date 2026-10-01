@@ -1,4 +1,5 @@
 export interface ReissuePayloadSource {
+  holderName?: string | null;
   maxActivations: number;
   expiresAt?: string | null;
   note?: string | null;
@@ -6,6 +7,7 @@ export interface ReissuePayloadSource {
 
 export function buildReissuePayload(source: ReissuePayloadSource) {
   return {
+    holderName: source.holderName ?? "",
     maxActivations: source.maxActivations,
     expiresAt: source.expiresAt ?? null,
     note: source.note ?? null
@@ -50,4 +52,14 @@ export function activationKeyStatus(
   }
 
   return { label: "Activa", tone: "active" };
+}
+
+export function activationKeyHolderLabel(holderName?: string | null): string {
+  return holderName?.trim() || "—";
+}
+
+export function activationNodeStatusLabel(status: string, revokedAt?: string | null): string {
+  if (revokedAt) return "Revocado";
+  if (status === "Active") return "Activo";
+  return status;
 }

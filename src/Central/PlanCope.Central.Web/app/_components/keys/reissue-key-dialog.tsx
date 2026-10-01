@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { Input } from "@/components/ui/input";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { callCentral } from "../../_lib/api/client";
 import { getErrorMessage } from "../../_lib/json";
 import {
@@ -28,6 +30,7 @@ interface ReissueKeyDialogProps {
 export function ReissueKeyDialog({ target, onClose, onIssued }: ReissueKeyDialogProps) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
+  const [holderName, setHolderName] = useState(target.holderName ?? "");
 
   async function confirm() {
     setPending(true);
@@ -46,7 +49,7 @@ export function ReissueKeyDialog({ target, onClose, onIssued }: ReissueKeyDialog
     try {
       const created = await callCentral<IssuedActivationKey>("admin/activation/keys", {
         method: "POST",
-        body: JSON.stringify(buildReissuePayload(target))
+        body: JSON.stringify(buildReissuePayload({ ...target, holderName }))
       });
       onIssued(created);
       onClose();
@@ -75,13 +78,19 @@ export function ReissueKeyDialog({ target, onClose, onIssued }: ReissueKeyDialog
         <AlertDialogHeader>
           <AlertDialogTitle>Reemitir clave {target.keyPrefix}</AlertDialogTitle>
           <AlertDialogDescription>
-            Se revoca la clave actual y se emite una nueva con las mismas activaciones máximas,
-            vencimiento y nota. La clave nueva se muestra una sola vez.
+            Se revoca la clave actual y se emite una nueva para la misma persona, con las mismas
+            activaciones máximas, vencimiento y nota. La clave nueva se muestra una sola vez.
           </AlertDialogDescription>
         </AlertDialogHeader>
+        {!target.holderName?.trim() && (
+          <Field>
+            <FieldLabel htmlFor="reissue-holder">A nombre de</FieldLabel>
+            <Input id="reissue-holder" maxLength={200} value={holderName} onChange={event => setHolderName(event.target.value)} />
+          </Field>
+        )}
         <AlertDialogFooter>
           <AlertDialogCancel disabled={pending}>Cancelar</AlertDialogCancel>
-          <AlertDialogAction disabled={pending} onClick={() => void confirm()}>
+          <AlertDialogAction disabled={pending || !holderName.trim()} onClick={() => void confirm()}>
             {pending ? "Reemitiendo…" : "Reemitir clave"}
           </AlertDialogAction>
         </AlertDialogFooter>
