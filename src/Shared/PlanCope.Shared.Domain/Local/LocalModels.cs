@@ -27,7 +27,32 @@ public sealed record LocalDeliverySession(
     string? RosterSnapshotId = null,
     string? RosterSectionId = null);
 
-public sealed record LocalSessionProgress(string SessionId, string AccessCode, int ExpectedStudentCount, int StartedCount, int SubmittedCount, int InProgressCount)
+public sealed record LocalSessionStudentProgress(
+    string Id,
+    string DisplayName,
+    string? MaskedDocument,
+    string Status,
+    string? StartedAt,
+    string? SubmittedAt,
+    string? AttemptId,
+    // Reserved for session-close behavior added in a later batch.
+    string? SubmissionReason,
+    // Reserved for teacher-added students added in a later batch.
+    bool OffRoster);
+
+public sealed record LocalSessionProgress(
+    string SessionId,
+    string AccessCode,
+    int ExpectedStudentCount,
+    int StartedCount,
+    int SubmittedCount,
+    int InProgressCount,
+    IReadOnlyList<LocalSessionStudentProgress> Students,
+    string? GradeLabel,
+    string? Course,
+    string? Division,
+    string? Shift,
+    string? Level)
 {
     public int CompletionPercentage => ExpectedStudentCount <= 0 ? 0 : Math.Min(100, (int)Math.Round(SubmittedCount * 100.0 / ExpectedStudentCount));
 }

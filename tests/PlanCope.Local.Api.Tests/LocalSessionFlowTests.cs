@@ -18,6 +18,99 @@ namespace PlanCope.Local.Api.Tests;
 public sealed class LocalSessionFlowTests
 {
     [Fact]
+    public async Task Progress_returns_roster_students_with_mixed_statuses_and_grade_label()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "student-a", 501, "12.345.678", "Ana", "Pérez");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "student-b", 502, "23.456.789", "Luis", "Gómez");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "student-c", 503, "34.567.890", "Marta", "Rodríguez");
+        var session = await CreateRosterSessionAsync(client);
+        factory.SeedAttempt(session.Id, "attempt-a", "student-a", 501, "in_progress", "2026-10-01T10:00:00Z");
+        factory.SeedAttempt(session.Id, "attempt-b", "student-b", 502, "submitted", "2026-10-01T10:01:00Z", "2026-10-01T10:20:00Z");
+        factory.SeedAttempt(session.Id, "attempt-off-roster", null, 999, "submitted", "2026-10-01T10:02:00Z", "2026-10-01T10:21:00Z", "No", "Incluido");
+
+        var progress = await client.GetFromJsonAsync<LocalSessionProgress>($"/api/sessions/{session.AccessCode}/progress");
+
+        Assert.NotNull(progress);
+        Assert.Equal(3, progress!.StartedCount);
+        Assert.Equal(2, progress.SubmittedCount);
+        Assert.Equal(1, progress.InProgressCount);
+        Assert.Equal("6° A · Turno mañana", progress.GradeLabel);
+        Assert.Equal("6º", progress.Course);
+        Assert.Equal("A", progress.Division);
+        Assert.Equal("Mañana", progress.Shift);
+        Assert.Equal("Primario", progress.Level);
+        Assert.Collection(progress.Students,
+            student => { Assert.Equal("student-b", student.Id); Assert.Equal("Gómez, Luis", student.DisplayName); Assert.Equal("submitted", student.Status); Assert.Equal("**.***.5678", student.MaskedDocument); },
+            student => { Assert.Equal("attempt-off-roster", student.Id); Assert.Equal("Incluido, No", student.DisplayName); Assert.Equal("submitted", student.Status); },
+            student => { Assert.Equal("student-a", student.Id); Assert.Equal("Pérez, Ana", student.DisplayName); Assert.Equal("in_progress", student.Status); },
+            student => { Assert.Equal("student-c", student.Id); Assert.Equal("Rodríguez, Marta", student.DisplayName); Assert.Equal("not_started", student.Status); Assert.Null(student.AttemptId); });
+        Assert.All(progress.Students, student => { Assert.Null(student.SubmissionReason); Assert.False(student.OffRoster); });
+    }
+
+    [Fact]
+    public async Task Progress_non_nominal_lists_attempts_only_and_uses_exam_grade_metadata()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        var session = await CreateSessionAsync(client);
+        var started = await StartAttemptAsync(client, session.AccessCode);
+
+        var progress = await client.GetFromJsonAsync<LocalSessionProgress>($"/api/sessions/{session.AccessCode}/progress");
+
+        Assert.NotNull(progress);
+        Assert.Equal("6° A", progress!.GradeLabel);
+        Assert.Equal("6", progress.Course);
+        Assert.Equal("A", progress.Division);
+        Assert.Null(progress.Shift);
+        var student = Assert.Single(progress.Students);
+        Assert.Equal(started.Attempt.Id, student.Id);
+        Assert.Equal(started.Attempt.Id, student.AttemptId);
+        Assert.Equal("in_progress", student.Status);
+        Assert.Null(student.MaskedDocument);
+    }
+
+    [Fact]
+    public async Task Progress_nominal_with_empty_roster_returns_empty_student_list_and_section_grade()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "temporary-student", 600, "56.789.012", "Eva", "Prueba");
+        factory.SetRosterSection("section-a", "4", "B", "Tarde", "Primario");
+        var session = await CreateRosterSessionAsync(client);
+        factory.DeleteRosterStudents("section-a");
+
+        var progress = await client.GetFromJsonAsync<LocalSessionProgress>($"/api/sessions/{session.AccessCode}/progress");
+
+        Assert.NotNull(progress);
+        Assert.Empty(progress!.Students);
+        Assert.Equal("4° B · Turno tarde", progress.GradeLabel);
+        Assert.Equal("4", progress.Course);
+        Assert.Equal("Tarde", progress.Shift);
+    }
+
+    [Theory]
+    [InlineData("6", "A", "Mañana", "6° A · Turno mañana")]
+    [InlineData("6º", " A ", " TARDE ", "6° A · Turno tarde")]
+    [InlineData("Primario", null, null, "Primario")]
+    [InlineData(null, "B", null, "B")]
+    [InlineData(null, null, "Noche", "Turno noche")]
+    [InlineData(null, null, null, null)]
+    public void Grade_label_formatter_formats_available_parts(string? course, string? division, string? shift, string? expected)
+    {
+        Assert.Equal(expected, PlanCope.Local.Api.Services.GradeLabelFormatter.Format(course, division, shift));
+    }
+
+    [Fact]
     public async Task Session_attempt_submit_flow_writes_pending_outbox_item()
     {
         using var factory = new LocalApiFactory();
@@ -523,6 +616,17 @@ public sealed class LocalSessionFlowTests
         return session;
     }
 
+    private static async Task<LocalDeliverySession> CreateRosterSessionAsync(HttpClient client)
+    {
+        var response = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
+            LocalApiFactory.ExamVersionId, "180055400", "6 A", null, "Operador", 2, null,
+            "2026", "snapshot-a", "section-a"));
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var session = await response.Content.ReadFromJsonAsync<LocalDeliverySession>();
+        Assert.NotNull(session);
+        return session!;
+    }
+
     private static async Task<StartAttemptResponse> StartAttemptAsync(HttpClient client, string accessCode)
     {
         var response = await client.PostAsync($"/api/sessions/{accessCode}/attempts", null);
@@ -651,6 +755,49 @@ public sealed class LocalSessionFlowTests
             command.Parameters.AddWithValue("$last4", "5678");
             command.Parameters.AddWithValue("$first", firstName);
             command.Parameters.AddWithValue("$last", lastName);
+            command.ExecuteNonQuery();
+        }
+
+        public void SeedAttempt(string sessionId, string attemptId, string? rosterStudentId, int gePersonId, string status, string startedAt, string? submittedAt = null, string? firstName = null, string? lastName = null)
+        {
+            using var connection = CreateConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO student_attempts (id, delivery_session_id, student_code, status, started_at, submitted_at, local_sequence,
+                    roster_student_id, ge_person_id, student_first_name, student_last_name, document_last4)
+                VALUES ($id, $session, $id, $status, $started, $submitted, 1, $roster, $person, $first, $last, '9876');
+                """;
+            command.Parameters.AddWithValue("$id", attemptId);
+            command.Parameters.AddWithValue("$session", sessionId);
+            command.Parameters.AddWithValue("$status", status);
+            command.Parameters.AddWithValue("$started", startedAt);
+            command.Parameters.AddWithValue("$submitted", (object?)submittedAt ?? DBNull.Value);
+            command.Parameters.AddWithValue("$roster", (object?)rosterStudentId ?? DBNull.Value);
+            command.Parameters.AddWithValue("$person", gePersonId);
+            command.Parameters.AddWithValue("$first", (object?)firstName ?? DBNull.Value);
+            command.Parameters.AddWithValue("$last", (object?)lastName ?? DBNull.Value);
+            command.ExecuteNonQuery();
+        }
+
+        public void SetRosterSection(string sectionId, string? course, string? division, string? shift, string? level)
+        {
+            using var connection = CreateConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE local_roster_sections SET course = $course, division = $division, shift = $shift, level = $level WHERE id = $id;";
+            command.Parameters.AddWithValue("$course", (object?)course ?? DBNull.Value);
+            command.Parameters.AddWithValue("$division", (object?)division ?? DBNull.Value);
+            command.Parameters.AddWithValue("$shift", (object?)shift ?? DBNull.Value);
+            command.Parameters.AddWithValue("$level", (object?)level ?? DBNull.Value);
+            command.Parameters.AddWithValue("$id", sectionId);
+            command.ExecuteNonQuery();
+        }
+
+        public void DeleteRosterStudents(string sectionId)
+        {
+            using var connection = CreateConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = "DELETE FROM local_roster_students WHERE section_id = $id;";
+            command.Parameters.AddWithValue("$id", sectionId);
             command.ExecuteNonQuery();
         }
 

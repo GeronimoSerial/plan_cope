@@ -127,6 +127,26 @@ export type SessionProgress = {
   submittedCount: number;
   inProgressCount: number;
   completionPercentage: number;
+  students: SessionStudentProgress[];
+  gradeLabel: string | null;
+  course: string | null;
+  division: string | null;
+  shift: string | null;
+  level: string | null;
+};
+
+export type SessionStudentProgress = {
+  id: string;
+  displayName: string;
+  maskedDocument: string | null;
+  status: "not_started" | "in_progress" | "submitted";
+  startedAt: string | null;
+  submittedAt: string | null;
+  attemptId: string | null;
+  /** Reserved for teacher-close submission behavior. */
+  submissionReason: string | null;
+  /** Reserved for teacher-added students. */
+  offRoster: boolean;
 };
 
 export type FormErrors = {

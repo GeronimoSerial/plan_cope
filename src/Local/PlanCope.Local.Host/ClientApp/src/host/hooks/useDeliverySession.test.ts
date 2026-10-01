@@ -13,6 +13,12 @@ function progress(overrides: Partial<SessionProgress> = {}): SessionProgress {
     submittedCount: 2,
     inProgressCount: 5,
     completionPercentage: 10,
+    students: [],
+    gradeLabel: null,
+    course: null,
+    division: null,
+    shift: null,
+    level: null,
     ...overrides
   };
 }
