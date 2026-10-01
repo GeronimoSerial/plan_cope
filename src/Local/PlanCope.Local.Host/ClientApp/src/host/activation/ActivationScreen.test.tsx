@@ -35,6 +35,15 @@ describe("activation", () => {
     expect(html).not.toContain("Reintentar descarga");
   });
 
+  it("explains that a revoked PC needs a different key", () => {
+    const html = renderToStaticMarkup(
+      <ActivationScreen apiBaseUrl="http://127.0.0.1:5055" isRevoked />
+    );
+
+    expect(html).toContain("Este PC fue dado de baja");
+    expect(html).toContain("una clave nueva, distinta de la anterior");
+  });
+
   it("shows activation only when the node is not enrolled", () => {
     expect(shouldShowActivation(false)).toBe(true);
     expect(shouldShowActivation(true)).toBe(false);

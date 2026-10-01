@@ -5,6 +5,7 @@ type ActivationScreenProps = {
   apiBaseUrl: string;
   bridge?: NativeBridge;
   isLocked?: boolean;
+  isRevoked?: boolean;
   activationInProgress?: boolean;
   retryAvailable?: boolean;
 };
@@ -59,6 +60,7 @@ export function ActivationScreen({
   apiBaseUrl,
   bridge = typeof window !== "undefined" ? window.chrome?.webview : undefined,
   isLocked = false,
+  isRevoked = false,
   activationInProgress = false,
   retryAvailable: initialRetryAvailable = false
 }: ActivationScreenProps) {
@@ -145,13 +147,14 @@ export function ActivationScreen({
     <form className="gate-card activation-card" onSubmit={activate}>
       <p className="eyebrow">Activación del equipo</p>
       <h1>Activar Plan Cope Local</h1>
+      {isRevoked && <p>Este PC fue dado de baja. Para volver a activarlo necesitás una clave nueva, distinta de la anterior.</p>}
       {showRetry ? <>
         <p>La clave ya fue validada. Reintentá la descarga para terminar la activación de este equipo.</p>
         <button type="button" disabled={submitted} onClick={retryDownload}>
           {submitted ? "Descargando datos…" : "Reintentar descarga"}
         </button>
       </> : <>
-        <p>Ingresá la clave de activación para registrar este equipo y descargar los datos necesarios.</p>
+        {!isRevoked && <p>Ingresá la clave de activación para registrar este equipo y descargar los datos necesarios.</p>}
         <label htmlFor="activation-key">Clave de activación</label>
         <input id="activation-key" name="activationKey" type="text" autoComplete="off" autoCapitalize="characters"
           value={activationKey} disabled={submitted} onChange={event => setActivationKey(event.target.value)} />

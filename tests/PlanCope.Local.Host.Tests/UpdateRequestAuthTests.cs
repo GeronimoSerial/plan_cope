@@ -51,4 +51,27 @@ public sealed class UpdateRequestAuthTests
         Assert.Equal(2, requestCount);
         Assert.Equal(new[] { false, true }, refreshRequests);
     }
+
+    [Fact]
+    public async Task RunAsync_DoesNotRefreshOrRetryAfterForbidden()
+    {
+        var refreshRequests = new List<bool>();
+        var requestCount = 0;
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => UpdateRequestAuth.RunAsync(
+            () =>
+            {
+                requestCount++;
+                throw new HttpRequestException("forbidden", null, HttpStatusCode.Forbidden);
+            },
+            forceRefresh =>
+            {
+                refreshRequests.Add(forceRefresh);
+                return Task.CompletedTask;
+            }));
+
+        Assert.Equal("forbidden", exception.Message);
+        Assert.Equal(1, requestCount);
+        Assert.Equal(new[] { false }, refreshRequests);
+    }
 }

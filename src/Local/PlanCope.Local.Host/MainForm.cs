@@ -718,7 +718,7 @@ public partial class MainForm : Form
         {
             await refresher.TryRefreshAfterUnauthorizedAsync(_updateAccessToken, CancellationToken.None);
         }
-        else if (expiresAt is not null && UpdateRequestAuth.ShouldRefresh(expiresAt, DateTimeOffset.UtcNow))
+        else if (UpdateRequestAuth.ShouldRefresh(expiresAt, DateTimeOffset.UtcNow))
         {
             await refresher.TryRefreshAsync(CancellationToken.None);
         }

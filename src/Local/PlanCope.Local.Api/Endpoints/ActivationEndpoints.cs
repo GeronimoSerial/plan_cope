@@ -29,6 +29,7 @@ public static class ActivationEndpoints
                 phaseAComplete = identity?.CredentialState == "active" && !expired && !inProgress,
                 cue = identity?.Cue,
                 isLocked,
+                isRevoked = identity?.CredentialState == "revoked",
                 activationInProgress = inProgress,
                 retryAvailable = inProgress && !isLocked && !expiryPending && identity?.CredentialState == "active",
                 expiryPending,

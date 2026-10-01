@@ -241,13 +241,33 @@ public sealed class SyncBackgroundServiceTests : IDisposable
         Assert.NotNull(lastError);
     }
 
+    [Fact]
+    public async Task Revoked_node_does_not_probe_sync_or_send_active_session_heartbeats()
+    {
+        await SeedActiveSessionAsync();
+        await SeedSyncStateAsync("central_url", CentralUrl);
+        using (var connection = connectionFactory.CreateOpenConnection())
+        {
+            await connection.ExecuteAsync("INSERT INTO node_identity (id, node_id, cue, fingerprint_hash, fingerprint_components_json, enrolled_at, last_sync_at, credential_state, revocation_detected_at, revocation_stage) VALUES ('revoked', 'node-1', '180055400', 'hash', '{}', @now, @now, 'revoked', @now, NULL);", new { now = DateTimeOffset.UtcNow.ToString("O") });
+        }
+
+        var handler = new ThrowingHandler();
+        var service = BuildService(new StubHttpClientFactory(handler));
+
+        await service.StartAsync(CancellationToken.None);
+        await Task.Delay(300);
+        await service.StopAsync(CancellationToken.None);
+
+        Assert.Null(handler.CapturedException);
+        Assert.Equal(0, handler.CallCount);
+    }
+
     private SyncBackgroundService BuildService(IHttpClientFactory httpClientFactory, IConfiguration? configuration = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton(configuration ?? new ConfigurationBuilder().Build());
         services.AddSingleton<ILocalSqliteConnectionFactory>(connectionFactory);
         services.AddScoped<ISessionRepository, SessionRepository>();
-        services.AddScoped<INodeIdentityRepository, NodeIdentityRepository>();
         services.AddScoped<INodeIdentityRepository, NodeIdentityRepository>();
         services.AddScoped<ISyncStateRepository, SyncStateRepository>();
         services.AddScoped<IOutboxRepository, OutboxRepository>();

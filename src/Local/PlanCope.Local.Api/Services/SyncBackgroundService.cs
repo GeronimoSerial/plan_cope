@@ -51,13 +51,15 @@ public sealed class SyncBackgroundService(
                 using var scope = scopeFactory.CreateScope();
                 var sessionRepository = scope.ServiceProvider.GetRequiredService<ISessionRepository>();
                 var syncStateRepository = scope.ServiceProvider.GetRequiredService<ISyncStateRepository>();
+                var nodeIdentityRepository = scope.ServiceProvider.GetRequiredService<INodeIdentityRepository>();
                 var examPullService = scope.ServiceProvider.GetRequiredService<LocalExamPullService>();
                 var outboxPushService = scope.ServiceProvider.GetRequiredService<LocalOutboxPushService>();
-                var identityRepository = scope.ServiceProvider.GetRequiredService<INodeIdentityRepository>();
 
+                var identity = await nodeIdentityRepository.GetAsync(stoppingToken);
                 var activationInProgress = await ReadStateStringAsync(syncStateRepository, "activation_in_progress", stoppingToken);
                 var activationExpired = await ReadStateStringAsync(syncStateRepository, "activation_expired", stoppingToken);
-                if (string.Equals(activationInProgress, "true", StringComparison.OrdinalIgnoreCase) ||
+                if (identity?.CredentialState == "revoked" ||
+                    string.Equals(activationInProgress, "true", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(activationExpired, "true", StringComparison.OrdinalIgnoreCase))
                 {
                     nextDelay = IdleInterval;
@@ -73,8 +75,8 @@ public sealed class SyncBackgroundService(
                     var syncOffline = await ReadStateStringAsync(syncStateRepository, "sync_offline", stoppingToken);
                     var nextAttemptAt = await ReadStateStringAsync(syncStateRepository, "sync_next_attempt_at", stoppingToken);
                     var backoffUntil = DateTimeOffset.TryParse(nextAttemptAt, out var parsedNextAttempt) ? parsedNextAttempt : DateTimeOffset.MinValue;
-                    var identity = await identityRepository.GetAsync(stoppingToken);
-                    var activationValid = identity?.CredentialState == "active" &&
+                    var currentIdentity = await nodeIdentityRepository.GetAsync(stoppingToken);
+                    var activationValid = currentIdentity?.CredentialState == "active" &&
                         !string.Equals(activationInProgress, "true", StringComparison.OrdinalIgnoreCase) &&
                         !string.Equals(activationExpired, "true", StringComparison.OrdinalIgnoreCase);
                     if (activationValid && now >= backoffUntil)
@@ -98,7 +100,7 @@ public sealed class SyncBackgroundService(
                                     var snapshot = await sessionRepository.GetHeartbeatSnapshotAsync(activeSession.Id, stoppingToken);
                                     if (snapshot is not null)
                                     {
-                                        await SendHeartbeatAsync(centralUrl, identity?.NodeId, snapshot, httpClientFactory,
+                                        await SendHeartbeatAsync(centralUrl, currentIdentity?.NodeId, snapshot, httpClientFactory,
                                             Math.Clamp(configuration.GetValue("SessionHeartbeat:RequestTimeoutSeconds", 5), 1, 5), stoppingToken);
                                     }
                                 }

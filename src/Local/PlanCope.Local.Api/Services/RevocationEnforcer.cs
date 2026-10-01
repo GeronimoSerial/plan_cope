@@ -17,8 +17,9 @@ public enum RevocationEnforcementOutcome
 
 /// <summary>
 /// Drives a revoked node through the fixed, ordered, resumable revocation sequence:
-/// wait for active sessions to close, drain the outbox, wipe the roster cache and the
-/// Central credential, then mark the node as locked. Each completed step is persisted to
+/// wait for active sessions to close, drain the outbox, wipe the roster cache and local node id,
+/// then mark the node as locked. Central credentials remain for update authentication; Central
+/// enforces access to sync data. Each completed step is persisted to
 /// <c>node_identity.revocation_stage</c> immediately so a crash resumes from the last
 /// persisted stage instead of re-running destructive or already-accepted work.
 /// </summary>
@@ -38,16 +39,22 @@ public sealed class RevocationEnforcer(
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    private static readonly string[] CredentialKeys =
-    [
-        "central_access_token",
-        "central_refresh_token",
-        "central_access_token_expires_at",
-        "central_refresh_token_expires_at",
-        "node_id",
-    ];
+    private const string LocalNodeIdKey = "node_id";
 
     public async Task<RevocationEnforcementOutcome> TryAdvanceAsync(CancellationToken cancellationToken = default)
+    {
+        await NodeRevocationCoordinator.Gate.WaitAsync(cancellationToken);
+        try
+        {
+            return await TryAdvanceUnderLockAsync(cancellationToken);
+        }
+        finally
+        {
+            NodeRevocationCoordinator.Gate.Release();
+        }
+    }
+
+    private async Task<RevocationEnforcementOutcome> TryAdvanceUnderLockAsync(CancellationToken cancellationToken)
     {
         var identity = await nodeIdentityRepository.GetAsync(cancellationToken);
         if (identity is null || identity.CredentialState != "revoked")
@@ -76,6 +83,8 @@ public sealed class RevocationEnforcer(
                 return RevocationEnforcementOutcome.DrainIncomplete;
             }
 
+            identity = await ReadRevokedIdentityAsync(cancellationToken);
+            if (identity is null) return RevocationEnforcementOutcome.NotApplicable;
             identity = identity with
             {
                 RevocationStage = StageDrained,
@@ -87,9 +96,15 @@ public sealed class RevocationEnforcer(
 
         if (stage == StageDrained)
         {
+            identity = await ReadRevokedIdentityAsync(cancellationToken);
+            if (identity is null) return RevocationEnforcementOutcome.NotApplicable;
             await WipeRosterCacheAsync(cancellationToken);
-            await DestroyCentralCredentialAsync(cancellationToken);
+            identity = await ReadRevokedIdentityAsync(cancellationToken);
+            if (identity is null) return RevocationEnforcementOutcome.NotApplicable;
+            await ClearLocalNodeIdAsync(cancellationToken);
 
+            identity = await ReadRevokedIdentityAsync(cancellationToken);
+            if (identity is null) return RevocationEnforcementOutcome.NotApplicable;
             identity = identity with
             {
                 RevocationStage = StageWiped,
@@ -98,6 +113,8 @@ public sealed class RevocationEnforcer(
             await nodeIdentityRepository.UpsertAsync(identity, cancellationToken);
         }
 
+        identity = await ReadRevokedIdentityAsync(cancellationToken);
+        if (identity is null) return RevocationEnforcementOutcome.NotApplicable;
         identity = identity with
         {
             RevocationStage = StageLocked,
@@ -106,6 +123,12 @@ public sealed class RevocationEnforcer(
         await nodeIdentityRepository.UpsertAsync(identity, cancellationToken);
 
         return RevocationEnforcementOutcome.Locked;
+    }
+
+    private async Task<NodeIdentity?> ReadRevokedIdentityAsync(CancellationToken cancellationToken)
+    {
+        var identity = await nodeIdentityRepository.GetAsync(cancellationToken);
+        return identity?.CredentialState == "revoked" ? identity : null;
     }
 
     private async Task<bool> TryDrainAsync(CancellationToken cancellationToken)
@@ -143,14 +166,11 @@ public sealed class RevocationEnforcer(
         await connection.ExecuteAsync(new CommandDefinition("DELETE FROM local_roster_snapshots;", cancellationToken: cancellationToken));
     }
 
-    private async Task DestroyCentralCredentialAsync(CancellationToken cancellationToken)
+    private async Task ClearLocalNodeIdAsync(CancellationToken cancellationToken)
     {
         var emptied = JsonSerializer.Serialize(string.Empty, JsonOptions);
         var updatedAt = DateTimeOffset.UtcNow.ToString("O");
 
-        foreach (var key in CredentialKeys)
-        {
-            await syncStateRepository.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), key, emptied, updatedAt), cancellationToken);
-        }
+        await syncStateRepository.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), LocalNodeIdKey, emptied, updatedAt), cancellationToken);
     }
 }

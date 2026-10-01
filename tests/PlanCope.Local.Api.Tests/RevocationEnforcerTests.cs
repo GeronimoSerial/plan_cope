@@ -93,6 +93,25 @@ public sealed class RevocationEnforcerTests : IDisposable
     }
 
     [Fact]
+    public async Task Reenrolled_identity_is_rechecked_before_revocation_writes()
+    {
+        await SeedSchoolAsync();
+        await SeedCredentialStateAsync();
+        await SeedRosterAsync();
+        await SeedSyncStateAsync("node_id", "fresh-node-id");
+        var identityRepository = new ReenrolledIdentityRepository();
+
+        var outcome = await CreateEnforcer(new ThrowingHandler(), identityRepository).TryAdvanceAsync();
+
+        Assert.Equal(RevocationEnforcementOutcome.NotApplicable, outcome);
+        Assert.Equal(0, identityRepository.UpsertCount);
+        Assert.Equal("\"fresh-node-id\"", await ReadSyncStateAsync("node_id"));
+        Assert.Equal(1, await CountAsync("local_roster_snapshots"));
+        Assert.Equal(1, await CountAsync("local_roster_sections"));
+        Assert.Equal(1, await CountAsync("local_roster_students"));
+    }
+
+    [Fact]
     public async Task WaitingForSessionEnd_never_destroys_data_mid_session()
     {
         await SeedSchoolAsync();
@@ -132,7 +151,7 @@ public sealed class RevocationEnforcerTests : IDisposable
     }
 
     [Fact]
-    public async Task Successful_drain_wipes_roster_and_credentials_then_locks()
+    public async Task Successful_drain_wipes_roster_and_local_node_id_but_keeps_update_credentials_then_locks()
     {
         await SeedSchoolAsync();
         await SeedIdentityAsync("revoked", null);
@@ -151,10 +170,13 @@ public sealed class RevocationEnforcerTests : IDisposable
         Assert.Equal(0, await CountAsync("local_roster_snapshots"));
         Assert.Equal(0, await CountAsync("local_roster_sections"));
         Assert.Equal(0, await CountAsync("local_roster_students"));
-        foreach (var key in CredentialKeys)
+        foreach (var key in CredentialKeys.Where(key => key != "node_id"))
         {
-            Assert.Equal(EmptyJsonString, await ReadSyncStateAsync(key));
+            Assert.NotEqual(EmptyJsonString, await ReadSyncStateAsync(key));
         }
+        Assert.Equal("\"original-access-token\"", await ReadSyncStateAsync("central_access_token"));
+        Assert.Equal("\"original-refresh-token\"", await ReadSyncStateAsync("central_refresh_token"));
+        Assert.Equal(EmptyJsonString, await ReadSyncStateAsync("node_id"));
 
         Assert.Equal("\"https://central.test\"", await ReadSyncStateAsync("central_url"));
 
@@ -191,7 +213,7 @@ public sealed class RevocationEnforcerTests : IDisposable
         Assert.Equal("revoked", identity.CredentialState);
     }
 
-    private RevocationEnforcer CreateEnforcer(HttpMessageHandler handler)
+    private RevocationEnforcer CreateEnforcer(HttpMessageHandler handler, INodeIdentityRepository? identityRepository = null)
     {
         var outboxRepository = new OutboxRepository(connectionFactory);
         var pushService = new LocalOutboxPushService(
@@ -200,7 +222,7 @@ public sealed class RevocationEnforcerTests : IDisposable
             outboxRepository);
 
         return new RevocationEnforcer(
-            new NodeIdentityRepository(connectionFactory),
+            identityRepository ?? new NodeIdentityRepository(connectionFactory),
             new SessionRepository(connectionFactory),
             outboxRepository,
             new SyncStateRepository(connectionFactory),
@@ -360,6 +382,29 @@ public sealed class RevocationEnforcerTests : IDisposable
         string? NodeId,
         string? Stage,
         string? CredentialState);
+
+    private sealed class ReenrolledIdentityRepository : INodeIdentityRepository
+    {
+        private int readCount;
+        public int UpsertCount { get; private set; }
+
+        public Task<NodeIdentity?> GetAsync(CancellationToken cancellationToken = default)
+        {
+            readCount++;
+            var identity = readCount == 1
+                ? new NodeIdentity("identity-1", "old-node-id", Cue, "hash", "{}", null, null, "revoked", null, null)
+                : new NodeIdentity("identity-1", "fresh-node-id", null, "hash", "{}", DateTimeOffset.UtcNow.ToString("O"), null, "active", null, null);
+            return Task.FromResult<NodeIdentity?>(identity);
+        }
+
+        public Task UpsertAsync(NodeIdentity identity, CancellationToken cancellationToken = default)
+        {
+            UpsertCount++;
+            return Task.CompletedTask;
+        }
+
+        public Task DeleteAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
 
     private sealed class StubHttpClientFactory(HttpMessageHandler handler) : IHttpClientFactory
     {

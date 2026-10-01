@@ -117,7 +117,7 @@ public sealed class ReleaseGateServiceTests
     }
 
     [Fact]
-    public async Task ResolveAsync_RevokedNodeGetsNothing()
+    public async Task ResolveAsync_RevokedNodeGetsReleaseUnderNormalRingRules()
     {
         using var dbContext = CreateDbContext();
         var node = CreateNode() with { RevokedAt = DateTimeOffset.UtcNow };
@@ -128,7 +128,7 @@ public sealed class ReleaseGateServiceTests
         var decision = await CreateService(dbContext).ResolveAsync(
             node.Id, "1.0.0", "stable", "2.0.0", CancellationToken.None);
 
-        Assert.Equal(ReleaseGateDecision.None, decision);
+        Assert.Equal(new ReleaseGateDecision(true, "2.0.0"), decision);
     }
 
     [Fact]

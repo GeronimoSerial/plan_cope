@@ -135,6 +135,7 @@ export function SessionsWorkspace({ delivery, apiBaseUrl, tab, expiryPending, on
       <div className="session-create-school"><strong>{sessionForm.schoolName || `CUE ${sessionForm.form.cue}`}</strong><span>CUE {sessionForm.form.cue}</span></div>
     </div>
     {expiryPending && <p className="sync-warning" role="status">La revalidación está vencida. No se puede iniciar una sesión.</p>}
+    {delivery.error && <p className="error-banner workspace-error" role="alert">{delivery.error}</p>}
     {createPanel}
   </section>;
   if (createStep === "manual") return <section className="panel node-workspace-panel"><h2>Ingresar otro CUE</h2><p>Ingresá el CUE de una escuela con padrón disponible en este equipo.</p>
