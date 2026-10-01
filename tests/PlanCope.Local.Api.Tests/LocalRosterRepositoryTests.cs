@@ -161,7 +161,20 @@ public sealed class LocalRosterRepositoryTests
 
             Assert.True((await repository.ImportAsync(package, hmac)).Imported);
             using (var connection = connections.CreateOpenConnection())
+            {
+                var now = DateTimeOffset.UtcNow.ToString("O");
+                await connection.ExecuteAsync("""
+                    INSERT INTO local_exam_versions (id, remote_exam_version_id, exam_code, version_number, checksum, schema_version, synced_at)
+                    VALUES ('exam-1', 'remote-exam-1', 'E1', 1, 'checksum', 1, @Now);
+                    INSERT INTO delivery_sessions (id, exam_version_id, school_code, started_by, start_at, status,
+                        expected_student_count, school_year, roster_snapshot_id, roster_section_id)
+                    VALUES ('session-1', 'exam-1', @Cue, 'teacher', @Now, 'closed', 1, @SchoolYear, @SnapshotId, 'section-a');
+                    INSERT INTO student_attempts (id, delivery_session_id, student_code, status, started_at, local_sequence,
+                        roster_student_id, ge_person_id)
+                    VALUES ('attempt-1', 'session-1', 'student-b', 'submitted', @Now, 1, 'student-b', 102);
+                    """, new { Now = now, package.Cue, package.SchoolYear, SnapshotId = package.SnapshotId });
                 await connection.ExecuteAsync("DELETE FROM local_roster_students WHERE id = 'student-b';");
+            }
 
             var repaired = await repository.ImportAsync(package, hmac);
             var sections = await repository.GetSectionsAsync(package.Cue, package.SchoolYear);
@@ -169,6 +182,12 @@ public sealed class LocalRosterRepositoryTests
             Assert.True(repaired.Imported);
             Assert.Equal(2, repaired.StudentCount);
             Assert.Equal(2, sections.Sum(section => section.StudentCount));
+            using (var connection = connections.CreateOpenConnection())
+            {
+                Assert.Equal("section-a", await connection.ExecuteScalarAsync<string>("SELECT roster_section_id FROM delivery_sessions WHERE id='session-1';"));
+                Assert.Equal("student-b", await connection.ExecuteScalarAsync<string>("SELECT roster_student_id FROM student_attempts WHERE id='attempt-1';"));
+                Assert.Equal(0, await connection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM pragma_foreign_key_check;"));
+            }
         }
         finally
         {

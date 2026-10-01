@@ -68,14 +68,6 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
                 cancellationToken: cancellationToken));
             var expectedStudentCount = package.Sections.Sum(section => section.Students.Count);
             repairSameId = storedRows.SectionCount != package.Sections.Count || storedRows.StudentCount != expectedStudentCount;
-            if (repairSameId)
-            {
-                await connection.ExecuteAsync(new CommandDefinition(
-                    "DELETE FROM local_roster_students WHERE snapshot_id = @SnapshotId; DELETE FROM local_roster_sections WHERE snapshot_id = @SnapshotId;",
-                    new { SnapshotId = package.SnapshotId },
-                    transaction,
-                    cancellationToken: cancellationToken));
-            }
         }
 
         var existing = await connection.QuerySingleOrDefaultAsync<ExistingSnapshot>(new CommandDefinition(
@@ -156,7 +148,8 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
                 INSERT INTO local_roster_sections
                     (id, snapshot_id, ge_section_id, course, division, level, shift)
                 VALUES
-                    (@Id, @SnapshotId, @GeSectionId, @Course, @Division, @Level, @Shift);
+                    (@Id, @SnapshotId, @GeSectionId, @Course, @Division, @Level, @Shift)
+                ON CONFLICT DO NOTHING;
                 """,
                 new
                 {
@@ -180,7 +173,8 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
                     INSERT INTO local_roster_students
                         (id, snapshot_id, section_id, ge_person_id, document_hash, document_last4, first_name, last_name)
                     VALUES
-                        (@Id, @SnapshotId, @SectionId, @GePersonId, @DocumentHash, @DocumentLast4, @FirstName, @LastName);
+                        (@Id, @SnapshotId, @SectionId, @GePersonId, @DocumentHash, @DocumentLast4, @FirstName, @LastName)
+                    ON CONFLICT DO NOTHING;
                     """,
                     new
                     {

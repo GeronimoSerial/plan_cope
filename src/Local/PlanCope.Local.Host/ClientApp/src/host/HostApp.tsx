@@ -13,6 +13,7 @@ export function HostApp() {
   const [isSchoolConfirmed, setIsSchoolConfirmed] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [activationInProgress, setActivationInProgress] = useState(false);
+  const [activationRetryAvailable, setActivationRetryAvailable] = useState(false);
   const [activationStatusChecked, setActivationStatusChecked] = useState(false);
   const [revalidationDaysRemaining, setRevalidationDaysRemaining] = useState<number | null>(null);
   const [expiryPending, setExpiryPending] = useState(false);
@@ -28,6 +29,7 @@ export function HostApp() {
           if (!cancelled && data && typeof data.isLocked === "boolean") {
             setIsLocked(data.isLocked);
             setActivationInProgress(data.activationInProgress === true);
+            setActivationRetryAvailable(data.retryAvailable === true);
             setRevalidationDaysRemaining(typeof data.revalidationDaysRemaining === "number" ? data.revalidationDaysRemaining : null);
             setExpiryPending(data.expiryPending === true);
             setLocalClockWarning(data.localClockWarning === true);
@@ -53,12 +55,13 @@ export function HostApp() {
 
   if (isLocked) {
     return (
-      <ActivationScreen apiBaseUrl={hostContext.apiBaseUrl} />
+      <ActivationScreen apiBaseUrl={hostContext.apiBaseUrl} isLocked />
     );
   }
 
   if (shouldShowActivation(hostContext.isActivated, activationInProgress)) {
-    return <ActivationScreen apiBaseUrl={hostContext.apiBaseUrl} activationInProgress={activationInProgress} />;
+    return <ActivationScreen apiBaseUrl={hostContext.apiBaseUrl}
+      activationInProgress={activationInProgress} retryAvailable={activationRetryAvailable} />;
   }
 
   if (!isSchoolConfirmed) {

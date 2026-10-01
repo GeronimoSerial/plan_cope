@@ -96,6 +96,7 @@ public sealed class EnrolmentEndpointsTests
         var pendingStatus = await client.GetFromJsonAsync<JsonElement>("/api/activation/status");
         Assert.True(pendingStatus.GetProperty("activationInProgress").GetBoolean());
         Assert.False(pendingStatus.GetProperty("isLocked").GetBoolean());
+        Assert.True(pendingStatus.GetProperty("retryAvailable").GetBoolean());
         var blockedApiResponse = await client.GetAsync("/api/exams/");
         Assert.Equal(HttpStatusCode.Locked, blockedApiResponse.StatusCode);
         using (var blockedBody = JsonDocument.Parse(await blockedApiResponse.Content.ReadAsStringAsync()))
@@ -134,6 +135,43 @@ public sealed class EnrolmentEndpointsTests
         Assert.Equal(HttpStatusCode.OK, secondAttempt.StatusCode);
         Assert.Equal(2, handler.CallCount);
         Assert.Equal(2, download.CallCount);
+    }
+
+    [Fact]
+    public async Task Activation_status_disables_retry_for_a_revoked_locked_device()
+    {
+        using var factory = new EnrolmentApiFactory(new StubCentralHandler(() => throw new InvalidOperationException()));
+        using var client = factory.CreateClient();
+        factory.SeedNodeIdentity();
+        factory.SetNodeCredentialState("revoked", "locked");
+        factory.SetActivationFlag("activation_in_progress", true);
+
+        var status = await client.GetFromJsonAsync<JsonElement>("/api/activation/status");
+
+        Assert.True(status.GetProperty("activationInProgress").GetBoolean());
+        Assert.True(status.GetProperty("isLocked").GetBoolean());
+        Assert.False(status.GetProperty("retryAvailable").GetBoolean());
+        var retry = await client.PostAsync("/api/enrolment/retry-download", null);
+        Assert.Equal(HttpStatusCode.BadRequest, retry.StatusCode);
+    }
+
+    [Fact]
+    public async Task Activation_status_disables_retry_after_a_crash_mid_expiry_wipe()
+    {
+        using var factory = new EnrolmentApiFactory(new StubCentralHandler(() => throw new InvalidOperationException()));
+        using var client = factory.CreateClient();
+        factory.SeedNodeIdentity();
+        factory.SetNodeCredentialState("active", null);
+        factory.SetActivationFlag("activation_in_progress", true);
+        factory.SetActivationFlag("activation_expiry_pending", true);
+
+        var status = await client.GetFromJsonAsync<JsonElement>("/api/activation/status");
+
+        Assert.True(status.GetProperty("activationInProgress").GetBoolean());
+        Assert.True(status.GetProperty("expiryPending").GetBoolean());
+        Assert.False(status.GetProperty("retryAvailable").GetBoolean());
+        var retry = await client.PostAsync("/api/enrolment/retry-download", null);
+        Assert.Equal(HttpStatusCode.BadRequest, retry.StatusCode);
     }
 
     [Fact]
@@ -422,6 +460,28 @@ public sealed class EnrolmentEndpointsTests
                 ("$components", """{"machineGuid":{"present":false,"value":null},"volumeSerial":{"present":false,"value":null},"cpuId":{"present":false,"value":null}}"""));
 
             transaction.Commit();
+        }
+
+        public void SetNodeCredentialState(string credentialState, string? revocationStage)
+        {
+            using var connection = CreateConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE node_identity SET credential_state = $credentialState, revocation_stage = $revocationStage;";
+            command.Parameters.AddWithValue("$credentialState", credentialState);
+            command.Parameters.AddWithValue("$revocationStage", (object?)revocationStage ?? DBNull.Value);
+            command.ExecuteNonQuery();
+        }
+
+        public void SetActivationFlag(string key, bool value)
+        {
+            using var connection = CreateConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = "INSERT INTO sync_state (id, key, value_json, updated_at) VALUES ($id, $key, $value, $now) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at;";
+            command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("N"));
+            command.Parameters.AddWithValue("$key", key);
+            command.Parameters.AddWithValue("$value", JsonSerializer.Serialize(value));
+            command.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToString("O"));
+            command.ExecuteNonQuery();
         }
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)

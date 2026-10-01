@@ -19,11 +19,20 @@ describe("activation", () => {
 
   it("opens the download retry action immediately when activation is pending", () => {
     const html = renderToStaticMarkup(
-      <ActivationScreen apiBaseUrl="http://127.0.0.1:5055" activationInProgress />
+      <ActivationScreen apiBaseUrl="http://127.0.0.1:5055" activationInProgress retryAvailable />
     );
 
     expect(html).toContain("La clave ya fue validada. Reintentá la descarga");
     expect(html).toMatch(/<button type="button">Reintentar descarga<\/button>/);
+  });
+
+  it("shows the key form when the node is locked even if a download is pending", () => {
+    const html = renderToStaticMarkup(
+      <ActivationScreen apiBaseUrl="http://127.0.0.1:5055" isLocked activationInProgress retryAvailable />
+    );
+
+    expect(html).toContain("Clave de activación");
+    expect(html).not.toContain("Reintentar descarga");
   });
 
   it("shows activation only when the node is not enrolled", () => {
@@ -33,8 +42,9 @@ describe("activation", () => {
   });
 
   it("offers download retry only for a redeem that already stored credentials", () => {
-    expect(canRetryActivationDownload({ activationInProgress: true })).toBe(true);
-    expect(canRetryActivationDownload({ activationInProgress: false })).toBe(false);
+    expect(canRetryActivationDownload({ isLocked: false, activationInProgress: true, retryAvailable: true })).toBe(true);
+    expect(canRetryActivationDownload({ isLocked: true, activationInProgress: true, retryAvailable: true })).toBe(false);
+    expect(canRetryActivationDownload({ isLocked: false, activationInProgress: true, retryAvailable: false })).toBe(false);
     expect(canRetryActivationDownload(null)).toBe(false);
   });
 
