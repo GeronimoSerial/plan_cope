@@ -9,6 +9,7 @@ using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using PlanCope.Local.Api;
 using PlanCope.Local.Api.Data.Repositories;
+using PlanCope.Local.Api.Services;
 using PlanCope.Local.Host.Services;
 using PlanCope.Shared.Domain.Local;
 using Microsoft.Data.Sqlite;
@@ -206,6 +207,8 @@ public partial class MainForm : Form
                 _ = HandleDownloadUpdateAsync();
                 break;
             case "host:deferUpdate":
+                _pendingSessionUpdatePrompt = false;
+                StopSessionGatePolling();
                 _updateState = "idle";
                 _updateTargetVersion = null;
                 _updateMessage = null;
@@ -285,9 +288,9 @@ public partial class MainForm : Form
             _updateMessage = null;
             PushUpdateStatus();
 
-            _updateAccessToken = ReadCentralAccessToken();
-
-            var result = await _updateService.CheckForUpdatesAsync();
+            var result = await UpdateRequestAuth.RunAsync(
+                () => _updateService.CheckForUpdatesAsync(),
+                RefreshUpdateAccessTokenAsync);
             if (!result.UpdateAvailable)
             {
                 _updateState = "upToDate";
@@ -327,11 +330,12 @@ public partial class MainForm : Form
         try
         {
             _pendingSessionUpdatePrompt = false;
-            _updateAccessToken = ReadCentralAccessToken();
             _updateState = "downloading";
             _updateMessage = null;
             PushUpdateStatus();
-            await _updateService.DownloadUpdateAsync(_updateSha256);
+            await UpdateRequestAuth.RunAsync(
+                () => _updateService.DownloadUpdateAsync(_updateSha256),
+                RefreshUpdateAccessTokenAsync);
             if (_updateService.LastDownloadIntegrityFailed)
             {
                 _updateState = "integrityFailed";
@@ -453,6 +457,38 @@ public partial class MainForm : Form
         {
             return null;
         }
+    }
+
+    private async Task RefreshUpdateAccessTokenAsync(bool forceRefresh)
+    {
+        if (_api is null) return;
+
+        using var scope = _api.Services.CreateScope();
+        var services = scope.ServiceProvider;
+        var repository = services.GetService<ISyncStateRepository>();
+        if (repository is null) return;
+
+        var expiryState = await repository.GetAsync("central_access_token_expires_at");
+        var expiryText = ReadSyncStateString(expiryState?.ValueJson);
+        var expiresAt = DateTimeOffset.TryParse(expiryText, out var parsedExpiry)
+            ? parsedExpiry
+            : (DateTimeOffset?)null;
+        if (forceRefresh || UpdateRequestAuth.ShouldRefresh(expiresAt, DateTimeOffset.UtcNow))
+        {
+            await services.GetRequiredService<NodeCredentialRefresher>().TryRefreshAsync(CancellationToken.None);
+        }
+
+        var tokenState = await repository.GetAsync("central_access_token");
+        _updateAccessToken = ReadSyncStateString(tokenState?.ValueJson);
+    }
+
+    private static string? ReadSyncStateString(string? valueJson)
+    {
+        if (string.IsNullOrWhiteSpace(valueJson)) return null;
+        using var document = JsonDocument.Parse(valueJson);
+        return document.RootElement.ValueKind is JsonValueKind.String
+            ? document.RootElement.GetString()
+            : document.RootElement.GetRawText();
     }
 
     /// <summary>
