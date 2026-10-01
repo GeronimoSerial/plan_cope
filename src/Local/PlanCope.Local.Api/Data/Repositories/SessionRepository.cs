@@ -1,7 +1,7 @@
 using Dapper;
 using System.Globalization;
-using System.Text;
 using System.Text.Json;
+using PlanCope.Local.Api.Data;
 using PlanCope.Local.Api.Services;
 using PlanCope.Shared.Domain.Local;
 using PlanCope.Shared.Domain.ValueObjects;
@@ -116,7 +116,15 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
 
     public async Task<SessionHistoryPage> GetHistoryAsync(string? schoolCode, string? status, string? query, int page, int pageSize, CancellationToken cancellationToken = default)
     {
-        const string sql = """
+        var searchTokens = LocalSearchText.TokenizeQuery(query);
+        var parameters = new DynamicParameters();
+        parameters.Add("SchoolCode", NormalizeOptionalCue(schoolCode));
+        parameters.Add("Status", NormalizeOptionalStatus(status));
+        parameters.Add("PageSize", pageSize);
+        parameters.Add("Offset", (page - 1) * pageSize);
+        var searchPredicate = BuildHistorySearchPredicate(searchTokens, parameters);
+
+        var sql = $"""
             WITH filtered AS (
                 SELECT s.id AS Id, s.exam_version_id AS ExamVersionId, s.school_code AS SchoolCode,
                        s.roster_snapshot_id AS RosterSnapshotId, s.roster_section_id AS RosterSectionId,
@@ -141,20 +149,11 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
                 LEFT JOIN local_roster_sections section ON section.id = s.roster_section_id AND section.snapshot_id = s.roster_snapshot_id
                 WHERE (@SchoolCode IS NULL OR s.school_code = @SchoolCode)
                   AND (@Status IS NULL OR s.status = @Status)
-                  AND (@Query IS NULL OR instr(replace(lower(s.access_code), '-', ''), replace(@Query, '-', '')) > 0
-                    OR instr(lower(s.school_code), @Query) > 0
-                    OR instr(replace(replace(replace(replace(replace(replace(replace(lower(replace(COALESCE(NULLIF(sc.name, ''), NULLIF(rs.school_name, ''), 'CUE ' || s.school_code), 'Á', 'á')), 'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u'),'ñ','n'),'ü','u'), @Query) > 0
-                    OR instr(replace(replace(replace(replace(replace(replace(replace(lower(COALESCE(json_extract(ev.metadata_json, '$.title'), ev.exam_code)), 'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u'),'ñ','n'),'ü','u'), @Query) > 0
-                    OR instr(replace(replace(replace(replace(replace(replace(replace(lower(COALESCE(section.course, json_extract(ev.metadata_json, '$.grade'), '')), 'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u'),'ñ','n'),'ü','u'), @Query) > 0
-                    OR instr(replace(replace(replace(replace(replace(replace(replace(lower(COALESCE(section.division, json_extract(ev.metadata_json, '$.division'), '')), 'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u'),'ñ','n'),'ü','u'), @Query) > 0
-                    OR instr(replace(replace(replace(replace(replace(replace(replace(lower(COALESCE(section.shift, '')), 'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u'),'ñ','n'),'ü','u'), @Query) > 0)
+                  {searchPredicate}
             )
             SELECT * FROM filtered ORDER BY StartAt DESC, Id DESC LIMIT @PageSize OFFSET @Offset;
             """;
         using var connection = connectionFactory.CreateOpenConnection();
-        var statusFilter = NormalizeOptionalStatus(status);
-        var schoolFilter = NormalizeOptionalCue(schoolCode);
-        var queryFilter = NormalizeSearchQuery(query);
         using var results = await connection.QueryMultipleAsync(new CommandDefinition($"""
             SELECT COUNT(*) FROM delivery_sessions s
             JOIN local_exam_versions ev ON ev.id = s.exam_version_id
@@ -163,22 +162,10 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
             LEFT JOIN local_roster_sections section ON section.id = s.roster_section_id AND section.snapshot_id = s.roster_snapshot_id
             WHERE (@SchoolCode IS NULL OR s.school_code = @SchoolCode)
               AND (@Status IS NULL OR s.status = @Status)
-              AND (@Query IS NULL OR instr(replace(lower(s.access_code), '-', ''), replace(@Query, '-', '')) > 0
-                OR instr(lower(s.school_code), @Query) > 0
-                OR instr(replace(replace(replace(replace(replace(replace(replace(lower(replace(COALESCE(NULLIF(sc.name, ''), NULLIF(rs.school_name, ''), 'CUE ' || s.school_code), 'Á', 'á')), 'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u'),'ñ','n'),'ü','u'), @Query) > 0
-                OR instr(replace(replace(replace(replace(replace(replace(replace(lower(COALESCE(json_extract(ev.metadata_json, '$.title'), ev.exam_code)), 'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u'),'ñ','n'),'ü','u'), @Query) > 0
-                OR instr(replace(replace(replace(replace(replace(replace(replace(lower(COALESCE(section.course, json_extract(ev.metadata_json, '$.grade'), '')), 'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u'),'ñ','n'),'ü','u'), @Query) > 0
-                OR instr(replace(replace(replace(replace(replace(replace(replace(lower(COALESCE(section.division, json_extract(ev.metadata_json, '$.division'), '')), 'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u'),'ñ','n'),'ü','u'), @Query) > 0
-                OR instr(replace(replace(replace(replace(replace(replace(replace(lower(COALESCE(section.shift, '')), 'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u'),'ñ','n'),'ü','u'), @Query) > 0);
+              {searchPredicate}
+            ;
             {sql}
-            """, new
-        {
-            SchoolCode = schoolFilter,
-            Status = statusFilter,
-            Query = queryFilter,
-            PageSize = pageSize,
-            Offset = (page - 1) * pageSize
-        }, cancellationToken: cancellationToken));
+            """, parameters, cancellationToken: cancellationToken));
         var totalCount = await results.ReadSingleAsync<int>();
         var rows = (await results.ReadAsync<SessionListRow>()).ToList();
         return new SessionHistoryPage(rows.Select(ToListItem).ToList(), page, pageSize, totalCount);
@@ -221,13 +208,30 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
 
     private static string? NormalizeOptionalCue(string? cue) => string.IsNullOrWhiteSpace(cue) ? null : CueCode.Normalize(cue);
 
-    private static string? NormalizeSearchQuery(string? query)
+    private static string BuildHistorySearchPredicate(IReadOnlyList<string> tokens, DynamicParameters parameters)
     {
-        if (string.IsNullOrWhiteSpace(query)) return null;
-        var trimmed = query.Trim();
-        if (trimmed.Length < 2) return null;
-        var decomposed = trimmed.Normalize(NormalizationForm.FormD);
-        return new string(decomposed.Where(character => CharUnicodeInfo.GetUnicodeCategory(character) != UnicodeCategory.NonSpacingMark).ToArray()).ToLowerInvariant();
+        if (tokens.Count == 0) return "";
+
+        string[] fields =
+        [
+            "fold_text(COALESCE(NULLIF(sc.name, ''), NULLIF(rs.school_name, ''), 'CUE ' || s.school_code))",
+            "fold_text(s.school_code)",
+            "fold_text(COALESCE(json_extract(ev.metadata_json, '$.title'), ''))",
+            "fold_text(ev.exam_code)",
+            "fold_text(s.access_code)",
+            "replace(fold_text(s.access_code), ' ', '')",
+            "grade_search(COALESCE(section.course, json_extract(ev.metadata_json, '$.grade'), ''), COALESCE(section.division, json_extract(ev.metadata_json, '$.division'), ''), COALESCE(section.shift, ''))",
+            "fold_text(CASE s.status WHEN 'active' THEN 'abierta' WHEN 'paused' THEN 'pausada' WHEN 'closed' THEN 'cerrada' ELSE s.status END)"
+        ];
+
+        var conditions = new List<string>(tokens.Count);
+        for (var index = 0; index < tokens.Count; index++)
+        {
+            var parameterName = $"SearchToken{index}";
+            parameters.Add(parameterName, tokens[index]);
+            conditions.Add($"({string.Join(" OR ", fields.Select(field => $"instr({field}, @{parameterName}) > 0"))})");
+        }
+        return $"AND ({string.Join(" AND ", conditions)})";
     }
 
     private static string? NormalizeOptionalStatus(string? status) => string.IsNullOrWhiteSpace(status) ? null : status.Trim().ToLowerInvariant() switch

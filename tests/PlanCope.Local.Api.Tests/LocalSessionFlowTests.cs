@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
@@ -12,11 +13,16 @@ using PlanCope.Shared.Contracts.Local;
 using PlanCope.Shared.Contracts.Sync;
 using PlanCope.Shared.Domain.Local;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace PlanCope.Local.Api.Tests;
 
 public sealed class LocalSessionFlowTests
 {
+    private readonly ITestOutputHelper output;
+
+    public LocalSessionFlowTests(ITestOutputHelper output) => this.output = output;
+
     [Fact]
     public async Task Node_sessions_include_school_exam_grade_and_counters_and_history_filters_paginate()
     {
@@ -56,18 +62,71 @@ public sealed class LocalSessionFlowTests
         Assert.Equal(1, filtered.GetProperty("totalCount").GetInt32());
         Assert.Equal(open.Id, filtered.GetProperty("items")[0].GetProperty("id").GetString());
 
-        factory.SetSchoolName("180055400", "Escuela Álamo");
-        foreach (var query in new[] { "alamo", "180055400", open.AccessCode.Replace("-", ""), "manana" })
+        factory.SetSchoolName("180055400", "Escuela N° 123 \"Dr. Juan PÚJOL\"");
+        factory.SetSchoolName("180055401", "Escuela N° 123 \"Dr. Juan PÚJOL\"");
+        factory.SetExamTitle("MATEMÁTICA DIAGNÓSTICO ÓSCAR 6");
+        factory.SetSectionShift("section-a", "TARDE");
+        factory.SetAccessCode(open.Id, "K7M-4PQ");
+        foreach (var query in new[] { "pujol", "PUJOL", "Pújol", "dr juan", "juan pujol 123", "matematica 6", "matemática diagnóstico", "oscar", "6a", "6° A", "6to a", "sexto a" })
         {
-            var searched = await client.GetFromJsonAsync<JsonElement>($"/api/sessions/history?q={Uri.EscapeDataString(query)}&pageSize=1");
+            var searched = await client.GetFromJsonAsync<JsonElement>($"/api/sessions/history?q={Uri.EscapeDataString(query)}");
+            Assert.Equal(2, searched.GetProperty("totalCount").GetInt32());
+            Assert.Contains(searched.GetProperty("items").EnumerateArray(), item => item.GetProperty("id").GetString() == open.Id);
+        }
+        var exactCue = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history?q=180055400");
+        Assert.Equal(1, exactCue.GetProperty("totalCount").GetInt32());
+        Assert.Equal(open.Id, exactCue.GetProperty("items")[0].GetProperty("id").GetString());
+        var partialCue = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history?q=1800554");
+        Assert.Equal(2, partialCue.GetProperty("totalCount").GetInt32());
+        foreach (var query in new[] { "K7M-4PQ", "k7m4pq", "4pq", "6 a tarde", "tarde" })
+        {
+            var searched = await client.GetFromJsonAsync<JsonElement>($"/api/sessions/history?q={Uri.EscapeDataString(query)}");
             Assert.Equal(1, searched.GetProperty("totalCount").GetInt32());
             Assert.Equal(open.Id, searched.GetProperty("items")[0].GetProperty("id").GetString());
         }
+        Assert.Equal(0, (await client.GetFromJsonAsync<JsonElement>("/api/sessions/history?q=notaword")).GetProperty("totalCount").GetInt32());
+        Assert.Equal(2, (await client.GetFromJsonAsync<JsonElement>("/api/sessions/history?q=a")).GetProperty("totalCount").GetInt32());
+        var closedSearch = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history?q=cerrada%20pujol");
+        Assert.Equal(1, closedSearch.GetProperty("totalCount").GetInt32());
+        Assert.Equal(second!.Id, closedSearch.GetProperty("items")[0].GetProperty("id").GetString());
+        factory.SetSectionShift("section-a", "ÑANDÚ");
+        var uppercaseShiftSearch = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history?q=nandu");
+        Assert.Equal(1, uppercaseShiftSearch.GetProperty("totalCount").GetInt32());
+        Assert.Equal(open.Id, uppercaseShiftSearch.GetProperty("items")[0].GetProperty("id").GetString());
+        factory.SetSectionShift("section-a", "MAÑANA");
+        foreach (var query in new[] { "manana", "mañana" })
+        {
+            var shiftSearch = await client.GetFromJsonAsync<JsonElement>($"/api/sessions/history?q={Uri.EscapeDataString(query)}");
+            Assert.Equal(1, shiftSearch.GetProperty("totalCount").GetInt32());
+            Assert.Equal(open.Id, shiftSearch.GetProperty("items")[0].GetProperty("id").GetString());
+        }
+        factory.SetSectionShift("section-a", "NOCHE");
+        var nightSearch = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history?q=noche");
+        Assert.Equal(1, nightSearch.GetProperty("totalCount").GetInt32());
 
         var schoolsResponse = await client.GetAsync("/api/schools");
         Assert.True(schoolsResponse.IsSuccessStatusCode, await schoolsResponse.Content.ReadAsStringAsync());
         var schools = (await schoolsResponse.Content.ReadFromJsonAsync<JsonElement>()).Clone();
         Assert.Contains(schools.EnumerateArray(), school => school.GetProperty("code").GetString() == "180055400" && school.GetProperty("hasReadyRoster").GetBoolean());
+    }
+
+    [Fact]
+    public async Task History_search_finds_multitoken_result_across_five_thousand_sessions_quickly()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        var expectedId = factory.SeedSearchSessions(5000);
+
+        var stopwatch = Stopwatch.StartNew();
+        var page = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history?q=pujol%206%20a&pageSize=20");
+        stopwatch.Stop();
+
+        Assert.Equal(1, page.GetProperty("totalCount").GetInt32());
+        Assert.Equal(expectedId, page.GetProperty("items")[0].GetProperty("id").GetString());
+        output.WriteLine($"5,000-session multi-token history search: {stopwatch.Elapsed.TotalMilliseconds:F1} ms");
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(1), $"History search took {stopwatch.Elapsed.TotalMilliseconds:F1} ms.");
     }
 
     [Fact]
@@ -1082,6 +1141,81 @@ public sealed class LocalSessionFlowTests
             command.Parameters.AddWithValue("$name", name);
             command.Parameters.AddWithValue("$cue", cue);
             command.ExecuteNonQuery();
+        }
+
+        public void SetExamTitle(string title)
+        {
+            using var connection = CreateConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE local_exam_versions SET metadata_json = json_set(metadata_json, '$.title', $title) WHERE id = $id;";
+            command.Parameters.AddWithValue("$title", title);
+            command.Parameters.AddWithValue("$id", ExamVersionId);
+            command.ExecuteNonQuery();
+        }
+
+        public void SetSectionShift(string sectionId, string shift)
+        {
+            using var connection = CreateConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE local_roster_sections SET shift = $shift WHERE id = $id;";
+            command.Parameters.AddWithValue("$shift", shift);
+            command.Parameters.AddWithValue("$id", sectionId);
+            command.ExecuteNonQuery();
+        }
+
+        public void SetAccessCode(string sessionId, string accessCode)
+        {
+            using var connection = CreateConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE delivery_sessions SET access_code = $accessCode WHERE id = $id;";
+            command.Parameters.AddWithValue("$accessCode", accessCode);
+            command.Parameters.AddWithValue("$id", sessionId);
+            command.ExecuteNonQuery();
+        }
+
+        public string SeedSearchSessions(int count)
+        {
+            const string expectedId = "search-perf-target";
+            using var connection = CreateConnection();
+            using var transaction = connection.BeginTransaction();
+            using (var schoolCommand = connection.CreateCommand())
+            {
+                schoolCommand.Transaction = transaction;
+                schoolCommand.CommandText = "INSERT INTO schools (cue, name) VALUES ($cue, $name);";
+                var cueParameter = schoolCommand.Parameters.Add("$cue", SqliteType.Text);
+                var nameParameter = schoolCommand.Parameters.Add("$name", SqliteType.Text);
+                for (var school = 0; school < 30; school++)
+                {
+                    cueParameter.Value = $"1800554{school:00}";
+                    nameParameter.Value = school == 0 ? "Escuela N° 123 \"Dr. Juan Pujol\"" : $"Escuela {school}";
+                    schoolCommand.ExecuteNonQuery();
+                }
+            }
+
+            using (var sessionCommand = connection.CreateCommand())
+            {
+                sessionCommand.Transaction = transaction;
+                sessionCommand.CommandText = """
+                    INSERT INTO delivery_sessions (id, exam_version_id, school_code, classroom_code, started_by, start_at, status, access_code, expected_student_count)
+                    VALUES ($id, $exam, $cue, '6 A', 'Test', $start, 'active', $access, 1);
+                    """;
+                var idParameter = sessionCommand.Parameters.Add("$id", SqliteType.Text);
+                var cueParameter = sessionCommand.Parameters.Add("$cue", SqliteType.Text);
+                var startParameter = sessionCommand.Parameters.Add("$start", SqliteType.Text);
+                var accessParameter = sessionCommand.Parameters.Add("$access", SqliteType.Text);
+                sessionCommand.Parameters.AddWithValue("$exam", ExamVersionId);
+                sessionCommand.Prepare();
+                for (var index = 0; index < count; index++)
+                {
+                    idParameter.Value = index == 0 ? expectedId : $"search-perf-{index:D5}";
+                    cueParameter.Value = index == 0 ? "180055400" : $"1800554{1 + ((index - 1) % 29):00}";
+                    startParameter.Value = DateTimeOffset.UtcNow.AddSeconds(-index).ToString("O");
+                    accessParameter.Value = $"P{index:D5}Q";
+                    sessionCommand.ExecuteNonQuery();
+                }
+            }
+            transaction.Commit();
+            return expectedId;
         }
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
