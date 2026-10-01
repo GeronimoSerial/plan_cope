@@ -52,6 +52,12 @@ public partial class MainForm : Form
     private string? _updateSha256;
     private string? _updateFileName;
     private string? _updateMessage;
+    private int? _updateProgress;
+    private bool _restartAvailable;
+    private IReadOnlyList<UpdateBlockingSession> _blockingSessions = [];
+    private string? _loggedBlockingSessionIds;
+    private int _sessionGateFailures;
+    private bool _sessionGateLastCheckFailed;
     private bool _updateCheckInProgress;
     private bool _pendingSessionUpdatePrompt;
     private readonly System.Windows.Forms.Timer _sessionGateTimer = new() { Interval = 30000, Enabled = false };
@@ -296,12 +302,16 @@ public partial class MainForm : Form
             case "host:downloadUpdate":
                 _ = HandleDownloadUpdateAsync();
                 break;
+            case "host:applyUpdate":
+                _ = TryApplyUpdateAndRestartAsync();
+                break;
             case "host:deferUpdate":
                 _pendingSessionUpdatePrompt = false;
                 StopSessionGatePolling();
                 _updateState = "idle";
                 _updateTargetVersion = null;
                 _updateMessage = null;
+                _blockingSessions = [];
                 PushUpdateStatus();
                 break;
             case "host:openStatsReport":
@@ -393,7 +403,10 @@ public partial class MainForm : Form
             {
                 state = _updateState,
                 targetVersion = _updateTargetVersion,
-                message = _updateMessage
+                message = _updateMessage,
+                progress = _updateProgress,
+                restartAvailable = _restartAvailable,
+                blockingSessions = _blockingSessions
             }
         };
 
@@ -432,6 +445,12 @@ public partial class MainForm : Form
             {
                 _updateState = "upToDate";
                 PushUpdateStatus();
+                await Task.Delay(TimeSpan.FromSeconds(5));
+                if (!IsDisposed && _updateState == "upToDate")
+                {
+                    _updateState = "idle";
+                    PushUpdateStatus();
+                }
                 return;
             }
 
@@ -470,9 +489,23 @@ public partial class MainForm : Form
             _pendingSessionUpdatePrompt = false;
             _updateState = "downloading";
             _updateMessage = null;
+            _updateProgress = 0;
             PushUpdateStatus();
+            var progressThrottle = new UpdateProgressThrottle();
             await UpdateRequestAuth.RunAsync(
-                () => _updateService.DownloadUpdateAsync(_updateSha256),
+                () => _updateService.DownloadUpdateAsync(_updateSha256, progress =>
+                {
+                    var now = DateTimeOffset.UtcNow;
+                    if (!progressThrottle.ShouldReport(progress, now)) return;
+                    void PublishProgress()
+                    {
+                        if (IsDisposed || !IsHandleCreated) return;
+                        _updateProgress = Math.Clamp(progress, 0, 100);
+                        PushUpdateStatus();
+                    }
+                    if (IsDisposed || !IsHandleCreated) return;
+                    if (InvokeRequired) BeginInvoke((Action)PublishProgress); else PublishProgress();
+                }),
                 RefreshUpdateAccessTokenAsync);
             if (_updateService.LastDownloadIntegrityFailed)
             {
@@ -514,7 +547,7 @@ public partial class MainForm : Form
         if (await HasActiveSessionAsync())
         {
             _updateState = _pendingSessionUpdatePrompt ? "updateAvailablePendingSession" : "readyPendingSessionClose";
-            _updateMessage = null;
+            if (!_sessionGateLastCheckFailed) _updateMessage = null;
             PushUpdateStatus();
             StartSessionGatePolling();
             return;
@@ -532,14 +565,10 @@ public partial class MainForm : Form
 
         _updateState = "readyToRestart";
         _updateMessage = null;
+        _restartAvailable = false;
         PushUpdateStatus();
         StopSessionGatePolling();
-        if (_updateService?.TryApplyAndRestart(userConfirmedRestart: true) != true)
-        {
-            _updateState = "error";
-            _updateMessage = "No se pudo reiniciar para completar la actualización. Volvé a buscar actualizaciones para reintentar.";
-            PushUpdateStatus();
-        }
+        await TryApplyUpdateAndRestartAsync(automatic: true);
     }
 
     private void StartSessionGatePolling()
@@ -558,6 +587,52 @@ public partial class MainForm : Form
         }
     }
 
+    private async Task TryApplyUpdateAndRestartAsync(bool automatic = false)
+    {
+        try
+        {
+            var decision = await UpdateRestartGuard.TryStartAsync(
+                HasActiveSessionAsync,
+                () => _updateService?.TryApplyAndRestart(userConfirmedRestart: true) == true);
+            System.Diagnostics.Trace.WriteLine($"Update apply/restart decision (automatic={automatic}): {decision}.");
+            if (decision == UpdateRestartDecision.SessionActive)
+            {
+                _updateState = "readyPendingSessionClose";
+                if (!_sessionGateLastCheckFailed) _updateMessage = null;
+                _restartAvailable = false;
+                PushUpdateStatus();
+                StartSessionGatePolling();
+                return;
+            }
+
+            if (decision == UpdateRestartDecision.RestartUnavailable)
+            {
+                _restartAvailable = true;
+                _updateMessage = "No se pudo iniciar el reinicio automático. Podés volver a intentarlo.";
+                PushUpdateStatus();
+                return;
+            }
+
+            if (automatic)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5));
+                if (!IsDisposed && _updateState == "readyToRestart")
+                {
+                    _restartAvailable = true;
+                    PushUpdateStatus();
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            LogUpdateFailure("apply-restart", exception);
+            System.Diagnostics.Trace.WriteLine($"Update apply/restart failed: {exception}");
+            _restartAvailable = true;
+            _updateMessage = "No se pudo iniciar el reinicio automático. Podés volver a intentarlo.";
+            PushUpdateStatus();
+        }
+    }
+
     private async Task<bool> HasActiveSessionAsync()
     {
         try
@@ -565,15 +640,36 @@ public partial class MainForm : Form
             using var response = await _localHttp.GetAsync($"http://127.0.0.1:{_localPort}/api/sessions/active");
             response.EnsureSuccessStatusCode();
             var sessions = await JsonSerializer.DeserializeAsync<List<LocalDeliverySession>>(response.Content.ReadAsStream(), JsonOptions);
-            return sessions is { Count: > 0 };
+            _sessionGateFailures = 0;
+            _sessionGateLastCheckFailed = false;
+            _sessionGateTimer.Interval = 30000;
+            _blockingSessions = sessions?.Select(session => new UpdateBlockingSession(
+                session.Id,
+                $"Sesión {session.AccessCode} · {session.SchoolCode} · {session.Status}")).ToArray() ?? [];
+            var sessionIds = string.Join(", ", _blockingSessions.Select(session => session.Id));
+            if (_blockingSessions.Count > 0 && !string.Equals(sessionIds, _loggedBlockingSessionIds, StringComparison.Ordinal))
+            {
+                UpdateFailureLogger.LogMessage(_directories.LogsDirectory, "session-gate", $"Update blocked by active session ids: {sessionIds}.");
+                System.Diagnostics.Trace.WriteLine($"Update blocked by active sessions: {sessionIds}.");
+            }
+            _loggedBlockingSessionIds = _blockingSessions.Count > 0 ? sessionIds : null;
+            return _blockingSessions.Count > 0;
         }
-        catch
+        catch (Exception exception)
         {
-            // Fail safe: when the session state cannot be determined, assume a session is
-            // active so an update is never applied during a possibly-running exam.
+            _sessionGateFailures++;
+            _sessionGateLastCheckFailed = true;
+            var reason = SessionGateRetryPolicy.DescribeException(exception);
+            _updateMessage = reason;
+            _blockingSessions = [];
+            _sessionGateTimer.Interval = (int)SessionGateRetryPolicy.GetDelay(_sessionGateFailures).TotalMilliseconds;
+            LogUpdateFailure("session-gate", exception);
+            SessionGateRetryPolicy.LogFailure(message => System.Diagnostics.Trace.WriteLine(message), exception, _sessionGateFailures);
             return true;
         }
     }
+
+    private sealed record UpdateBlockingSession(string Id, string Label);
 
     private string? ReadCentralAccessToken()
     {
