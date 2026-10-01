@@ -49,6 +49,7 @@ export function createProgressPoller(options: ProgressPollerOptions): () => void
   const controller = new AbortController();
   let cancelled = false;
   let generation = 0;
+  let timeout: ReturnType<typeof setTimeout> | null = null;
   let intervalMs = PROGRESS_POLL_MS;
   let previous: SessionProgress | null = null;
 
@@ -57,8 +58,12 @@ export function createProgressPoller(options: ProgressPollerOptions): () => void
       return;
     }
 
+    if (timeout !== null) {
+      clearTimeout(timeout);
+    }
     const gen = ++generation;
-    setTimeout(() => {
+    timeout = setTimeout(() => {
+      timeout = null;
       if (cancelled || gen !== generation) {
         return;
       }
@@ -99,6 +104,10 @@ export function createProgressPoller(options: ProgressPollerOptions): () => void
   return () => {
     cancelled = true;
     generation += 1;
+    if (timeout !== null) {
+      clearTimeout(timeout);
+      timeout = null;
+    }
     controller.abort();
   };
 }

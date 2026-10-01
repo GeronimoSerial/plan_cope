@@ -37,12 +37,17 @@ describe("ActiveSessionPanel", () => {
     container = undefined;
   });
 
-  function render(progressData: SessionProgress, sessionData = session) {
+  function render(progressData: SessionProgress | null, sessionData = session) {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
     act(() => root?.render(<ActiveSessionPanel progress={progressData} session={sessionData} sessionLink="http://local/ABC-123" />));
     return container;
+  }
+
+  function rerender(progressData: SessionProgress | null, sessionData = session) {
+    act(() => root?.render(<ActiveSessionPanel progress={progressData} session={sessionData} sessionLink="http://local/ABC-123" />));
+    return container!;
   }
 
   it("shows grade, live counters, expected students, masked DNI, and accessible table headings", () => {
@@ -78,5 +83,16 @@ describe("ActiveSessionPanel", () => {
     expect(view.textContent).toContain("Ana Working");
     expect(view.textContent).toContain("Cecilia Done");
     expect(view.textContent).toContain("Entregó");
+  });
+
+  it("uses the first progress result as a baseline and highlights later submissions", () => {
+    const view = render(null);
+    const alreadySubmitted = student({ id: "done", displayName: "Cecilia Done", status: "submitted", submittedAt: "2026-10-01T10:14:00Z" });
+    rerender(progress({ submittedCount: 1, inProgressCount: 0, students: [alreadySubmitted] }));
+    expect(view.querySelector(".student-row-submitted")).toBeNull();
+
+    rerender(progress({ inProgressCount: 1, submittedCount: 0, students: [student({ id: "done", displayName: "Cecilia Done", status: "in_progress" })] }));
+    rerender(progress({ submittedCount: 1, inProgressCount: 0, students: [alreadySubmitted] }));
+    expect(view.querySelector(".student-row-submitted")?.textContent).toContain("Cecilia Done");
   });
 });

@@ -141,6 +141,20 @@ describe("createProgressPoller", () => {
     dispose();
   });
 
+  it("clears its pending timer when disposed", async () => {
+    const dispose = createProgressPoller({
+      accessCode: ACCESS_CODE,
+      fetchProgress: vi.fn().mockResolvedValue(progress()),
+      onProgress: vi.fn(),
+      onError: vi.fn()
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vi.getTimerCount()).toBe(1);
+    dispose();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("treats a student status change as changed progress even when counters stay the same", async () => {
     const submittedStudent = { id: "student-1", displayName: "Ana", maskedDocument: "**123", status: "submitted" as const, startedAt: null, submittedAt: "2026-10-01T10:00:00Z", attemptId: "attempt-1", submissionReason: null, offRoster: false };
     let call = 0;

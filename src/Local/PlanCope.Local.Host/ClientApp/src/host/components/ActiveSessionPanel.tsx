@@ -27,6 +27,7 @@ function ActiveSessionContent({ progress, session, sessionLink }: ActiveSessionP
   const [filter, setFilter] = useState<StudentFilter>("all");
   const [highlightedIds, setHighlightedIds] = useState<string[]>([]);
   const previousStatuses = useRef<Map<string, string> | null>(null);
+  const previousSessionId = useRef<string | null>(null);
   const students = progress?.students ?? [];
   const nominal = students.some(student => student.status === "not_started") || Boolean(session.rosterSnapshotId || session.rosterSectionId);
   const submitted = progress?.submittedCount ?? students.filter(student => student.status === "submitted").length;
@@ -36,6 +37,13 @@ function ActiveSessionContent({ progress, session, sessionLink }: ActiveSessionP
   const completion = progress?.completionPercentage ?? 0;
 
   useEffect(() => {
+    if (previousSessionId.current !== session.id) {
+      previousSessionId.current = session.id;
+      previousStatuses.current = null;
+      setHighlightedIds([]);
+    }
+    if (!progress || progress.sessionId !== session.id) return;
+
     const currentStatuses = new Map(students.map(student => [student.id, student.status]));
     if (previousStatuses.current) {
       const newlySubmitted = students
@@ -46,7 +54,7 @@ function ActiveSessionContent({ progress, session, sessionLink }: ActiveSessionP
       }
     }
     previousStatuses.current = currentStatuses;
-  }, [students]);
+  }, [progress, session.id]);
 
   useEffect(() => {
     if (!highlightedIds.length) return;
