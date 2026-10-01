@@ -683,6 +683,65 @@ public sealed class LocalSessionFlowTests
         Assert.Contains("ya ingresaron alumnos", await response.Content.ReadAsStringAsync());
     }
 
+    [Fact]
+    public async Task Attempt_start_racing_with_close_is_submitted_or_rejected()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        var session = await CreateSessionAsync(client);
+
+        var startTask = client.PostAsync($"/api/sessions/{session.AccessCode}/attempts", null);
+        var closeTask = client.PutAsJsonAsync($"/api/sessions/{session.Id}/status", new UpdateSessionStatusRequest("closed"));
+        await Task.WhenAll(startTask, closeTask);
+
+        var start = await startTask;
+        var close = await closeTask;
+        Assert.Equal(HttpStatusCode.OK, close.StatusCode);
+        using var summary = JsonDocument.Parse(await close.Content.ReadAsStringAsync());
+        Assert.Equal(0, summary.RootElement.GetProperty("failed").GetInt32());
+
+        if (start.StatusCode == HttpStatusCode.Created)
+        {
+            var started = await start.Content.ReadFromJsonAsync<StartAttemptResponse>();
+            Assert.NotNull(started);
+            using var connection = factory.CreateConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT status FROM student_attempts WHERE id = $id;";
+            command.Parameters.AddWithValue("$id", started!.Attempt.Id);
+            Assert.Equal("submitted", command.ExecuteScalar());
+            Assert.Equal(1, summary.RootElement.GetProperty("submitted").GetInt32());
+        }
+        else
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, start.StatusCode);
+            Assert.Equal(0, summary.RootElement.GetProperty("submitted").GetInt32());
+        }
+    }
+
+    [Fact]
+    public async Task Concurrent_close_requests_have_one_winner_and_no_false_failures()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        var session = await CreateSessionAsync(client);
+        await StartAttemptAsync(client, session.AccessCode);
+
+        var closes = await Task.WhenAll(
+            client.PutAsJsonAsync($"/api/sessions/{session.Id}/status", new UpdateSessionStatusRequest("closed")),
+            client.PutAsJsonAsync($"/api/sessions/{session.Id}/status", new UpdateSessionStatusRequest("closed")));
+
+        Assert.Single(closes, response => response.StatusCode == HttpStatusCode.OK);
+        Assert.Single(closes, response => response.StatusCode == HttpStatusCode.BadRequest);
+        var successfulClose = closes.Single(response => response.StatusCode == HttpStatusCode.OK);
+        using var summary = JsonDocument.Parse(await successfulClose.Content.ReadAsStringAsync());
+        Assert.Equal(0, summary.RootElement.GetProperty("failed").GetInt32());
+        Assert.Equal(1, summary.RootElement.GetProperty("submitted").GetInt32());
+    }
+
     private static async Task<LocalDeliverySession> CreateSessionAsync(HttpClient client)
     {
         var response = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(

@@ -214,6 +214,13 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         await connection.ExecuteAsync(new CommandDefinition(sql, new { Id = id, Status = status, EndAt = endAt }, cancellationToken: cancellationToken));
     }
 
+    public async Task<bool> TryCloseAsync(string id, string endAt, CancellationToken cancellationToken = default)
+    {
+        const string sql = "UPDATE delivery_sessions SET status = 'closed', end_at = @EndAt WHERE id = @Id AND status IN ('active', 'paused');";
+        using var connection = connectionFactory.CreateOpenConnection();
+        return await connection.ExecuteAsync(new CommandDefinition(sql, new { Id = id, EndAt = endAt }, cancellationToken: cancellationToken)) == 1;
+    }
+
     public async Task<IReadOnlyList<string>> GetInProgressAttemptIdsAsync(string sessionId, CancellationToken cancellationToken = default)
     {
         using var connection = connectionFactory.CreateOpenConnection();

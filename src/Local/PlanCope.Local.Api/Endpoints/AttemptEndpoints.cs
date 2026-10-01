@@ -135,6 +135,7 @@ public static class AttemptEndpoints
                 return nominalResult.Status switch
                 {
                     NominalAttemptStartStatus.Started => await CreatedAttemptAsync(nominalResult.Attempt!, session.ExamVersionId, examRepository, cancellationToken),
+                    NominalAttemptStartStatus.SessionNotActive => Results.BadRequest(new { error = "Esta sesión no está activa. Consultá con tu docente para poder ingresar." }),
                     NominalAttemptStartStatus.AttemptExists => Results.Conflict(new { error = "Ya existe un intento para este alumno en esta sesión." }),
                     NominalAttemptStartStatus.ResolutionExpired => Results.Conflict(new { error = "La confirmación expiró. Volvé a ingresar tu DNI." }),
                     NominalAttemptStartStatus.ResolutionUsed => Results.Conflict(new { error = "La confirmación ya fue utilizada." }),
@@ -155,7 +156,10 @@ public static class AttemptEndpoints
                 nextSequence,
                 null);
 
-            await attemptRepository.CreateAsync(attempt, cancellationToken);
+            if (!await attemptRepository.CreateIfSessionActiveAsync(attempt, cancellationToken))
+            {
+                return Results.BadRequest(new { error = "Esta sesión no está activa. Consultá con tu docente para poder ingresar." });
+            }
             var blocks = await examRepository.GetBlocksAsync(session.ExamVersionId, cancellationToken);
 
             return Results.Created($"/api/attempts/{attempt.Id}", new { attempt, blocks });

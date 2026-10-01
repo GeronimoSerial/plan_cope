@@ -102,6 +102,7 @@ public static class SessionEndpoints
             string id,
             UpdateSessionStatusRequest request,
             ISessionRepository repository,
+            IAttemptRepository attemptRepository,
             AttemptSubmissionService submissionService,
             ILoggerFactory loggerFactory,
             CancellationToken cancellationToken) =>
@@ -126,31 +127,29 @@ public static class SessionEndpoints
             if (request.Status is "closed")
             {
                 var logger = loggerFactory.CreateLogger("SessionClose");
-                var submitted = 0;
-                var failed = 0;
-                var attempts = await repository.GetInProgressAttemptIdsAsync(id, cancellationToken);
-                foreach (var attemptId in attempts)
+                var closedAt = DateTimeOffset.UtcNow.ToString("O");
+                if (!await repository.TryCloseAsync(id, closedAt, cancellationToken))
                 {
-                    try
-                    {
-                        var result = await submissionService.SubmitAsync(attemptId, allowInactiveSession: true,
-                            cancellationToken: cancellationToken, submissionReason: "closed_by_teacher");
-                        if (result.Success) submitted++;
-                        else
-                        {
-                            failed++;
-                            logger.LogError("Could not submit attempt {AttemptId} while closing session {SessionId}: {Error}", attemptId, id, result.Error);
-                        }
-                    }
-                    catch (Exception exception) when (exception is not OperationCanceledException)
-                    {
-                        failed++;
-                        logger.LogError(exception, "Could not submit attempt {AttemptId} while closing session {SessionId}.", attemptId, id);
-                    }
+                    return Results.BadRequest(new { error = "Esta sesión ya está cerrada y no admite más cambios de estado." });
                 }
 
-                var closedAt = DateTimeOffset.UtcNow.ToString("O");
-                await repository.UpdateStatusAsync(id, "closed", closedAt, cancellationToken);
+                // Closure is committed; finish submitting the accepted attempts even if the caller disconnects.
+                var attempts = await repository.GetInProgressAttemptIdsAsync(id, CancellationToken.None);
+                var outcomes = new Dictionary<string, bool>(StringComparer.Ordinal);
+                foreach (var attemptId in attempts)
+                {
+                    outcomes[attemptId] = await SubmitForCloseAsync(attemptId, id, attemptRepository, submissionService, logger, CancellationToken.None);
+                }
+
+                // Catch an attempt whose request observed the previous active state just before closure.
+                var remainingAttempts = await repository.GetInProgressAttemptIdsAsync(id, CancellationToken.None);
+                foreach (var attemptId in remainingAttempts)
+                {
+                    outcomes[attemptId] = await SubmitForCloseAsync(attemptId, id, attemptRepository, submissionService, logger, CancellationToken.None);
+                }
+
+                var submitted = outcomes.Values.Count(success => success);
+                var failed = outcomes.Count - submitted;
                 return Results.Ok(new { submitted, failed });
             }
 
@@ -169,6 +168,52 @@ public static class SessionEndpoints
         });
 
         return endpoints;
+    }
+
+    private static async Task<bool> SubmitForCloseAsync(
+        string attemptId,
+        string sessionId,
+        IAttemptRepository attemptRepository,
+        AttemptSubmissionService submissionService,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await submissionService.SubmitAsync(attemptId, allowInactiveSession: true,
+                cancellationToken: cancellationToken, submissionReason: "closed_by_teacher");
+            if (result.Success) return true;
+
+            if (await IsSubmittedAsync(attemptId, sessionId, attemptRepository, logger, cancellationToken)) return true;
+
+            logger.LogError("Could not submit attempt {AttemptId} while closing session {SessionId}: {Error}", attemptId, sessionId, result.Error);
+            return false;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            if (await IsSubmittedAsync(attemptId, sessionId, attemptRepository, logger, cancellationToken)) return true;
+
+            logger.LogError(exception, "Could not submit attempt {AttemptId} while closing session {SessionId}.", attemptId, sessionId);
+            return false;
+        }
+    }
+
+    private static async Task<bool> IsSubmittedAsync(
+        string attemptId,
+        string sessionId,
+        IAttemptRepository attemptRepository,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return (await attemptRepository.GetByIdAsync(attemptId, cancellationToken))?.Status is "submitted";
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogWarning(exception, "Could not confirm submission for attempt {AttemptId} while closing session {SessionId}.", attemptId, sessionId);
+            return false;
+        }
     }
 
     private static bool IsAllowedTransition(string current, string next)

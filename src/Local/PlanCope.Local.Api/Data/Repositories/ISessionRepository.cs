@@ -18,6 +18,8 @@ public interface ISessionRepository
 
     Task UpdateStatusAsync(string id, string status, string? endAt = null, CancellationToken cancellationToken = default);
 
+    Task<bool> TryCloseAsync(string id, string endAt, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<string>> GetInProgressAttemptIdsAsync(string sessionId, CancellationToken cancellationToken = default);
 
     Task<bool> DeleteIfNoAttemptsAsync(string id, CancellationToken cancellationToken = default);

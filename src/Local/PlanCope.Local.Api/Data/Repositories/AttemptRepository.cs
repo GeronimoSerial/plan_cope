@@ -29,6 +29,16 @@ public sealed class AttemptRepository(ILocalSqliteConnectionFactory connectionFa
         using var connection = connectionFactory.CreateOpenConnection();
         using var transaction = connection.BeginTransaction();
 
+        // Acquire SQLite's write lock while checking active state so close cannot overtake attempt creation.
+        var activeSession = await connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE delivery_sessions SET status = status WHERE id = @DeliverySessionId AND status = 'active';",
+            new { DeliverySessionId = deliverySessionId }, transaction, cancellationToken: cancellationToken));
+        if (activeSession != 1)
+        {
+            transaction.Rollback();
+            return new(NominalAttemptStartStatus.SessionNotActive, null);
+        }
+
         var resolution = await connection.QuerySingleOrDefaultAsync<StudentResolutionRow>(new CommandDefinition(
             """
             SELECT id, delivery_session_id, roster_snapshot_id, roster_section_id, roster_student_id,
@@ -153,6 +163,32 @@ public sealed class AttemptRepository(ILocalSqliteConnectionFactory connectionFa
 
         using var connection = connectionFactory.CreateOpenConnection();
         await connection.ExecuteAsync(new CommandDefinition(sql, attempt, cancellationToken: cancellationToken));
+    }
+
+    public async Task<bool> CreateIfSessionActiveAsync(StudentAttempt attempt, CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateOpenConnection();
+        using var transaction = connection.BeginTransaction();
+        // Acquire SQLite's write lock while checking active state so close cannot overtake attempt creation.
+        var activeSession = await connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE delivery_sessions SET status = status WHERE id = @DeliverySessionId AND status = 'active';",
+            new { attempt.DeliverySessionId }, transaction, cancellationToken: cancellationToken));
+        if (activeSession != 1)
+        {
+            transaction.Rollback();
+            return false;
+        }
+
+        await connection.ExecuteAsync(new CommandDefinition("""
+            INSERT INTO student_attempts
+                (id, delivery_session_id, student_code, status, started_at, submitted_at, local_sequence, confirmation_code,
+                 roster_student_id, ge_person_id, student_first_name, student_last_name, document_last4, verification_source, verified_at)
+            VALUES
+                (@Id, @DeliverySessionId, @StudentCode, @Status, @StartedAt, @SubmittedAt, @LocalSequence, @ConfirmationCode,
+                 @RosterStudentId, @GePersonId, @StudentFirstName, @StudentLastName, @DocumentLast4, @VerificationSource, @VerifiedAt);
+            """, attempt, transaction, cancellationToken: cancellationToken));
+        transaction.Commit();
+        return true;
     }
 
     public async Task<StudentAttempt?> GetByIdAsync(string id, CancellationToken cancellationToken = default)

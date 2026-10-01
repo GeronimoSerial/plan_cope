@@ -49,6 +49,8 @@ public interface IAttemptRepository
 
     Task CreateAsync(StudentAttempt attempt, CancellationToken cancellationToken = default);
 
+    Task<bool> CreateIfSessionActiveAsync(StudentAttempt attempt, CancellationToken cancellationToken = default);
+
     Task<StudentAttempt?> GetByIdAsync(string id, CancellationToken cancellationToken = default);
 
     Task<bool> ExistsForStudentAsync(string deliverySessionId, string studentCode, CancellationToken cancellationToken = default);
@@ -95,6 +97,7 @@ public sealed record StudentResolution(
 public enum NominalAttemptStartStatus
 {
     Started,
+    SessionNotActive,
     ResolutionNotFound,
     ResolutionExpired,
     ResolutionUsed,
