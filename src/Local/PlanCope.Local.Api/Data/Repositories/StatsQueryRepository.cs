@@ -131,10 +131,11 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
         var examSections = (await connection.QueryAsync<ExamSectionRow>(new CommandDefinition("""
             SELECT DISTINCT ds.exam_version_id AS ExamVersionId,
                    COALESCE(NULLIF(rs.course, ''), 'sin_asignar') AS Course,
-                   NULLIF(TRIM(rs.division), '') AS Division
+                   NULLIF(TRIM(rs.division), '') AS Division,
+                   NULLIF(TRIM(rs.shift), '') AS Shift
             FROM student_attempts a
             JOIN delivery_sessions ds ON ds.id = a.delivery_session_id
-            LEFT JOIN local_roster_sections rs ON rs.id = ds.roster_section_id
+            LEFT JOIN local_roster_sections rs ON rs.id = ds.roster_section_id AND rs.snapshot_id = ds.roster_snapshot_id
             WHERE ds.school_code = @Cue AND a.status = 'submitted' AND a.submitted_at IS NOT NULL
               AND (@SchoolYear IS NULL OR ds.school_year = @SchoolYear)
               AND (@Course IS NULL OR COALESCE(NULLIF(rs.course, ''), 'sin_asignar') = @Course)
@@ -142,8 +143,8 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
             """, new { Cue = cue, SchoolYear = schoolYear, Course = course }, cancellationToken: cancellationToken)))
             .GroupBy(item => item.ExamVersionId)
             .ToDictionary(group => group.Key, group => (IReadOnlyList<ExamSectionDto>)group
-                .Select(item => new ExamSectionDto(item.Course, item.Division))
-                .OrderBy(item => item.Course, StringComparer.Ordinal).ThenBy(item => item.Division, StringComparer.OrdinalIgnoreCase).ToList());
+                .Select(item => new ExamSectionDto(item.Course, item.Division, item.Shift))
+                .OrderBy(item => item.Course, StringComparer.Ordinal).ThenBy(item => item.Division, StringComparer.OrdinalIgnoreCase).ThenBy(item => item.Shift, StringComparer.OrdinalIgnoreCase).ToList());
 
         var result = new List<ExamStatsDto>();
         foreach (var row in rows)
@@ -297,7 +298,7 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
             "SELECT DISTINCT course FROM stats_rollups WHERE cue = @Cue ORDER BY course",
             new { Cue = cue }, cancellationToken: cancellationToken))).ToList();
         var sections = (await connection.QueryAsync<StatsFilterSectionOption>(new CommandDefinition("""
-            SELECT DISTINCT rs.course AS Course, rs.division AS Division, rs.shift AS Shift
+            SELECT DISTINCT rs.course AS Course, rs.division AS Division, NULLIF(TRIM(rs.shift), '') AS Shift
             FROM delivery_sessions ds
             JOIN local_roster_sections rs ON rs.id = ds.roster_section_id AND rs.snapshot_id = ds.roster_snapshot_id
             JOIN student_attempts a ON a.delivery_session_id = ds.id
@@ -378,6 +379,7 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
         public string ExamVersionId { get; set; } = string.Empty;
         public string Course { get; set; } = string.Empty;
         public string Division { get; set; } = string.Empty;
+        public string? Shift { get; set; }
     }
 
     private static string? ReadExamTitle(string? metadataJson)

@@ -127,6 +127,36 @@ public sealed class LocalSessionFlowTests
     }
 
     [Fact]
+    public async Task History_filters_same_division_by_shift_and_keeps_shift_in_grade_label()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        factory.SeedRoster("180055400", "2026", "snapshot-morning", "section-morning", "Ready");
+        factory.SeedRosterStudent("snapshot-morning", "section-morning", "student-morning", 751, "75.000.001", "Ana", "Mañana");
+        var morning = await CreateRosterSessionForSectionAsync(client, "180055400", "snapshot-morning", "section-morning");
+        factory.SeedRoster("180055400", "2026", "snapshot-afternoon", "section-afternoon", "Ready");
+        factory.SeedRosterStudent("snapshot-afternoon", "section-afternoon", "student-afternoon", 752, "75.000.002", "Ana", "Tarde");
+        factory.SetSectionShift("section-afternoon", "Tarde");
+        var afternoon = await CreateRosterSessionForSectionAsync(client, "180055400", "snapshot-afternoon", "section-afternoon");
+
+        var morningPage = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history?course=6%C2%BA&division=A&shift=Ma%C3%B1ana&pageSize=1");
+        Assert.Equal(1, morningPage.GetProperty("totalCount").GetInt32());
+        Assert.Equal(morning.Id, morningPage.GetProperty("items")[0].GetProperty("id").GetString());
+        Assert.Equal("6° A · Turno mañana", morningPage.GetProperty("items")[0].GetProperty("gradeLabel").GetString());
+
+        var afternoonPage = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history?course=6%C2%BA&division=A&shift=Tarde&pageSize=1");
+        Assert.Equal(1, afternoonPage.GetProperty("totalCount").GetInt32());
+        Assert.Equal(afternoon.Id, afternoonPage.GetProperty("items")[0].GetProperty("id").GetString());
+        Assert.Equal("6° A · Turno tarde", afternoonPage.GetProperty("items")[0].GetProperty("gradeLabel").GetString());
+
+        var options = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history/filters");
+        Assert.Contains(options.EnumerateArray(), item => item.GetProperty("division").GetString() == "A" && item.GetProperty("shift").GetString() == "Mañana");
+        Assert.Contains(options.EnumerateArray(), item => item.GetProperty("division").GetString() == "A" && item.GetProperty("shift").GetString() == "Tarde");
+    }
+
+    [Fact]
     public async Task History_search_finds_multitoken_result_across_five_thousand_sessions_quickly()
     {
         using var factory = new LocalApiFactory();
@@ -1134,7 +1164,7 @@ public sealed class LocalSessionFlowTests
     {
         var response = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
             LocalApiFactory.ExamVersionId, cue, "Class", null, "Operador", 1, null, "2026", snapshotId, sectionId));
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.True(response.StatusCode == HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
         return (await response.Content.ReadFromJsonAsync<LocalDeliverySession>())!;
     }
 

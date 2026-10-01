@@ -114,13 +114,13 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         return rows.Select(ToListItem).ToList();
     }
 
-    public async Task<SessionHistoryPage> GetHistoryAsync(string? schoolCode, string? status, string? course, string? division, string? query, int page, int pageSize, CancellationToken cancellationToken = default)
+    public async Task<SessionHistoryPage> GetHistoryAsync(string? schoolCode, string? status, string? course, string? division, string? shift, string? query, int page, int pageSize, CancellationToken cancellationToken = default)
     {
         var searchTokens = LocalSearchText.TokenizeQuery(query);
         var parameters = new DynamicParameters();
         parameters.Add("PageSize", pageSize);
         parameters.Add("Offset", (page - 1) * pageSize);
-        var filterPredicate = BuildHistoryFilterPredicate(schoolCode, status, course, division, parameters);
+        var filterPredicate = BuildHistoryFilterPredicate(schoolCode, status, course, division, shift, parameters);
         var searchPredicate = BuildHistorySearchPredicate(searchTokens, parameters);
 
         var sql = $"""
@@ -174,7 +174,7 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
     {
         using var connection = connectionFactory.CreateOpenConnection();
         return (await connection.QueryAsync<SessionGradeSectionOption>(new CommandDefinition("""
-            SELECT DISTINCT section.course AS Course, section.division AS Division, section.shift AS Shift
+            SELECT DISTINCT section.course AS Course, section.division AS Division, NULLIF(TRIM(section.shift), '') AS Shift
             FROM delivery_sessions s
             JOIN local_roster_sections section ON section.id = s.roster_section_id AND section.snapshot_id = s.roster_snapshot_id
             WHERE NULLIF(TRIM(section.course), '') IS NOT NULL AND NULLIF(TRIM(section.division), '') IS NOT NULL
@@ -278,9 +278,9 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         return $"AND ({string.Join(" AND ", conditions)})";
     }
 
-    private static string BuildHistoryFilterPredicate(string? schoolCode, string? status, string? course, string? division, DynamicParameters parameters)
+    private static string BuildHistoryFilterPredicate(string? schoolCode, string? status, string? course, string? division, string? shift, DynamicParameters parameters)
     {
-        var conditions = new List<string>(4);
+        var conditions = new List<string>(5);
         var normalizedSchoolCode = NormalizeOptionalCue(schoolCode);
         if (normalizedSchoolCode is not null)
         {
@@ -302,6 +302,11 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         {
             parameters.Add("Division", division.Trim());
             conditions.Add("COALESCE(section.division, json_extract(ev.metadata_json, '$.division')) = @Division");
+        }
+        if (!string.IsNullOrWhiteSpace(shift))
+        {
+            parameters.Add("Shift", shift.Trim());
+            conditions.Add("TRIM(section.shift) = @Shift");
         }
         return conditions.Count == 0 ? "" : $"AND {string.Join(" AND ", conditions)}";
     }

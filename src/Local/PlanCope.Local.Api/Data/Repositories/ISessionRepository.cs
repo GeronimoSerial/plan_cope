@@ -29,7 +29,7 @@ public interface ISessionRepository
 
     Task<IReadOnlyList<SessionListItem>> GetActiveSummariesAsync(string? schoolCode, CancellationToken cancellationToken = default);
 
-    Task<SessionHistoryPage> GetHistoryAsync(string? schoolCode, string? status, string? course, string? division, string? query, int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<SessionHistoryPage> GetHistoryAsync(string? schoolCode, string? status, string? course, string? division, string? shift, string? query, int page, int pageSize, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<SessionGradeSectionOption>> GetHistoryGradeSectionsAsync(CancellationToken cancellationToken = default);
 
