@@ -170,6 +170,11 @@ public sealed class GitHubReleaseInstallerStorage(
             logger.LogWarning(exception, "GitHub returned invalid Velopack feed JSON for update channel {Channel}.", channel);
             return null;
         }
+        catch (Exception exception) when (exception is InvalidOperationException or FormatException)
+        {
+            logger.LogWarning(exception, "GitHub returned invalid Velopack asset metadata for update channel {Channel}.", channel);
+            return null;
+        }
     }
 
     private async Task<UpdateFeedRelease?> FindLatestUpdateFeedReleaseAsync(string channel, CancellationToken cancellationToken)
@@ -289,12 +294,12 @@ public sealed class GitHubReleaseInstallerStorage(
     private static bool TryReadUpdateAsset(JsonElement element, out UpdateReleaseAsset asset)
     {
         asset = default!;
-        if (!element.TryGetProperty("PackageId", out var packageId) || packageId.GetString() != "PlanCope.Local.Host" ||
-            !element.TryGetProperty("Version", out var version) || string.IsNullOrWhiteSpace(version.GetString()) ||
-            !element.TryGetProperty("Type", out var type) || !type.TryGetInt32(out var assetType) || assetType != 1 ||
+        if (!element.TryGetProperty("PackageId", out var packageId) || packageId.ValueKind != JsonValueKind.String || packageId.GetString() != "PlanCope.Local.Host" ||
+            !element.TryGetProperty("Version", out var version) || version.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(version.GetString()) ||
+            !element.TryGetProperty("Type", out var type) || !TryReadAssetType(type, out var assetType) ||
             !element.TryGetProperty("FileName", out var fileName) || fileName.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(fileName.GetString()) ||
             !fileName.GetString()!.EndsWith("-full.nupkg", StringComparison.OrdinalIgnoreCase) ||
-            !element.TryGetProperty("SHA256", out var sha) || !IsSha256(sha.GetString()) ||
+            !element.TryGetProperty("SHA256", out var sha) || sha.ValueKind != JsonValueKind.String || !IsSha256(sha.GetString()) ||
             !element.TryGetProperty("Size", out var size) || !size.TryGetInt64(out var assetSize) || assetSize <= 0)
         {
             return false;
@@ -305,6 +310,17 @@ public sealed class GitHubReleaseInstallerStorage(
             element.TryGetProperty("NotesMarkdown", out var notesMarkdown) ? notesMarkdown.GetString() : null,
             element.TryGetProperty("NotesHTML", out var notesHtml) ? notesHtml.GetString() : null);
         return true;
+    }
+
+    private static bool TryReadAssetType(JsonElement type, out int assetType)
+    {
+        assetType = 0;
+        return type.ValueKind switch
+        {
+            JsonValueKind.Number => type.TryGetInt32(out assetType) && assetType == 1,
+            JsonValueKind.String when string.Equals(type.GetString(), "Full", StringComparison.OrdinalIgnoreCase) => (assetType = 1) == 1,
+            _ => false,
+        };
     }
 
     private static bool IsSha256(string? value) => value is { Length: 64 } && value.All(Uri.IsHexDigit);
