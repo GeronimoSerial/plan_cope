@@ -244,7 +244,7 @@ export function StatsPanel({ initialSchools, schoolYears, scopeDenied }: StatsPa
                 onValueChange={next => setCourseInput(typeof next === "string" && next !== "all" ? next : "")}
                 includeAll
                 showSection={false}
-                className="min-w-44"
+                className="w-full min-w-56"
               />
             </div>
             <Button onClick={() => void applyFilters()} disabled={applying}>

@@ -27,7 +27,7 @@ public interface IUpdateBackend
     /// checksum mismatch or when the downloaded file cannot be verified — it never throws
     /// for an integrity failure, so the caller can report the result cleanly.
     /// </summary>
-    Task<bool> DownloadUpdatesAsync(string expectedSha256, CancellationToken cancellationToken);
+    Task<bool> DownloadUpdatesAsync(string expectedSha256, Action<int>? progress, CancellationToken cancellationToken);
 
     void ApplyUpdatesAndRestart();
 
@@ -110,7 +110,7 @@ public sealed class VelopackUpdateBackend : IUpdateBackend
         return new UpdateCheckResult(info is not null, info?.TargetFullRelease.Version.ToString(), info?.TargetFullRelease.SHA256, info?.TargetFullRelease.FileName);
     }
 
-    public async Task<bool> DownloadUpdatesAsync(string expectedSha256, CancellationToken cancellationToken)
+    public async Task<bool> DownloadUpdatesAsync(string expectedSha256, Action<int>? progress, CancellationToken cancellationToken)
     {
         if (_pendingUpdate is null)
         {
@@ -118,7 +118,7 @@ public sealed class VelopackUpdateBackend : IUpdateBackend
         }
 
         var manager = CreateManager(_channel);
-        await manager.DownloadUpdatesAsync(_pendingUpdate).ConfigureAwait(false);
+        await manager.DownloadUpdatesAsync(_pendingUpdate, progress).ConfigureAwait(false);
 
         if (!VelopackLocator.IsCurrentSet)
         {
@@ -244,10 +244,10 @@ public sealed class UpdateService
     /// against <paramref name="expectedSha256"/>. Does not restart anything. The update is
     /// only marked ready-to-apply when the backend confirms the checksum matched.
     /// </summary>
-    public async Task DownloadUpdateAsync(string expectedSha256, CancellationToken cancellationToken = default)
+    public async Task DownloadUpdateAsync(string expectedSha256, Action<int>? progress = null, CancellationToken cancellationToken = default)
     {
         LastDownloadIntegrityFailed = false;
-        var verified = await _backend.DownloadUpdatesAsync(expectedSha256, cancellationToken).ConfigureAwait(false);
+        var verified = await _backend.DownloadUpdatesAsync(expectedSha256, progress, cancellationToken).ConfigureAwait(false);
         _downloadReady = verified;
         LastDownloadIntegrityFailed = !verified;
     }

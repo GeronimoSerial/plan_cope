@@ -31,6 +31,9 @@ export type UpdateStatus = {
   state: UpdateStatusState;
   targetVersion?: string;
   message?: string;
+  progress?: number;
+  restartAvailable?: boolean;
+  blockingSessions?: Array<{ id: string; label: string }>;
 };
 
 export type UpdateStatusMessage = {

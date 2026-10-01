@@ -62,6 +62,7 @@ export function AppShell({ status, apiBaseUrl, appVersion, activeTab, onTabChang
                   onCheckForUpdates={update.checkForUpdates}
                   onDownloadUpdate={update.downloadUpdate}
                   onDeferUpdate={update.deferUpdate}
+                  onApplyUpdate={update.applyUpdate}
                 />
               </div>
             </div>
@@ -70,7 +71,7 @@ export function AppShell({ status, apiBaseUrl, appVersion, activeTab, onTabChang
       </header>
 
       <main className="app-content">
-        <div className="workspace">{children}</div>
+        <div className="workspace" id="sesiones">{children}</div>
       </main>
       <footer className="footer">
         <span className="footer-status" role="status" aria-live="polite">{status}</span>

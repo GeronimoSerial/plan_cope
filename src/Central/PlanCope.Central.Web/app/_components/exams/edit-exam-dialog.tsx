@@ -119,14 +119,15 @@ export function EditExamButton({ exam, canEditExams }: EditExamButtonProps) {
           }
         }}
       >
-        <DialogContent>
-          <form onSubmit={onSubmit} noValidate className="grid gap-4">
+        <DialogContent className="grid-rows-[minmax(0,1fr)] overflow-hidden sm:max-w-2xl">
+          <form onSubmit={onSubmit} noValidate className="grid min-h-0 max-h-full grid-rows-[auto_minmax(0,1fr)_auto] gap-4">
             <DialogHeader>
               <DialogTitle>Editar datos</DialogTitle>
               <DialogDescription>Datos generales del examen. El código no se puede cambiar.</DialogDescription>
             </DialogHeader>
 
-            <FieldGroup className="gap-4">
+            <div className="min-h-0 overflow-y-auto overscroll-contain">
+              <FieldGroup className="gap-4">
               <Field>
                 <FieldLabel htmlFor="edit-exam-code">Código</FieldLabel>
                 <Input id="edit-exam-code" value={exam.code} readOnly disabled />
@@ -149,9 +150,13 @@ export function EditExamButton({ exam, canEditExams }: EditExamButtonProps) {
               </Field>
 
               <Field>
-                <GradeSectionPicker mode="multi" grades={courseOptions.map(course => ({ value: course.key, label: course.label, group: course.level }))}
-                  value={courses} onValueChange={next => setCourses(Array.isArray(next) ? next : [next])} showSection={false}
-                  className="grid grid-cols-2 gap-2 sm:grid-cols-3" />
+                <GradeSectionPicker
+                  mode="multi"
+                  grades={courseOptions.map(course => ({ value: course.key, label: course.label, group: course.level }))}
+                  value={courses}
+                  onValueChange={next => setCourses(Array.isArray(next) ? next : [next])}
+                  showSection={false}
+                />
               </Field>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field>
@@ -174,13 +179,14 @@ export function EditExamButton({ exam, canEditExams }: EditExamButtonProps) {
                   <Input id="edit-exam-subject" value={subject} onChange={event => setSubject(event.target.value)} />
                 </Field>
               </div>
-            </FieldGroup>
+              </FieldGroup>
 
-            {(errors.code || errors.form) && (
-              <p role="alert" className="text-sm text-destructive">
-                {errors.code ?? errors.form}
-              </p>
-            )}
+              {(errors.code || errors.form) && (
+                <p role="alert" className="mt-4 text-sm text-destructive">
+                  {errors.code ?? errors.form}
+                </p>
+              )}
+            </div>
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={pending}>
