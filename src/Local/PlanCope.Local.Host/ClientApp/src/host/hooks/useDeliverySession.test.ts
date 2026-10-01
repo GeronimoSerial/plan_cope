@@ -25,38 +25,9 @@ function progress(overrides: Partial<SessionProgress> = {}): SessionProgress {
 
 const CHANGED_PROGRESS = progress({ submittedCount: 3, inProgressCount: 4, completionPercentage: 15 });
 
-const visibilityListeners = new Set<EventListener>();
-
-let fakeDocument: {
-  visibilityState: string;
-  addEventListener: (type: string, handler: EventListener) => void;
-  removeEventListener: (type: string, handler: EventListener) => void;
-};
-
-function setVisibility(state: "visible" | "hidden"): void {
-  fakeDocument.visibilityState = state;
-  for (const listener of visibilityListeners) {
-    listener({ type: "visibilitychange" } as Event);
-  }
-}
-
 beforeEach(() => {
-  visibilityListeners.clear();
   vi.useFakeTimers();
-  fakeDocument = {
-    visibilityState: "visible",
-    addEventListener: (type, handler) => {
-      if (type === "visibilitychange") {
-        visibilityListeners.add(handler);
-      }
-    },
-    removeEventListener: (type, handler) => {
-      if (type === "visibilitychange") {
-        visibilityListeners.delete(handler);
-      }
-    }
-  };
-  vi.stubGlobal("document", fakeDocument);
+  vi.stubGlobal("document", { visibilityState: "visible" });
 });
 
 afterEach(() => {
@@ -86,7 +57,7 @@ describe("createProgressPoller", () => {
     dispose();
   });
 
-  it("backs off when consecutive polls report unchanged progress", async () => {
+  it("uses a 3 second cadence and backs off to no more than 5 seconds when unchanged", async () => {
     const fetchProgress = vi.fn().mockResolvedValue(progress());
     const onProgress = vi.fn();
     const onError = vi.fn();
@@ -101,11 +72,12 @@ describe("createProgressPoller", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(fetchProgress).toHaveBeenCalledTimes(1);
 
-    await vi.advanceTimersByTimeAsync(30_000);
-    // Unchanged polls double the interval (3s, 6s, 12s, 24s), so calls land at
-    // t=0, 3s, 9s and 21s. A naive fixed 3s cadence would fire 11 times here.
-    expect(fetchProgress).toHaveBeenCalledTimes(4);
-    expect(onProgress).toHaveBeenCalledTimes(4);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(fetchProgress).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(fetchProgress).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(fetchProgress).toHaveBeenCalledTimes(5);
 
     dispose();
   });
@@ -129,20 +101,20 @@ describe("createProgressPoller", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(fetchProgress).toHaveBeenCalledTimes(1);
 
-    await vi.advanceTimersByTimeAsync(3000); // unchanged -> next poll at t=9s
-    await vi.advanceTimersByTimeAsync(6000); // t=9s: changed -> cadence resets to 3s
+    await vi.advanceTimersByTimeAsync(3000); // unchanged -> next poll at t=8s
+    await vi.advanceTimersByTimeAsync(5000); // t=8s: changed -> cadence resets to 3s
     expect(fetchProgress).toHaveBeenCalledTimes(3);
     expect(onProgress).toHaveBeenLastCalledWith(CHANGED_PROGRESS);
 
-    // Without the reset the next poll would only fire at t=15s; with the reset
-    // it fires at t=12s, the 3s cadence restored immediately.
+    // The changed result restores the 3 second cadence.
     await vi.advanceTimersByTimeAsync(3000);
     expect(fetchProgress).toHaveBeenCalledTimes(4);
 
     dispose();
   });
 
-  it("pauses while the document is hidden and resumes at the fast cadence when it becomes visible", async () => {
+  it("keeps polling while the document is hidden", async () => {
+    vi.stubGlobal("document", { visibilityState: "hidden" });
     let call = 0;
     const fetchProgress = vi.fn(async () => {
       call += 1;
@@ -161,19 +133,27 @@ describe("createProgressPoller", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(fetchProgress).toHaveBeenCalledTimes(1);
 
-    setVisibility("hidden");
-    const callsWhileHidden = fetchProgress.mock.calls.length;
-    await vi.advanceTimersByTimeAsync(30_000);
-    expect(fetchProgress.mock.calls.length).toBe(callsWhileHidden);
-
-    setVisibility("visible");
     await vi.advanceTimersByTimeAsync(3000);
-    expect(fetchProgress).toHaveBeenCalledTimes(callsWhileHidden + 1);
-
+    expect(fetchProgress).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(3000);
-    expect(fetchProgress).toHaveBeenCalledTimes(callsWhileHidden + 2);
+    expect(fetchProgress).toHaveBeenCalledTimes(3);
 
     dispose();
-    expect(visibilityListeners.size).toBe(0);
+  });
+
+  it("treats a student status change as changed progress even when counters stay the same", async () => {
+    const submittedStudent = { id: "student-1", displayName: "Ana", maskedDocument: "**123", status: "submitted" as const, startedAt: null, submittedAt: "2026-10-01T10:00:00Z", attemptId: "attempt-1", submissionReason: null, offRoster: false };
+    let call = 0;
+    const fetchProgress = vi.fn(async () => {
+      call += 1;
+      return call === 1 ? progress({ students: [{ ...submittedStudent, status: "in_progress", submittedAt: null }] }) : progress({ students: [submittedStudent] });
+    });
+    const dispose = createProgressPoller({ accessCode: ACCESS_CODE, fetchProgress, onProgress: vi.fn(), onError: vi.fn() });
+
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(fetchProgress).toHaveBeenCalledTimes(3);
+    dispose();
   });
 });

@@ -19,7 +19,7 @@ import type {
 import { isValidCue } from "../domain/cue";
 
 const PROGRESS_POLL_MS = 3000;
-const PROGRESS_POLL_MAX_MS = 30000;
+const PROGRESS_POLL_MAX_MS = 5000;
 
 type ProgressPollerOptions = {
   accessCode: string;
@@ -29,10 +29,13 @@ type ProgressPollerOptions = {
 };
 
 function progressChanged(previous: SessionProgress, next: SessionProgress): boolean {
+  const previousStatuses = new Map(previous.students.map(student => [student.id, student.status]));
   return (
     previous.submittedCount !== next.submittedCount ||
     previous.inProgressCount !== next.inProgressCount ||
-    previous.completionPercentage !== next.completionPercentage
+    previous.completionPercentage !== next.completionPercentage ||
+    previous.students.length !== next.students.length ||
+    next.students.some(student => previousStatuses.get(student.id) !== student.status)
   );
 }
 
@@ -67,10 +70,6 @@ export function createProgressPoller(options: ProgressPollerOptions): () => void
     if (cancelled || gen !== generation) {
       return;
     }
-    if (document.visibilityState !== "visible") {
-      return;
-    }
-
     let next: SessionProgress;
     try {
       next = await fetchProgress(controller.signal);
@@ -95,22 +94,12 @@ export function createProgressPoller(options: ProgressPollerOptions): () => void
     schedule(intervalMs);
   };
 
-  const handleVisibilityChange = () => {
-    if (cancelled || document.visibilityState !== "visible") {
-      return;
-    }
-    intervalMs = PROGRESS_POLL_MS;
-    schedule(intervalMs);
-  };
-
-  document.addEventListener("visibilitychange", handleVisibilityChange);
   schedule(0);
 
   return () => {
     cancelled = true;
     generation += 1;
     controller.abort();
-    document.removeEventListener("visibilitychange", handleVisibilityChange);
   };
 }
 

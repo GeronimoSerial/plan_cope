@@ -8,10 +8,11 @@ type AppShellProps = {
   status: string;
   apiBaseUrl?: string;
   appVersion?: string;
+  activeSessionGradeLabel?: string | null;
   children: ReactNode;
 };
 
-export function AppShell({ status, apiBaseUrl, appVersion, children }: AppShellProps) {
+export function AppShell({ status, apiBaseUrl, appVersion, activeSessionGradeLabel, children }: AppShellProps) {
   const update = useUpdateStatus();
   const sync = useSyncStatus(apiBaseUrl ?? "");
 
@@ -21,10 +22,11 @@ export function AppShell({ status, apiBaseUrl, appVersion, children }: AppShellP
         <div className="brand-mark" aria-hidden="true">
           <span />
         </div>
-        <div>
+        <div className="topbar-copy">
           <h1>Plan Cope Local</h1>
           <p>Gestión de sesiones escolares</p>
         </div>
+        {activeSessionGradeLabel && <p className="topbar-session-grade">Sesión activa · {activeSessionGradeLabel}</p>}
       </header>
 
       <div className="workspace">{children}</div>

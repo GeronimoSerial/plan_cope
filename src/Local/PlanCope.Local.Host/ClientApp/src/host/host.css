@@ -108,7 +108,7 @@
 
 .topbar {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 12px;
   padding: 14px 18px;
@@ -123,6 +123,18 @@
 .topbar p {
   margin: 2px 0 0;
   color: var(--on-primary-muted);
+}
+
+.topbar-session-grade {
+  justify-self: end;
+  margin: 0 !important;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: var(--radius-sm);
+  color: var(--on-primary) !important;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: right;
 }
 
 .brand-mark {
@@ -367,6 +379,25 @@
   flex-direction: column;
 }
 
+.session-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.session-grade-label {
+  margin: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  color: var(--primary-dark);
+  font-size: 15px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .session-code {
   display: grid;
   gap: 6px;
@@ -397,7 +428,7 @@
 
 .progress-summary {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin: 8px 0 12px;
 }
@@ -412,6 +443,111 @@
   display: block;
   margin-top: 4px;
   font-size: 22px;
+}
+
+.session-students {
+  min-width: 0;
+  margin: 14px 0;
+}
+
+.session-students h3 {
+  margin: 0 0 6px;
+  font-size: 18px;
+}
+
+.session-roster-note,
+.student-empty {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.student-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 10px 0;
+}
+
+.student-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.student-filter[aria-pressed="true"] {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+  font-weight: 700;
+}
+
+.student-filter span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.student-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.student-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.student-table th,
+.student-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.student-table th {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.student-table td {
+  font-size: 14px;
+}
+
+.student-status {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.student-status-not_started { color: var(--muted); }
+.student-status-in_progress { color: var(--primary-dark); background: var(--primary-soft); }
+.student-status-submitted { color: var(--success); background: var(--success-soft); }
+
+.student-row-submitted {
+  animation: student-submitted-highlight 1.8s ease-out;
+}
+
+@keyframes student-submitted-highlight {
+  from { background: var(--success-soft); }
+  to { background: transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .student-row-submitted { animation: none; background: var(--success-soft); }
 }
 
 .progress-bar {
@@ -936,6 +1072,50 @@
     padding: 12px 14px;
   }
 
+  .topbar-session-grade {
+    grid-column: 2;
+    justify-self: start;
+    text-align: left;
+  }
+
+  .student-table thead { display: none; }
+
+  .student-table,
+  .student-table tbody,
+  .student-table tr,
+  .student-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .student-table tr {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0 12px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .student-table td {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 3px 0;
+    border: 0;
+  }
+
+  .student-table td:first-child {
+    grid-column: 1 / -1;
+    font-weight: 700;
+  }
+
+  .student-table td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 400;
+  }
+
   .mode-tabs {
     flex-wrap: wrap;
   }
@@ -1004,6 +1184,10 @@
 
   .progress-summary {
     grid-template-columns: 1fr;
+  }
+
+  .session-heading {
+    flex-direction: column;
   }
 
   .builder-actions .button {
