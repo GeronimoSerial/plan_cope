@@ -53,6 +53,27 @@ public sealed class LocalSessionFlowTests
     }
 
     [Fact]
+    public async Task Progress_sorts_accented_surnames_using_argentine_spanish_collation()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "student-z", 510, "12.345.670", "Zoe", "Zapata");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "student-a", 511, "12.345.671", "Alba", "Álvarez");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "student-n", 512, "12.345.672", "Nora", "Ñandú");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "student-o", 513, "12.345.673", "Olga", "Órdenes");
+        var session = await CreateRosterSessionAsync(client);
+
+        var progress = await client.GetFromJsonAsync<LocalSessionProgress>($"/api/sessions/{session.AccessCode}/progress");
+
+        Assert.NotNull(progress);
+        Assert.Equal(new[] { "Álvarez, Alba", "Ñandú, Nora", "Órdenes, Olga", "Zapata, Zoe" },
+            progress!.Students.Select(student => student.DisplayName));
+    }
+
+    [Fact]
     public async Task Progress_non_nominal_lists_attempts_only_and_uses_exam_grade_metadata()
     {
         using var factory = new LocalApiFactory();

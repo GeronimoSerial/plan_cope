@@ -1,4 +1,5 @@
 using Dapper;
+using System.Globalization;
 using System.Text.Json;
 using PlanCope.Local.Api.Services;
 using PlanCope.Shared.Domain.Local;
@@ -154,8 +155,12 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         if (rows.Count == 0) return null;
 
         var first = rows[0];
+        var spanishComparer = StringComparer.Create(new CultureInfo("es-AR"), CompareOptions.IgnoreCase);
         var students = rows
             .Where(static row => row.StudentId is not null)
+            .OrderBy(row => row.LastName, spanishComparer)
+            .ThenBy(row => row.FirstName, spanishComparer)
+            .ThenBy(static row => row.StudentId, StringComparer.Ordinal)
             .Select(static row => new LocalSessionStudentProgress(
                 row.StudentId!,
                 FormatDisplayName(row.LastName, row.FirstName),
