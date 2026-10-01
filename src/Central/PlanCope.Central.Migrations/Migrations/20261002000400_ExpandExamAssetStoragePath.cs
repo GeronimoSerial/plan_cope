@@ -24,6 +24,17 @@ namespace PlanCope.Central.Migrations.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            // Rollback fails once any asset has a StoragePath longer than varchar(512) can hold.
+            // Check explicitly so operators get a useful error before PostgreSQL alters the column.
+            migrationBuilder.Sql("""
+                DO $$
+                BEGIN
+                    IF EXISTS (SELECT 1 FROM exam.assets WHERE length("StoragePath") > 512) THEN
+                        RAISE EXCEPTION 'Cannot roll back asset StoragePath to varchar(512): one or more assets exceed 512 characters.';
+                    END IF;
+                END $$;
+                """);
+
             migrationBuilder.AlterColumn<string>(
                 name: "StoragePath",
                 schema: "exam",
