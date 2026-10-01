@@ -473,7 +473,7 @@ public sealed class ExamsContractTests
     [Fact]
     public void PublishExamVersionRequest_round_trips_through_source_generated_context()
     {
-        var sample = new PublishExamVersionRequest("Matemática", "1°", "A");
+        var sample = new PublishExamVersionRequest("Matemática", "1°", "A", ["node-old"], ["school-old"]);
 
         var json = Serialize(sample, PlanCopeJsonSerializerContext.Default.PublishExamVersionRequest);
 

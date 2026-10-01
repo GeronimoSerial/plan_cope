@@ -20,7 +20,7 @@ import {
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { TermHint, TermLabel } from "../help/term-hint";
+import { TermLabel } from "../help/term-hint";
 
 export interface IssuedActivationKey {
   id: string;
@@ -32,6 +32,7 @@ export interface IssuedActivationKey {
 }
 
 const issueSchema = z.object({
+  holderName: z.string().trim().min(1, "Ingresá el nombre de quien recibe la clave.").max(200, "El nombre no puede superar los 200 caracteres."),
   maxActivations: z.coerce.number().int().min(1, "La cantidad de activaciones debe ser al menos 1."),
   expiresAt: z.string().optional(),
   note: z.string().optional()
@@ -40,7 +41,7 @@ const issueSchema = z.object({
 type IssueFormValues = z.input<typeof issueSchema>;
 type IssueValues = z.output<typeof issueSchema>;
 
-const defaults: IssueFormValues = { maxActivations: 1, expiresAt: "", note: "" };
+const defaults: IssueFormValues = { holderName: "", maxActivations: 1, expiresAt: "", note: "" };
 
 interface IssueKeyDialogProps {
   open: boolean;
@@ -63,6 +64,7 @@ export function IssueKeyDialog({ open, issued, onOpenChange, onCreated }: IssueK
 
   async function onSubmit(values: IssueValues) {
     const payload = {
+      holderName: values.holderName.trim(),
       maxActivations: values.maxActivations,
       expiresAt: values.expiresAt ? new Date(values.expiresAt).toISOString() : null,
       note: values.note?.trim() ? values.note.trim() : null
@@ -145,10 +147,20 @@ export function IssueKeyDialog({ open, issued, onOpenChange, onCreated }: IssueK
             </DialogHeader>
 
             <FieldGroup className="gap-4">
+              <Field data-invalid={errors.holderName ? true : undefined}>
+                <FieldLabel htmlFor="holder-name">A nombre de</FieldLabel>
+                <Input
+                  id="holder-name"
+                  maxLength={200}
+                  aria-invalid={errors.holderName ? true : undefined}
+                  {...register("holderName")}
+                />
+                {errors.holderName?.message && <FieldError>{errors.holderName.message}</FieldError>}
+              </Field>
+
               <Field data-invalid={errors.maxActivations ? true : undefined}>
                 <div className="flex items-center gap-1.5">
-                  <FieldLabel htmlFor="max-activations">Activaciones máximas</FieldLabel>
-                  <TermHint term="nodo" />
+                  <FieldLabel htmlFor="max-activations">Cantidad máxima de equipos</FieldLabel>
                 </div>
                 <Input
                   id="max-activations"

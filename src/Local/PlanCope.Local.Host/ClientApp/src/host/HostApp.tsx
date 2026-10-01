@@ -12,6 +12,9 @@ export function HostApp() {
   const delivery = useDeliverySession(hostContext);
   const [isSchoolConfirmed, setIsSchoolConfirmed] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
+  const [activationInProgress, setActivationInProgress] = useState(false);
+  const [activationRetryAvailable, setActivationRetryAvailable] = useState(false);
+  const [activationStatusChecked, setActivationStatusChecked] = useState(false);
   const [revalidationDaysRemaining, setRevalidationDaysRemaining] = useState<number | null>(null);
   const [expiryPending, setExpiryPending] = useState(false);
   const [localClockWarning, setLocalClockWarning] = useState(false);
@@ -25,13 +28,17 @@ export function HostApp() {
         .then(data => {
           if (!cancelled && data && typeof data.isLocked === "boolean") {
             setIsLocked(data.isLocked);
+            setActivationInProgress(data.activationInProgress === true);
+            setActivationRetryAvailable(data.retryAvailable === true);
             setRevalidationDaysRemaining(typeof data.revalidationDaysRemaining === "number" ? data.revalidationDaysRemaining : null);
             setExpiryPending(data.expiryPending === true);
             setLocalClockWarning(data.localClockWarning === true);
           }
+          if (!cancelled) setActivationStatusChecked(true);
         })
         .catch(() => {
           /* transient failure — keep the last known lock state, do not flip to unlocked */
+          if (!cancelled) setActivationStatusChecked(true);
         });
     };
     checkLockStatus();
@@ -42,14 +49,19 @@ export function HostApp() {
     };
   }, [hostContext.apiBaseUrl]);
 
+  if (!activationStatusChecked) {
+    return <main className="school-gate" aria-busy="true"><p role="status">Verificando la activación…</p></main>;
+  }
+
   if (isLocked) {
     return (
-      <ActivationScreen apiBaseUrl={hostContext.apiBaseUrl} />
+      <ActivationScreen apiBaseUrl={hostContext.apiBaseUrl} isLocked />
     );
   }
 
-  if (shouldShowActivation(hostContext.isActivated)) {
-    return <ActivationScreen apiBaseUrl={hostContext.apiBaseUrl} />;
+  if (shouldShowActivation(hostContext.isActivated, activationInProgress)) {
+    return <ActivationScreen apiBaseUrl={hostContext.apiBaseUrl}
+      activationInProgress={activationInProgress} retryAvailable={activationRetryAvailable} />;
   }
 
   if (!isSchoolConfirmed) {

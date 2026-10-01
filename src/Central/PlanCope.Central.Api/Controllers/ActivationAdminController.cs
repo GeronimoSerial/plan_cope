@@ -27,6 +27,7 @@ public sealed class ActivationAdminController(
 {
     private const string IssuedForCueToken = "issued-for-cue:";
     private const int MaxNoteLength = 512;
+    private const int MaxHolderNameLength = 200;
     private const int MaxRevokedReasonLength = 256;
 
     [HttpPost("keys")]
@@ -34,9 +35,15 @@ public sealed class ActivationAdminController(
         [FromBody] IssueActivationKeyRequest? request,
         CancellationToken cancellationToken = default)
     {
+        var holderName = request?.HolderName?.Trim();
         if (request is null || request.MaxActivations < 1)
         {
             return BadRequest("MaxActivations must be at least 1.");
+        }
+
+        if (string.IsNullOrWhiteSpace(holderName) || holderName.Length > MaxHolderNameLength)
+        {
+            return BadRequest($"El nombre de quien recibe la clave es obligatorio y no puede superar los {MaxHolderNameLength} caracteres.");
         }
 
         if (request.ExpiresAt is { } expiresAt && expiresAt <= DateTimeOffset.UtcNow)
@@ -50,10 +57,10 @@ public sealed class ActivationAdminController(
             return Unauthorized();
         }
 
-        var issuedForCue = await ResolveIssuedForCueAsync(request.Note, cancellationToken);
-        if (!issuedForCue.Allowed)
+        var cueValidation = await ResolveIssuedForCueAsync(request.Note, cancellationToken);
+        if (!cueValidation.Allowed)
         {
-            return issuedForCue.Error ?? BadRequest();
+            return cueValidation.Error ?? BadRequest();
         }
 
         var generated = keyService.Generate();
@@ -69,7 +76,8 @@ public sealed class ActivationAdminController(
             RevokedAt: null,
             RevokedReason: null,
             ScopeCue: null,
-            Note: BuildNote(request.Note, issuedForCue.Cue));
+            Note: BuildNote(request.Note),
+            HolderName: holderName);
 
         dbContext.ActivationKeys.Add(key);
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -110,7 +118,8 @@ public sealed class ActivationAdminController(
             key.ActivationCount,
             key.RevokedAt,
             key.RevokedReason,
-            key.Note)).ToList();
+            key.Note,
+            key.HolderName)).ToList();
 
         return Ok(summary);
     }
@@ -206,8 +215,16 @@ public sealed class ActivationAdminController(
             return NotFound();
         }
 
-        if (!HasUnboundedKeyScope() &&
-            !(await authorizationService.AuthorizeAsync(User, node.Cue, new RosterScopeRequirement())).Succeeded)
+        if (node.ActivationKeyId is { } activationKeyId)
+        {
+            var key = await dbContext.ActivationKeys.AsNoTracking()
+                .SingleOrDefaultAsync(candidate => candidate.Id == activationKeyId, cancellationToken);
+            if (key is null || !(await CanAdministerKeyAsync(key, cancellationToken)))
+            {
+                return Forbid();
+            }
+        }
+        else if (!User.IsInRole("Admin"))
         {
             return Forbid();
         }
@@ -225,6 +242,40 @@ public sealed class ActivationAdminController(
         return NoContent();
     }
 
+    [HttpGet("keys/{id}/nodes")]
+    public async Task<ActionResult<IReadOnlyList<ActivationKeyNodeDto>>> ListKeyNodes(
+        string id,
+        CancellationToken cancellationToken = default)
+    {
+        var key = await dbContext.ActivationKeys.AsNoTracking()
+            .SingleOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
+        if (key is null)
+        {
+            return NotFound();
+        }
+
+        if (!(await CanAdministerKeyAsync(key, cancellationToken)))
+        {
+            return Forbid();
+        }
+
+        var nodes = await dbContext.RegisteredNodes.AsNoTracking()
+            .Where(node => node.ActivationKeyId == id)
+            .OrderByDescending(node => node.EnrolledAt)
+            .Select(node => new ActivationKeyNodeDto(
+                node.Id,
+                node.NodeCode,
+                node.DeviceName,
+                node.EnrolledAt,
+                node.LastSeenAt,
+                node.AppVersion,
+                node.Status,
+                node.RevokedAt))
+            .ToListAsync(cancellationToken);
+
+        return Ok(nodes);
+    }
+
     /// <summary>
     /// Whether the caller may administer any activation key regardless of CUE, independent
     /// of roster scope. Province-scope roster callers already have this by virtue of their
@@ -238,39 +289,28 @@ public sealed class ActivationAdminController(
             string.Equals(User.FindFirstValue("roster_scope"), "province", StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Decides which CUE a school-scope caller issues a key "for" (pure bookkeeping). Unbounded
-    /// key scope (province roster scope or Admin) has no forced CUE. A school-scope caller with
-    /// exactly one assigned CUE resolves to
-    /// that CUE; with several, the request must name one as plain text in the note
-    /// ("issued-for-cue:180000100"). The resolved CUE is stored in <see cref="ActivationKey.Note"/>
-    /// only — <see cref="ActivationKey.ScopeCue"/> stays null because keys are universal.
-    /// </summary>
+    /// <summary>Validates a legacy CUE token if a caller submits one. New keys belong to their
+    /// holder and do not need a school association.</summary>
     private async Task<CueResolution> ResolveIssuedForCueAsync(string? note, CancellationToken cancellationToken)
     {
         if (HasUnboundedKeyScope())
         {
-            return new CueResolution(true, null, null);
+            return new CueResolution(true, null);
         }
 
         var rosterCues = User.FindAll("roster_cue").Select(static claim => claim.Value).ToList();
         if (rosterCues.Count == 0)
         {
-            return new CueResolution(false, null, BadRequest("A school-scope caller needs at least one assigned CUE to issue keys."));
-        }
-
-        if (rosterCues.Count == 1)
-        {
-            return new CueResolution(true, rosterCues[0], null);
+            return new CueResolution(false, BadRequest("A school-scope caller needs at least one assigned CUE to issue keys."));
         }
 
         var namedCue = TryExtractIssuedForCue(note);
-        if (namedCue is null || !(await authorizationService.AuthorizeAsync(User, namedCue, new RosterScopeRequirement())).Succeeded)
+        if (namedCue is not null && !(await authorizationService.AuthorizeAsync(User, namedCue, new RosterScopeRequirement())).Succeeded)
         {
-            return new CueResolution(false, null, BadRequest($"Note must name one of your assigned CUEs as {IssuedForCueToken}<cue>."));
+            return new CueResolution(false, BadRequest("La clave incluye una escuela fuera de las asignadas al usuario."));
         }
 
-        return new CueResolution(true, namedCue, null);
+        return new CueResolution(true, null);
     }
 
     /// <summary>
@@ -359,23 +399,10 @@ public sealed class ActivationAdminController(
         return CueCode.TryNormalize(note[start..end], out var cue) ? cue : null;
     }
 
-    private static string? BuildNote(string? note, string? issuedForCue)
+    private static string? BuildNote(string? note)
     {
         var trimmed = note?.Trim() ?? string.Empty;
-        var token = issuedForCue is null ? null : $"{IssuedForCueToken}{issuedForCue}";
-        if (token is null)
-        {
-            return string.IsNullOrEmpty(trimmed) ? null : Truncate(trimmed, MaxNoteLength);
-        }
-
-        // Strip any token the caller already wrote so the canonical one appears exactly once.
-        var parts = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries)
-            .Where(static part => !part.StartsWith(IssuedForCueToken, StringComparison.Ordinal))
-            .ToArray();
-        var stripped = string.Join(' ', parts);
-
-        var result = string.IsNullOrEmpty(stripped) ? token : $"{stripped} {token}";
-        return Truncate(result, MaxNoteLength);
+        return string.IsNullOrEmpty(trimmed) ? null : Truncate(trimmed, MaxNoteLength);
     }
 
     private static string? Truncate(string? value, int maxLength)
@@ -388,5 +415,5 @@ public sealed class ActivationAdminController(
         return value.Length <= maxLength ? value : value[..maxLength];
     }
 
-    private sealed record CueResolution(bool Allowed, string? Cue, ActionResult<IssueActivationKeyResponse>? Error);
+    private sealed record CueResolution(bool Allowed, ActionResult<IssueActivationKeyResponse>? Error);
 }

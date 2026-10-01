@@ -76,10 +76,20 @@ public static class LocalApiApplication
                     .IsExpiredAsync(context.RequestAborted);
                 var activationInProgress = await context.RequestServices.GetRequiredService<ActivationRevalidationService>()
                     .IsActivationInProgressAsync(context.RequestAborted);
-                if (identity?.RevocationStage == "locked" || expired || activationInProgress)
+                if (identity?.RevocationStage == "locked" || expired)
                 {
                     context.Response.StatusCode = StatusCodes.Status423Locked;
                     await context.Response.WriteAsJsonAsync(new { error = "Este equipo está bloqueado. Reactivalo con una clave nueva." });
+                    return;
+                }
+                if (activationInProgress)
+                {
+                    context.Response.StatusCode = StatusCodes.Status423Locked;
+                    await context.Response.WriteAsJsonAsync(new
+                    {
+                        errorCode = "activation_in_progress",
+                        error = "La descarga inicial no finalizó. Reintentá la descarga para completar la activación."
+                    });
                     return;
                 }
             }

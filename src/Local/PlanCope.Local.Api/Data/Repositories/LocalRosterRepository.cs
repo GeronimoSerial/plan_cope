@@ -54,6 +54,22 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
             throw new InvalidOperationException("A different checksum is already stored for this roster snapshot id.");
         }
 
+        var repairSameId = false;
+        if (sameId is not null)
+        {
+            var storedRows = await connection.QuerySingleAsync<StoredRosterRows>(new CommandDefinition(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM local_roster_sections WHERE snapshot_id = @SnapshotId) AS SectionCount,
+                    (SELECT COUNT(*) FROM local_roster_students WHERE snapshot_id = @SnapshotId) AS StudentCount;
+                """,
+                new { SnapshotId = package.SnapshotId },
+                transaction,
+                cancellationToken: cancellationToken));
+            var expectedStudentCount = package.Sections.Sum(section => section.Students.Count);
+            repairSameId = storedRows.SectionCount != package.Sections.Count || storedRows.StudentCount != expectedStudentCount;
+        }
+
         var existing = await connection.QuerySingleOrDefaultAsync<ExistingSnapshot>(new CommandDefinition(
             """
             SELECT id, checksum, section_count, student_count
@@ -64,7 +80,7 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
             new { package.Cue, package.SchoolYear, package.Checksum },
             transaction,
             cancellationToken: cancellationToken));
-        if (existing is not null)
+        if (existing is not null && !repairSameId)
         {
             await connection.ExecuteAsync(new CommandDefinition(
                 """
@@ -132,7 +148,8 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
                 INSERT INTO local_roster_sections
                     (id, snapshot_id, ge_section_id, course, division, level, shift)
                 VALUES
-                    (@Id, @SnapshotId, @GeSectionId, @Course, @Division, @Level, @Shift);
+                    (@Id, @SnapshotId, @GeSectionId, @Course, @Division, @Level, @Shift)
+                ON CONFLICT DO NOTHING;
                 """,
                 new
                 {
@@ -156,7 +173,8 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
                     INSERT INTO local_roster_students
                         (id, snapshot_id, section_id, ge_person_id, document_hash, document_last4, first_name, last_name)
                     VALUES
-                        (@Id, @SnapshotId, @SectionId, @GePersonId, @DocumentHash, @DocumentLast4, @FirstName, @LastName);
+                        (@Id, @SnapshotId, @SectionId, @GePersonId, @DocumentHash, @DocumentLast4, @FirstName, @LastName)
+                    ON CONFLICT DO NOTHING;
                     """,
                     new
                     {
@@ -411,4 +429,6 @@ public sealed class LocalRosterRepository(ILocalSqliteConnectionFactory connecti
 
         public int StudentCount { get; init; }
     }
+
+    private sealed record StoredRosterRows(long SectionCount, long StudentCount);
 }

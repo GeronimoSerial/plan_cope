@@ -3,6 +3,7 @@ using System;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using PlanCope.Central.Api.Data;
@@ -12,9 +13,11 @@ using PlanCope.Central.Api.Data;
 namespace PlanCope.Central.Migrations.Migrations
 {
     [DbContext(typeof(PlanCopeDbContext))]
-    partial class PlanCopeDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260930120000_AddActivationKeyHolder")]
+    partial class AddActivationKeyHolder
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -270,10 +273,6 @@ namespace PlanCope.Central.Migrations.Migrations
                     b.Property<string>("SchoolId")
                         .HasColumnType("text");
 
-                    b.Property<string>("SourceNodeId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
                     b.Property<DateTimeOffset?>("StartedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -287,7 +286,7 @@ namespace PlanCope.Central.Migrations.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("SourceNodeId", "RemoteLocalId")
+                    b.HasIndex("RemoteLocalId")
                         .IsUnique();
 
                     b.ToTable("delivery_sessions", "sync");

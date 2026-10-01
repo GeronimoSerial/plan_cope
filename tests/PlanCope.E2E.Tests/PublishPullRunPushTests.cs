@@ -473,7 +473,7 @@ public sealed class PublishPullRunPushTests
     private static async Task PublishVersionOnCentralAsync(HttpClient client, string versionId)
     {
         var response = await client.PostAsJsonAsync($"/api/exams/versions/{versionId}/publish", new PublishExamVersionRequest(
-            "Matematica", "6", null));
+            "Matematica", "6", null, ["legacy-target-node"], ["legacy-target-school"]));
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var publish = await response.Content.ReadFromJsonAsync<PublishExamVersionResponse>();
         Assert.NotNull(publish);
