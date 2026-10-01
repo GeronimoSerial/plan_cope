@@ -150,9 +150,24 @@ public sealed class EnrolmentEndpointsTests
 
         Assert.True(status.GetProperty("activationInProgress").GetBoolean());
         Assert.True(status.GetProperty("isLocked").GetBoolean());
+        Assert.True(status.GetProperty("isRevoked").GetBoolean());
         Assert.False(status.GetProperty("retryAvailable").GetBoolean());
         var retry = await client.PostAsync("/api/enrolment/retry-download", null);
         Assert.Equal(HttpStatusCode.BadRequest, retry.StatusCode);
+    }
+
+    [Fact]
+    public async Task Activation_status_exposes_revoked_state_before_locking()
+    {
+        using var factory = new EnrolmentApiFactory(new StubCentralHandler(() => throw new InvalidOperationException()));
+        using var client = factory.CreateClient();
+        factory.SeedNodeIdentity();
+        factory.SetNodeCredentialState("revoked", null);
+
+        var status = await client.GetFromJsonAsync<JsonElement>("/api/activation/status");
+
+        Assert.True(status.GetProperty("isRevoked").GetBoolean());
+        Assert.False(status.GetProperty("isLocked").GetBoolean());
     }
 
     [Fact]

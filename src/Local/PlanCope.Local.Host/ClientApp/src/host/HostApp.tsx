@@ -11,6 +11,8 @@ export function HostApp() {
   const hostContext = useHostContext();
   const delivery = useDeliverySession(hostContext);
   const [isLocked, setIsLocked] = useState(false);
+  const [isRevoked, setIsRevoked] = useState(false);
+  const [showRevokedActivation, setShowRevokedActivation] = useState(false);
   const [activationInProgress, setActivationInProgress] = useState(false);
   const [activationRetryAvailable, setActivationRetryAvailable] = useState(false);
   const [activationStatusChecked, setActivationStatusChecked] = useState(false);
@@ -33,6 +35,7 @@ export function HostApp() {
         .then(data => {
           if (!cancelled && data && typeof data.isLocked === "boolean") {
             setIsLocked(data.isLocked);
+            setIsRevoked(data.isRevoked === true);
             setActivationInProgress(data.activationInProgress === true);
             setActivationRetryAvailable(data.retryAvailable === true);
             setRevalidationDaysRemaining(typeof data.revalidationDaysRemaining === "number" ? data.revalidationDaysRemaining : null);
@@ -60,17 +63,22 @@ export function HostApp() {
 
   if (isLocked) {
     return (
-      <ActivationScreen apiBaseUrl={hostContext.apiBaseUrl} isLocked />
+      <ActivationScreen apiBaseUrl={hostContext.apiBaseUrl} isLocked isRevoked={isRevoked} />
     );
   }
 
-  if (shouldShowActivation(hostContext.isActivated, activationInProgress)) {
+  if (isRevoked && showRevokedActivation) {
+    return <ActivationScreen apiBaseUrl={hostContext.apiBaseUrl} isRevoked />;
+  }
+
+  if (!isRevoked && shouldShowActivation(hostContext.isActivated, activationInProgress)) {
     return <ActivationScreen apiBaseUrl={hostContext.apiBaseUrl}
       activationInProgress={activationInProgress} retryAvailable={activationRetryAvailable} />;
   }
 
   return (
     <AppShell status={delivery.status} apiBaseUrl={hostContext.apiBaseUrl} appVersion={hostContext.appVersion} activeTab={activeTab} onTabChange={changeTab}>
+      {isRevoked && <p className="sync-warning" role="alert">Este PC fue dado de baja. No se pueden crear sesiones nuevas. <button type="button" onClick={() => setShowRevokedActivation(true)}>Cargar nueva clave</button></p>}
       {localClockWarning && <p className="sync-warning" role="alert">La fecha y hora de este equipo son incorrectas. Corregilas para mantener la revalidación al día.</p>}
       {expiryPending && <p className="sync-warning" role="status">La revalidación está vencida. Finalizá y enviá la evaluación en curso; no inicies otra sesión.</p>}
       {!expiryPending && revalidationDaysRemaining !== null && revalidationDaysRemaining <= 5 && (
