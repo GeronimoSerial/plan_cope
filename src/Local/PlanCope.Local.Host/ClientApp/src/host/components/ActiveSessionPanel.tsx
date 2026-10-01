@@ -91,7 +91,7 @@ function ActiveSessionContent({ progress, session, sessionLink, onStatusChange, 
   const filterOptions: { id: StudentFilter; label: string; count: number }[] = [
     { id: "all", label: "Todos", count: students.length },
     ...(nominal ? [{ id: "missing" as const, label: "Faltan", count: missing }] : []),
-    { id: "inProgress", label: "Rindiendo", count: inProgress },
+    ...(!isClosed ? [{ id: "inProgress" as const, label: "Rindiendo", count: inProgress }] : []),
     { id: "submitted", label: "Entregaron", count: submitted }
   ];
 
@@ -149,7 +149,7 @@ function ActiveSessionContent({ progress, session, sessionLink, onStatusChange, 
         {visibleStudents.length ? (
           <div className="student-table-wrap">
             <table className="student-table">
-              <thead><tr><th scope="col">Nombre</th><th scope="col">DNI</th><th scope="col">Estado</th><th scope="col">Entregó</th>{onRemoveExtraStudent && <th scope="col">Acciones</th>}</tr></thead>
+              <thead><tr><th scope="col">Nombre</th><th scope="col">DNI</th><th scope="col">Estado</th><th scope="col">Entregó</th>{onRemoveExtraStudent && !isClosed && <th scope="col">Acciones</th>}</tr></thead>
               <tbody>
                 {visibleStudents.map(student => (
                   <tr key={student.id} className={highlightedIds.includes(student.id) ? "student-row-submitted" : undefined}>
@@ -157,7 +157,7 @@ function ActiveSessionContent({ progress, session, sessionLink, onStatusChange, 
                     <td data-label="DNI">{student.maskedDocument ?? "—"}</td>
                     <td data-label="Estado"><span className={`student-status ${student.submissionReason === "closed_by_teacher" ? "student-status-closed" : `student-status-${student.status}`}`}>{student.submissionReason === "closed_by_teacher" ? "Entregado por cierre" : STATUS_LABELS[student.status]}</span></td>
                     <td data-label="Entregó">{student.status === "submitted" ? formatSubmissionTime(student.submittedAt) : "—"}</td>
-                    {onRemoveExtraStudent && <td data-label="Acciones">{student.offRoster && !student.attemptId && !isClosed && <button type="button" className="button button-secondary" disabled={isBusy} onClick={() => void onRemoveExtraStudent(student.id).catch(() => undefined)}>Quitar</button>}</td>}
+                    {onRemoveExtraStudent && !isClosed && <td data-label="Acciones">{student.offRoster && !student.attemptId && <button type="button" className="button button-secondary" disabled={isBusy} onClick={() => void onRemoveExtraStudent(student.id).catch(() => undefined)}>Quitar</button>}</td>}
                   </tr>
                 ))}
               </tbody>

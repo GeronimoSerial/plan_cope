@@ -108,7 +108,12 @@ export function SessionsWorkspace({ delivery, apiBaseUrl, tab, expiryPending, on
 }
 
 function SessionCard({ session, onOpen }: { session: LocalSession; onOpen: () => void }) {
-  return <article className="node-session-card"><div><strong>{session.schoolName || `CUE ${session.schoolCode}`}</strong><span>{session.gradeLabel || session.classroomCode || ""} · {session.examTitle || session.examVersionId}</span><span className="node-session-meta">{formatTime(session.startAt)} · <SessionStatusBadge status={session.status} /> · Entregaron {session.submittedCount ?? 0}/{session.expectedStudentCount}</span></div><button type="button" className="button button-secondary" onClick={onOpen}>Ver</button></article>;
+  const grade = session.gradeLabel || session.classroomCode;
+  return <article className="node-session-card"><div className="node-session-card-copy">
+    <div className="node-session-card-heading"><strong>{session.schoolName || `CUE ${session.schoolCode}`}</strong><SessionStatusBadge status={session.status} /></div>
+    <span>{grade && <>{grade} · </>}{session.examTitle || session.examVersionId}</span>
+    <div className="node-session-meta"><span>Inicio {formatTime(session.startAt)}</span><span>Entregaron {session.submittedCount ?? 0}/{session.expectedStudentCount}</span></div>
+  </div><button type="button" className="button button-secondary" onClick={onOpen}>Ver</button></article>;
 }
 function statusLabel(status: string) { return status === "paused" ? "Pausada" : status === "closed" ? "Cerrada" : "Abierta"; }
 function SessionStatusBadge({ status }: { status: string }) {

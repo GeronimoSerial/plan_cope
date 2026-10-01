@@ -93,12 +93,14 @@ describe("ExamTakingPanel virtualization", () => {
   it("shows blocking paused and closed notices and disables exam actions", () => {
     const paused = renderToStaticMarkup(<ExamTakingPanel {...emptyProps} sessionStatus="paused" />);
     expect(paused).toContain("La sesión está pausada por el docente. Tus respuestas están guardadas.");
+    expect(paused).toContain('class="student-session-notice"');
     expect(paused).toContain("Guardar respuestas</button>");
     expect(paused).toMatch(/Guardar respuestas<\/button>/);
     expect(paused).toMatch(/<button[^>]*disabled=""[^>]*>Guardar respuestas/);
 
     const closed = renderToStaticMarkup(<ExamTakingPanel {...emptyProps} sessionStatus="closed" />);
     expect(closed).toContain("El docente cerró la sesión. Tu examen fue entregado.");
+    expect(closed).toContain('class="student-session-notice"');
     expect(closed).toMatch(/<button[^>]*disabled=""[^>]*>Enviar examen/);
   });
 

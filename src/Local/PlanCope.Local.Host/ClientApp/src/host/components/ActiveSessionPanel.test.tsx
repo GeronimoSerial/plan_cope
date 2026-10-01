@@ -140,7 +140,7 @@ describe("ActiveSessionPanel", () => {
     const view = render(progress({ submittedCount: 1, inProgressCount: 0, startedCount: 1, students: [
       student({ id: "done", displayName: "Entregada, Ana", status: "submitted", submittedAt: "2026-10-01T10:14:00Z", submissionReason: "closed_by_teacher" }),
       student({ id: "missing", displayName: "Ausente, Brenda", status: "not_started" })
-    ] }), closed, { onReturn: vi.fn(), onStats: vi.fn() });
+    ] }), closed, { onReturn: vi.fn(), onStats: vi.fn(), onRemoveExtraStudent: vi.fn() });
     expect(view.textContent).toContain("Entregaron 1 de 2.");
     expect(view.textContent).toContain("No rindieron: Brenda Ausente.");
     expect(view.textContent).toContain("Entregados por cierre: Ana Entregada.");
@@ -152,6 +152,8 @@ describe("ActiveSessionPanel", () => {
     const closedSubmissionRow = [...view.querySelectorAll("tbody tr")].find(row => row.textContent?.includes("Entregado por cierre"));
     expect(closedSubmissionRow?.querySelector('[data-label="Entregó"]')?.textContent).toMatch(/\d{2}:\d{2}/);
     expect(view.querySelectorAll(".session-close-summary .button")).toHaveLength(2);
+    expect([...view.querySelectorAll(".student-filter")].map(button => button.textContent?.trim())).toEqual(["Todos 2", "Faltan 1", "Entregaron 1"]);
+    expect([...view.querySelectorAll("thead th")].map(header => header.textContent)).toEqual(["Nombre", "DNI", "Estado", "Entregó"]);
     expect(view.textContent).not.toContain("Pausar");
     expect(view.textContent).toContain("Volver al inicio");
     expect(view.textContent).toContain("Ver estadísticas");
@@ -164,6 +166,8 @@ describe("ActiveSessionPanel", () => {
       student({ id: "two", displayName: "Bruno Entregado", status: "submitted" })
     ] }), closed);
     expect(view.textContent).toContain("Faltan");
+    expect(view.querySelector(".student-filter")?.textContent).toContain("Todos");
+    expect([...view.querySelectorAll(".student-filter")].some(button => button.textContent?.includes("Rindiendo"))).toBe(false);
     expect(view.textContent).not.toContain("Sesión sin padrón");
   });
 });

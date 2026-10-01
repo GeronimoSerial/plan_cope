@@ -5,7 +5,7 @@
   background: var(--page);
 }
 
-.student-header { background: var(--card); }
+.student-header { position: sticky; top: 0; z-index: 30; background: var(--card); }
 .student-signature {
   display: flex;
   min-height: 70px;
@@ -92,6 +92,9 @@
 
 .student-exam { display: grid; grid-template-rows: auto 1fr auto; gap: var(--s-3); }
 .student-session-notice {
+  position: sticky;
+  top: 78px;
+  z-index: 29;
   margin: 0;
   border: 1px solid var(--warn);
   border-left: 4px solid var(--warn);
@@ -260,6 +263,7 @@
 }
 
 @media (max-width: 620px) {
+  .student-session-notice { top: 70px; }
   .student-signature { min-height: 62px; padding: 0 var(--s-4); }
   .student-signature img { height: 40px; }
   .student-brand-copy h1 { font-size: 1.125rem; }

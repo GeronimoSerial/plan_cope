@@ -27,6 +27,11 @@ describe("SessionsWorkspace", () => {
     expect(view.textContent).toContain("Escuela Sur");
     expect(view.textContent).not.toContain("Código de sesión");
     expect(view.querySelector(".badge-info")?.textContent).toBe("Abierta");
+    expect(view.querySelector(".node-session-card-heading strong")?.textContent).toBe("Escuela Norte");
+    expect(view.querySelector(".node-session-card-heading .badge")?.textContent).toBe("Abierta");
+    expect(view.querySelector(".node-session-card-copy > span")?.textContent).toBe("6° A · Turno mañana · Matemática 6");
+    const firstCard = view.querySelector(".node-session-card")!;
+    expect([...firstCard.querySelectorAll(".node-session-meta span")].map(item => item.textContent)).toEqual([expect.stringMatching(/^Inicio /), "Entregaron 4/20"]);
     expect(view.querySelector(".node-session-card .button")?.textContent).toBe("Ver");
     expect(state.activeSession.selectSession).not.toHaveBeenCalled();
     button(view, "Ver").click();
