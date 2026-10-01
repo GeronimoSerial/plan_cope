@@ -42,6 +42,28 @@ public sealed class StatsController(PlanCopeDbContext dbContext, IAuthorizationS
             return Forbid();
         }
 
+        var freshHeartbeatCutoff = DateTimeOffset.UtcNow.AddMinutes(-10);
+        if (rosterScope == "province")
+        {
+            var liveCues = await dbContext.DeliverySessions.AsNoTracking()
+                .Where(session => (session.Status == "active" || session.Status == "paused") && session.LastHeartbeatAt >= freshHeartbeatCutoff && session.SchoolId != null)
+                .Select(session => session.SchoolId!)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+            cues = cues.Concat(liveCues).Distinct(StringComparer.Ordinal).ToList();
+        }
+        var liveByCue = await dbContext.DeliverySessions.AsNoTracking()
+            .Where(session => cues.Contains(session.SchoolId!) && (session.Status == "active" || session.Status == "paused") && session.LastHeartbeatAt >= freshHeartbeatCutoff)
+            .GroupBy(session => session.SchoolId!)
+            .Select(group => new
+            {
+                Cue = group.Key,
+                Count = group.Count(),
+                Joined = group.Sum(session => session.JoinedCount),
+                InProgress = group.Sum(session => session.InProgressCount),
+                Submitted = group.Sum(session => session.SubmittedCount)
+            })
+            .ToDictionaryAsync(row => row.Cue, cancellationToken);
         var rows = new List<object>();
         foreach (var cue in cues)
         {
@@ -49,6 +71,10 @@ public sealed class StatsController(PlanCopeDbContext dbContext, IAuthorizationS
             rows.Add(new
             {
                 cue,
+                liveSessionCount = liveByCue.TryGetValue(cue, out var live) ? live.Count : 0,
+                liveJoinedCount = liveByCue.TryGetValue(cue, out live) ? live.Joined : 0,
+                liveInProgressCount = liveByCue.TryGetValue(cue, out live) ? live.InProgress : 0,
+                liveSubmittedCount = liveByCue.TryGetValue(cue, out live) ? live.Submitted : 0,
                 attemptCount = Render(SuppressibleValue<int>.For(rosterScope!, totals.AttemptCount, totals.AttemptCount)),
                 averageScorePercent = Render(SuppressibleValue<double>.For(rosterScope!, totals.AttemptCount, totals.Percent))
             });

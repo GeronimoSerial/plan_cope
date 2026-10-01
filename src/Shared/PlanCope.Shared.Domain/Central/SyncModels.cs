@@ -19,7 +19,9 @@ public sealed record RegisteredNode(
     DateTimeOffset? RevokedAt,
     string? AppVersion);
 
-public sealed record CentralDeliverySession(string Id, string RemoteLocalId, string? SchoolId, string? ExamVersionId, string? ClassroomCode, string? CommissionCode, string Status, DateTimeOffset? StartedAt, DateTimeOffset? EndedAt, DateTimeOffset? SyncedAt, DateTimeOffset CreatedAt, string? SourceNodeId = null);
+public sealed record CentralDeliverySession(string Id, string RemoteLocalId, string? SchoolId, string? ExamVersionId, string? ClassroomCode, string? CommissionCode, string Status, DateTimeOffset? StartedAt, DateTimeOffset? EndedAt, DateTimeOffset? SyncedAt, DateTimeOffset CreatedAt, string? SourceNodeId = null,
+    string? SchoolYear = null, string? RosterSectionId = null, int JoinedCount = 0, int InProgressCount = 0, int SubmittedCount = 0, int ClosedOrForcedCount = 0,
+    DateTimeOffset? LastActivityAt = null, DateTimeOffset? LastHeartbeatAt = null, string? LocalAppVersion = null);
 
 public sealed record ReceivedStudentAttempt(
     string Id,
