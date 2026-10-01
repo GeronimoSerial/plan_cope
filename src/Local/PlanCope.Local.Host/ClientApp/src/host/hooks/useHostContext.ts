@@ -1,16 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { HostContext, HostContextMessage, NativeBridge } from "../types";
-
-declare global {
-  interface Window {
-    chrome?: {
-      webview?: NativeBridge & {
-        addEventListener: (type: "message", listener: (event: MessageEvent) => void) => void;
-        removeEventListener: (type: "message", listener: (event: MessageEvent) => void) => void;
-      };
-    };
-  }
-}
+import type { HostContext, HostContextMessage } from "../types";
 
 const fallbackContext: HostContext = {
   apiBaseUrl: "http://127.0.0.1:5055",

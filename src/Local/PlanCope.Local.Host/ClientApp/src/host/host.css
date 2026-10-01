@@ -191,6 +191,23 @@
   margin: 16px 0;
 }
 
+.stats-live-copy,
+.stats-updated {
+  margin: 6px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.stats-report-status {
+  overflow-wrap: anywhere;
+  color: var(--success);
+}
+
+.stats-actions .button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .stats-filters label {
   color: var(--muted);
   font-size: 13px;

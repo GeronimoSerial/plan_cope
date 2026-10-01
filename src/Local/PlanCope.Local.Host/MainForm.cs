@@ -36,6 +36,9 @@ public partial class MainForm : Form
     private string _lanBaseUrl = string.Empty;
     private int _localPort = PreferredLocalPort;
     private bool _phaseAComplete;
+    private bool _clientAppLoaded;
+    private Uri? _clientAppUri;
+    private readonly Dictionary<ulong, string> _navigationUris = [];
     private readonly HttpClient _localHttp = new();
     private readonly HttpClient _centralHttp = new();
     private readonly DataDirectoryResolver _directories;
@@ -158,15 +161,95 @@ public partial class MainForm : Form
         await _webView.EnsureCoreWebView2Async();
         _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
         _webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
+        _webView.CoreWebView2.NavigationStarting += OnNavigationStarting;
+        _webView.CoreWebView2.NewWindowRequested += OnNewWindowRequested;
         _webView.CoreWebView2.NavigationCompleted += OnNavigationCompleted;
-        _webView.Source = ResolveClientAppUri(_webView.CoreWebView2);
+        _webView.CoreWebView2.DownloadStarting += OnDownloadStarting;
+        _clientAppUri = ResolveClientAppUri(_webView.CoreWebView2);
+        _webView.Source = _clientAppUri;
+    }
+
+    private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
+    {
+        if (_clientAppUri is null)
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        var action = HostNavigationPolicy.Decide(_clientAppUri, e.Uri, isTopFrame: true);
+        if (action is HostNavigationAction.Allow)
+        {
+            _navigationUris[e.NavigationId] = e.Uri;
+            return;
+        }
+
+        e.Cancel = true;
+        if (action is HostNavigationAction.OpenExternal && e.IsUserInitiated)
+        {
+            try
+            {
+                OpenUrl(e.Uri);
+            }
+            catch
+            {
+                // The host UI stays available if Windows cannot open the default browser.
+            }
+        }
+    }
+
+    private void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
+    {
+        e.Handled = true;
+        if (_clientAppUri is null) return;
+
+        var action = HostNavigationPolicy.Decide(_clientAppUri, e.Uri, isTopFrame: true);
+        if (action is HostNavigationAction.Allow)
+        {
+            _webView.CoreWebView2.Navigate(e.Uri);
+            return;
+        }
+
+        if (action is HostNavigationAction.OpenExternal && e.IsUserInitiated)
+        {
+            try
+            {
+                OpenUrl(e.Uri);
+            }
+            catch
+            {
+                // The host UI stays available if Windows cannot open the default browser.
+            }
+        }
+    }
+
+    private void OnDownloadStarting(object? sender, CoreWebView2DownloadStartingEventArgs e)
+    {
+        if (_clientAppUri is null || !HostNavigationPolicy.IsAppDownload(_clientAppUri, e.DownloadOperation.Uri))
+        {
+            e.Cancel = true;
+        }
     }
 
     private void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
     {
-        if (!e.IsSuccess)
+        var navigationUri = _navigationUris.Remove(e.NavigationId, out var uri) ? uri : null;
+        var isClientAppNavigation = _clientAppUri is not null && navigationUri is not null
+            && HostNavigationPolicy.IsClientAppOrigin(_clientAppUri, navigationUri);
+        var operationCanceled = e.WebErrorStatus is CoreWebView2WebErrorStatus.OperationCanceled;
+        if (!e.IsSuccess && HostNavigationPolicy.IsFatalNavigationFailure(_clientAppLoaded, isClientAppNavigation, operationCanceled))
         {
             ShowStartupError("No se pudo cargar la interfaz local del host.");
+            return;
+        }
+
+        if (e.IsSuccess && isClientAppNavigation)
+        {
+            _clientAppLoaded = true;
+        }
+
+        if (!isClientAppNavigation)
+        {
             return;
         }
 
@@ -185,6 +268,11 @@ public partial class MainForm : Form
 
     private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
+        if (_clientAppUri is null || !HostNavigationPolicy.IsClientAppOrigin(_clientAppUri, e.Source))
+        {
+            return;
+        }
+
         var message = JsonSerializer.Deserialize<HostBridgeMessage>(e.WebMessageAsJson, JsonOptions);
         if (message is null)
         {
@@ -216,7 +304,54 @@ public partial class MainForm : Form
                 _updateMessage = null;
                 PushUpdateStatus();
                 break;
+            case "host:openStatsReport":
+                _ = HandleOpenStatsReportAsync(message);
+                break;
         }
+    }
+
+    private async Task HandleOpenStatsReportAsync(HostBridgeMessage message)
+    {
+        string? path = null;
+        string? error = null;
+        try
+        {
+            var reportsDirectory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "PlanCope",
+                "reports");
+            var service = new LocalStatsReportService(_localHttp, reportsDirectory);
+            path = await service.SaveReportAsync(
+                $"http://127.0.0.1:{_localPort}",
+                message.Cue ?? string.Empty,
+                message.SchoolYear,
+                message.Course,
+                message.Exam);
+
+            LocalStatsReportService.OpenReport(
+                reportsDirectory,
+                path,
+                reportPath => Process.Start(new ProcessStartInfo(reportPath) { UseShellExecute = true }));
+        }
+        catch (Exception exception)
+        {
+            error = $"No se pudo guardar o abrir el informe HTML: {exception.Message}";
+        }
+
+        if (_webView.CoreWebView2 is null || string.IsNullOrWhiteSpace(message.RequestId))
+        {
+            return;
+        }
+
+        var reply = new
+        {
+            type = "host:statsReportResult",
+            requestId = message.RequestId,
+            success = error is null,
+            path,
+            message = error ?? $"Informe guardado y abierto en el navegador. Archivo: {path}"
+        };
+        _webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(reply, JsonOptions));
     }
 
     private void PostHostContext()
@@ -638,6 +773,13 @@ public partial class MainForm : Form
         Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
     }
 
-    private sealed record HostBridgeMessage(string Type, string? AccessCode);
+    private sealed record HostBridgeMessage(
+        string Type,
+        string? AccessCode,
+        string? RequestId = null,
+        string? Cue = null,
+        string? SchoolYear = null,
+        string? Course = null,
+        string? Exam = null);
     private sealed record ActivationStatus(bool PhaseAComplete);
 }

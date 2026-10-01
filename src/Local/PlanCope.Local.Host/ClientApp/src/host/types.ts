@@ -42,6 +42,17 @@ export type NativeBridge = {
   postMessage: (message: unknown) => void;
 };
 
+export type HostWebViewBridge = NativeBridge & {
+  addEventListener: (type: "message", listener: (event: MessageEvent) => void) => void;
+  removeEventListener: (type: "message", listener: (event: MessageEvent) => void) => void;
+};
+
+declare global {
+  interface Window {
+    chrome?: { webview?: HostWebViewBridge };
+  }
+}
+
 export type ExamOption = LocalExam & {
   title: string;
   course?: string;
