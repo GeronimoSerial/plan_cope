@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import { callCentral } from "../../_lib/api/client";
 import { getErrorMessage } from "../../_lib/json";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -11,11 +11,17 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TermLabel } from "../help/term-hint";
 import type { SchoolStatsRow } from "../../_lib/api/server";
+import { GradeSectionPicker } from "../shared/grade-section-picker";
 
 interface CourseStatsRow {
   course: string;
   attemptCount: number | string;
   averageScorePercent: number | string;
+}
+
+interface GradeFilterOption {
+  value: string;
+  label: string;
 }
 
 interface BlockStatsRow {
@@ -88,6 +94,7 @@ export function StatsPanel({ initialSchools }: StatsPanelProps) {
   const [schools, setSchools] = useState<SchoolStatsRow[]>(initialSchools);
   const [schoolYearInput, setSchoolYearInput] = useState("");
   const [courseInput, setCourseInput] = useState("");
+  const [gradeOptions, setGradeOptions] = useState<GradeFilterOption[]>([]);
   const [appliedSchoolYear, setAppliedSchoolYear] = useState("");
   const [applying, setApplying] = useState(false);
   const [schoolsError, setSchoolsError] = useState<string | null>(null);
@@ -101,6 +108,14 @@ export function StatsPanel({ initialSchools }: StatsPanelProps) {
   const [exams, setExams] = useState<ExamStatsRow[]>([]);
   const [examsLoading, setExamsLoading] = useState(false);
   const [examsError, setExamsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void callCentral<GradeFilterOption[]>("stats/courses")
+      .then(options => { if (active) setGradeOptions(options); })
+      .catch(() => { if (active) setGradeOptions([]); });
+    return () => { active = false; };
+  }, []);
 
   function resetSelection() {
     setSelectedCue(null);
@@ -218,13 +233,14 @@ export function StatsPanel({ initialSchools }: StatsPanelProps) {
               />
             </div>
             <div className="grid gap-1.5">
-              <Label htmlFor="stats-course">Curso (opcional)</Label>
-              <Input
-                id="stats-course"
-                value={courseInput}
-                onChange={event => setCourseInput(event.target.value)}
-                placeholder="Ej. 4º A"
-                className="w-40"
+              <GradeSectionPicker
+                grades={gradeOptions}
+                mode="single"
+                value={courseInput || "all"}
+                onValueChange={next => setCourseInput(typeof next === "string" && next !== "all" ? next : "")}
+                includeAll
+                showSection={false}
+                className="min-w-44"
               />
             </div>
             <Button onClick={() => void applyFilters()} disabled={applying}>
