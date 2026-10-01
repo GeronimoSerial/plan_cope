@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { activationKeyStatus, buildReissuePayload, type ActivationKeyStatusSource } from "./activation-key-mapping";
+import { activationKeyHolderLabel, activationKeyStatus, activationNodeStatusLabel, buildReissuePayload, type ActivationKeyStatusSource } from "./activation-key-mapping";
 
 const now = new Date("2026-09-28T12:00:00.000Z");
 
@@ -58,11 +58,12 @@ describe("buildReissuePayload", () => {
   it("normaliza expiresAt y note undefined a null (no a undefined)", () => {
     const payload = buildReissuePayload({ maxActivations: 3, expiresAt: undefined, note: undefined });
 
-    expect(payload).toEqual({ maxActivations: 3, expiresAt: null, note: null });
+    expect(payload).toEqual({ holderName: "", maxActivations: 3, expiresAt: null, note: null });
     expect(payload.expiresAt).not.toBeUndefined();
     expect(payload.note).not.toBeUndefined();
     expect(JSON.parse(JSON.stringify(payload))).toEqual({
       maxActivations: 3,
+      holderName: "",
       expiresAt: null,
       note: null
     });
@@ -77,10 +78,23 @@ describe("buildReissuePayload", () => {
     });
 
     expect(payload).toEqual({
+      holderName: "",
       maxActivations: 10,
       expiresAt: "2027-03-01T00:00:00.000Z",
       note
     });
     expect(payload.note).toContain("issued-for-cue:12345");
+  });
+});
+
+describe("activation key and device labels", () => {
+  it("shows a dash for legacy keys without a holder", () => {
+    expect(activationKeyHolderLabel(null)).toBe("—");
+    expect(activationKeyHolderLabel("  ")).toBe("—");
+  });
+
+  it("translates active and revoked device states to Spanish", () => {
+    expect(activationNodeStatusLabel("Active")).toBe("Activo");
+    expect(activationNodeStatusLabel("Active", "2026-09-30T12:00:00Z")).toBe("Revocado");
   });
 });

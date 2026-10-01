@@ -109,6 +109,18 @@ export interface ActivationKeySummary {
   revokedAt?: string | null;
   revokedReason?: string | null;
   note?: string | null;
+  holderName?: string | null;
+}
+
+export interface ActivationKeyNode {
+  id: string;
+  nodeCode: string;
+  deviceName?: string | null;
+  enrolledAt: string;
+  lastSeenAt?: string | null;
+  appVersion?: string | null;
+  status: string;
+  revokedAt?: string | null;
 }
 
 export function listActivationKeys(): Promise<ActivationKeySummary[]> {

@@ -61,7 +61,7 @@ public sealed record SyncCursor(string Id, string NodeId, string CursorKey, stri
 
 public sealed record SyncAttempt(string Id, string? NodeId, string Direction, string Status, DateTimeOffset StartedAt, DateTimeOffset? FinishedAt, JsonDocument? Summary, JsonDocument? Error);
 
-public sealed record ActivationKey(string Id, string KeyHash, string KeyPrefix, string IssuedBy, DateTimeOffset IssuedAt, DateTimeOffset? ExpiresAt, int MaxActivations, int ActivationCount, DateTimeOffset? RevokedAt, string? RevokedReason, string? ScopeCue, string? Note);
+public sealed record ActivationKey(string Id, string KeyHash, string KeyPrefix, string IssuedBy, DateTimeOffset IssuedAt, DateTimeOffset? ExpiresAt, int MaxActivations, int ActivationCount, DateTimeOffset? RevokedAt, string? RevokedReason, string? ScopeCue, string? Note, string? HolderName = null);
 
 public sealed record NodeCredential(string Id, string NodeId, string RefreshTokenHash, DateTimeOffset IssuedAt, DateTimeOffset ExpiresAt, string? RotatedFrom, DateTimeOffset? RevokedAt);
 
