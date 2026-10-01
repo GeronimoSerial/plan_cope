@@ -90,7 +90,9 @@ public sealed class ExamAssetConfiguration : IEntityTypeConfiguration<ExamAsset>
         builder.Property(static x => x.FileName).HasMaxLength(256).IsRequired();
         builder.Property(static x => x.MimeType).HasMaxLength(128).IsRequired();
         builder.Property(static x => x.Checksum).HasMaxLength(128).IsRequired();
-        builder.Property(static x => x.StoragePath).HasMaxLength(512).IsRequired();
+        // StoragePath currently holds a base64 data URL for uploaded images (up to 2 MiB raw).
+        // PostgreSQL varchar(512) truncation is not allowed, so keep this as unbounded text.
+        builder.Property(static x => x.StoragePath).HasColumnType("text").IsRequired();
         builder.HasIndex(static x => x.ExamVersionId);
         builder.HasIndex(static x => x.Checksum);
     }

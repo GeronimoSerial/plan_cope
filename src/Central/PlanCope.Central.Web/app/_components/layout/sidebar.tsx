@@ -56,7 +56,7 @@ export function AppSidebar() {
   }
 
   return (
-    <Sidebar collapsible="icon">
+    <Sidebar className="central-sidebar" collapsible="icon">
       <SidebarHeader className="p-3">
         <SidebarMenu>
           <SidebarMenuItem>
@@ -66,12 +66,8 @@ export function AppSidebar() {
               render={<Link href="/dashboard" />}
               onClick={event => guardNavigation(event, "/dashboard")}
             >
-              <span className="grid size-8 shrink-0 place-items-center rounded-md bg-primary text-sm font-bold text-primary-foreground">
-                PC
-              </span>
               <span className="grid flex-1 gap-0 text-left">
-                <span className="truncate text-sm leading-tight font-semibold">PlanCope Central</span>
-                <span className="truncate text-xs leading-tight text-muted-foreground">Administración</span>
+                <span className="truncate text-sm leading-tight font-semibold">Administración</span>
               </span>
             </SidebarMenuButton>
           </SidebarMenuItem>
