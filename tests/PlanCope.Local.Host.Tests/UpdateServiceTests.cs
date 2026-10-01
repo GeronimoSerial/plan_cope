@@ -12,6 +12,64 @@ public sealed class UpdateServiceTests
     private const string AnySha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     [Fact]
+    public void UpdateProgressThrottle_ReportsInitialTwoPercentAndElapsedUpdates()
+    {
+        var throttle = new UpdateProgressThrottle();
+        var start = DateTimeOffset.UtcNow;
+
+        Assert.True(throttle.ShouldReport(0, start));
+        Assert.False(throttle.ShouldReport(1, start.AddMilliseconds(100)));
+        Assert.False(throttle.ShouldReport(0, start.AddMilliseconds(150)));
+        Assert.True(throttle.ShouldReport(2, start.AddMilliseconds(150)));
+        Assert.True(throttle.ShouldReport(3, start.AddMilliseconds(400)));
+        Assert.True(throttle.ShouldReport(100, start.AddMilliseconds(450)));
+    }
+
+    [Fact]
+    public void SessionGateRetryPolicy_UsesBoundedExponentialBackoffAndDescribesLoggedFailure()
+    {
+        Assert.Equal(TimeSpan.FromSeconds(2), SessionGateRetryPolicy.GetDelay(1));
+        Assert.Equal(TimeSpan.FromSeconds(4), SessionGateRetryPolicy.GetDelay(2));
+        Assert.Equal(TimeSpan.FromSeconds(30), SessionGateRetryPolicy.GetDelay(20));
+        var reason = SessionGateRetryPolicy.DescribeException(new HttpRequestException("connection refused"));
+        Assert.Contains("HttpRequestException", reason);
+        Assert.Contains("connection refused", reason);
+        var logged = new List<string>();
+        SessionGateRetryPolicy.LogFailure(logged.Add, new HttpRequestException("connection refused"), 2);
+        Assert.Contains("Reintento 2", logged.Single());
+        Assert.Contains("4 segundos", logged.Single());
+    }
+
+    [Fact]
+    public void UpdateFailureLogger_LogsSessionGateReasonToHostLog()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        try
+        {
+            UpdateFailureLogger.LogMessage(directory, "session-gate", "Update blocked by active session ids: session-7.");
+            var log = File.ReadAllText(Path.Combine(directory, "local-host.log"));
+            Assert.Contains("session-gate", log);
+            Assert.Contains("session-7", log);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadUpdateAsync_ForwardsProgressCallback()
+    {
+        var backend = new FakeUpdateBackend();
+        var service = new UpdateService(backend, UpdateChannel.Stable);
+        var progress = new List<int>();
+
+        await service.DownloadUpdateAsync(AnySha256, progress.Add);
+
+        Assert.Equal(new[] { 0, 50, 100 }, progress);
+    }
+
+    [Fact]
     public async Task CheckForUpdatesAsync_ReturnsInFlightTaskImmediately_DoesNotBlockCaller()
     {
         var backend = new FakeUpdateBackend
@@ -265,10 +323,13 @@ public sealed class UpdateServiceTests
             return new UpdateCheckResult(UpdateAvailable, TargetVersion, TargetSha256, TargetFileName);
         }
 
-        public Task<bool> DownloadUpdatesAsync(string expectedSha256, CancellationToken cancellationToken)
+        public Task<bool> DownloadUpdatesAsync(string expectedSha256, Action<int>? progress, CancellationToken cancellationToken)
         {
             DownloadCalls++;
             ReceivedExpectedSha256 = expectedSha256;
+            progress?.Invoke(0);
+            progress?.Invoke(50);
+            progress?.Invoke(100);
 
             if (DownloadPayload is not null)
             {

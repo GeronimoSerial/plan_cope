@@ -4,6 +4,20 @@ namespace PlanCope.Local.Host.Services;
 
 public static class UpdateFailureLogger
 {
+    public static void LogMessage(string logsDirectory, string operation, string message)
+    {
+        var line = $"{DateTimeOffset.UtcNow:O} Update {operation}: {message}{Environment.NewLine}";
+        try
+        {
+            Directory.CreateDirectory(logsDirectory);
+            File.AppendAllText(Path.Combine(logsDirectory, "local-host.log"), line);
+        }
+        catch
+        {
+            // Update diagnostics must not interrupt the host's normal error handling.
+        }
+    }
+
     public static void Log(string logsDirectory, string? feedUrl, string? accessToken, string operation, Exception exception)
     {
         var httpStatus = exception is HttpRequestException { StatusCode: { } statusCode }
@@ -17,16 +31,7 @@ public static class UpdateFailureLogger
         safeMessage = Regex.Replace(safeMessage, @"https?://[^\s""']+", match => RedactUrlQuery(match.Value));
 
         var safeUrl = string.IsNullOrWhiteSpace(feedUrl) ? "not configured" : RedactUrlQuery(feedUrl);
-        var line = $"{DateTimeOffset.UtcNow:O} Update {operation} failed: {exception.GetType().Name}:{httpStatus} {safeMessage} URL={safeUrl}{Environment.NewLine}";
-        try
-        {
-            Directory.CreateDirectory(logsDirectory);
-            File.AppendAllText(Path.Combine(logsDirectory, "local-host.log"), line);
-        }
-        catch
-        {
-            // Update diagnostics must not interrupt the host's normal error handling.
-        }
+        LogMessage(logsDirectory, $"{operation} failed", $"{exception.GetType().Name}:{httpStatus} {safeMessage} URL={safeUrl}");
     }
 
     private static string RedactUrlQuery(string value)
