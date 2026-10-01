@@ -20,6 +20,10 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Data\Migrations\*.sql" />
+    <EmbeddedResource Include="..\PlanCope.Local.Host\ClientApp\public\static\fonts\barlow-latin-400-normal.woff2" LogicalName="PlanCope.Local.Api.ReportFonts.barlow-400.woff2" />
+    <EmbeddedResource Include="..\PlanCope.Local.Host\ClientApp\public\static\fonts\barlow-latin-700-normal.woff2" LogicalName="PlanCope.Local.Api.ReportFonts.barlow-700.woff2" />
+    <EmbeddedResource Include="..\PlanCope.Local.Host\ClientApp\public\static\fonts\barlow-semi-condensed-latin-800-normal.woff2" LogicalName="PlanCope.Local.Api.ReportFonts.barlow-condensed-800.woff2" />
+    <EmbeddedResource Include="..\PlanCope.Local.Host\ClientApp\public\static\logo-educacion-h.svg" LogicalName="PlanCope.Local.Api.ReportAssets.logo-educacion-h.svg" />
   </ItemGroup>
 
 </Project>

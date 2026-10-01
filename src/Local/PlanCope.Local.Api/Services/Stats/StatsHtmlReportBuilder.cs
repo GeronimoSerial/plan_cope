@@ -8,6 +8,7 @@ namespace PlanCope.Local.Api.Services.Stats;
 
 public sealed class StatsHtmlReportBuilder
 {
+    private static readonly Lazy<ReportAssets> Assets = new(LoadAssets, LazyThreadSafetyMode.ExecutionAndPublication);
     public string Build(
         StatsReportDataDto data,
         IReadOnlyList<ExamStatsDto> exams,
@@ -27,8 +28,9 @@ public sealed class StatsHtmlReportBuilder
 
         html.Append("<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Informe estadístico · ")
             .Append(E(data.SchoolName)).Append("</title><style>")
-            .Append(Styles).Append("</style></head><body><main class=\"report\">");
-        html.Append("<header class=\"hero\"><p class=\"eyebrow\">Informe estadístico</p><h1>").Append(E(data.SchoolName)).Append("</h1><p class=\"muted\">CUE ").Append(E(data.Cue)).Append("</p><div class=\"meta\"><span>Año lectivo: <strong>").Append(E(schoolYear ?? "Todos")).Append("</strong></span><span>Informe al <strong>").Append(E(generatedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture))).Append("</strong></span><span>Filtros: <strong>").Append(E(FilterLabel(course, examVersionId, exams))).Append("</strong></span></div></header>");
+            .Append(BuildStyles()).Append("</style></head><body><div class=\"ribbon\" aria-hidden=\"true\"><i></i><i></i><i></i><i></i><i></i></div><header class=\"signature\"><div class=\"signature-inner\">")
+            .Append(Assets.Value.Logo).Append("</div></header><main class=\"report\">");
+        html.Append("<header class=\"report-heading\"><h1>Informe estadístico</h1><p class=\"school-name\">").Append(E(data.SchoolName)).Append(" · CUE ").Append(E(data.Cue)).Append("</p><div class=\"meta\"><span>Año lectivo: <strong>").Append(E(schoolYear ?? "Todos")).Append("</strong></span><span>Informe al <strong>").Append(E(generatedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture))).Append("</strong></span><span>Filtros: <strong>").Append(E(FilterLabel(course, examVersionId, exams))).Append("</strong></span></div></header>");
 
         html.Append("<section class=\"kpis\" aria-label=\"Indicadores principales\">");
         Tile(html, "Exámenes aplicados", data.DeliveredExamCount.ToString(CultureInfo.InvariantCulture));
@@ -50,7 +52,7 @@ public sealed class StatsHtmlReportBuilder
             AppendAttentionSection(html, attempts, missing, hideStudentRows);
         }
 
-        html.Append("<footer>Generado localmente por PlanCope · Los datos personales permanecen en este dispositivo.</footer></main></body></html>");
+        html.Append("</main><footer class=\"report-footer\"><span>Generado el ").Append(E(generatedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture))).Append("</span><strong>Plan COPE · Ministerio de Educación</strong></footer></body></html>");
         return html.ToString();
     }
 
@@ -95,7 +97,7 @@ public sealed class StatsHtmlReportBuilder
             else
             {
                 var mean = scores.Average();
-                html.Append("<rect x=\"190\" y=\"").Append(y.ToString(CultureInfo.InvariantCulture)).Append("\" width=\"").Append((Math.Clamp(mean, 0, 100) * 4).ToString("F1", CultureInfo.InvariantCulture)).Append("\" height=\"28\" rx=\"5\"/><text class=\"value\" x=\"620\" y=\"").Append((y + 18).ToString(CultureInfo.InvariantCulture)).Append("\">").Append(Percent(mean)).Append("</text>");
+                html.Append("<rect x=\"190\" y=\"").Append(y.ToString(CultureInfo.InvariantCulture)).Append("\" width=\"").Append((Math.Clamp(mean, 0, 100) * 4).ToString("F1", CultureInfo.InvariantCulture)).Append("\" height=\"28\" rx=\"0\"/><text class=\"value\" x=\"620\" y=\"").Append((y + 18).ToString(CultureInfo.InvariantCulture)).Append("\">").Append(Percent(mean)).Append("</text>");
             }
             row++;
         }
@@ -123,12 +125,12 @@ public sealed class StatsHtmlReportBuilder
             var y = 6 + index * 42;
             html.Append("<text x=\"0\" y=\"").Append((y + 18).ToString(CultureInfo.InvariantCulture)).Append("\">").Append(E($"{exam.ExamCode} · Pregunta {questionNumber}")).Append("</text>");
             var x = 230.0;
-            foreach (var segment in new[] { (block.CorrectCount, "#168b7b"), (block.PartialCount, "#e4a32a"), (block.IncorrectCount, "#d7685a"), (block.BlankCount, "#aebfc2") })
+            foreach (var segment in new[] { (block.CorrectCount, "#356f23"), (block.PartialCount, "#f68e13"), (block.IncorrectCount, "#f4492e"), (block.BlankCount, "#8a8886") })
             {
                 var width = segment.Item1 * 500.0 / maxTotal;
                 if (width > 0)
                 {
-                    html.Append("<rect x=\"").Append(x.ToString("F1", CultureInfo.InvariantCulture)).Append("\" y=\"").Append(y.ToString(CultureInfo.InvariantCulture)).Append("\" width=\"").Append(width.ToString("F1", CultureInfo.InvariantCulture)).Append("\" height=\"26\" rx=\"3\" fill=\"").Append(segment.Item2).Append("\"><title>").Append(segment.Item1.ToString(CultureInfo.InvariantCulture)).Append("</title></rect>");
+                    html.Append("<rect x=\"").Append(x.ToString("F1", CultureInfo.InvariantCulture)).Append("\" y=\"").Append(y.ToString(CultureInfo.InvariantCulture)).Append("\" width=\"").Append(width.ToString("F1", CultureInfo.InvariantCulture)).Append("\" height=\"26\" rx=\"0\" fill=\"").Append(segment.Item2).Append("\"><title>").Append(segment.Item1.ToString(CultureInfo.InvariantCulture)).Append("</title></rect>");
                     x += width;
                 }
             }
@@ -190,7 +192,7 @@ public sealed class StatsHtmlReportBuilder
         {
             var height = bins[i] * 100.0 / max;
             var x = 30 + i * 94;
-            svg.Append("<rect x=\"").Append(x.ToString(CultureInfo.InvariantCulture)).Append("\" y=\"").Append((112 - height).ToString("F1", CultureInfo.InvariantCulture)).Append("\" width=\"52\" height=\"").Append(height.ToString("F1", CultureInfo.InvariantCulture)).Append("\" rx=\"5\"/><text x=\"").Append((x - 1).ToString(CultureInfo.InvariantCulture)).Append("\" y=\"137\">").Append((i * 20).ToString(CultureInfo.InvariantCulture)).Append("–").Append(((i + 1) * 20).ToString(CultureInfo.InvariantCulture)).Append("%</text>");
+            svg.Append("<rect x=\"").Append(x.ToString(CultureInfo.InvariantCulture)).Append("\" y=\"").Append((112 - height).ToString("F1", CultureInfo.InvariantCulture)).Append("\" width=\"52\" height=\"").Append(height.ToString("F1", CultureInfo.InvariantCulture)).Append("\" rx=\"0\"/><text x=\"").Append((x - 1).ToString(CultureInfo.InvariantCulture)).Append("\" y=\"137\">").Append((i * 20).ToString(CultureInfo.InvariantCulture)).Append("–").Append(((i + 1) * 20).ToString(CultureInfo.InvariantCulture)).Append("%</text>");
         }
         return svg.Append("</svg>").ToString();
     }
@@ -203,5 +205,38 @@ public sealed class StatsHtmlReportBuilder
     private static string SectionLabel(string course, string section) => string.IsNullOrWhiteSpace(section) ? $"Curso {course}" : $"Curso {course} · {section}";
     private static void Tile(StringBuilder html, string label, string value) => html.Append("<article><p>").Append(E(label)).Append("</p><strong>").Append(E(value)).Append("</strong></article>");
 
-    private const string Styles = "*{box-sizing:border-box}body{margin:0;background:#f3f6f7;color:#172b32;font:15px/1.55 system-ui,-apple-system,'Segoe UI',sans-serif}.report{max-width:1120px;margin:0 auto;padding:36px 28px}.hero{padding:34px;border-radius:20px;background:linear-gradient(130deg,#103a42,#176a65);color:#fff}.eyebrow{text-transform:uppercase;letter-spacing:.14em;font-size:.76rem;font-weight:700;color:#a9e2d1}h1{font-size:2.25rem;line-height:1.15;margin:.4rem 0}.muted{color:#61747a}.hero .muted{color:#c8dddc}.meta{display:flex;flex-wrap:wrap;gap:12px 28px;margin-top:24px}.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:20px 0 38px}.kpis article,.card{background:#fff;border:1px solid #dde6e6;border-radius:14px;padding:18px}.kpis p{margin:0 0 4px;color:#60747a}.kpis strong{font-size:1.6rem}section{margin:36px 0}h2{font-size:1.42rem;margin:0 0 16px}h3{margin:0 0 12px}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:16px}.histogram{width:100%;height:auto;max-height:180px}.histogram rect,.bars rect,.dist-row i{fill:#168b7b;background:#168b7b}.histogram text,.bars text,.stacked-bars text{font:12px system-ui;fill:#52686d}.metrics{margin-bottom:0}.chart-wrap,.table-wrap{overflow-x:auto}.bars{width:100%;min-width:650px;max-height:460px}.stacked-bars{width:100%;min-width:700px;max-height:650px}.bars .value{font-weight:700}.legend{display:flex;gap:18px;color:#52686d;font-size:.85rem}.legend span:before{content:'';display:inline-block;width:10px;height:10px;border-radius:50%;background:#168b7b;margin-right:6px}.legend span:nth-child(2):before{background:#e4a32a}.legend span:nth-child(3):before{background:#d7685a}.legend span:nth-child(4):before{background:#aebfc2}.table-wrap{border:1px solid #dde6e6;border-radius:12px;background:white}table{border-collapse:collapse;width:100%;font-size:.92rem}th,td{text-align:left;padding:11px 14px;border-bottom:1px solid #e7eded}th{background:#f5f8f8;color:#4d6369;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em}tbody tr:last-child td{border-bottom:0}.distribution{max-width:700px}.dist-row{display:grid;grid-template-columns:100px 1fr 35px;align-items:center;gap:12px;margin:10px 0}.dist-row div{height:12px;background:#e7eeee;border-radius:8px;overflow:hidden}.dist-row i{display:block;height:100%;border-radius:8px}.dist-row strong{text-align:right}.empty{padding:24px;background:#fff;border:1px dashed #a8bcbe;border-radius:14px}footer{border-top:1px solid #d9e3e3;margin-top:46px;padding-top:18px;color:#60747a;font-size:.85rem}@media(max-width:700px){.report{padding:16px}.hero{padding:24px}.kpis{grid-template-columns:repeat(2,1fr)}.meta{display:grid;gap:8px}}@media print{body{background:white;color:#111;font-size:10pt}.report{max-width:none;padding:0}.hero{background:white;color:#111;border:1px solid #999;padding:18px}.hero .eyebrow,.hero .muted{color:#333}.kpis{gap:8px;margin:12px 0 22px}.kpis article,.card{break-inside:avoid;border-color:#aaa;padding:10px}section{margin:22px 0;break-inside:avoid}h1{font-size:22pt}h2{font-size:14pt}th,td{padding:6px 8px}.cards{grid-template-columns:1fr 1fr}a{color:inherit}footer{margin-top:22px}}";
+    private static string BuildStyles() => string.Concat(
+        "@font-face{font-family:Barlow;src:url(data:font/woff2;base64,", Assets.Value.Barlow400, ") format('woff2');font-weight:400;font-display:swap}",
+        "@font-face{font-family:Barlow;src:url(data:font/woff2;base64,", Assets.Value.Barlow700, ") format('woff2');font-weight:700;font-display:swap}",
+        "@font-face{font-family:'Barlow Semi Condensed';src:url(data:font/woff2;base64,", Assets.Value.Condensed800, ") format('woff2');font-weight:800;font-display:swap}", Styles);
+
+    private static ReportAssets LoadAssets() => new(
+        ReadBinaryResource("PlanCope.Local.Api.ReportFonts.barlow-400.woff2"),
+        ReadBinaryResource("PlanCope.Local.Api.ReportFonts.barlow-700.woff2"),
+        ReadBinaryResource("PlanCope.Local.Api.ReportFonts.barlow-condensed-800.woff2"),
+        ReadTextResource("PlanCope.Local.Api.ReportAssets.logo-educacion-h.svg"));
+
+    private static string ReadBinaryResource(string name)
+    {
+        using var stream = typeof(StatsHtmlReportBuilder).Assembly.GetManifestResourceStream(name)
+            ?? throw new InvalidOperationException($"Missing embedded report asset: {name}");
+        using var memory = new MemoryStream();
+        stream.CopyTo(memory);
+        return Convert.ToBase64String(memory.ToArray());
+    }
+
+    private static string ReadTextResource(string name)
+    {
+        using var stream = typeof(StatsHtmlReportBuilder).Assembly.GetManifestResourceStream(name)
+            ?? throw new InvalidOperationException($"Missing embedded report asset: {name}");
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        return reader.ReadToEnd().Replace("<?xml version=\"1.0\" encoding=\"UTF-8\"?>", string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed record ReportAssets(string Barlow400, string Barlow700, string Condensed800, string Logo);
+
+    private const string Styles = """
+        *{box-sizing:border-box}body{margin:0;background:#fff;color:#2e2d2c;font:16px/1.45 Barlow,system-ui,sans-serif;font-variant-numeric:tabular-nums}.ribbon{height:8px;display:flex}.ribbon i{flex:1}.ribbon i:nth-child(1){background:#6f0603}.ribbon i:nth-child(2){background:#ea2f09}.ribbon i:nth-child(3){background:#faae05}.ribbon i:nth-child(4){background:#facd05}.ribbon i:nth-child(5){background:#769fd3}.signature{background:#fff;border-bottom:1px solid #e0dfde}.signature-inner{max-width:1120px;margin:0 auto;padding:12px 28px}.signature svg{display:block;width:auto;height:60px;max-width:100%}.report{max-width:1120px;margin:0 auto;padding:28px}.report-heading{border-top:6px solid #facd05;padding-top:16px}.eyebrow{margin:0;color:#5f5e5c;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}.school-name{font-size:1.15rem;font-weight:700;margin:.5rem 0}h1,h2,h3{color:#2e2d2c}h1{font:800 2.5rem/.96 'Barlow Semi Condensed',Barlow,sans-serif;text-transform:uppercase;margin:.3rem 0 .7rem}h2{font:800 1.6rem/1.05 'Barlow Semi Condensed',Barlow,sans-serif;text-transform:uppercase;margin:0 0 16px}h3{font:700 1.2rem Barlow,sans-serif;margin:0 0 12px}.muted{color:#5f5e5c}.meta{display:flex;flex-wrap:wrap;gap:8px 28px;margin-top:20px;padding:12px;background:#ededed}.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:20px 0 36px}.kpis article,.card{background:#fff;border:1px solid #e0dfde;border-radius:4px;padding:16px}.kpis p{margin:0 0 4px;color:#5f5e5c}.kpis strong{font-size:1.5rem}section{margin:32px 0}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:12px}.histogram{width:100%;height:auto;max-height:180px}.histogram rect,.bars rect,.dist-row i{fill:#356f23;background:#356f23}.histogram text,.bars text,.stacked-bars text{font:12px Barlow,system-ui,sans-serif;fill:#2e2d2c}.chart-wrap,.table-wrap{overflow-x:auto}.bars{width:100%;min-width:650px;max-height:460px}.stacked-bars{width:100%;min-width:700px;max-height:650px}.bars .value{font-weight:700}.legend{display:flex;flex-wrap:wrap;gap:18px;color:#2e2d2c;font-size:.9rem}.legend span:before{content:'';display:inline-block;width:10px;height:10px;border-radius:2px;background:#356f23;margin-right:6px}.legend span:nth-child(2):before{background:#f68e13}.legend span:nth-child(3):before{background:#f4492e}.legend span:nth-child(4):before{background:#8a8886}.table-wrap{border:1px solid #e0dfde;border-radius:4px;background:#fff}table{border-collapse:collapse;width:100%;font-size:.94rem}th,td{text-align:left;padding:10px 14px;border-bottom:1px solid #ededed}th{background:#f5f5f4;color:#5f5e5c;font-size:13px;text-transform:uppercase;letter-spacing:.06em}tbody tr:last-child td{border-bottom:0}.distribution{max-width:700px}.dist-row{display:grid;grid-template-columns:100px 1fr 35px;align-items:center;gap:12px;margin:10px 0}.dist-row div{height:12px;background:#ededed;border-radius:2px;overflow:hidden}.dist-row i{display:block;height:100%;border-radius:0}.dist-row strong{text-align:right}.empty{padding:20px;background:#fff;border:1px solid #e0dfde;border-radius:4px}.report-footer{background:#2e2d2c;color:#fff;display:flex;justify-content:space-between;gap:16px;padding:18px max(28px,calc((100% - 1064px)/2));font-size:14px}@media(max-width:700px){.report{padding:16px}.signature-inner{padding:10px 16px}.signature svg{height:auto;width:100%;max-height:52px}.kpis{grid-template-columns:repeat(2,1fr)}.meta{display:grid;gap:8px}.report-footer{display:grid;padding:16px}}@media print{body{background:#fff;color:#111;font-size:10pt}.ribbon,.signature{print-color-adjust:exact;-webkit-print-color-adjust:exact}.report{max-width:none;padding:18px 0}.report-heading{break-after:avoid}.report-footer{background:#fff;color:#2e2d2c;border-top:1px solid #999;margin-top:22px;padding:12px 0}.kpis{gap:8px;margin:12px 0 22px}.kpis article,.card{break-inside:avoid;border-color:#aaa;padding:10px}section{margin:22px 0;break-inside:avoid}h1{font-size:22pt}h2{font-size:14pt}th,td{padding:6px 8px}.cards{grid-template-columns:1fr 1fr}}
+        """;
+
 }

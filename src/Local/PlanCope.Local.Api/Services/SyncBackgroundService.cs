@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Net.Http.Json;
 using PlanCope.Local.Api.Data.Repositories;
 using PlanCope.Shared.Domain.Local;
 
@@ -6,18 +7,17 @@ namespace PlanCope.Local.Api.Services;
 
 /// <summary>
 /// Autonomously syncs exams and the outbox so the node stays current without an operator
-/// pressing anything. The manual /api/sync endpoints remain for diagnostics and manual
-/// override; this service is the background equivalent. It never syncs while a delivery
-/// session is active or paused (a classroom mid-exam), and it probes Central with a single
-/// cheap unauthenticated request before every pull/push so a dead school network is detected
-/// fast and retried with full-jitter exponential backoff instead of hammering the endpoint.
+/// pressing anything. Full sync waits for an active session unless its last student activity
+/// exceeds the configured stale-session window. Live heartbeats use a separate low-priority,
+/// latest-wins path and never enter the outbox.
 /// Roster pulls stay manual-only by design: they need a CUE and school year this service has
 /// no reliable source for.
 /// </summary>
 public sealed class SyncBackgroundService(
     IServiceScopeFactory scopeFactory,
     IHttpClientFactory httpClientFactory,
-    ILogger<SyncBackgroundService> logger) : BackgroundService
+    ILogger<SyncBackgroundService> logger,
+    IConfiguration configuration) : BackgroundService
 {
     // Fixed constants, not configurable: this is a low-resource school machine and sync is not
     // a latency-sensitive path, so a fixed idle interval and a fixed exam-gate recheck are
@@ -35,6 +35,11 @@ public sealed class SyncBackgroundService(
 
     // Consecutive probe-failure counter; reset to 0 on any probe success.
     private int attempt;
+    private DateTimeOffset lastHeartbeatAttemptAt = DateTimeOffset.MinValue;
+    private DateTimeOffset lastActiveActivityLookupAt = DateTimeOffset.MinValue;
+    private IReadOnlyDictionary<string, DateTimeOffset?> cachedLastActivityBySession =
+        new Dictionary<string, DateTimeOffset?>(StringComparer.Ordinal);
+    private static readonly TimeSpan ActiveActivityLookupInterval = TimeSpan.FromMinutes(3);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -61,12 +66,71 @@ public sealed class SyncBackgroundService(
                 }
                 else
                 {
-
-                // Hard gate: never sync while a delivery session is active or paused. Delivery
-                // latency for a student mid-exam beats sync freshness, and this check runs before
-                // any network call on every single tick.
                 var activeSessions = await sessionRepository.GetActiveAsync(stoppingToken);
-                if (activeSessions.Count > 0)
+                var now = DateTimeOffset.UtcNow;
+                var heartbeatInterval = TimeSpan.FromSeconds(Math.Clamp(configuration.GetValue("SessionHeartbeat:IntervalSeconds", 180), 30, 300));
+                if (configuration.GetValue("SessionHeartbeat:Enabled", true) && activeSessions.Count > 0 &&
+                    now - lastHeartbeatAttemptAt >= heartbeatInterval)
+                {
+                    var syncOffline = await ReadStateStringAsync(syncStateRepository, "sync_offline", stoppingToken);
+                    var nextAttemptAt = await ReadStateStringAsync(syncStateRepository, "sync_next_attempt_at", stoppingToken);
+                    var backoffUntil = DateTimeOffset.TryParse(nextAttemptAt, out var parsedNextAttempt) ? parsedNextAttempt : DateTimeOffset.MinValue;
+                    var currentIdentity = await nodeIdentityRepository.GetAsync(stoppingToken);
+                    var activationValid = currentIdentity?.CredentialState == "active" &&
+                        !string.Equals(activationInProgress, "true", StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(activationExpired, "true", StringComparison.OrdinalIgnoreCase);
+                    if (activationValid && now >= backoffUntil)
+                    {
+                        lastHeartbeatAttemptAt = now;
+                        try
+                        {
+                            var centralUrl = await ReadStateStringAsync(syncStateRepository, "central_url", stoppingToken);
+                            using var probeTimeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+                            probeTimeout.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(configuration.GetValue("SessionHeartbeat:HealthTimeoutSeconds", 2), 1, 2)));
+                            var probe = await ProbeCentralAsync(centralUrl, probeTimeout.Token);
+                            if (probe.Success)
+                            {
+                                if (string.Equals(syncOffline, "true", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    await UpsertStateAsync(syncStateRepository, "sync_offline",
+                                        JsonSerializer.Serialize(false, JsonOptions), stoppingToken);
+                                }
+                                foreach (var activeSession in activeSessions)
+                                {
+                                    var snapshot = await sessionRepository.GetHeartbeatSnapshotAsync(activeSession.Id, stoppingToken);
+                                    if (snapshot is not null)
+                                    {
+                                        await SendHeartbeatAsync(centralUrl, currentIdentity?.NodeId, snapshot, httpClientFactory,
+                                            Math.Clamp(configuration.GetValue("SessionHeartbeat:RequestTimeoutSeconds", 5), 1, 5), stoppingToken);
+                                    }
+                                }
+                            }
+                        }
+                        catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
+                        {
+                            logger.LogDebug("Session heartbeat was skipped after its bounded health probe timed out.");
+                        }
+                        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+                        {
+                            logger.LogDebug(exception, "Session heartbeat failed; it will be attempted at the next interval.");
+                        }
+                    }
+                }
+
+                // Keep the exam protected while recent student activity is occurring. A forgotten
+                // active session stops blocking normal sync after the configured stale window; it
+                // remains open in Local until an operator closes it.
+                var staleAfter = TimeSpan.FromHours(Math.Clamp(configuration.GetValue("SessionHeartbeat:StaleSessionHours", 2), 1, 24));
+                if (now - lastActiveActivityLookupAt >= ActiveActivityLookupInterval)
+                {
+                    cachedLastActivityBySession = await sessionRepository.GetActiveLastActivityAsync(stoppingToken);
+                    lastActiveActivityLookupAt = now;
+                }
+                var lastActivityBySession = cachedLastActivityBySession;
+                var blocksSync = activeSessions.Any(session =>
+                    !lastActivityBySession.TryGetValue(session.Id, out var lastActivity) ||
+                    lastActivity is null || now - lastActivity.Value <= staleAfter);
+                if (blocksSync)
                 {
                     nextDelay = ExamSessionRecheckInterval;
                 }
@@ -151,9 +215,37 @@ public sealed class SyncBackgroundService(
         }
     }
 
+    private static async Task SendHeartbeatAsync(string? centralUrl, string? nodeId, SessionHeartbeatSnapshot snapshot,
+        IHttpClientFactory httpClientFactory, int timeoutSeconds, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(centralUrl) || string.IsNullOrWhiteSpace(nodeId) ||
+            !Uri.TryCreate(centralUrl.Trim().TrimEnd('/') + "/", UriKind.Absolute, out var baseAddress)) return;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+        var client = httpClientFactory.CreateClient(nameof(SessionHeartbeatSender));
+        client.BaseAddress = baseAddress;
+        using var request = new HttpRequestMessage(HttpMethod.Post, "api/sync/session-heartbeat")
+        {
+            Content = JsonContent.Create(new PlanCope.Shared.Contracts.Sync.SessionHeartbeatRequest(
+                snapshot.SessionId, snapshot.SchoolCode, snapshot.SchoolYear, snapshot.RosterSectionId,
+                snapshot.RemoteExamVersionId, snapshot.Status, checked((int)snapshot.JoinedCount), checked((int)snapshot.InProgressCount),
+                checked((int)snapshot.SubmittedCount), checked((int)snapshot.ClosedOrForcedCount),
+                DateTimeOffset.TryParse(snapshot.StartAt, out var startedAt) ? startedAt : DateTimeOffset.UtcNow,
+                DateTimeOffset.TryParse(snapshot.LastActivityAt, out var lastActivityAt) ? lastActivityAt : null,
+                System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ??
+                typeof(SyncBackgroundService).Assembly.GetName().Version?.ToString(),
+                DateTimeOffset.UtcNow))
+        };
+        request.Headers.TryAddWithoutValidation("Priority", "u=7");
+        request.Headers.Add("X-Node-Id", nodeId);
+        using var response = await client.SendAsync(request, timeout.Token);
+    }
+
+    private sealed class SessionHeartbeatSender { }
+
     /// <summary>
     /// Single unauthenticated GET to {central_url}/health/live. Deliberately not retried: this is
-    /// a fast connectivity check, not a resilience-sensitive call.
+    /// a fast connectivity check before sync or heartbeat work.
     /// </summary>
     private async Task<(bool Success, string? Reason)> ProbeCentralAsync(string? centralUrl, CancellationToken cancellationToken)
     {

@@ -4,8 +4,10 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using PlanCope.Central.Api.Auth;
 using PlanCope.Central.Api.Data;
+using PlanCope.Central.Api.Services;
 using PlanCope.Shared.Domain;
 using PlanCope.Shared.Domain.Central;
+using PlanCope.Shared.Domain.ValueObjects;
 
 namespace PlanCope.Central.Api.Controllers;
 
@@ -42,6 +44,33 @@ public sealed class StatsController(PlanCopeDbContext dbContext, IAuthorizationS
             return Forbid();
         }
 
+        var freshHeartbeatCutoff = DateTimeOffset.UtcNow - SessionHeartbeatPolicy.StaleAfter;
+        if (rosterScope == "province")
+        {
+            var liveCues = await dbContext.DeliverySessions.AsNoTracking()
+                .Where(session => (session.Status == "active" || session.Status == "paused") && session.LastHeartbeatAt >= freshHeartbeatCutoff && session.SchoolId != null)
+                .Select(session => session.SchoolId!)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+            cues = cues.Concat(liveCues).Distinct(StringComparer.Ordinal).ToList();
+        }
+        var liveByCue = await dbContext.DeliverySessions.AsNoTracking()
+            .Where(session => cues.Contains(session.SchoolId!) && (session.Status == "active" || session.Status == "paused") && session.LastHeartbeatAt >= freshHeartbeatCutoff)
+            .GroupBy(session => session.SchoolId!)
+            .Select(group => new
+            {
+                Cue = group.Key,
+                Count = group.Count(),
+                Joined = group.Sum(session => session.JoinedCount),
+                InProgress = group.Sum(session => session.InProgressCount),
+                Submitted = group.Sum(session => session.SubmittedCount)
+            })
+            .ToDictionaryAsync(row => row.Cue, cancellationToken);
+        var schoolNames = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var school in await dbContext.Schools.AsNoTracking().ToListAsync(cancellationToken))
+        {
+            if (CueCode.TryFromSchool(school.Cue, school.Annex, out var schoolCue)) schoolNames[schoolCue] = school.Name;
+        }
         var rows = new List<object>();
         foreach (var cue in cues)
         {
@@ -49,12 +78,44 @@ public sealed class StatsController(PlanCopeDbContext dbContext, IAuthorizationS
             rows.Add(new
             {
                 cue,
+                liveSessionCount = liveByCue.TryGetValue(cue, out var live) ? live.Count : 0,
+                liveJoinedCount = liveByCue.TryGetValue(cue, out live) ? live.Joined : 0,
+                liveInProgressCount = liveByCue.TryGetValue(cue, out live) ? live.InProgress : 0,
+                liveSubmittedCount = liveByCue.TryGetValue(cue, out live) ? live.Submitted : 0,
+                schoolName = schoolNames.GetValueOrDefault(cue),
                 attemptCount = Render(SuppressibleValue<int>.For(rosterScope!, totals.AttemptCount, totals.AttemptCount)),
                 averageScorePercent = Render(SuppressibleValue<double>.For(rosterScope!, totals.AttemptCount, totals.Percent))
             });
         }
 
         return Ok(rows);
+    }
+
+    [HttpGet("school-years")]
+    public async Task<ActionResult> GetSchoolYears(CancellationToken cancellationToken)
+    {
+        var rosterScope = User.FindFirstValue("roster_scope");
+        IQueryable<ExamRollup> query = dbContext.ExamRollups.AsNoTracking();
+        if (rosterScope == "school")
+        {
+            var candidates = User.FindAll("roster_cue").Select(claim => claim.Value).Distinct().ToList();
+            var authorized = new List<string>();
+            foreach (var cue in candidates)
+            {
+                if ((await authorizationService.AuthorizeAsync(User, cue, new RosterScopeRequirement())).Succeeded)
+                {
+                    authorized.Add(cue);
+                }
+            }
+            query = query.Where(row => authorized.Contains(row.Cue));
+        }
+        else if (rosterScope != "province")
+        {
+            return Forbid();
+        }
+
+        var years = await query.Select(row => row.SchoolYear).Distinct().ToListAsync(cancellationToken);
+        return Ok(years.OrderBy(year => year, StringComparer.Ordinal).Select(year => new { value = year, label = year }));
     }
 
     [HttpGet("courses")]

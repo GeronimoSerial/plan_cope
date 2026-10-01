@@ -52,6 +52,9 @@ public static class LocalDataServiceCollectionExtensions
         services.AddHttpClient(nameof(NodeCredentialRefresher));
         services.AddHttpClient(nameof(EnrolmentEndpoints)).AddHttpMessageHandler<CentralCredentialHandler>();
         services.AddHttpClient(nameof(SyncBackgroundService), client => client.Timeout = TimeSpan.FromSeconds(5));
+        services.AddTransient<SessionHeartbeatCredentialHandler>();
+        services.AddHttpClient("SessionHeartbeatSender", client => client.Timeout = TimeSpan.FromSeconds(5))
+            .AddHttpMessageHandler<SessionHeartbeatCredentialHandler>();
         services.AddScoped<ILocalUserRepository, LocalUserRepository>();
         services.AddScoped<ILocalExamRepository, LocalExamRepository>();
         services.AddScoped<ISessionRepository, SessionRepository>();

@@ -1,6 +1,8 @@
+import { useEffect, useState } from "react";
 import type { ExamOption, FormErrors } from "../types";
 import type { RosterSection, RosterSnapshot } from "../types";
 import { ActionButton, Field, SectionTitle, SelectInput } from "../../shared/ui";
+import { GradeSectionPicker } from "../../shared/GradeSectionPicker";
 
 type ExamSyncPull = {
   isPulling: boolean;
@@ -41,40 +43,41 @@ export function SessionCreatePanel({
   syncPull,
   roster
 }: SessionCreatePanelProps) {
+  const [selectedGrade, setSelectedGrade] = useState("");
   const examOptions = exams.map(exam => ({ value: exam.id, label: exam.displayName }));
   const lastPullLabel = formatPullTime(syncPull.lastPullAt);
-  const rosterSectionOptions = roster.sections.map(section => ({
-    value: section.id,
-    label: sectionLabel(section)
-  }));
   const rosterReady = roster.snapshot?.status.toLowerCase() === "ready";
   const selectedSection = roster.sections.find(section => section.id === roster.selectedSectionId);
+  useEffect(() => { if (selectedSection) setSelectedGrade(selectedSection.course ?? ""); }, [selectedSection?.course]);
 
   return (
-    <section className="panel">
+    <section className="panel session-create-panel">
       <SectionTitle
         title="Nueva sesión"
         description="Elegí una sección y un examen."
       />
 
       <div className="form-grid">
-        <Field label="Sección" error={formErrors.rosterSectionId}>
-          <SelectInput
-            value={roster.selectedSectionId}
-            options={rosterSectionOptions}
-            emptyLabel={roster.isLoading ? "Consultando padrón…" : "Elegí una sección"}
-            onChange={roster.setSelectedSectionId}
+        <div className="grade-section-picker" aria-busy={roster.isLoading}>
+          <GradeSectionPicker
+            sections={roster.sections.filter(section => section.course).map(section => ({ course: section.course!, division: section.division || "Sin sección", shift: section.shift, value: section.id }))}
+            grade={selectedGrade}
+            section={roster.selectedSectionId}
+            onGradeChange={setSelectedGrade}
+            onSectionChange={roster.setSelectedSectionId}
+            disabled={roster.isLoading || !rosterReady}
           />
-        </Field>
+          {formErrors.rosterSectionId && <span className="field-error">{formErrors.rosterSectionId}</span>}
+        </div>
 
-        <Field label="Examen" error={formErrors.selectedExamId}>
+        <div className="exam-selector-field"><Field label="Examen" error={formErrors.selectedExamId}>
           <SelectInput
             value={selectedExamId}
             options={examOptions}
             emptyLabel={isLoadingExams ? "Cargando exámenes…" : "Sin exámenes disponibles"}
             onChange={onSelectedExamChange}
           />
-        </Field>
+        </Field></div>
       </div>
 
       <div className="exam-pull">
@@ -141,10 +144,6 @@ function sectionDetails(section: RosterSection): string {
   return [section.level, section.shift && `Turno ${section.shift}`, `${section.studentCount} estudiantes`]
     .filter(Boolean)
     .join(" · ");
-}
-
-function sectionLabel(section: RosterSection): string {
-  return sectionName(section);
 }
 
 function formatPullTime(value: string | null): string | null {

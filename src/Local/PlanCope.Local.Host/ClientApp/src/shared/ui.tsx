@@ -100,12 +100,12 @@ export function SelectInput({ value, options, emptyLabel = "Todos", onChange }: 
   );
 }
 
-function normalizeSearch(value: string) {
+export function normalizeSearch(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("es")
     .replace(/[°º.\-_/,"'“”‘’]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
-function tokenizeSearch(value: string) {
+export function tokenizeSearch(value: string) {
   return normalizeSearch(value).split(" ").filter(token => token.length >= 2 || /^\d+$/.test(token)).slice(0, 6);
 }
 

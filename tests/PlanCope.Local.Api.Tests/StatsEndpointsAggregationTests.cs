@@ -60,7 +60,7 @@ public sealed class StatsEndpointsAggregationTests
 
             LocalApiFactory.Execute(connection, transaction, """
                 INSERT INTO local_roster_sections (id, snapshot_id, ge_section_id, course, division, level, shift)
-                VALUES ('sec-6', 'snap-1', NULL, '6', NULL, NULL, NULL);
+                VALUES ('sec-6', 'snap-1', NULL, '6', 'B', NULL, 'Mañana');
                 """);
 
             LocalApiFactory.Execute(connection, transaction, """
@@ -138,6 +138,8 @@ public sealed class StatsEndpointsAggregationTests
             Assert.Contains("2026", filterOptions.SchoolYears);
             Assert.Contains("6", filterOptions.Courses);
             Assert.Contains("7", filterOptions.Courses);
+            Assert.Contains(filterOptions.Sections ?? Array.Empty<StatsFilterSectionOption>(), section => section.Course == "6" && section.Division == "B");
+            Assert.Contains(filterOptions.Sections ?? Array.Empty<StatsFilterSectionOption>(), section => section.Course == "6" && section.Division == "B" && section.Shift == "Mañana");
             Assert.Contains(filterOptions.Exams, exam => exam.ExamVersionId == "exam-a" && exam.ExamCode == "MAT-6" && exam.VersionNumber == 1L);
             Assert.Contains(filterOptions.Exams, exam => exam.ExamVersionId == "exam-b" && exam.ExamCode == "LEN-6" && exam.VersionNumber == 1L);
         }
@@ -159,6 +161,14 @@ public sealed class StatsEndpointsAggregationTests
             var filterExam = Assert.Single(filterJson.RootElement.GetProperty("exams").EnumerateArray(), exam => exam.GetProperty("examVersionId").GetString() == "exam-a");
             Assert.Equal(JsonValueKind.Number, filterExam.GetProperty("versionNumber").ValueKind);
             Assert.Equal(1, filterExam.GetProperty("versionNumber").GetInt32());
+        }
+
+        var examSectionResponse = await client.GetAsync("/api/stats/exam?cue=123456789&schoolYear=2026&course=6");
+        Assert.Equal(HttpStatusCode.OK, examSectionResponse.StatusCode);
+        using (var examSectionJson = JsonDocument.Parse(await examSectionResponse.Content.ReadAsStringAsync()))
+        {
+            var sections = examSectionJson.RootElement.EnumerateArray().Single(exam => exam.GetProperty("examVersionId").GetString() == "exam-a").GetProperty("sections");
+            Assert.Contains(sections.EnumerateArray(), section => section.GetProperty("division").GetString() == "B" && section.GetProperty("shift").GetString() == "Mañana");
         }
 
         var schoolResponse = await client.GetAsync("/api/stats/school?cue=123456789&schoolYear=2026");
@@ -186,6 +196,7 @@ public sealed class StatsEndpointsAggregationTests
             Assert.Equal(attemptsPerSession, course.AttemptCount.GetInt32());
             Assert.Equal(JsonValueKind.Number, course.AverageScorePercent.ValueKind);
             Assert.InRange(course.AverageScorePercent.GetDouble(), expectedAveragePercent - 0.01, expectedAveragePercent + 0.01);
+            Assert.Equal(expectedCourse == "6" ? new[] { "B" } : Array.Empty<string>(), course.Sections);
         }
 
         var examResponse = await client.GetAsync("/api/stats/exam?cue=123456789&schoolYear=2026");
@@ -202,6 +213,7 @@ public sealed class StatsEndpointsAggregationTests
             Assert.Equal(attemptsPerSession, exam.AttemptCount.GetInt32());
             Assert.Equal(JsonValueKind.Number, exam.AverageScorePercent.ValueKind);
             Assert.InRange(exam.AverageScorePercent.GetDouble(), expectedAveragePercent - 0.01, expectedAveragePercent + 0.01);
+            Assert.Equal(expectedExamVersionId == "exam-a" ? new[] { new ExamSectionResponse("6", "B") } : Array.Empty<ExamSectionResponse>(), exam.Sections);
 
             var block = Assert.Single(exam.Blocks);
             Assert.Equal("blk-1", block.BlockId);
@@ -252,8 +264,8 @@ public sealed class StatsEndpointsAggregationTests
         Assert.DoesNotContain("LEN-6", filteredReport);
 
         var sanitizedFilenameResponse = await client.GetAsync("/api/stats/report.html?cue=12%2F34%3F");
-        Assert.True(sanitizedFilenameResponse.StatusCode == HttpStatusCode.OK, await sanitizedFilenameResponse.Content.ReadAsStringAsync());
-        Assert.Contains("informe-estadistico-12_34_-", sanitizedFilenameResponse.Content.Headers.ContentDisposition?.FileName);
+        Assert.Equal(HttpStatusCode.BadRequest, sanitizedFilenameResponse.StatusCode);
+        Assert.Contains("exámenes entregados", await sanitizedFilenameResponse.Content.ReadAsStringAsync());
 
         using var updateConnection = factory.CreateConnection();
         using var updateTransaction = updateConnection.BeginTransaction();
@@ -289,13 +301,16 @@ public sealed class StatsEndpointsAggregationTests
 
     private sealed record SchoolStatsResponse(JsonElement AttemptCount, JsonElement AverageScorePercent);
 
-    private sealed record CourseStatsResponse(string Course, JsonElement AttemptCount, JsonElement AverageScorePercent);
+    private sealed record CourseStatsResponse(string Course, IReadOnlyList<string> Sections, JsonElement AttemptCount, JsonElement AverageScorePercent);
 
     private sealed record ExamStatsResponse(
         string ExamVersionId,
+        IReadOnlyList<ExamSectionResponse> Sections,
         JsonElement AttemptCount,
         JsonElement AverageScorePercent,
         IReadOnlyList<BlockStatsResponse> Blocks);
+
+    private sealed record ExamSectionResponse(string Course, string Division);
 
     private sealed record BlockStatsResponse(
         string BlockId,

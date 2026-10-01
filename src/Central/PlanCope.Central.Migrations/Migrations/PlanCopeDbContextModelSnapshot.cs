@@ -213,6 +213,10 @@ namespace PlanCope.Central.Migrations.Migrations
                     b.Property<int>("GradingSchemaVersion")
                         .HasColumnType("integer");
 
+                    b.Property<string>("Reason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
                     b.Property<string>("ReceivedStudentAttemptId")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -250,8 +254,15 @@ namespace PlanCope.Central.Migrations.Migrations
                     b.Property<string>("ClassroomCode")
                         .HasColumnType("text");
 
+                    b.Property<int>("ClosedOrForcedCount")
+                        .HasColumnType("integer");
+
                     b.Property<string>("CommissionCode")
                         .HasColumnType("text");
+
+                    b.Property<string>("Course")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -262,13 +273,37 @@ namespace PlanCope.Central.Migrations.Migrations
                     b.Property<string>("ExamVersionId")
                         .HasColumnType("text");
 
+                    b.Property<int>("InProgressCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("JoinedCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("LastActivityAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("LastHeartbeatAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LocalAppVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<string>("RemoteLocalId")
                         .IsRequired()
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
+                    b.Property<string>("RosterSectionId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
                     b.Property<string>("SchoolId")
                         .HasColumnType("text");
+
+                    b.Property<string>("SchoolYear")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<string>("SourceNodeId")
                         .HasMaxLength(64)
@@ -281,6 +316,9 @@ namespace PlanCope.Central.Migrations.Migrations
                         .IsRequired()
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
+
+                    b.Property<int>("SubmittedCount")
+                        .HasColumnType("integer");
 
                     b.Property<DateTimeOffset?>("SyncedAt")
                         .HasColumnType("timestamp with time zone");
@@ -1013,6 +1051,17 @@ namespace PlanCope.Central.Migrations.Migrations
                     b.Property<string>("Id")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
+
+                    b.Property<string>("AttributionReason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("AttributionStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasDefaultValue("pending");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");

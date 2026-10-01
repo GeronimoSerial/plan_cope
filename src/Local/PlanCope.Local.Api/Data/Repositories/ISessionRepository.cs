@@ -10,8 +10,13 @@ public sealed record SessionListItem(
     int OffRosterSubmittedCount = 0, int OffRosterInProgressCount = 0);
 
 public sealed record SessionHistoryPage(IReadOnlyList<SessionListItem> Items, int Page, int PageSize, int TotalCount);
+public sealed record SessionGradeSectionOption(string Course, string Division, string? Shift);
 
 public sealed record LocalSchoolListItem(string Code, string Name, bool HasReadyRoster);
+public sealed record SessionHeartbeatSnapshot(string SessionId, string SchoolCode, string? SchoolYear, string? RosterSectionId,
+    string? RemoteExamVersionId, string Status, string StartAt, long JoinedCount, long InProgressCount, long SubmittedCount,
+    long ClosedOrForcedCount, string? LastActivityAt);
+public sealed record LocalSchoolWithAttempts(string Code, string Name, long SubmittedAttemptCount, string LastSubmittedAt);
 
 public interface ISessionRepository
 {
@@ -25,11 +30,19 @@ public interface ISessionRepository
 
     Task<IReadOnlyList<LocalDeliverySession>> GetActiveAsync(CancellationToken cancellationToken = default);
 
+    Task<SessionHeartbeatSnapshot?> GetHeartbeatSnapshotAsync(string id, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyDictionary<string, DateTimeOffset?>> GetActiveLastActivityAsync(CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<SessionListItem>> GetActiveSummariesAsync(string? schoolCode, CancellationToken cancellationToken = default);
 
-    Task<SessionHistoryPage> GetHistoryAsync(string? schoolCode, string? status, string? query, int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<SessionHistoryPage> GetHistoryAsync(string? schoolCode, string? status, string? course, string? division, string? shift, string? query, int page, int pageSize, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<SessionGradeSectionOption>> GetHistoryGradeSectionsAsync(CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<LocalSchoolListItem>> GetSchoolsAsync(CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<LocalSchoolWithAttempts>> GetSchoolsWithAttemptsAsync(CancellationToken cancellationToken = default);
 
     Task<LocalSessionProgress?> GetProgressAsync(string idOrAccessCode, CancellationToken cancellationToken = default);
 

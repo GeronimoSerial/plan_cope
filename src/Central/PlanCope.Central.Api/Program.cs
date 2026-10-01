@@ -70,6 +70,7 @@ builder.Services.AddSingleton<RosterSyncCoordinator>();
 builder.Services.AddHostedService<RosterSyncBackgroundService>();
 builder.Services.AddScoped<ActivationKeyService>();
 builder.Services.AddScoped<CentralStatsRollupService>();
+builder.Services.AddScoped<CentralAttemptGradingService>();
 builder.Services.AddScoped<NodeCredentialService>();
 builder.Services.AddScoped<IReleaseGateService, ReleaseGateService>();
 builder.Services.AddMemoryCache();

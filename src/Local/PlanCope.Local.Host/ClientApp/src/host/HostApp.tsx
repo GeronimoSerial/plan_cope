@@ -83,7 +83,9 @@ export function HostApp() {
   }
 
   return (
-    <AppShell status={delivery.status} apiBaseUrl={hostContext.apiBaseUrl} appVersion={hostContext.appVersion} activeTab={activeTab} onTabChange={changeTab}>
+    <AppShell status={delivery.status} apiBaseUrl={hostContext.apiBaseUrl} appVersion={hostContext.appVersion}
+      sessionContext={delivery.activeSession.session ? { schoolName: delivery.activeSession.session.schoolName || `CUE ${delivery.activeSession.session.schoolCode}`, schoolCode: delivery.activeSession.session.schoolCode } : null}
+      activeTab={activeTab} onTabChange={changeTab}>
       {isRevoked && <p className="sync-warning" role="alert">Este PC fue dado de baja. No se pueden crear sesiones nuevas. <button type="button" onClick={() => setShowRevokedActivation(true)}>Cargar nueva clave</button></p>}
       {localClockWarning && <p className="sync-warning" role="alert">La fecha y hora de este equipo son incorrectas. Corregilas para mantener la revalidación al día.</p>}
       {expiryPending && <p className="sync-warning" role="status">La revalidación está vencida. Finalizá y enviá la evaluación en curso; no inicies otra sesión.</p>}

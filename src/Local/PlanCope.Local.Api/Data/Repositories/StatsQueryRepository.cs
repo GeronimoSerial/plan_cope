@@ -65,6 +65,19 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
         var rows = await connection.QueryAsync<CourseStatsRow>(
             new CommandDefinition(sql, BuildRollupsParams(cue, schoolYear, null), cancellationToken: cancellationToken));
 
+        var sectionRows = await connection.QueryAsync<CourseDivisionRow>(new CommandDefinition("""
+            SELECT DISTINCT COALESCE(NULLIF(rs.course, ''), 'sin_asignar') AS Course,
+                   NULLIF(TRIM(rs.division), '') AS Division
+            FROM student_attempts a
+            JOIN delivery_sessions ds ON ds.id = a.delivery_session_id
+            LEFT JOIN local_roster_sections rs ON rs.id = ds.roster_section_id
+            WHERE ds.school_code = @Cue AND a.status = 'submitted' AND a.submitted_at IS NOT NULL
+              AND (@SchoolYear IS NULL OR ds.school_year = @SchoolYear)
+              AND NULLIF(TRIM(rs.division), '') IS NOT NULL
+            """, new { Cue = cue, SchoolYear = schoolYear }, cancellationToken: cancellationToken));
+        var sectionsByCourse = sectionRows.GroupBy(row => row.Course)
+            .ToDictionary(group => group.Key, group => (IReadOnlyList<string>)group.Select(row => row.Division).OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToList());
+
         var result = new List<CourseStatsDto>();
         foreach (var row in rows)
         {
@@ -73,7 +86,8 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
             result.Add(new CourseStatsDto(
                 row.Course,
                 SuppressibleValue<int>.For(rosterScope, (int)row.AttemptCount, (int)row.AttemptCount),
-                SuppressibleValue<double>.For(rosterScope, (int)row.AttemptCount, averageScorePercent)));
+                SuppressibleValue<double>.For(rosterScope, (int)row.AttemptCount, averageScorePercent),
+                sectionsByCourse.GetValueOrDefault(row.Course, Array.Empty<string>())));
         }
 
         return result;
@@ -95,6 +109,7 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
         var sql = @"
             SELECT sr.exam_version_id    AS ExamVersionId,
                    lev.exam_code         AS ExamCode,
+                   lev.metadata_json    AS MetadataJson,
                    lev.version_number    AS VersionNumber,
                    SUM(sr.attempt_count) AS AttemptCount,
                    SUM(sr.score_sum)     AS ScoreSum,
@@ -107,6 +122,29 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
 
         var rows = await connection.QueryAsync<ExamStatsRow>(
             new CommandDefinition(sql, BuildRollupsParams(cue, schoolYear, course), cancellationToken: cancellationToken));
+
+        var examCourses = (await connection.QueryAsync<ExamCourseRow>(new CommandDefinition(
+            "SELECT DISTINCT exam_version_id AS ExamVersionId, course AS Course FROM stats_rollups WHERE " + BuildRollupsFilters(schoolYear, course),
+            BuildRollupsParams(cue, schoolYear, course), cancellationToken: cancellationToken)))
+            .GroupBy(item => item.ExamVersionId)
+            .ToDictionary(group => group.Key, group => (IReadOnlyList<string>)group.Select(item => item.Course).OrderBy(item => item, StringComparer.Ordinal).ToList());
+        var examSections = (await connection.QueryAsync<ExamSectionRow>(new CommandDefinition("""
+            SELECT DISTINCT ds.exam_version_id AS ExamVersionId,
+                   COALESCE(NULLIF(rs.course, ''), 'sin_asignar') AS Course,
+                   NULLIF(TRIM(rs.division), '') AS Division,
+                   NULLIF(TRIM(rs.shift), '') AS Shift
+            FROM student_attempts a
+            JOIN delivery_sessions ds ON ds.id = a.delivery_session_id
+            LEFT JOIN local_roster_sections rs ON rs.id = ds.roster_section_id AND rs.snapshot_id = ds.roster_snapshot_id
+            WHERE ds.school_code = @Cue AND a.status = 'submitted' AND a.submitted_at IS NOT NULL
+              AND (@SchoolYear IS NULL OR ds.school_year = @SchoolYear)
+              AND (@Course IS NULL OR COALESCE(NULLIF(rs.course, ''), 'sin_asignar') = @Course)
+              AND NULLIF(TRIM(rs.division), '') IS NOT NULL
+            """, new { Cue = cue, SchoolYear = schoolYear, Course = course }, cancellationToken: cancellationToken)))
+            .GroupBy(item => item.ExamVersionId)
+            .ToDictionary(group => group.Key, group => (IReadOnlyList<ExamSectionDto>)group
+                .Select(item => new ExamSectionDto(item.Course, item.Division, item.Shift))
+                .OrderBy(item => item.Course, StringComparer.Ordinal).ThenBy(item => item.Division, StringComparer.OrdinalIgnoreCase).ThenBy(item => item.Shift, StringComparer.OrdinalIgnoreCase).ToList());
 
         var result = new List<ExamStatsDto>();
         foreach (var row in rows)
@@ -156,7 +194,10 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
                 (int)row.VersionNumber,
                 SuppressibleValue<int>.For(rosterScope, attemptCount, attemptCount),
                 SuppressibleValue<double>.For(rosterScope, attemptCount, averageScorePercent),
-                blockDtos));
+                blockDtos,
+                ReadExamTitle(row.MetadataJson),
+                examCourses.GetValueOrDefault(row.ExamVersionId, Array.Empty<string>()),
+                examSections.GetValueOrDefault(row.ExamVersionId, Array.Empty<ExamSectionDto>())));
         }
 
         return result;
@@ -236,6 +277,17 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
         return new StatsReportDataDto(cue, schoolName, attempts, (int)Math.Min(deliveredExams, int.MaxValue), (int)Math.Min(expected, int.MaxValue));
     }
 
+    public async Task<bool> HasSubmittedAttemptsAsync(string cue, CancellationToken cancellationToken = default)
+    {
+        using var connection = _connectionFactory.CreateOpenConnection();
+        return await connection.ExecuteScalarAsync<bool>(new CommandDefinition("""
+            SELECT EXISTS (
+                SELECT 1 FROM student_attempts a
+                JOIN delivery_sessions ds ON ds.id = a.delivery_session_id
+                WHERE ds.school_code = @Cue AND a.status = 'submitted' AND a.submitted_at IS NOT NULL)
+            """, new { Cue = cue }, cancellationToken: cancellationToken));
+    }
+
     public async Task<StatsFilterOptionsDto> GetReportFilterOptionsAsync(string cue, CancellationToken cancellationToken = default)
     {
         using var connection = _connectionFactory.CreateOpenConnection();
@@ -245,12 +297,21 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
         var courses = (await connection.QueryAsync<string>(new CommandDefinition(
             "SELECT DISTINCT course FROM stats_rollups WHERE cue = @Cue ORDER BY course",
             new { Cue = cue }, cancellationToken: cancellationToken))).ToList();
+        var sections = (await connection.QueryAsync<StatsFilterSectionOption>(new CommandDefinition("""
+            SELECT DISTINCT rs.course AS Course, rs.division AS Division, NULLIF(TRIM(rs.shift), '') AS Shift
+            FROM delivery_sessions ds
+            JOIN local_roster_sections rs ON rs.id = ds.roster_section_id AND rs.snapshot_id = ds.roster_snapshot_id
+            JOIN student_attempts a ON a.delivery_session_id = ds.id
+            WHERE ds.school_code = @Cue AND a.status = 'submitted' AND a.submitted_at IS NOT NULL
+              AND NULLIF(TRIM(rs.course), '') IS NOT NULL AND NULLIF(TRIM(rs.division), '') IS NOT NULL
+            ORDER BY rs.course, rs.division, rs.shift
+            """, new { Cue = cue }, cancellationToken: cancellationToken))).ToList();
         var exams = (await connection.QueryAsync<ExamFilterOptionDto>(new CommandDefinition(@"
             SELECT DISTINCT ev.id AS ExamVersionId, ev.exam_code AS ExamCode, ev.version_number AS VersionNumber
             FROM delivery_sessions ds JOIN local_exam_versions ev ON ev.id = ds.exam_version_id
             WHERE ds.school_code = @Cue ORDER BY ev.exam_code, ev.version_number",
             new { Cue = cue }, cancellationToken: cancellationToken))).ToList();
-        return new StatsFilterOptionsDto(years, courses, exams);
+        return new StatsFilterOptionsDto(years, courses, exams, sections);
     }
 
     private static DateTimeOffset? ParseDate(string? value) =>
@@ -294,10 +355,44 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
     {
         public string ExamVersionId { get; set; } = string.Empty;
         public string ExamCode { get; set; } = string.Empty;
+        public string? MetadataJson { get; set; }
         public long VersionNumber { get; set; }
         public long AttemptCount { get; set; }
         public double ScoreSum { get; set; }
         public double ScoreMaxSum { get; set; }
+    }
+
+    private sealed class ExamCourseRow
+    {
+        public string ExamVersionId { get; set; } = string.Empty;
+        public string Course { get; set; } = string.Empty;
+    }
+
+    private sealed class CourseDivisionRow
+    {
+        public string Course { get; set; } = string.Empty;
+        public string Division { get; set; } = string.Empty;
+    }
+
+    private sealed class ExamSectionRow
+    {
+        public string ExamVersionId { get; set; } = string.Empty;
+        public string Course { get; set; } = string.Empty;
+        public string Division { get; set; } = string.Empty;
+        public string? Shift { get; set; }
+    }
+
+    private static string? ReadExamTitle(string? metadataJson)
+    {
+        if (string.IsNullOrWhiteSpace(metadataJson)) return null;
+        try
+        {
+            using var document = JsonDocument.Parse(metadataJson);
+            return document.RootElement.TryGetProperty("title", out var title) && title.ValueKind == JsonValueKind.String
+                ? title.GetString()
+                : null;
+        }
+        catch (JsonException) { return null; }
     }
 
     private static string? ExtractBlockTitle(string? configJson)

@@ -1,23 +1,8 @@
-import { useState } from "react";
-
 type ExamConfirmationPanelProps = {
-  code: string;
   submittedAt?: string | null;
 };
 
-export function ExamConfirmationPanel({ code, submittedAt }: ExamConfirmationPanelProps) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(code);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setCopied(false);
-    }
-  };
-
+export function ExamConfirmationPanel({ submittedAt }: ExamConfirmationPanelProps) {
   const formattedTime = submittedAt ? formatSubmittedAt(submittedAt) : null;
 
   return (
@@ -28,22 +13,9 @@ export function ExamConfirmationPanel({ code, submittedAt }: ExamConfirmationPan
         </div>
         <h2>Examen enviado</h2>
         <p className="student-confirmation-copy">
-          Tu entrega se registró. Conservá este código de confirmación.
+          Tu entrega se registró. Ya podés cerrar esta ventana o avisarle a tu docente.
         </p>
-        <div className="student-confirmation-code-box">
-          <span className="student-confirmation-label">Código de confirmación</span>
-          <strong className="confirmation-code">{code}</strong>
-          <button type="button" className="student-copy-button" onClick={handleCopy}>
-            {copied ? "Copiado" : "Copiar código"}
-          </button>
-        </div>
         {formattedTime && <p className="student-confirmation-time">Entregado a las {formattedTime}</p>}
-        <div className="student-alert" role="alert">
-          <span className="student-alert-icon" aria-hidden="true">
-            !
-          </span>
-          <span>Esperá la indicación del docente.</span>
-        </div>
       </div>
     </section>
   );

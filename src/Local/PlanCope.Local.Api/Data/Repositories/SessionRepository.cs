@@ -1,5 +1,6 @@
 using Dapper;
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using PlanCope.Local.Api.Data;
 using PlanCope.Local.Api.Services;
@@ -81,6 +82,53 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         return sessions.Select(static row => row.ToDomain()).ToList();
     }
 
+    public async Task<SessionHeartbeatSnapshot?> GetHeartbeatSnapshotAsync(string id, CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT s.id AS SessionId, s.school_code AS SchoolCode, s.school_year AS SchoolYear,
+                   s.roster_section_id AS RosterSectionId, ev.remote_exam_version_id AS RemoteExamVersionId,
+                   s.status AS Status, s.start_at AS StartAt,
+                   (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id) AS JoinedCount,
+                   (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'in_progress') AS InProgressCount,
+                   (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'submitted') AS SubmittedCount,
+                   (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.submission_reason IS NOT NULL) AS ClosedOrForcedCount,
+                   CAST((SELECT MAX(activity_at) FROM (
+                       SELECT a.started_at AS activity_at FROM student_attempts a WHERE a.delivery_session_id = s.id
+                       UNION ALL SELECT a.submitted_at FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.submitted_at IS NOT NULL
+                       UNION ALL SELECT answer.created_at FROM student_attempts a JOIN submission_answers answer ON answer.student_attempt_id = a.id WHERE a.delivery_session_id = s.id
+                   )) AS TEXT) AS LastActivityAt
+            FROM delivery_sessions s JOIN local_exam_versions ev ON ev.id = s.exam_version_id
+            WHERE s.id = @Id AND s.status IN ('active', 'paused') LIMIT 1;
+            """;
+        using var connection = connectionFactory.CreateOpenConnection();
+        var row = await connection.QuerySingleOrDefaultAsync<SessionHeartbeatRow>(new CommandDefinition(sql, new { Id = id }, cancellationToken: cancellationToken));
+        return row is null ? null : new SessionHeartbeatSnapshot(row.SessionId, row.SchoolCode, row.SchoolYear,
+            row.RosterSectionId, row.RemoteExamVersionId, row.Status, row.StartAt, row.JoinedCount,
+            row.InProgressCount, row.SubmittedCount, row.ClosedOrForcedCount,
+            ReadTimestamp(row.LastActivityAt));
+    }
+
+    public async Task<IReadOnlyDictionary<string, DateTimeOffset?>> GetActiveLastActivityAsync(CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT s.id AS Id, CAST(COALESCE(MAX(activity_at), s.start_at) AS TEXT) AS LastActivityAt
+            FROM delivery_sessions s LEFT JOIN (
+                SELECT a.delivery_session_id, a.started_at AS activity_at
+                FROM student_attempts a JOIN delivery_sessions active ON active.id = a.delivery_session_id AND active.status IN ('active', 'paused')
+                UNION ALL SELECT a.delivery_session_id, a.submitted_at FROM student_attempts a
+                    JOIN delivery_sessions active ON active.id = a.delivery_session_id AND active.status IN ('active', 'paused')
+                    WHERE a.submitted_at IS NOT NULL
+                UNION ALL SELECT a.delivery_session_id, answer.created_at FROM student_attempts a
+                    JOIN delivery_sessions active ON active.id = a.delivery_session_id AND active.status IN ('active', 'paused')
+                    JOIN submission_answers answer ON answer.student_attempt_id = a.id
+            ) activity ON activity.delivery_session_id = s.id
+            WHERE s.status IN ('active', 'paused') GROUP BY s.id;
+            """;
+        using var connection = connectionFactory.CreateOpenConnection();
+        var rows = await connection.QueryAsync<ActiveSessionActivityRow>(new CommandDefinition(sql, cancellationToken: cancellationToken));
+        return rows.ToDictionary(row => row.Id, row => DateTimeOffset.TryParse(ReadTimestamp(row.LastActivityAt), out var parsed) ? (DateTimeOffset?)parsed : null, StringComparer.Ordinal);
+    }
+
     public async Task<IReadOnlyList<SessionListItem>> GetActiveSummariesAsync(string? schoolCode, CancellationToken cancellationToken = default)
     {
         const string sql = """
@@ -114,13 +162,13 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         return rows.Select(ToListItem).ToList();
     }
 
-    public async Task<SessionHistoryPage> GetHistoryAsync(string? schoolCode, string? status, string? query, int page, int pageSize, CancellationToken cancellationToken = default)
+    public async Task<SessionHistoryPage> GetHistoryAsync(string? schoolCode, string? status, string? course, string? division, string? shift, string? query, int page, int pageSize, CancellationToken cancellationToken = default)
     {
         var searchTokens = LocalSearchText.TokenizeQuery(query);
         var parameters = new DynamicParameters();
         parameters.Add("PageSize", pageSize);
         parameters.Add("Offset", (page - 1) * pageSize);
-        var filterPredicate = BuildHistoryFilterPredicate(schoolCode, status, parameters);
+        var filterPredicate = BuildHistoryFilterPredicate(schoolCode, status, course, division, shift, parameters);
         var searchPredicate = BuildHistorySearchPredicate(searchTokens, parameters);
 
         var sql = $"""
@@ -170,6 +218,18 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         return new SessionHistoryPage(rows.Select(ToListItem).ToList(), page, pageSize, totalCount);
     }
 
+    public async Task<IReadOnlyList<SessionGradeSectionOption>> GetHistoryGradeSectionsAsync(CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateOpenConnection();
+        return (await connection.QueryAsync<SessionGradeSectionOption>(new CommandDefinition("""
+            SELECT DISTINCT section.course AS Course, section.division AS Division, NULLIF(TRIM(section.shift), '') AS Shift
+            FROM delivery_sessions s
+            JOIN local_roster_sections section ON section.id = s.roster_section_id AND section.snapshot_id = s.roster_snapshot_id
+            WHERE NULLIF(TRIM(section.course), '') IS NOT NULL AND NULLIF(TRIM(section.division), '') IS NOT NULL
+            ORDER BY section.course, section.division, section.shift
+            """, cancellationToken: cancellationToken))).ToList();
+    }
+
     public async Task<IReadOnlyList<LocalSchoolListItem>> GetSchoolsAsync(CancellationToken cancellationToken = default)
     {
         const string sql = """
@@ -184,6 +244,27 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         using var connection = connectionFactory.CreateOpenConnection();
         var rows = await connection.QueryAsync<LocalSchoolListRow>(new CommandDefinition(sql, cancellationToken: cancellationToken));
         return rows.Select(row => new LocalSchoolListItem(row.Code, row.Name, row.HasReadyRoster != 0)).ToList();
+    }
+
+    public async Task<IReadOnlyList<LocalSchoolWithAttempts>> GetSchoolsWithAttemptsAsync(CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT s.cue AS Code,
+                   COALESCE(NULLIF(s.name, ''), NULLIF(r.school_name, ''), 'CUE ' || s.cue) AS Name,
+                   COUNT(a.id) AS SubmittedAttemptCount,
+                   MAX(a.submitted_at) AS LastSubmittedAt
+            FROM schools s
+            JOIN delivery_sessions ds ON ds.school_code = s.cue
+            JOIN student_attempts a ON a.delivery_session_id = ds.id
+            LEFT JOIN local_roster_snapshots r ON r.id = (
+                SELECT snap.id FROM local_roster_snapshots snap WHERE snap.cue = s.cue ORDER BY snap.fetched_at DESC LIMIT 1)
+            WHERE a.status = 'submitted' AND a.submitted_at IS NOT NULL
+            GROUP BY s.cue, s.name, r.school_name
+            ORDER BY LastSubmittedAt DESC, Name COLLATE NOCASE, s.cue;
+            """;
+        using var connection = connectionFactory.CreateOpenConnection();
+        var rows = await connection.QueryAsync<LocalSchoolWithAttempts>(new CommandDefinition(sql, cancellationToken: cancellationToken));
+        return rows.ToList();
     }
 
     private static SessionListItem ToListItem(SessionListRow row) => new(
@@ -206,6 +287,13 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
     }
 
     private static string? NormalizeOptionalCue(string? cue) => string.IsNullOrWhiteSpace(cue) ? null : CueCode.Normalize(cue);
+
+    private static string? ReadTimestamp(object? value) => value switch
+    {
+        string text => text,
+        byte[] bytes => Encoding.UTF8.GetString(bytes),
+        _ => null
+    };
 
     private static string BuildHistorySearchPredicate(IReadOnlyList<string> tokens, DynamicParameters parameters)
     {
@@ -245,9 +333,9 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         return $"AND ({string.Join(" AND ", conditions)})";
     }
 
-    private static string BuildHistoryFilterPredicate(string? schoolCode, string? status, DynamicParameters parameters)
+    private static string BuildHistoryFilterPredicate(string? schoolCode, string? status, string? course, string? division, string? shift, DynamicParameters parameters)
     {
-        var conditions = new List<string>(2);
+        var conditions = new List<string>(5);
         var normalizedSchoolCode = NormalizeOptionalCue(schoolCode);
         if (normalizedSchoolCode is not null)
         {
@@ -259,6 +347,21 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         {
             parameters.Add("Status", normalizedStatus);
             conditions.Add("s.status = @Status");
+        }
+        if (!string.IsNullOrWhiteSpace(course))
+        {
+            parameters.Add("Course", course.Trim());
+            conditions.Add("COALESCE(section.course, json_extract(ev.metadata_json, '$.grade')) = @Course");
+        }
+        if (!string.IsNullOrWhiteSpace(division))
+        {
+            parameters.Add("Division", division.Trim());
+            conditions.Add("COALESCE(section.division, json_extract(ev.metadata_json, '$.division')) = @Division");
+        }
+        if (!string.IsNullOrWhiteSpace(shift))
+        {
+            parameters.Add("Shift", shift.Trim());
+            conditions.Add("TRIM(section.shift) = @Shift");
         }
         return conditions.Count == 0 ? "" : $"AND {string.Join(" AND ", conditions)}";
     }
@@ -318,6 +421,8 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
             WITH session_context AS (
                 SELECT
                     s.id AS session_id,
+                    s.school_code AS school_code,
+                    COALESCE(NULLIF(sc.name, ''), NULLIF(rs.school_name, ''), 'CUE ' || s.school_code) AS school_name,
                     s.access_code,
                     s.expected_student_count,
                     s.roster_snapshot_id,
@@ -342,6 +447,8 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
                      WHERE a.delivery_session_id = s.id AND r.status = 'graded' AND r.score_max > 0) AS average_score_percent
                 FROM delivery_sessions s
                 LEFT JOIN local_exam_versions ev ON ev.id = s.exam_version_id
+                LEFT JOIN schools sc ON sc.cue = s.school_code
+                LEFT JOIN local_roster_snapshots rs ON rs.id = s.roster_snapshot_id
                 LEFT JOIN local_roster_sections section
                     ON section.id = s.roster_section_id AND section.snapshot_id = s.roster_snapshot_id
                 WHERE s.id = @IdOrAccessCode OR s.access_code = @AccessCode
@@ -460,7 +567,10 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
             first.AverageScorePercent,
             first.RosterSnapshotId is not null && first.RosterSectionId is not null,
             checked((int)first.OffRosterSubmittedCount),
-            checked((int)first.OffRosterInProgressCount));
+            checked((int)first.OffRosterInProgressCount),
+            first.SchoolCode,
+            first.SchoolName,
+            GradeLabelFormatter.Format(course, division, first.Shift));
     }
 
     public async Task UpdateStatusAsync(string id, string status, string? endAt = null, CancellationToken cancellationToken = default)
@@ -533,6 +643,28 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         }
     }
 
+    private sealed class ActiveSessionActivityRow
+    {
+        public string Id { get; set; } = "";
+        public object? LastActivityAt { get; set; }
+    }
+
+    private sealed class SessionHeartbeatRow
+    {
+        public string SessionId { get; set; } = "";
+        public string SchoolCode { get; set; } = "";
+        public string? SchoolYear { get; set; }
+        public string? RosterSectionId { get; set; }
+        public string? RemoteExamVersionId { get; set; }
+        public string Status { get; set; } = "";
+        public string StartAt { get; set; } = "";
+        public long JoinedCount { get; set; }
+        public long InProgressCount { get; set; }
+        public long SubmittedCount { get; set; }
+        public long ClosedOrForcedCount { get; set; }
+        public object? LastActivityAt { get; set; }
+    }
+
     private static string FormatDisplayName(string? lastName, string? firstName)
     {
         if (string.IsNullOrWhiteSpace(lastName)) return firstName ?? string.Empty;
@@ -559,6 +691,8 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
     private sealed class LocalSessionProgressRow
     {
         public string SessionId { get; init; } = string.Empty;
+        public string? SchoolCode { get; init; }
+        public string? SchoolName { get; init; }
         public string AccessCode { get; init; } = string.Empty;
         public long ExpectedStudentCount { get; init; }
         public string? RosterSnapshotId { get; init; }

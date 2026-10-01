@@ -24,7 +24,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <SidebarProvider className="central-frame h-svh min-h-0 overflow-hidden">
           <AppHeader user={user} />
           <div className="central-workspace">
-            <AppSidebar />
+            <AppSidebar user={user} />
             <div className="central-main-column">
               <main id="contenido" className="central-main">
                 {children}
