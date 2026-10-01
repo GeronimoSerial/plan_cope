@@ -70,7 +70,7 @@ export class ApiClient {
     return this.get<LocalSession[]>("/api/sessions/active", signal);
   }
 
-  getSessionHistory(filters: { schoolCode?: string; status?: string; page?: number; pageSize?: number }, signal?: AbortSignal): Promise<SessionHistoryPage> {
+  getSessionHistory(filters: { schoolCode?: string; status?: string; q?: string; page?: number; pageSize?: number }, signal?: AbortSignal): Promise<SessionHistoryPage> {
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries(filters)) if (value !== undefined && value !== "") query.set(key, String(value));
     return this.get<SessionHistoryPage>(`/api/sessions/history?${query.toString()}`, signal);

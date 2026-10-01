@@ -5,7 +5,7 @@ import type { LocalSession, SessionHistoryPage } from "../types";
 import { ActiveSessionPanel } from "./ActiveSessionPanel";
 import { SessionCreatePanel } from "./SessionCreatePanel";
 import { isValidCue, normalizeCueInput } from "../domain/cue";
-import { ActionButton, Badge, Field, TextInput } from "../../shared/ui";
+import { ActionButton, Badge, Field, SearchableCombobox, TextInput } from "../../shared/ui";
 
 type Props = { delivery: DeliverySessionState; apiBaseUrl: string; tab: "home" | "history"; expiryPending: boolean; onStats: () => void; onReturnHome: () => void };
 
@@ -15,12 +15,22 @@ export function SessionsWorkspace({ delivery, apiBaseUrl, tab, expiryPending, on
   const [createStep, setCreateStep] = useState<"schools" | "manual" | "form" | null>(null);
   const [history, setHistory] = useState<SessionHistoryPage>({ items: [], page: 1, pageSize: 20, totalCount: 0 });
   const [schoolFilter, setSchoolFilter] = useState("");
+  const [historySearch, setHistorySearch] = useState("");
+  const [historyQuery, setHistoryQuery] = useState("");
+  const [selectedSchool, setSelectedSchool] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [extraStudentError, setExtraStudentError] = useState<string | null>(null);
   const [extraStudentBusy, setExtraStudentBusy] = useState(false);
   const currentSession = activeSession.session;
+  const readySchools = delivery.activeSession.schools.filter(school => school.hasReadyRoster);
+  const schoolOptions = delivery.activeSession.schools.map(school => ({ value: school.code, label: school.name, description: `CUE ${school.code}` }));
+  useEffect(() => { if (createStep === "schools" && readySchools.length === 1) setSelectedSchool(readySchools[0].code); }, [createStep, readySchools.length]);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setHistoryQuery(historySearch.trim()), 300);
+    return () => window.clearTimeout(timeout);
+  }, [historySearch]);
   const addExtraStudent = async (request: { document: string; firstName: string; lastName: string }) => {
     if (!currentSession) return;
     setExtraStudentBusy(true);
@@ -51,11 +61,11 @@ export function SessionsWorkspace({ delivery, apiBaseUrl, tab, expiryPending, on
     const controller = new AbortController();
     setHistoryLoading(true);
     setHistoryError(null);
-    void api.getSessionHistory({ schoolCode: schoolFilter, status: statusFilter, page: history.page, pageSize: history.pageSize }, controller.signal)
-      .then(setHistory).catch(error => { if (!controller.signal.aborted) setHistoryError(error instanceof Error ? error.message : "No se pudo cargar el historial."); })
+    void api.getSessionHistory({ schoolCode: schoolFilter, status: statusFilter, q: historyQuery, page: history.page, pageSize: history.pageSize }, controller.signal)
+      .then(result => { if (!controller.signal.aborted) setHistory(result); }).catch(error => { if (!controller.signal.aborted) setHistoryError(error instanceof Error ? error.message : "No se pudo cargar el historial."); })
       .finally(() => { if (!controller.signal.aborted) setHistoryLoading(false); });
     return () => controller.abort();
-  }, [api, tab, currentSession, schoolFilter, statusFilter, history.page, history.pageSize]);
+  }, [api, tab, currentSession, schoolFilter, statusFilter, historyQuery, history.page, history.pageSize]);
 
   useEffect(() => {
     if (tab !== "home" || currentSession || createStep !== "form") return;
@@ -88,19 +98,21 @@ export function SessionsWorkspace({ delivery, apiBaseUrl, tab, expiryPending, on
   if (tab === "history") return <section className="panel node-workspace-panel">
     <h2>Historial</h2>
     <div className="stats-filters">
-      <label htmlFor="history-school">Escuela<select id="history-school" value={schoolFilter} onChange={event => { setHistory({ ...history, page: 1 }); setSchoolFilter(event.target.value); }}>
-        <option value="">Todas las escuelas</option>{delivery.activeSession.schools.map(school => <option key={school.code} value={school.code}>{school.name} · {school.code}</option>)}
-      </select></label>
+      <SearchableCombobox id="history-school" label="Escuela" placeholder="Todas las escuelas" value={schoolFilter}
+        options={[{ value: "", label: "Todas las escuelas", description: "" }, ...schoolOptions]}
+        onChange={value => { setHistory(current => ({ ...current, page: 1 })); setSchoolFilter(value); }} />
       <label htmlFor="history-status">Estado<select id="history-status" value={statusFilter} onChange={event => { setHistory({ ...history, page: 1 }); setStatusFilter(event.target.value); }}>
         <option value="">Todos</option><option value="active">Abierta</option><option value="paused">Pausada</option><option value="closed">Cerrada</option>
       </select></label>
+      <div className="history-search"><label className="searchable-combobox-label" htmlFor="history-search">Buscar</label><div className="history-search-control"><input id="history-search" className="control" placeholder="Escuela, examen, código o grado" value={historySearch} onChange={event => { setHistorySearch(event.target.value); setHistory(current => ({ ...current, page: 1 })); }} />{historySearch && <button className="button button-secondary" type="button" aria-label="Limpiar búsqueda" onClick={() => { setHistorySearch(""); setHistory(current => ({ ...current, page: 1 })); }}>Limpiar</button>}</div></div>
     </div>
     {historyError && <p role="alert" className="error-banner">{historyError}</p>}
-    {historyLoading ? <p role="status">Cargando historial…</p> : history.items.length ? <div className="student-table-wrap"><table className="student-table"><thead><tr><th>Fecha y horario</th><th>Escuela</th><th>Evaluación</th><th>Estado</th><th>Acceso</th><th>Entregaron</th><th></th></tr></thead><tbody>
+    {historyLoading && <p role="status" className={history.items.length ? "history-searching" : undefined}>{history.items.length ? "Buscando…" : "Cargando historial…"}</p>}
+    {history.items.length ? <div className="student-table-wrap"><table className="student-table"><thead><tr><th>Fecha y horario</th><th>Escuela</th><th>Evaluación</th><th>Estado</th><th>Acceso</th><th>Entregaron</th><th></th></tr></thead><tbody>
       {history.items.map(item => <tr key={item.id}><td>{formatDate(item.startAt)} · {formatTime(item.startAt)}<small>{historyDuration(item.startAt, item.endAt)}</small></td>
         <td>{item.schoolName}<small>{item.gradeLabel || `CUE ${item.schoolCode}`}</small></td><td>{item.examTitle}</td><td><SessionStatusBadge status={item.status} /></td><td>{item.accessCode}</td>
         <td>{item.submittedCount ?? 0}/{item.expectedStudentCount}{(item.offRosterSubmittedCount ?? 0) > 0 && <small>+{item.offRosterSubmittedCount} fuera de padrón</small>}</td><td><button type="button" className="button button-secondary" onClick={() => activeSession.selectSession(item)}>{item.status === "closed" ? "Ver" : "Abrir"}</button></td></tr>)}
-    </tbody></table></div> : <p>No hay sesiones para estos filtros.</p>}
+    </tbody></table></div> : !historyLoading && <p>{historyQuery ? "No hay sesiones que coincidan con la búsqueda." : "No hay sesiones para estos filtros."}</p>}
     <div className="stats-actions"><button type="button" className="button button-secondary" disabled={history.page <= 1 || historyLoading} onClick={() => setHistory({ ...history, page: history.page - 1 })}>Anterior</button>
       <span>Página {history.page} · {history.totalCount} sesiones</span><button type="button" className="button button-secondary" disabled={history.page * history.pageSize >= history.totalCount || historyLoading} onClick={() => setHistory({ ...history, page: history.page + 1 })}>Siguiente</button></div>
   </section>;
@@ -111,8 +123,10 @@ export function SessionsWorkspace({ delivery, apiBaseUrl, tab, expiryPending, on
     {delivery.roster.isLoading && <p role="status">Buscando el padrón…</p>}{delivery.roster.error && <p role="alert" className="error-banner">{delivery.roster.error}</p>}
     {isValidCue(sessionForm.form.cue) && !delivery.roster.isLoading && <p role="status">{delivery.roster.snapshot?.status.toLowerCase() === "ready" && delivery.roster.sections.length ? sessionForm.schoolName || `CUE ${sessionForm.form.cue}` : "Padrón no disponible en este equipo."}</p>}
     <div className="stats-actions"><ActionButton variant="secondary" onClick={() => { sessionForm.updateForm("cue", ""); setCreateStep("schools"); }}>Cancelar</ActionButton><ActionButton disabled={!isValidCue(sessionForm.form.cue) || delivery.roster.isLoading || !delivery.roster.sections.length || expiryPending} onClick={() => setCreateStep("form")}>Continuar</ActionButton></div></section>;
-  if (createStep === "schools") return <section className="panel node-workspace-panel"><h2>Nueva sesión</h2><p>Elegí una escuela con padrón disponible en este equipo.</p><div className="session-list" aria-label="Escuelas disponibles">{delivery.activeSession.schools.filter(school => school.hasReadyRoster).map(school => <button className="school-choice" key={school.code} type="button" onClick={() => { sessionForm.updateForm("cue", school.code); setCreateStep("form"); }}><span className="school-choice-info"><strong>{school.name}</strong><span>CUE {school.code}</span></span><span className="school-choice-action">Elegir <span aria-hidden="true">›</span></span></button>)}</div>
-    {!delivery.activeSession.schools.some(school => school.hasReadyRoster) && <p>No hay escuelas con padrón disponible.</p>}<div className="stats-actions"><ActionButton variant="secondary" onClick={() => setCreateStep("manual")}>Ingresar otro CUE</ActionButton><ActionButton variant="secondary" onClick={() => setCreateStep(null)}>Cancelar</ActionButton></div></section>;
+  if (createStep === "schools") return <section className="panel node-workspace-panel"><h2>Nueva sesión</h2><p>Elegí una escuela con padrón disponible en este equipo.</p>
+    {readySchools.length > 0 && <><SearchableCombobox id="new-session-school" label="Escuela" placeholder="Buscá por nombre o CUE" value={selectedSchool} options={readySchools.map(school => ({ value: school.code, label: school.name, description: `CUE ${school.code}` }))} onChange={value => setSelectedSchool(value)} />
+      {readySchools.find(school => school.code === selectedSchool) && <p className="school-selection-confirmation"><strong>{readySchools.find(school => school.code === selectedSchool)?.name}</strong><span>CUE {selectedSchool}</span></p>}</>}
+    {readySchools.length === 0 && <p>No hay escuelas con padrón disponible.</p>}<div className="stats-actions"><ActionButton variant="secondary" onClick={() => setCreateStep("manual")}>Ingresar otro CUE</ActionButton><ActionButton variant="secondary" onClick={() => setCreateStep(null)}>Cancelar</ActionButton><ActionButton disabled={!selectedSchool || expiryPending} onClick={() => { sessionForm.updateForm("cue", selectedSchool); setCreateStep("form"); }}>Continuar</ActionButton></div></section>;
 
   return <>
     {delivery.error && <p className="error-banner workspace-error" role="alert">{delivery.error}</p>}

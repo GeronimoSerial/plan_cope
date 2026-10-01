@@ -1,6 +1,7 @@
 using Dapper;
 using System.Globalization;
 using System.Text.Json;
+using PlanCope.Local.Api.Data;
 using PlanCope.Local.Api.Services;
 using PlanCope.Shared.Domain.Local;
 using PlanCope.Shared.Domain.ValueObjects;
@@ -113,9 +114,16 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         return rows.Select(ToListItem).ToList();
     }
 
-    public async Task<SessionHistoryPage> GetHistoryAsync(string? schoolCode, string? status, int page, int pageSize, CancellationToken cancellationToken = default)
+    public async Task<SessionHistoryPage> GetHistoryAsync(string? schoolCode, string? status, string? query, int page, int pageSize, CancellationToken cancellationToken = default)
     {
-        const string sql = """
+        var searchTokens = LocalSearchText.TokenizeQuery(query);
+        var parameters = new DynamicParameters();
+        parameters.Add("PageSize", pageSize);
+        parameters.Add("Offset", (page - 1) * pageSize);
+        var filterPredicate = BuildHistoryFilterPredicate(schoolCode, status, parameters);
+        var searchPredicate = BuildHistorySearchPredicate(searchTokens, parameters);
+
+        var sql = $"""
             WITH filtered AS (
                 SELECT s.id AS Id, s.exam_version_id AS ExamVersionId, s.school_code AS SchoolCode,
                        s.roster_snapshot_id AS RosterSnapshotId, s.roster_section_id AS RosterSectionId,
@@ -138,26 +146,25 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
                 LEFT JOIN schools sc ON sc.cue = s.school_code
                 LEFT JOIN local_roster_snapshots rs ON rs.id = s.roster_snapshot_id
                 LEFT JOIN local_roster_sections section ON section.id = s.roster_section_id AND section.snapshot_id = s.roster_snapshot_id
-                WHERE (@SchoolCode IS NULL OR s.school_code = @SchoolCode)
-                  AND (@Status IS NULL OR s.status = @Status)
+                WHERE 1 = 1
+                  {filterPredicate}
+                  {searchPredicate}
             )
             SELECT * FROM filtered ORDER BY StartAt DESC, Id DESC LIMIT @PageSize OFFSET @Offset;
             """;
         using var connection = connectionFactory.CreateOpenConnection();
-        var statusFilter = NormalizeOptionalStatus(status);
-        var schoolFilter = NormalizeOptionalCue(schoolCode);
         using var results = await connection.QueryMultipleAsync(new CommandDefinition($"""
             SELECT COUNT(*) FROM delivery_sessions s
-            WHERE (@SchoolCode IS NULL OR s.school_code = @SchoolCode)
-              AND (@Status IS NULL OR s.status = @Status);
+            JOIN local_exam_versions ev ON ev.id = s.exam_version_id
+            LEFT JOIN schools sc ON sc.cue = s.school_code
+            LEFT JOIN local_roster_snapshots rs ON rs.id = s.roster_snapshot_id
+            LEFT JOIN local_roster_sections section ON section.id = s.roster_section_id AND section.snapshot_id = s.roster_snapshot_id
+            WHERE 1 = 1
+              {filterPredicate}
+              {searchPredicate}
+            ;
             {sql}
-            """, new
-        {
-            SchoolCode = schoolFilter,
-            Status = statusFilter,
-            PageSize = pageSize,
-            Offset = (page - 1) * pageSize
-        }, cancellationToken: cancellationToken));
+            """, parameters, cancellationToken: cancellationToken));
         var totalCount = await results.ReadSingleAsync<int>();
         var rows = (await results.ReadAsync<SessionListRow>()).ToList();
         return new SessionHistoryPage(rows.Select(ToListItem).ToList(), page, pageSize, totalCount);
@@ -199,6 +206,72 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
     }
 
     private static string? NormalizeOptionalCue(string? cue) => string.IsNullOrWhiteSpace(cue) ? null : CueCode.Normalize(cue);
+
+    private static string BuildHistorySearchPredicate(IReadOnlyList<string> tokens, DynamicParameters parameters)
+    {
+        if (tokens.Count == 0) return "";
+
+        string[] fields =
+        [
+            "fold_text(COALESCE(NULLIF(sc.name, ''), NULLIF(rs.school_name, ''), 'CUE ' || s.school_code))",
+            "fold_text(s.school_code)",
+            "fold_text(COALESCE(json_extract(ev.metadata_json, '$.title'), ''))",
+            "fold_text(ev.exam_code)",
+            "fold_text(s.access_code)",
+            "replace(fold_text(s.access_code), ' ', '')",
+            "fold_text(CASE s.status WHEN 'active' THEN 'abierta' WHEN 'paused' THEN 'pausada' WHEN 'closed' THEN 'cerrada' ELSE s.status END)"
+        ];
+        const string gradeField = "grade_search(COALESCE(section.course, json_extract(ev.metadata_json, '$.grade'), ''), COALESCE(section.division, json_extract(ev.metadata_json, '$.division'), ''), COALESCE(section.shift, ''))";
+
+        var conditions = new List<string>(tokens.Count);
+        for (var index = 0; index < tokens.Count; index++)
+        {
+            var parameterName = $"SearchToken{index}";
+            var token = tokens[index];
+            parameters.Add(parameterName, token);
+            if (IsGradeCompoundToken(token) || IsDivisionToken(token))
+            {
+                conditions.Add($"instr(' ' || {gradeField} || ' ', ' ' || @{parameterName} || ' ') > 0");
+            }
+            else if (IsCourseNumberToken(token))
+            {
+                conditions.Add($"instr(' ' || {gradeField} || ' ', ' ' || @{parameterName} || ' ') > 0");
+            }
+            else
+            {
+                conditions.Add($"({string.Join(" OR ", fields.Select(field => $"instr({field}, @{parameterName}) > 0"))} OR instr({gradeField}, @{parameterName}) > 0)");
+            }
+        }
+        return $"AND ({string.Join(" AND ", conditions)})";
+    }
+
+    private static string BuildHistoryFilterPredicate(string? schoolCode, string? status, DynamicParameters parameters)
+    {
+        var conditions = new List<string>(2);
+        var normalizedSchoolCode = NormalizeOptionalCue(schoolCode);
+        if (normalizedSchoolCode is not null)
+        {
+            parameters.Add("SchoolCode", normalizedSchoolCode);
+            conditions.Add("s.school_code = @SchoolCode");
+        }
+        var normalizedStatus = NormalizeOptionalStatus(status);
+        if (normalizedStatus is not null)
+        {
+            parameters.Add("Status", normalizedStatus);
+            conditions.Add("s.status = @Status");
+        }
+        return conditions.Count == 0 ? "" : $"AND {string.Join(" AND ", conditions)}";
+    }
+
+    private static bool IsGradeCompoundToken(string token)
+    {
+        var digits = token.TakeWhile(char.IsDigit).Count();
+        return digits is > 0 and <= 2 && token.Length == digits + 1 && char.IsLetter(token[^1]);
+    }
+
+    private static bool IsDivisionToken(string token) => token.Length == 1 && char.IsLetter(token[0]);
+
+    private static bool IsCourseNumberToken(string token) => token.Length is > 0 and <= 2 && token.All(char.IsDigit);
 
     private static string? NormalizeOptionalStatus(string? status) => string.IsNullOrWhiteSpace(status) ? null : status.Trim().ToLowerInvariant() switch
     {

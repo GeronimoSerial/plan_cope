@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiClient, type CourseStatDto, type ExamStatDto, type StatsFilterOptionsDto } from "../api/apiClient";
 import { downloadBlob, openStatsReport } from "../hostBridge";
+import { SearchableCombobox } from "../../shared/ui";
 
 type StatsWorkspaceProps = {
   apiBaseUrl: string;
@@ -183,17 +184,14 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
       <p className="stats-live-copy">Pantalla en vivo. El informe HTML es una captura e indica cuándo se generó.</p>
 
       <div className="stats-filters">
-        <label htmlFor="stats-school-filter">Escuela
-          <select id="stats-school-filter" value={activeCue} onChange={event => {
+        <SearchableCombobox id="stats-school-filter" label="Escuela" value={activeCue} placeholder="Buscá por nombre o CUE"
+          options={schools.map(school => ({ value: school.code, label: school.name, description: `CUE ${school.code}` }))} onChange={value => {
             hasLoadedStats.current = false;
             setSchoolYearFilter("");
             setCourseFilter("");
             setExamFilter("");
-            setActiveCue(event.target.value);
-          }}>
-            {schools.map(school => <option key={school.code} value={school.code}>{school.name} · {school.code}</option>)}
-          </select>
-        </label>
+            setActiveCue(value);
+          }} />
         <label htmlFor="stats-school-year-filter">Año lectivo
           <select id="stats-school-year-filter" value={schoolYearFilter} onChange={event => {
             setIsLoading(true);
