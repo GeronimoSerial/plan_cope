@@ -15,7 +15,7 @@ describe("copy de páginas", () => {
       'description="Los datos los envían los nodos al sincronizar."'
     );
     expect(source("_components/keys/activation-keys-panel.tsx")).toContain(
-      'description="Una por equipo. Revocala si el equipo se pierde."'
+      'description="Emití una clave a nombre de una persona y administrá desde acá sus equipos activados."'
     );
 
     for (const [path, oldCopy] of [
