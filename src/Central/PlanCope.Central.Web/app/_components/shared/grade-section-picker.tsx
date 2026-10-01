@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { courseOptions } from "../../_lib/exams/catalog";
 
 export interface GradeSectionOption {
   value: string;
@@ -98,7 +99,10 @@ export function GradeSectionPicker({
   showSection = true,
   className
 }: GradeSectionPickerProps) {
-  const sortedGrades = useMemo(() => sortGradeOptions(grades), [grades]);
+  const sortedGrades = useMemo(() => sortGradeOptions(grades.map(grade => {
+    const course = courseOptions.find(option => option.key === grade.value);
+    return course ? { ...grade, label: course.label, group: course.level } : grade;
+  })), [grades]);
   const selectedGrade = typeof value === "string" ? value : "";
   const sections = useMemo(() => getSectionsForGrade(sortedGrades, selectedGrade), [sortedGrades, selectedGrade]);
   const hasSections = showSection && (forceSection || grades.some(grade => (grade.sections?.length ?? 0) > 0));
@@ -134,13 +138,13 @@ export function GradeSectionPicker({
       <div className={className}>
         <fieldset disabled={disabled} className="grid gap-2">
           <legend className="mb-2 text-sm font-medium">Grado</legend>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-[minmax(14rem,1fr)_minmax(14rem,1fr)]">
             {[...groups.entries()].map(([group, groupedGrades]) => (
-              <fieldset key={group || "grades"} className="grid content-start gap-2">
+              <fieldset key={group || "grades"} className="grid min-w-0 content-start gap-2">
                 {group && <legend className="mb-1 text-sm font-medium">{group}</legend>}
                 {groupedGrades.map(grade => (
-                  <label key={grade.value} className="flex items-center gap-2 text-sm">
-                    <Checkbox checked={selected.includes(grade.value)} disabled={disabled} onCheckedChange={checked => {
+                  <label key={grade.value} className="flex min-h-11 min-w-0 items-center gap-3 rounded-sm py-2 text-sm leading-5">
+                    <Checkbox className="shrink-0" checked={selected.includes(grade.value)} disabled={disabled} onCheckedChange={checked => {
                       const next = checked ? [...selected, grade.value] : selected.filter(item => item !== grade.value);
                       onValueChange(orderSelectedGrades(sortedGrades, next));
                       if (checked) {
@@ -162,7 +166,7 @@ export function GradeSectionPicker({
                         }
                       }
                     }} />
-                    {grade.label}
+                    <span className="min-w-0">{grade.label}</span>
                   </label>
                 ))}
               </fieldset>
@@ -195,11 +199,15 @@ export function GradeSectionPicker({
   }
 
   return (
-    <div className={`grid gap-3 sm:grid-cols-2 ${className ?? ""}`}>
+    <div className={`grid gap-3 ${hasSections ? "sm:grid-cols-2" : ""} ${className ?? ""}`}>
       <Field>
         <FieldLabel htmlFor="grade-picker">Grado</FieldLabel>
         <Select value={selectedGrade} onValueChange={next => chooseGrade(next ?? "")} disabled={disabled}>
-          <SelectTrigger id="grade-picker" className="w-full"><SelectValue placeholder={includeAll ? "Todos los grados" : "Elegí un grado"} /></SelectTrigger>
+          <SelectTrigger id="grade-picker" className="w-full">
+            <SelectValue placeholder={includeAll ? "Todos los grados" : "Elegí un grado"}>
+              {next => next === "all" ? "Todos los grados" : sortedGrades.find(grade => grade.value === next)?.label ?? next}
+            </SelectValue>
+          </SelectTrigger>
           <SelectContent>
             {includeAll && <SelectItem value="all">Todos los grados</SelectItem>}
             {sortedGrades.map(grade => <SelectItem key={grade.value} value={grade.value}>{grade.label}</SelectItem>)}
@@ -211,7 +219,13 @@ export function GradeSectionPicker({
           <FieldLabel htmlFor="section-picker">Sección</FieldLabel>
           <Select value={sectionValue || ""} onValueChange={next => onSectionValueChange?.(next ?? "")} disabled={disabled || (!selectedGrade && !includeAllSections)}>
             <SelectTrigger id="section-picker" className="w-full">
-              <SelectValue placeholder={selectedGrade ? "Elegí una sección" : "Elegí primero un grado"} />
+              <SelectValue placeholder={selectedGrade ? "Elegí una sección" : "Elegí primero un grado"}>
+                {next => next === "all"
+                  ? selectedGrade && selectedGrade !== "all"
+                    ? `Todas las secciones de ${sortedGrades.find(grade => grade.value === selectedGrade)?.label}`
+                    : "Todas las secciones"
+                  : sections.find(section => section.value === next)?.label ?? next}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {includeAllSections && <SelectItem value="all">
