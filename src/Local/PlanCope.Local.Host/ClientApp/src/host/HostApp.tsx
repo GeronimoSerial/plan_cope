@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AppShell } from "./components/AppShell";
 import { SessionsWorkspace } from "./components/SessionsWorkspace";
 import { StatsWorkspace } from "./components/StatsWorkspace";
@@ -20,6 +20,7 @@ export function HostApp() {
   const [expiryPending, setExpiryPending] = useState(false);
   const [localClockWarning, setLocalClockWarning] = useState(false);
   const [activeTab, setActiveTab] = useState<"home" | "history" | "stats">("home");
+  const statusRequestSequence = useRef(0);
   const clearManualCue = () => delivery.sessionForm.updateForm("cue", "");
   const changeTab = (tab: "home" | "history" | "stats") => {
     clearManualCue();
@@ -30,10 +31,11 @@ export function HostApp() {
   useEffect(() => {
     let cancelled = false;
     const checkLockStatus = () => {
+      const requestSequence = ++statusRequestSequence.current;
       fetch(`${hostContext.apiBaseUrl}/api/activation/status`)
         .then(response => (response.ok ? response.json() : null))
         .then(data => {
-          if (!cancelled && data && typeof data.isLocked === "boolean") {
+          if (!cancelled && requestSequence === statusRequestSequence.current && data && typeof data.isLocked === "boolean") {
             setIsLocked(data.isLocked);
             setIsRevoked(data.isRevoked === true);
             setActivationInProgress(data.activationInProgress === true);
@@ -42,11 +44,11 @@ export function HostApp() {
             setExpiryPending(data.expiryPending === true);
             setLocalClockWarning(data.localClockWarning === true);
           }
-          if (!cancelled) setActivationStatusChecked(true);
+          if (!cancelled && requestSequence === statusRequestSequence.current) setActivationStatusChecked(true);
         })
         .catch(() => {
           /* transient failure — keep the last known lock state, do not flip to unlocked */
-          if (!cancelled) setActivationStatusChecked(true);
+          if (!cancelled && requestSequence === statusRequestSequence.current) setActivationStatusChecked(true);
         });
     };
     checkLockStatus();
@@ -56,6 +58,10 @@ export function HostApp() {
       clearInterval(interval);
     };
   }, [hostContext.apiBaseUrl]);
+
+  useEffect(() => {
+    if (!isRevoked) setShowRevokedActivation(false);
+  }, [isRevoked]);
 
   if (!activationStatusChecked) {
     return <main className="school-gate" aria-busy="true"><p role="status">Verificando la activación…</p></main>;
