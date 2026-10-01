@@ -23,7 +23,7 @@ public sealed class ReleaseGateService(PlanCopeDbContext dbContext) : IReleaseGa
             .AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == nodeId, cancellationToken);
 
-        if (node is null || node.RevokedAt is not null)
+        if (node is null)
         {
             return ReleaseGateDecision.None;
         }

@@ -46,12 +46,15 @@ public sealed class SyncBackgroundService(
                 using var scope = scopeFactory.CreateScope();
                 var sessionRepository = scope.ServiceProvider.GetRequiredService<ISessionRepository>();
                 var syncStateRepository = scope.ServiceProvider.GetRequiredService<ISyncStateRepository>();
+                var nodeIdentityRepository = scope.ServiceProvider.GetRequiredService<INodeIdentityRepository>();
                 var examPullService = scope.ServiceProvider.GetRequiredService<LocalExamPullService>();
                 var outboxPushService = scope.ServiceProvider.GetRequiredService<LocalOutboxPushService>();
 
+                var identity = await nodeIdentityRepository.GetAsync(stoppingToken);
                 var activationInProgress = await ReadStateStringAsync(syncStateRepository, "activation_in_progress", stoppingToken);
                 var activationExpired = await ReadStateStringAsync(syncStateRepository, "activation_expired", stoppingToken);
-                if (string.Equals(activationInProgress, "true", StringComparison.OrdinalIgnoreCase) ||
+                if (identity?.CredentialState == "revoked" ||
+                    string.Equals(activationInProgress, "true", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(activationExpired, "true", StringComparison.OrdinalIgnoreCase))
                 {
                     nextDelay = IdleInterval;

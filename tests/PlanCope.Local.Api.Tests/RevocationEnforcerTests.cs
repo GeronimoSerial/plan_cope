@@ -132,7 +132,7 @@ public sealed class RevocationEnforcerTests : IDisposable
     }
 
     [Fact]
-    public async Task Successful_drain_wipes_roster_and_credentials_then_locks()
+    public async Task Successful_drain_wipes_roster_and_local_node_id_but_keeps_update_credentials_then_locks()
     {
         await SeedSchoolAsync();
         await SeedIdentityAsync("revoked", null);
@@ -151,10 +151,13 @@ public sealed class RevocationEnforcerTests : IDisposable
         Assert.Equal(0, await CountAsync("local_roster_snapshots"));
         Assert.Equal(0, await CountAsync("local_roster_sections"));
         Assert.Equal(0, await CountAsync("local_roster_students"));
-        foreach (var key in CredentialKeys)
+        foreach (var key in CredentialKeys.Where(key => key != "node_id"))
         {
-            Assert.Equal(EmptyJsonString, await ReadSyncStateAsync(key));
+            Assert.NotEqual(EmptyJsonString, await ReadSyncStateAsync(key));
         }
+        Assert.Equal("\"original-access-token\"", await ReadSyncStateAsync("central_access_token"));
+        Assert.Equal("\"original-refresh-token\"", await ReadSyncStateAsync("central_refresh_token"));
+        Assert.Equal(EmptyJsonString, await ReadSyncStateAsync("node_id"));
 
         Assert.Equal("\"https://central.test\"", await ReadSyncStateAsync("central_url"));
 
