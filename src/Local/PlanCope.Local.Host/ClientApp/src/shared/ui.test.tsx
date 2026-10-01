@@ -34,7 +34,7 @@ describe("SearchableCombobox", () => {
     const input = container.querySelector<HTMLInputElement>("input")!;
     act(() => { input.focus(); setInputValue(input, "pujol"); });
     expect(container.querySelectorAll('[role="option"]')).toHaveLength(1);
-    for (const query of ["PUJOL", "Pújol", "dr juan", "juan pujol 123", "1800554"]) {
+    for (const query of ["PUJOL", "Pújol", "dr juan", "juan pujol 123", "juan a", "1800554"]) {
       act(() => setInputValue(input, query));
       expect(container.querySelectorAll('[role="option"]')).toHaveLength(1);
     }

@@ -22,10 +22,21 @@ internal static class LocalSearchText
         if (string.IsNullOrWhiteSpace(query)) return [];
         var trimmed = query.Trim();
         if (trimmed.Length < 2) return [];
-        return (Fold(trimmed.Length > 100 ? trimmed[..100] : trimmed) ?? "")
+        var words = (Fold(trimmed.Length > 100 ? trimmed[..100] : trimmed) ?? "")
             .Split(' ', StringSplitOptions.RemoveEmptyEntries)
-            .Take(6)
             .ToArray();
+        var tokens = new List<string>(Math.Min(words.Length, 6));
+        for (var index = 0; index < words.Length && tokens.Count < 6; index++)
+        {
+            if (index + 1 < words.Length && words[index + 1].Length == 1 && char.IsLetter(words[index + 1][0])
+                && TryCourseNumber(words[index], out var courseNumber))
+            {
+                tokens.Add(courseNumber + words[++index]);
+                continue;
+            }
+            tokens.Add(words[index]);
+        }
+        return tokens;
     }
 
     public static string? Grade(string? course, string? division, string? shift)
@@ -36,5 +47,29 @@ internal static class LocalSearchText
         var compact = courseNumber + normalizedDivision.Replace(" ", "", StringComparison.Ordinal);
         var courseSuffix = courseNumber.Length > 0 ? $"{courseNumber}to" : "";
         return Fold($"{course} {division} {shift} {courseNumber} {courseSuffix} {ordinal} {compact}");
+    }
+
+    private static bool TryCourseNumber(string token, out string courseNumber)
+    {
+        if (token.Length is > 0 and <= 2 && token.All(char.IsDigit))
+        {
+            courseNumber = token;
+            return true;
+        }
+        if (token.EndsWith("to", StringComparison.Ordinal) && token.Length is > 2 and <= 4 && token[..^2].All(char.IsDigit))
+        {
+            courseNumber = token[..^2];
+            return true;
+        }
+        for (var number = 1; number < Ordinals.Length; number++)
+        {
+            if (token == Ordinals[number])
+            {
+                courseNumber = number.ToString(CultureInfo.InvariantCulture);
+                return true;
+            }
+        }
+        courseNumber = "";
+        return false;
     }
 }

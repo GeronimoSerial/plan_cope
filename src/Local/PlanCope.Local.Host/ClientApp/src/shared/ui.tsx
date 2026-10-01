@@ -106,7 +106,7 @@ function normalizeSearch(value: string) {
 }
 
 function tokenizeSearch(value: string) {
-  return normalizeSearch(value).split(" ").filter(Boolean).slice(0, 6);
+  return normalizeSearch(value).split(" ").filter(token => token.length >= 2 || /^\d+$/.test(token)).slice(0, 6);
 }
 
 export function SearchableCombobox({ options, value, onChange, placeholder, label, id }: SearchableComboboxProps) {

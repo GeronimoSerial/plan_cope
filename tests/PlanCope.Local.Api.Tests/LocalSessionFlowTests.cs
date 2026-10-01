@@ -67,7 +67,13 @@ public sealed class LocalSessionFlowTests
         factory.SetExamTitle("MATEMÁTICA DIAGNÓSTICO ÓSCAR 6");
         factory.SetSectionShift("section-a", "TARDE");
         factory.SetAccessCode(open.Id, "K7M-4PQ");
-        foreach (var query in new[] { "pujol", "PUJOL", "Pújol", "dr juan", "juan pujol 123", "matematica 6", "matemática diagnóstico", "oscar", "6a", "6° A", "6to a", "sexto a" })
+        foreach (var query in new[] { "pujol", "PUJOL", "Pújol", "dr juan", "juan pujol 123", "matematica 6", "matemática diagnóstico", "oscar" })
+        {
+            var searched = await client.GetFromJsonAsync<JsonElement>($"/api/sessions/history?q={Uri.EscapeDataString(query)}");
+            Assert.Equal(2, searched.GetProperty("totalCount").GetInt32());
+            Assert.Contains(searched.GetProperty("items").EnumerateArray(), item => item.GetProperty("id").GetString() == open.Id);
+        }
+        foreach (var query in new[] { "6a", "6 a", "6° A", "6to a", "sexto a" })
         {
             var searched = await client.GetFromJsonAsync<JsonElement>($"/api/sessions/history?q={Uri.EscapeDataString(query)}");
             Assert.Equal(2, searched.GetProperty("totalCount").GetInt32());
@@ -125,8 +131,63 @@ public sealed class LocalSessionFlowTests
 
         Assert.Equal(1, page.GetProperty("totalCount").GetInt32());
         Assert.Equal(expectedId, page.GetProperty("items")[0].GetProperty("id").GetString());
-        output.WriteLine($"5,000-session multi-token history search: {stopwatch.Elapsed.TotalMilliseconds:F1} ms");
+        var timing = $"5,000-session multi-token history search: {stopwatch.Elapsed.TotalMilliseconds:F1} ms";
+        output.WriteLine(timing);
+        Console.WriteLine(timing);
         Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(1), $"History search took {stopwatch.Elapsed.TotalMilliseconds:F1} ms.");
+    }
+
+    [Fact]
+    public async Task History_grade_search_does_not_match_school_or_cue_text_as_grade()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        factory.SeedRoster("180055400", "2026", "grade-a-snapshot", "grade-a", "Ready");
+        factory.SeedRosterStudent("grade-a-snapshot", "grade-a", "grade-a-student", 601, "60.000.001", "Ana", "Curso");
+        factory.SetSchoolName("180055400", "Escuela Pújol");
+        var sectionA = await CreateRosterSessionForSectionAsync(client, "180055400", "grade-a-snapshot", "grade-a");
+
+        factory.SeedRoster("180055406", "2026", "grade-b-snapshot", "grade-b", "Ready");
+        factory.SeedRosterStudent("grade-b-snapshot", "grade-b", "grade-b-student", 602, "60.000.002", "Bea", "Curso");
+        factory.SetSectionDivision("grade-b", "B");
+        factory.SetSchoolName("180055406", "Escuela Alfa");
+        var sectionB = await CreateRosterSessionForSectionAsync(client, "180055406", "grade-b-snapshot", "grade-b");
+
+        factory.SeedRoster("180055407", "2026", "grade-16-snapshot", "grade-16", "Ready");
+        factory.SeedRosterStudent("grade-16-snapshot", "grade-16", "grade-16-student", 603, "60.000.003", "Cora", "Curso");
+        factory.SetSectionCourse("grade-16", "16º");
+        factory.SetSchoolName("180055407", "Escuela Alfa 16");
+        var section16 = await CreateRosterSessionForSectionAsync(client, "180055407", "grade-16-snapshot", "grade-16");
+
+        foreach (var query in new[] { "6a", "6 a", "6° A", "6to a", "sexto a" })
+        {
+            var page = await client.GetFromJsonAsync<JsonElement>($"/api/sessions/history?q={Uri.EscapeDataString(query)}");
+            Assert.Equal(1, page.GetProperty("totalCount").GetInt32());
+            Assert.Equal(sectionA.Id, page.GetProperty("items")[0].GetProperty("id").GetString());
+        }
+        var compoundWithSchoolName = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history?q=6a%20pujol");
+        Assert.Equal(sectionA.Id, compoundWithSchoolName.GetProperty("items")[0].GetProperty("id").GetString());
+        Assert.Equal(1, compoundWithSchoolName.GetProperty("totalCount").GetInt32());
+        var cueDoesNotImplyGrade = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history?q=6%20a");
+        Assert.DoesNotContain(cueDoesNotImplyGrade.GetProperty("items").EnumerateArray(), item => item.GetProperty("id").GetString() == sectionB.Id);
+        var grade16 = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history?q=16a");
+        Assert.Equal(section16.Id, grade16.GetProperty("items")[0].GetProperty("id").GetString());
+        Assert.DoesNotContain(grade16.GetProperty("items").EnumerateArray(), item => item.GetProperty("id").GetString() == sectionA.Id);
+    }
+
+    [Fact]
+    public async Task History_school_and_status_filters_use_the_compound_history_index()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+
+        var queryPlan = factory.ExplainSchoolAndStatusHistoryPlan("180055400", "active");
+
+        Assert.Contains("SEARCH s USING INDEX ix_delivery_sessions_school_status_start", queryPlan, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -1036,6 +1097,14 @@ public sealed class LocalSessionFlowTests
         return session!;
     }
 
+    private static async Task<LocalDeliverySession> CreateRosterSessionForSectionAsync(HttpClient client, string cue, string snapshotId, string sectionId)
+    {
+        var response = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
+            LocalApiFactory.ExamVersionId, cue, "Class", null, "Operador", 1, null, "2026", snapshotId, sectionId));
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<LocalDeliverySession>())!;
+    }
+
     private static async Task<StartAttemptResponse> StartAttemptAsync(HttpClient client, string accessCode)
     {
         var response = await client.PostAsync($"/api/sessions/{accessCode}/attempts", null);
@@ -1161,6 +1230,44 @@ public sealed class LocalSessionFlowTests
             command.Parameters.AddWithValue("$shift", shift);
             command.Parameters.AddWithValue("$id", sectionId);
             command.ExecuteNonQuery();
+        }
+
+        public void SetSectionDivision(string sectionId, string division)
+        {
+            using var connection = CreateConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE local_roster_sections SET division = $division WHERE id = $id;";
+            command.Parameters.AddWithValue("$division", division);
+            command.Parameters.AddWithValue("$id", sectionId);
+            command.ExecuteNonQuery();
+        }
+
+        public void SetSectionCourse(string sectionId, string course)
+        {
+            using var connection = CreateConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE local_roster_sections SET course = $course WHERE id = $id;";
+            command.Parameters.AddWithValue("$course", course);
+            command.Parameters.AddWithValue("$id", sectionId);
+            command.ExecuteNonQuery();
+        }
+
+        public string ExplainSchoolAndStatusHistoryPlan(string cue, string status)
+        {
+            using var connection = CreateConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                EXPLAIN QUERY PLAN
+                SELECT s.id FROM delivery_sessions s
+                WHERE s.school_code = $school AND s.status = $status
+                ORDER BY s.start_at DESC, s.id DESC LIMIT 20;
+                """;
+            command.Parameters.AddWithValue("$school", cue);
+            command.Parameters.AddWithValue("$status", status);
+            using var reader = command.ExecuteReader();
+            var details = new List<string>();
+            while (reader.Read()) details.Add(reader.GetString(3));
+            return string.Join(Environment.NewLine, details);
         }
 
         public void SetAccessCode(string sessionId, string accessCode)
