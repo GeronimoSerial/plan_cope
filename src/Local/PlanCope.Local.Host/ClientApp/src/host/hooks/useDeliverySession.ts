@@ -146,27 +146,34 @@ export function useDeliverySession(hostContext: HostContext) {
     setStatus(`API local activa en ${hostContext.lanBaseUrl}`);
   }, [hostContext.lanBaseUrl, hostContext.operatorName]);
 
-  const loadExams = useCallback(async (signal?: AbortSignal) => {
-    setIsLoadingExams(true);
-    setError(null);
+  const loadExams = useCallback(async (signal?: AbortSignal, loadOptions: { silent?: boolean } = {}) => {
+    const silent = loadOptions.silent === true;
+    if (!silent) {
+      setIsLoadingExams(true);
+      setError(null);
+    }
 
     try {
       const items = await api.getExams(signal);
-      const options = items.map(toExamOption);
-      setExams(options);
-      setSelectedExamId(current => ensureSelectedExamId(options, current));
-      setStatus(options.length > 0 ? `API local activa en ${hostContext.lanBaseUrl}` : "No hay examenes locales publicados en este equipo.");
+      const examOptions = items.map(toExamOption);
+      setExams(examOptions);
+      setSelectedExamId(current => ensureSelectedExamId(examOptions, current));
+      if (!silent) {
+        setStatus(examOptions.length > 0 ? `API local activa en ${hostContext.lanBaseUrl}` : "No hay examenes locales publicados en este equipo.");
+      }
     } catch (exception) {
-      if (!signal?.aborted) {
+      if (!signal?.aborted && !silent) {
         setError(exception instanceof Error ? exception.message : "No se pudieron cargar los examenes locales.");
         setStatus("No se pudieron cargar los examenes locales.");
       }
     } finally {
-      if (!signal?.aborted) {
+      if (!signal?.aborted && !silent) {
         setIsLoadingExams(false);
       }
     }
   }, [api, hostContext.lanBaseUrl]);
+
+  const reloadExamsSilently = useCallback((signal?: AbortSignal) => loadExams(signal, { silent: true }), [loadExams]);
 
   const refreshExams = useCallback(async (signal?: AbortSignal) => {
     setIsLoadingExams(true);
@@ -187,8 +194,8 @@ export function useDeliverySession(hostContext: HostContext) {
     await loadExams(signal);
   }, [api, loadExams]);
 
-  // Operator-triggered pull: reports the server message inline, records the last successful
-  // pull time, and only reloads the exam catalog when something actually changed locally.
+  // Operator-triggered pull: a background sync may already have imported the exam, so reload the
+  // local catalog after every successful request even when Central reports no new exams.
   const pullExamsNow = useCallback(async (signal?: AbortSignal) => {
     setIsPullingExams(true);
     setPullMessage(null);
@@ -204,9 +211,7 @@ export function useDeliverySession(hostContext: HostContext) {
         setLastPullAt(result.lastPullAt);
       }
 
-      if (result.status === "updated") {
-        await loadExams(signal);
-      }
+      await loadExams(signal);
     } catch (exception) {
       if (!signal?.aborted) {
         setPullMessage(exception instanceof Error ? exception.message : "No se pudieron buscar exámenes nuevos.");
@@ -454,7 +459,8 @@ export function useDeliverySession(hostContext: HostContext) {
       isLoadingExams,
       selectedExamId,
       setSelectedExamId,
-      loadExams: refreshExams
+      loadExams: refreshExams,
+      reloadExamsSilently
     },
     syncPull: {
       isPulling: isPullingExams,

@@ -84,7 +84,7 @@ export function AppHeader({ user }: AppHeaderProps) {
           <Link href="/dashboard" aria-label="PlanCope Central, inicio">
             <Image className="central-logo" src="/marca/logo-educacion-h.svg" width={300} height={60} priority alt="Gobierno de Corrientes - Ministerio de Educación" />
           </Link>
-          <span className="central-reparticiones">MINISTERIO DE EDUCACIÓN<br />DIRECCIÓN DE PLANEAMIENTO E INVESTIGACIÓN EDUCATIVA</span>
+          <span className="central-reparticiones">Dirección de Planeamiento e Investigación Educativa</span>
           <span className="central-province">Provincia de Corrientes<br />República Argentina</span>
         </div>
       </div>

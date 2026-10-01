@@ -35,7 +35,7 @@ export function buildCreateUserPayload(values: UserCreateFormValues): UserCreate
 }
 
 export function formatCues(cues: string[]): string {
-  return cues.length === 0 ? "—" : cues.join(", ");
+  return cues.length === 0 ? "Todas las escuelas" : cues.join(", ");
 }
 
 export function formatRoleCodes(roleCodes: string[]): string {

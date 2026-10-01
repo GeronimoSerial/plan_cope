@@ -108,14 +108,15 @@ export function CreateExamButton({ canEditExams }: { canEditExams: boolean }) {
           }
         }}
       >
-        <DialogContent>
-          <form onSubmit={onSubmit} noValidate className="grid gap-4">
+        <DialogContent className="grid-rows-[minmax(0,1fr)] overflow-hidden sm:max-w-2xl">
+          <form onSubmit={onSubmit} noValidate className="grid min-h-0 max-h-full grid-rows-[auto_minmax(0,1fr)_auto] gap-4">
             <DialogHeader>
               <DialogTitle>Nuevo examen</DialogTitle>
               <DialogDescription>Código, título y curso. Después agregás las preguntas en el builder.</DialogDescription>
             </DialogHeader>
 
-            <FieldGroup className="gap-4">
+            <div className="min-h-0 overflow-y-auto overscroll-contain">
+              <FieldGroup className="gap-4">
               <Field data-invalid={errors.code ? true : undefined}>
                 <FieldLabel htmlFor="new-exam-code">Código</FieldLabel>
                 <Input
@@ -153,7 +154,7 @@ export function CreateExamButton({ canEditExams }: { canEditExams: boolean }) {
               <Field data-invalid={courses.length === 0 ? true : undefined}>
                 <GradeSectionPicker mode="multi" grades={courseOptions.map(course => ({ value: course.key, label: course.label, group: course.level }))}
                   value={courses} onValueChange={next => setCourses(Array.isArray(next) ? next : [next])} showSection={false} disabled={pending}
-                  className="grid grid-cols-2 gap-2 rounded-md border p-3 sm:grid-cols-3" />
+                  className="rounded-md border p-3" />
                 {courses.length === 0 && <FieldError>Seleccioná al menos un curso.</FieldError>}
               </Field>
               <Field>
@@ -169,13 +170,14 @@ export function CreateExamButton({ canEditExams }: { canEditExams: boolean }) {
                 <Input id="new-exam-custom-area" value={customArea} onChange={event => setCustomArea(event.target.value)} />
                 {!customArea.trim() && <FieldError>Ingresá el nombre del área.</FieldError>}
               </Field>}
-            </FieldGroup>
+              </FieldGroup>
 
-            {formError && (
-              <p role="alert" className="text-sm text-destructive">
-                {formError}
-              </p>
-            )}
+              {formError && (
+                <p role="alert" className="mt-4 text-sm text-destructive">
+                  {formError}
+                </p>
+              )}
+            </div>
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={pending}>

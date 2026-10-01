@@ -8,7 +8,8 @@ vi.mock("../hooks/useUpdateStatus", () => ({
     status: { state: "idle" },
     checkForUpdates: vi.fn(),
     downloadUpdate: vi.fn(),
-    deferUpdate: vi.fn()
+    deferUpdate: vi.fn(),
+    applyUpdate: vi.fn()
   })
 }));
 
