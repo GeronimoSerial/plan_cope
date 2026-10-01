@@ -138,6 +138,7 @@ public sealed class StatsEndpointsAggregationTests
             Assert.Contains("2026", filterOptions.SchoolYears);
             Assert.Contains("6", filterOptions.Courses);
             Assert.Contains("7", filterOptions.Courses);
+            Assert.Contains(filterOptions.Sections ?? Array.Empty<StatsFilterSectionOption>(), section => section.Course == "6" && section.Division == "B");
             Assert.Contains(filterOptions.Exams, exam => exam.ExamVersionId == "exam-a" && exam.ExamCode == "MAT-6" && exam.VersionNumber == 1L);
             Assert.Contains(filterOptions.Exams, exam => exam.ExamVersionId == "exam-b" && exam.ExamCode == "LEN-6" && exam.VersionNumber == 1L);
         }

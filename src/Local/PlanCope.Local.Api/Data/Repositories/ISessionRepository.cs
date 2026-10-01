@@ -10,6 +10,7 @@ public sealed record SessionListItem(
     int OffRosterSubmittedCount = 0, int OffRosterInProgressCount = 0);
 
 public sealed record SessionHistoryPage(IReadOnlyList<SessionListItem> Items, int Page, int PageSize, int TotalCount);
+public sealed record SessionGradeSectionOption(string Course, string Division, string? Shift);
 
 public sealed record LocalSchoolListItem(string Code, string Name, bool HasReadyRoster);
 public sealed record LocalSchoolWithAttempts(string Code, string Name, long SubmittedAttemptCount, string LastSubmittedAt);
@@ -28,7 +29,9 @@ public interface ISessionRepository
 
     Task<IReadOnlyList<SessionListItem>> GetActiveSummariesAsync(string? schoolCode, CancellationToken cancellationToken = default);
 
-    Task<SessionHistoryPage> GetHistoryAsync(string? schoolCode, string? status, string? query, int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<SessionHistoryPage> GetHistoryAsync(string? schoolCode, string? status, string? course, string? division, string? query, int page, int pageSize, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<SessionGradeSectionOption>> GetHistoryGradeSectionsAsync(CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<LocalSchoolListItem>> GetSchoolsAsync(CancellationToken cancellationToken = default);
 

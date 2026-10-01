@@ -21,15 +21,18 @@ public static class SessionEndpoints
             return Results.Ok(sessions);
         });
 
-        group.MapGet("/history", async (string? schoolCode, string? status, string? q, int? page, int? pageSize,
+        group.MapGet("/history", async (string? schoolCode, string? status, string? course, string? division, string? q, int? page, int? pageSize,
             ISessionRepository repository, CancellationToken cancellationToken) =>
         {
             if (!string.IsNullOrWhiteSpace(status) && status.Trim().ToLowerInvariant() is not ("active" or "paused" or "closed" or "abierta" or "pausada" or "cerrada"))
                 return Results.BadRequest(new { error = "El estado de sesión no es válido." });
             var currentPage = Math.Max(1, page ?? 1);
             var currentPageSize = Math.Clamp(pageSize ?? 20, 1, 100);
-            return Results.Ok(await repository.GetHistoryAsync(schoolCode, status, q, currentPage, currentPageSize, cancellationToken));
+            return Results.Ok(await repository.GetHistoryAsync(schoolCode, status, course, division, q, currentPage, currentPageSize, cancellationToken));
         });
+
+        group.MapGet("/history/filters", async (ISessionRepository repository, CancellationToken cancellationToken) =>
+            Results.Ok(await repository.GetHistoryGradeSectionsAsync(cancellationToken)));
 
         endpoints.MapGet("/api/schools", async (bool? withAttempts, ISessionRepository repository, CancellationToken cancellationToken) =>
             withAttempts == true

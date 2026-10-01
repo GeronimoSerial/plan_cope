@@ -114,13 +114,13 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         return rows.Select(ToListItem).ToList();
     }
 
-    public async Task<SessionHistoryPage> GetHistoryAsync(string? schoolCode, string? status, string? query, int page, int pageSize, CancellationToken cancellationToken = default)
+    public async Task<SessionHistoryPage> GetHistoryAsync(string? schoolCode, string? status, string? course, string? division, string? query, int page, int pageSize, CancellationToken cancellationToken = default)
     {
         var searchTokens = LocalSearchText.TokenizeQuery(query);
         var parameters = new DynamicParameters();
         parameters.Add("PageSize", pageSize);
         parameters.Add("Offset", (page - 1) * pageSize);
-        var filterPredicate = BuildHistoryFilterPredicate(schoolCode, status, parameters);
+        var filterPredicate = BuildHistoryFilterPredicate(schoolCode, status, course, division, parameters);
         var searchPredicate = BuildHistorySearchPredicate(searchTokens, parameters);
 
         var sql = $"""
@@ -168,6 +168,18 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         var totalCount = await results.ReadSingleAsync<int>();
         var rows = (await results.ReadAsync<SessionListRow>()).ToList();
         return new SessionHistoryPage(rows.Select(ToListItem).ToList(), page, pageSize, totalCount);
+    }
+
+    public async Task<IReadOnlyList<SessionGradeSectionOption>> GetHistoryGradeSectionsAsync(CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateOpenConnection();
+        return (await connection.QueryAsync<SessionGradeSectionOption>(new CommandDefinition("""
+            SELECT DISTINCT section.course AS Course, section.division AS Division, section.shift AS Shift
+            FROM delivery_sessions s
+            JOIN local_roster_sections section ON section.id = s.roster_section_id AND section.snapshot_id = s.roster_snapshot_id
+            WHERE NULLIF(TRIM(section.course), '') IS NOT NULL AND NULLIF(TRIM(section.division), '') IS NOT NULL
+            ORDER BY section.course, section.division, section.shift
+            """, cancellationToken: cancellationToken))).ToList();
     }
 
     public async Task<IReadOnlyList<LocalSchoolListItem>> GetSchoolsAsync(CancellationToken cancellationToken = default)
@@ -266,9 +278,9 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         return $"AND ({string.Join(" AND ", conditions)})";
     }
 
-    private static string BuildHistoryFilterPredicate(string? schoolCode, string? status, DynamicParameters parameters)
+    private static string BuildHistoryFilterPredicate(string? schoolCode, string? status, string? course, string? division, DynamicParameters parameters)
     {
-        var conditions = new List<string>(2);
+        var conditions = new List<string>(4);
         var normalizedSchoolCode = NormalizeOptionalCue(schoolCode);
         if (normalizedSchoolCode is not null)
         {
@@ -280,6 +292,16 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         {
             parameters.Add("Status", normalizedStatus);
             conditions.Add("s.status = @Status");
+        }
+        if (!string.IsNullOrWhiteSpace(course))
+        {
+            parameters.Add("Course", course.Trim());
+            conditions.Add("COALESCE(section.course, json_extract(ev.metadata_json, '$.grade')) = @Course");
+        }
+        if (!string.IsNullOrWhiteSpace(division))
+        {
+            parameters.Add("Division", division.Trim());
+            conditions.Add("COALESCE(section.division, json_extract(ev.metadata_json, '$.division')) = @Division");
         }
         return conditions.Count == 0 ? "" : $"AND {string.Join(" AND ", conditions)}";
     }
@@ -339,6 +361,8 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
             WITH session_context AS (
                 SELECT
                     s.id AS session_id,
+                    s.school_code AS school_code,
+                    COALESCE(NULLIF(sc.name, ''), NULLIF(rs.school_name, ''), 'CUE ' || s.school_code) AS school_name,
                     s.access_code,
                     s.expected_student_count,
                     s.roster_snapshot_id,
@@ -363,6 +387,8 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
                      WHERE a.delivery_session_id = s.id AND r.status = 'graded' AND r.score_max > 0) AS average_score_percent
                 FROM delivery_sessions s
                 LEFT JOIN local_exam_versions ev ON ev.id = s.exam_version_id
+                LEFT JOIN schools sc ON sc.cue = s.school_code
+                LEFT JOIN local_roster_snapshots rs ON rs.id = s.roster_snapshot_id
                 LEFT JOIN local_roster_sections section
                     ON section.id = s.roster_section_id AND section.snapshot_id = s.roster_snapshot_id
                 WHERE s.id = @IdOrAccessCode OR s.access_code = @AccessCode
@@ -481,7 +507,10 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
             first.AverageScorePercent,
             first.RosterSnapshotId is not null && first.RosterSectionId is not null,
             checked((int)first.OffRosterSubmittedCount),
-            checked((int)first.OffRosterInProgressCount));
+            checked((int)first.OffRosterInProgressCount),
+            first.SchoolCode,
+            first.SchoolName,
+            GradeLabelFormatter.Format(course, division, first.Shift));
     }
 
     public async Task UpdateStatusAsync(string id, string status, string? endAt = null, CancellationToken cancellationToken = default)
@@ -580,6 +609,8 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
     private sealed class LocalSessionProgressRow
     {
         public string SessionId { get; init; } = string.Empty;
+        public string? SchoolCode { get; init; }
+        public string? SchoolName { get; init; }
         public string AccessCode { get; init; } = string.Empty;
         public long ExpectedStudentCount { get; init; }
         public string? RosterSnapshotId { get; init; }

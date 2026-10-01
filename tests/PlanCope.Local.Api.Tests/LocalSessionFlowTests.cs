@@ -51,6 +51,10 @@ public sealed class LocalSessionFlowTests
         Assert.Equal("section-a", activeItem.GetProperty("rosterSectionId").GetString());
         Assert.Equal(0, activeItem.GetProperty("submittedCount").GetInt32());
         Assert.Equal(1, activeItem.GetProperty("inProgressCount").GetInt32());
+        var progress = await client.GetFromJsonAsync<JsonElement>($"/api/sessions/{open.Id}/progress");
+        Assert.Equal("180055400", progress.GetProperty("schoolCode").GetString());
+        Assert.Equal("Escuela Norte", progress.GetProperty("schoolName").GetString());
+        Assert.Equal("6° A · Turno mañana", progress.GetProperty("gradeLabelWithShift").GetString());
 
         var page = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history?page=1&pageSize=1");
         Assert.Equal(2, page.GetProperty("totalCount").GetInt32());
@@ -61,6 +65,12 @@ public sealed class LocalSessionFlowTests
         var filtered = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history?schoolCode=180055400&status=active");
         Assert.Equal(1, filtered.GetProperty("totalCount").GetInt32());
         Assert.Equal(open.Id, filtered.GetProperty("items")[0].GetProperty("id").GetString());
+        var gradeSectionFiltered = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history?course=6%C2%BA&division=A&pageSize=1");
+        Assert.Equal(1, gradeSectionFiltered.GetProperty("totalCount").GetInt32());
+        Assert.Equal(open.Id, gradeSectionFiltered.GetProperty("items")[0].GetProperty("id").GetString());
+        var gradeOptions = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history/filters");
+        Assert.Contains(gradeOptions.EnumerateArray(), option => option.GetProperty("course").GetString() == "6º"
+            && option.GetProperty("division").GetString() == "A");
 
         factory.SetSchoolName("180055400", "Escuela N° 123 \"Dr. Juan PÚJOL\"");
         factory.SetSchoolName("180055401", "Escuela N° 123 \"Dr. Juan PÚJOL\"");

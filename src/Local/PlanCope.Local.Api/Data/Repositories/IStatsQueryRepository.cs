@@ -56,7 +56,8 @@ public sealed record StatsReportDataDto(
     int DeliveredExamCount,
     int ExpectedStudentCount);
 
-public sealed record StatsFilterOptionsDto(IReadOnlyList<string> SchoolYears, IReadOnlyList<string> Courses, IReadOnlyList<ExamFilterOptionDto> Exams);
+public sealed record StatsFilterSectionOption(string Course, string Division, string? Shift);
+public sealed record StatsFilterOptionsDto(IReadOnlyList<string> SchoolYears, IReadOnlyList<string> Courses, IReadOnlyList<ExamFilterOptionDto> Exams, IReadOnlyList<StatsFilterSectionOption>? Sections = null);
 public sealed class ExamFilterOptionDto
 {
     public string ExamVersionId { get; set; } = string.Empty;

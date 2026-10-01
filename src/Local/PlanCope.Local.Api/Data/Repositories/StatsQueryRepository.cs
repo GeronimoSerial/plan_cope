@@ -296,12 +296,21 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
         var courses = (await connection.QueryAsync<string>(new CommandDefinition(
             "SELECT DISTINCT course FROM stats_rollups WHERE cue = @Cue ORDER BY course",
             new { Cue = cue }, cancellationToken: cancellationToken))).ToList();
+        var sections = (await connection.QueryAsync<StatsFilterSectionOption>(new CommandDefinition("""
+            SELECT DISTINCT rs.course AS Course, rs.division AS Division, rs.shift AS Shift
+            FROM delivery_sessions ds
+            JOIN local_roster_sections rs ON rs.id = ds.roster_section_id AND rs.snapshot_id = ds.roster_snapshot_id
+            JOIN student_attempts a ON a.delivery_session_id = ds.id
+            WHERE ds.school_code = @Cue AND a.status = 'submitted' AND a.submitted_at IS NOT NULL
+              AND NULLIF(TRIM(rs.course), '') IS NOT NULL AND NULLIF(TRIM(rs.division), '') IS NOT NULL
+            ORDER BY rs.course, rs.division, rs.shift
+            """, new { Cue = cue }, cancellationToken: cancellationToken))).ToList();
         var exams = (await connection.QueryAsync<ExamFilterOptionDto>(new CommandDefinition(@"
             SELECT DISTINCT ev.id AS ExamVersionId, ev.exam_code AS ExamCode, ev.version_number AS VersionNumber
             FROM delivery_sessions ds JOIN local_exam_versions ev ON ev.id = ds.exam_version_id
             WHERE ds.school_code = @Cue ORDER BY ev.exam_code, ev.version_number",
             new { Cue = cue }, cancellationToken: cancellationToken))).ToList();
-        return new StatsFilterOptionsDto(years, courses, exams);
+        return new StatsFilterOptionsDto(years, courses, exams, sections);
     }
 
     private static DateTimeOffset? ParseDate(string? value) =>
