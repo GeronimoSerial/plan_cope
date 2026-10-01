@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 type FieldProps = {
   label: string;
@@ -28,6 +28,9 @@ type SelectOption = {
   value: string;
   label: string;
 };
+
+export type ComboboxOption = { value: string; label: string; description?: string };
+type SearchableComboboxProps = { options: ComboboxOption[]; value: string; onChange: (value: string) => void; placeholder?: string; label: string; id?: string };
 
 type SelectInputProps = {
   value: string;
@@ -95,6 +98,76 @@ export function SelectInput({ value, options, emptyLabel = "Todos", onChange }: 
       ))}
     </select>
   );
+}
+
+function normalizeSearch(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("es")
+    .replace(/[°º.\-_/,"'“”‘’]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function tokenizeSearch(value: string) {
+  return normalizeSearch(value).split(" ").filter(token => token.length >= 2 || /^\d+$/.test(token)).slice(0, 6);
+}
+
+export function SearchableCombobox({ options, value, onChange, placeholder, label, id }: SearchableComboboxProps) {
+  const generatedId = useId();
+  const inputId = id ?? `${generatedId}-input`;
+  const listId = `${inputId}-listbox`;
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const selected = options.find(option => option.value === value);
+  const queryTokens = tokenizeSearch(query.slice(0, 100));
+  const filtered = useMemo(() => options.map((option, index) => {
+    const normalized = normalizeSearch(`${option.label} ${option.description ?? ""}`);
+    const words = normalized.split(" ");
+    const matched = queryTokens.every(token => normalized.includes(token));
+    const rank = !queryTokens.length || !matched ? 0 : queryTokens.reduce((score, token) => score + (words.includes(token) ? 0 : words.some(word => word.startsWith(token)) ? 1 : 2), 0);
+    return { option, index, normalized, matched, rank };
+  }).filter(item => item.matched).sort((left, right) => left.rank - right.rank || left.index - right.index).map(item => item.option), [options, queryTokens.join(" ")]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => { if (!rootRef.current?.contains(event.target as Node)) setOpen(false); };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [open]);
+
+  useEffect(() => {
+    if (open && activeIndex >= 0) {
+      document.getElementById(`${listId}-option-${activeIndex}`)?.scrollIntoView?.({ block: "nearest" });
+    }
+  }, [activeIndex, listId, open]);
+
+  const choose = (option: ComboboxOption) => { onChange(option.value); setQuery(""); setOpen(false); setActiveIndex(-1); };
+  const openSuggestions = () => {
+    if (!open) { setQuery(""); setActiveIndex(-1); }
+    setOpen(true);
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault(); setOpen(true);
+      setActiveIndex(current => filtered.length ? (current + (event.key === "ArrowDown" ? 1 : -1) + filtered.length) % filtered.length : -1);
+    } else if (event.key === "Enter" && open && activeIndex >= 0 && filtered[activeIndex]) {
+      event.preventDefault(); choose(filtered[activeIndex]);
+    } else if (event.key === "Escape") { setOpen(false); setQuery(""); setActiveIndex(-1); }
+    else if (event.key === "Tab") { setOpen(false); setQuery(""); setActiveIndex(-1); }
+  };
+
+  return <div className="searchable-combobox" ref={rootRef}>
+    <label className="searchable-combobox-label" htmlFor={inputId}>{label}</label>
+    <input id={inputId} className="control" role="combobox" aria-autocomplete="list" aria-expanded={open} aria-controls={listId}
+      aria-activedescendant={open && activeIndex >= 0 ? `${listId}-option-${activeIndex}` : undefined}
+      value={open ? query : selected?.label ?? ""} placeholder={placeholder} maxLength={100} onFocus={openSuggestions} onClick={openSuggestions}
+      onChange={event => { setQuery(event.target.value); setActiveIndex(-1); setOpen(true); }} onKeyDown={onKeyDown} />
+    {open && <ul id={listId} className="searchable-combobox-list" role="listbox" aria-label={label}>
+      {filtered.length ? filtered.map((option, index) => <li id={`${listId}-option-${index}`} className={`searchable-combobox-option${index === activeIndex ? " is-active" : ""}`} key={option.value}
+        role="option" aria-selected={option.value === value} onMouseDown={event => event.preventDefault()} onClick={() => choose(option)}>
+        <strong>{option.label}</strong>{option.description && <span>{option.description}</span>}
+      </li>) : <li className="searchable-combobox-empty" role="presentation">Sin resultados</li>}
+    </ul>}
+  </div>;
 }
 
 export function ActionButton({ children, disabled, variant = "primary", onClick }: ButtonProps) {

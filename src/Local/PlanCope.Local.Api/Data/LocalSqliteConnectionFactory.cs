@@ -8,6 +8,8 @@ public sealed class LocalSqliteConnectionFactory(LocalDatabaseOptions options) :
     {
         var connection = new SqliteConnection(options.ConnectionString);
         connection.Open();
+        connection.CreateFunction<string?, string?>("fold_text", LocalSearchText.Fold, isDeterministic: true);
+        connection.CreateFunction<string?, string?, string?, string?>("grade_search", LocalSearchText.Grade, isDeterministic: true);
 
         using var command = connection.CreateCommand();
         command.CommandText = """

@@ -18,7 +18,7 @@ const session = (id: string, schoolCode: string, schoolName: string): LocalSessi
 describe("SessionsWorkspace", () => {
   let root: Root | undefined;
   let container: HTMLDivElement | undefined;
-  afterEach(() => { if (root) act(() => root?.unmount()); root = undefined; container?.remove(); container = undefined; vi.restoreAllMocks(); });
+  afterEach(() => { if (root) act(() => root?.unmount()); root = undefined; container?.remove(); container = undefined; vi.useRealTimers(); vi.restoreAllMocks(); });
 
   it("shows multiple node sessions before a school is selected and waits for an explicit selection", () => {
     const state = delivery([session("a", "180055400", "Escuela Norte"), { ...session("b", "180055401", "Escuela Sur"), offRosterSubmittedCount: 1 }]);
@@ -49,13 +49,19 @@ describe("SessionsWorkspace", () => {
     expect(state.sessionForm.updateForm).toHaveBeenCalledWith("cue", "");
   });
 
-  it("asks for a CUE and reaches session creation for a ready roster", () => {
+  it("searches ready schools and reaches session creation after selection", () => {
     const state = delivery([]);
     const view = render(state);
     act(() => button(view, "Nueva sesión").click());
-    expect(view.textContent).toContain("Escuela Norte");
-    expect(view.textContent).toContain("Elegir");
-    expect(view.querySelector(".school-choice")).not.toBeNull();
+    const schoolInput = view.querySelector<HTMLInputElement>('#new-session-school[role="combobox"]')!;
+    expect(schoolInput).not.toBeNull();
+    act(() => { schoolInput.focus(); setInputValue(schoolInput, "norte"); });
+    expect(view.querySelectorAll('[role="option"]')).toHaveLength(1);
+    act(() => view.querySelector<HTMLElement>('[role="option"]')!.click());
+    expect(view.textContent).toContain("CUE 180055400");
+    act(() => button(view, "Continuar").click());
+    expect(state.sessionForm.updateForm).toHaveBeenCalledWith("cue", "180055400");
+    act(() => button(view, "Volver").click());
     act(() => button(view, "Ingresar otro CUE").click());
     expect(view.querySelector('input[maxlength="9"]')).not.toBeNull();
     expect(view.textContent).toContain("Ingresar otro CUE");
@@ -73,6 +79,36 @@ describe("SessionsWorkspace", () => {
     expect(state.createSession).toHaveBeenCalledOnce();
   });
 
+  it("refreshes the local catalog on focus and every minute while the session form is open", async () => {
+    vi.useFakeTimers();
+    const state = delivery([]);
+    const reloadExamsSilently = vi.fn();
+    state.examCatalog.reloadExamsSilently = reloadExamsSilently;
+    const view = render(state);
+
+    act(() => button(view, "Nueva sesión").click());
+    act(() => button(view, "Ingresar otro CUE").click());
+    Object.assign(state.sessionForm.form, { cue: "180055402" });
+    Object.assign(state.roster, {
+      snapshot: { id: "snapshot", cue: "180055402", schoolYear: "2026", fetchedAt: "2026-10-01", checksum: "hash", sectionCount: 1, studentCount: 1, status: "ready" },
+      sections: [{ id: "section", snapshotId: "snapshot", course: "6", division: "A", studentCount: 1 }],
+      selectedSectionId: "section"
+    });
+    act(() => root?.render(<SessionsWorkspace delivery={state} apiBaseUrl="http://local" tab="home" expiryPending={false} onStats={() => undefined} onReturnHome={() => undefined} />));
+    act(() => button(view, "Continuar").click());
+
+    expect(reloadExamsSilently).toHaveBeenCalledTimes(1);
+    act(() => window.dispatchEvent(new Event("focus")));
+    expect(reloadExamsSilently).toHaveBeenCalledTimes(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(reloadExamsSilently).toHaveBeenCalledTimes(3);
+
+    act(() => button(view, "Volver").click());
+    act(() => window.dispatchEvent(new Event("focus")));
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(reloadExamsSilently).toHaveBeenCalledTimes(3);
+  });
+
   it("loads node history and applies school and status filters", async () => {
     const historySession = { ...session("closed", "180055400", "Escuela Norte"), status: "closed", endAt: "2026-10-01T10:35:00Z", offRosterSubmittedCount: 1 };
     const historyLoader = vi.spyOn(ApiClient.prototype, "getSessionHistory").mockResolvedValue({ items: [historySession], page: 1, pageSize: 20, totalCount: 1 });
@@ -82,10 +118,36 @@ describe("SessionsWorkspace", () => {
     expect(view.querySelector(".badge-neutral")?.textContent).toBe("Cerrada");
     expect(view.querySelector("td small")?.textContent).toMatch(/\d+ h \d+ min · hasta \d{2}:\d{2}/);
     expect(view.querySelectorAll("tbody tr td")[5].textContent).toBe("4/20+1 fuera de padrón");
-    const selects = view.querySelectorAll("select");
-    act(() => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(selects[0], "180055400"); selects[0].dispatchEvent(new Event("change", { bubbles: true })); });
+    const schoolPicker = view.querySelector<HTMLInputElement>('#history-school[role="combobox"]')!;
+    act(() => schoolPicker.focus());
+    act(() => view.querySelectorAll<HTMLElement>('[role="option"]')[1].click());
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    expect(historyLoader).toHaveBeenLastCalledWith({ schoolCode: "180055400", status: "", page: 1, pageSize: 20 }, expect.any(AbortSignal));
+    expect(historyLoader).toHaveBeenLastCalledWith({ schoolCode: "180055400", status: "", q: "", page: 1, pageSize: 20 }, expect.any(AbortSignal));
+  });
+
+  it("debounces history search and resets pagination to the first page", async () => {
+    vi.useFakeTimers();
+    const historySession = session("history-result", "180055400", "Escuela Norte");
+    let finishSearch: ((page: { items: LocalSession[]; page: number; pageSize: number; totalCount: number }) => void) | undefined;
+    const historyLoader = vi.spyOn(ApiClient.prototype, "getSessionHistory").mockImplementation(filters => filters.q
+      ? new Promise(resolve => { finishSearch = resolve; })
+      : Promise.resolve({ items: [historySession], page: filters.page ?? 1, pageSize: 20, totalCount: 40 }));
+    const view = render(delivery([]), "history");
+    await act(async () => { for (let index = 0; index < 8; index++) await Promise.resolve(); });
+    expect(button(view, "Siguiente").disabled).toBe(false);
+    const initialRequestSignal = historyLoader.mock.calls[0][1];
+    act(() => button(view, "Siguiente").click());
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(initialRequestSignal?.aborted).toBe(true);
+    expect(historyLoader).toHaveBeenLastCalledWith({ schoolCode: "", status: "", q: "", page: 2, pageSize: 20 }, expect.any(AbortSignal));
+    const search = view.querySelector<HTMLInputElement>("#history-search")!;
+    act(() => setInputValue(search, "Álamo"));
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    expect(historyLoader).toHaveBeenLastCalledWith({ schoolCode: "", status: "", q: "Álamo", page: 1, pageSize: 20 }, expect.any(AbortSignal));
+    await act(async () => { await Promise.resolve(); });
+    expect(view.textContent).toContain("Buscando…");
+    expect(view.querySelectorAll("tbody tr")).toHaveLength(1);
+    await act(async () => finishSearch?.({ items: [], page: 1, pageSize: 20, totalCount: 0 }));
   });
 
   function render(state: DeliverySessionState, tab: "home" | "history" = "home") {
@@ -101,9 +163,14 @@ function button(view: HTMLElement, label: string): HTMLButtonElement {
   return found;
 }
 
+function setInputValue(input: HTMLInputElement, value: string) {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 function delivery(sessions: LocalSession[]): DeliverySessionState {
   const state = {
-    examCatalog: { exams: [], isLoadingExams: false, selectedExamId: "", setSelectedExamId: vi.fn(), loadExams: vi.fn() },
+    examCatalog: { exams: [], isLoadingExams: false, selectedExamId: "", setSelectedExamId: vi.fn(), loadExams: vi.fn(), reloadExamsSilently: vi.fn() },
     syncPull: { isPulling: false, message: null, lastPullAt: null, pullExamsNow: vi.fn() },
     roster: { snapshot: null, sections: [], selectedSectionId: "", setSelectedSectionId: vi.fn(), isLoading: false, error: null },
     sessionForm: { form: { cue: "", classroomCode: "", commissionCode: "", operatorName: "Docente", expectedStudentCount: 0 }, formErrors: {}, schoolName: "", updateForm: vi.fn() },
