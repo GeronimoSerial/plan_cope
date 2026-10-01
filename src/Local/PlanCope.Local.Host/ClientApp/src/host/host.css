@@ -461,6 +461,37 @@
   overflow-wrap: anywhere;
 }
 
+.update-prompt-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(18 30 28 / 42%);
+}
+
+.update-prompt {
+  width: min(100%, 440px);
+  padding: 24px;
+  border-radius: 12px;
+  background: var(--surface, #fff);
+  box-shadow: 0 18px 56px rgb(0 0 0 / 20%);
+}
+
+.update-prompt h2 {
+  margin: 0;
+  color: var(--text, #26332f);
+  font-size: 19px;
+}
+
+.update-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+}
+
 .builder-page {
   grid-column: 1 / -1;
   display: grid;

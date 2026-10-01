@@ -76,6 +76,55 @@ public sealed class GitHubReleaseInstallerStorage(
         return new InstallerDownload(response, stream, contentType, found.Value.AssetName, contentLength);
     }
 
+    public async Task<InstallerDownload?> GetAssetDownloadAsync(string assetName, CancellationToken cancellationToken)
+    {
+        if (!IsConfigured) return null;
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"repos/{options.Value.Repo}/releases?per_page=100");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.Value.Token);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        using var releasesResponse = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!releasesResponse.IsSuccessStatusCode) return null;
+
+        using var document = JsonDocument.Parse(await releasesResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+        Uri? assetUrl = null;
+        foreach (var release in document.RootElement.EnumerateArray())
+        {
+            if (!release.TryGetProperty("assets", out var assets) || assets.ValueKind != JsonValueKind.Array) continue;
+            foreach (var asset in assets.EnumerateArray())
+            {
+                if (asset.TryGetProperty("name", out var name) &&
+                    string.Equals(name.GetString(), assetName, StringComparison.Ordinal) &&
+                    asset.TryGetProperty("url", out var url) &&
+                    Uri.TryCreate(url.GetString(), UriKind.Absolute, out var parsedUrl))
+                {
+                    assetUrl = parsedUrl;
+                    break;
+                }
+            }
+            if (assetUrl is not null) break;
+        }
+
+        if (assetUrl is null) return null;
+        using var assetRequest = new HttpRequestMessage(HttpMethod.Get, assetUrl);
+        assetRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.Value.Token);
+        assetRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
+        var response = await httpClient.SendAsync(assetRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            response.Dispose();
+            return null;
+        }
+
+        var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        return new InstallerDownload(
+            response,
+            stream,
+            response.Content.Headers.ContentType?.ToString() ?? "application/octet-stream",
+            assetName,
+            response.Content.Headers.ContentLength);
+    }
+
     private async Task<FoundAsset?> FindLatestAssetAsync(string channel, CancellationToken cancellationToken)
     {
         if (!IsConfigured)

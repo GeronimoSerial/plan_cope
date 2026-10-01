@@ -19,6 +19,8 @@ public interface IInstallerStorage
     /// carries the encrypted roster bundle). The caller owns and must dispose the result.
     /// </summary>
     Task<InstallerDownload?> GetLatestDownloadAsync(string channel, CancellationToken cancellationToken);
+
+    Task<InstallerDownload?> GetAssetDownloadAsync(string assetName, CancellationToken cancellationToken);
 }
 
 public sealed record InstallerReference(string Version, string Channel, Uri DownloadUrl, string Sha256, DateTimeOffset PublishedAt);

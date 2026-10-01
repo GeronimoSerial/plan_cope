@@ -21,4 +21,10 @@ public sealed class NotConfiguredInstallerStorage(ILogger<NotConfiguredInstaller
         logger.LogWarning("Installer repo/token is not configured — set PLANCOPE_PRIVATE_INSTALLER_REPO / INSTALLER_REPO_TOKEN.");
         return Task.FromResult<InstallerDownload?>(null);
     }
+
+    public Task<InstallerDownload?> GetAssetDownloadAsync(string assetName, CancellationToken cancellationToken)
+    {
+        logger.LogWarning("Installer repo/token is not configured — set PLANCOPE_PRIVATE_INSTALLER_REPO / INSTALLER_REPO_TOKEN.");
+        return Task.FromResult<InstallerDownload?>(null);
+    }
 }
