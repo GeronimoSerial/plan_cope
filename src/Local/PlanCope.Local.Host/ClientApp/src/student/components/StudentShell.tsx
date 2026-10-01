@@ -13,7 +13,10 @@ export function StudentShell({ children }: StudentShellProps) {
         </div>
         <div className="student-signature">
           <img src="/static/logo-educacion-h.svg" alt="Gobierno de Corrientes - Ministerio de Educacion" />
-          <p>Plan COPE <span aria-hidden="true">·</span> Evaluación</p>
+          <div className="student-brand-copy">
+            <h1>Plan COPE</h1>
+            <p>Evaluación</p>
+          </div>
         </div>
       </header>
       <div className="student-content">{children}</div>

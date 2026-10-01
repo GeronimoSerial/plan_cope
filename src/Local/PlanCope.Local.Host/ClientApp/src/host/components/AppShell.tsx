@@ -40,7 +40,7 @@ export function AppShell({ status, apiBaseUrl, appVersion, activeSessionGradeLab
         </div>
         <div className="app-nav-band">
           <div className="app-nav-inner">
-            <a className="app-brand" href="#inicio" aria-label="Plan COPE, inicio">Plan COPE</a>
+            <h1 className="app-brand">Plan COPE</h1>
             <nav className="mode-tabs" aria-label="Secciones principales">
               {tabs.map(tab => (
                 <button
@@ -73,10 +73,10 @@ export function AppShell({ status, apiBaseUrl, appVersion, activeSessionGradeLab
       {activeSessionGradeLabel && <p className="topbar-session-grade">Sesión activa · {activeSessionGradeLabel}</p>}
       <main className="app-content">
         <div className="workspace">{children}</div>
-        <footer className="footer">
-          <span className="footer-status" role="status" aria-live="polite">{status}</span>
-        </footer>
       </main>
+      <footer className="footer">
+        <span className="footer-status" role="status" aria-live="polite">{status}</span>
+      </footer>
     </div>
   );
 }

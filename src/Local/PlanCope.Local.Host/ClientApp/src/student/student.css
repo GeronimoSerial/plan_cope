@@ -735,14 +735,15 @@
   padding: 0 var(--gutter);
 }
 .student-signature img { display: block; width: auto; height: 48px; max-width: min(72vw, 340px); }
-.student-signature p { margin: 0 0 0 auto; color: var(--ink-soft); font-size: var(--t-small); font-weight: 600; }
-.student-signature p span { padding: 0 var(--s-1); color: var(--yellow-dark); }
+.student-brand-copy { margin-left: auto; text-align: right; }
+.student-brand-copy h1 { margin: 0; color: var(--ink); font-family: var(--font-display); font-size: 1.25rem; font-weight: 800; line-height: 1; text-transform: uppercase; }
+.student-brand-copy p { margin: var(--s-1) 0 0; color: var(--ink-soft); font-size: var(--t-micro); font-weight: 600; }
 .student-content { max-width: var(--measure); padding: var(--s-6) var(--gutter); }
 
 @media (max-width: 620px) {
   .student-signature { min-height: 62px; padding: 0 var(--s-4); }
   .student-signature img { height: 40px; }
-  .student-signature p { font-size: var(--t-micro); }
+  .student-brand-copy h1 { font-size: 1.125rem; }
   .student-content { padding: var(--s-5) var(--s-4); }
 }
 .student-session-notice {

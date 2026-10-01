@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 
 type FieldProps = {
   label: string;
@@ -127,7 +127,8 @@ export function DataTable({ children, label }: { children: ReactNode; label?: st
 }
 
 export function Dialog({ children, title, actions, labelledBy }: { children: ReactNode; title: string; actions?: ReactNode; labelledBy?: string }) {
-  const titleId = labelledBy ?? "shared-dialog-title";
+  const generatedId = useId();
+  const titleId = labelledBy ?? `${generatedId}-title`;
   return (
     <div className="dialog-backdrop">
       <section className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>

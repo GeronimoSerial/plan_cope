@@ -135,7 +135,7 @@
   --measure: 1440px;
   --gutter: clamp(1.25rem, 4vw, 3rem);
   --header-h: 153px;
-  --focus-ring: #facd05;
+  --focus-ring: var(--ink);
 
   /* Compatibility aliases used by the existing teacher and student screens. */
   --canvas: var(--page);
@@ -180,6 +180,9 @@ button, input, select, textarea { font: inherit; }
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
+.app-nav-band :focus-visible,
+.footer :focus-visible,
+.button-danger:focus-visible { outline-color: var(--yellow); }
 
 ::selection { background: var(--marker); color: var(--ink); }
 
