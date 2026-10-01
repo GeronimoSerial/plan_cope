@@ -13,7 +13,9 @@ public sealed class UpdatePackagesController(IInstallerStorage installerStorage)
     public async Task<IActionResult> Download(string fileName, CancellationToken cancellationToken)
     {
         if (!NodeAccessAuth.TryGetNodeId(User, out _)) return Forbid();
-        if (!fileName.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase) ||
+        if (!fileName.StartsWith("PlanCope.Local.Host-", StringComparison.Ordinal) ||
+            !(fileName.EndsWith("-full.nupkg", StringComparison.OrdinalIgnoreCase) ||
+              fileName.EndsWith("-delta.nupkg", StringComparison.OrdinalIgnoreCase)) ||
             fileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
             fileName.Contains('/') || fileName.Contains('\\'))
         {

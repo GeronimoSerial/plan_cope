@@ -29,6 +29,7 @@ public sealed class UpdatePackagesControllerTests
     [Theory]
     [InlineData("../package.nupkg")]
     [InlineData("package.exe")]
+    [InlineData("OtherPackage-2.0.0-full.nupkg")]
     public async Task Download_RejectsPathsAndNonPackages(string fileName)
     {
         var storage = new StubInstallerStorage();
