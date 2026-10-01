@@ -6,7 +6,7 @@ The default update feed is `Central:BaseUrl` from the local API configuration pl
 
 ## Release assets and Central configuration
 
-The release workflow publishes each Velopack `.nupkg` and `releases.<channel>.json` beside the installer in the existing private GitHub release. Central reads `FileName`, `SHA256`, `Size`, and `Version` from that channel feed and streams package bytes from the matching published GitHub release. Central caches release/feed lookups for five minutes. Draft releases are ignored; stable only uses published stable releases, while beta only uses published prereleases. Package downloads require a valid node access token and must match the exact version currently authorized by the rollout gate.
+The release workflow publishes each Velopack `.nupkg` and `releases.<channel>.json` beside the installer in the existing private GitHub release. Central reads `FileName`, `SHA256`, `Size`, and `Version` from that channel feed and streams package bytes from the matching published GitHub release. Central caches successful release/feed lookups for five minutes and missing or failed lookups for 30 seconds. Draft releases are ignored; stable only uses published stable releases, while beta only uses published prereleases. Package downloads require a valid node access token and must match the exact version currently authorized by the rollout gate.
 
 Configure the Central API with the existing private release settings:
 
@@ -15,6 +15,6 @@ Configure the Central API with the existing private release settings:
 
 The release workflow also requires its existing `INSTALLER_REPO_TOKEN` secret and `PLANCOPE_PRIVATE_INSTALLER_REPO` Actions variable with write access for publishing. No new secret value is required.
 
-By default, the newest published release on each channel is offered to all enrolled nodes when that node's installed version is older. No release ring or manual SHA-256/URL entry is needed for ordinary releases. An optional release ring overrides the channel's target version and rollout policy for staged rollout or a hold; it only needs the version, channel, rollout mode, and optional percentage. The version must exist in the published channel feed. Central uses the feed metadata and gate decision to build the Velopack feed and validate the later package request.
+By default, the newest published stable release is offered to enrolled nodes when their installed version is older. No release ring or manual SHA-256/URL entry is needed for ordinary stable releases. Beta releases require an explicit beta release ring, which applies its rollout policy before Central offers the package. A release ring overrides the channel's target version and rollout policy for a staged rollout or hold; it only needs the version, channel, rollout mode, and optional percentage. The version must exist in the published channel feed. Central uses the feed metadata and gate decision to build the Velopack feed and validate the later package request.
 
 Installers already at version 1.0.8 cannot self-update into this implementation. Each such installation needs one manual install of the first release containing the updater changes; later releases can update in-app.

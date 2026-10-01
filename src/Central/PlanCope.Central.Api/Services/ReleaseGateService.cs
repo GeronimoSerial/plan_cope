@@ -23,7 +23,7 @@ public sealed class ReleaseGateService(PlanCopeDbContext dbContext) : IReleaseGa
             .AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == nodeId, cancellationToken);
 
-        if (node is null)
+        if (node is null || node.RevokedAt is not null)
         {
             return ReleaseGateDecision.None;
         }
@@ -36,7 +36,8 @@ public sealed class ReleaseGateService(PlanCopeDbContext dbContext) : IReleaseGa
 
         if (ring is null)
         {
-            return !string.IsNullOrWhiteSpace(latestPublishedVersion) &&
+            return channel.Equals("stable", StringComparison.OrdinalIgnoreCase) &&
+                   !string.IsNullOrWhiteSpace(latestPublishedVersion) &&
                    !string.Equals(latestPublishedVersion, currentVersion, StringComparison.Ordinal)
                 ? new ReleaseGateDecision(true, latestPublishedVersion)
                 : ReleaseGateDecision.None;

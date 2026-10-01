@@ -116,6 +116,35 @@ public sealed class ReleaseGateServiceTests
         Assert.Null(decision.TargetVersion);
     }
 
+    [Fact]
+    public async Task ResolveAsync_RevokedNodeGetsNothing()
+    {
+        using var dbContext = CreateDbContext();
+        var node = CreateNode() with { RevokedAt = DateTimeOffset.UtcNow };
+        dbContext.RegisteredNodes.Add(node);
+        dbContext.Set<ReleaseRing>().Add(CreateRing("stable", "AllEnrolled", null, "2.0.0"));
+        await dbContext.SaveChangesAsync();
+
+        var decision = await CreateService(dbContext).ResolveAsync(
+            node.Id, "1.0.0", "stable", "2.0.0", CancellationToken.None);
+
+        Assert.Equal(ReleaseGateDecision.None, decision);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_BetaWithoutExplicitRingGetsNothing()
+    {
+        using var dbContext = CreateDbContext();
+        var node = CreateNode();
+        dbContext.RegisteredNodes.Add(node);
+        await dbContext.SaveChangesAsync();
+
+        var decision = await CreateService(dbContext).ResolveAsync(
+            node.Id, "1.0.0", "beta", "2.0.0-beta.1", CancellationToken.None);
+
+        Assert.Equal(ReleaseGateDecision.None, decision);
+    }
+
     private static RegisteredNode CreateNode(string appVersion = "1.0.0")
     {
         var now = DateTimeOffset.UtcNow;

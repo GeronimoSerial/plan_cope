@@ -20,7 +20,7 @@ public sealed class UpdatePackagesControllerTests
         var storage = new StubInstallerStorage();
         var controller = CreateController(storage, new StubReleaseGateService(), tokenType: "access", nodeId: "node-1");
 
-        var result = await controller.Download("PlanCope.Local.Host-2.0.0-full.nupkg", CancellationToken.None);
+        var result = await controller.Download("stable__PlanCope.Local.Host-2.0.0-full.nupkg", CancellationToken.None);
 
         Assert.IsType<ForbidResult>(result);
         Assert.Null(storage.RequestedAssetName);
@@ -48,7 +48,7 @@ public sealed class UpdatePackagesControllerTests
         var gate = new StubReleaseGateService { Decision = new ReleaseGateDecision(true, "2.0.0") };
         var controller = CreateController(storage, gate, tokenType: "node_access", nodeId: "node-1");
 
-        var result = await controller.Download("PlanCope.Local.Host-2.0.0-full.nupkg", CancellationToken.None);
+        var result = await controller.Download("stable__PlanCope.Local.Host-2.0.0-full.nupkg", CancellationToken.None);
 
         Assert.IsType<EmptyResult>(result);
         Assert.Equal("PlanCope.Local.Host-2.0.0-full.nupkg", storage.RequestedAssetName);
@@ -66,7 +66,7 @@ public sealed class UpdatePackagesControllerTests
         var gate = new StubReleaseGateService { Decision = new ReleaseGateDecision(true, "3.0.0") };
         var controller = CreateController(storage, gate, tokenType: "node_access", nodeId: "node-1");
 
-        var result = await controller.Download("PlanCope.Local.Host-2.0.0-full.nupkg", CancellationToken.None);
+        var result = await controller.Download("stable__PlanCope.Local.Host-2.0.0-full.nupkg", CancellationToken.None);
 
         Assert.IsType<NotFoundResult>(result);
         Assert.Null(storage.RequestedAssetName);
@@ -79,10 +79,24 @@ public sealed class UpdatePackagesControllerTests
         var gate = new StubReleaseGateService { Decision = ReleaseGateDecision.None };
         var controller = CreateController(storage, gate, tokenType: "node_access", nodeId: "node-1");
 
-        var result = await controller.Download("PlanCope.Local.Host-2.0.0-full.nupkg", CancellationToken.None);
+        var result = await controller.Download("stable__PlanCope.Local.Host-2.0.0-full.nupkg", CancellationToken.None);
 
         Assert.IsType<NotFoundResult>(result);
         Assert.Null(storage.RequestedAssetName);
+    }
+
+    [Fact]
+    public async Task Download_RequiresAnExplicitChannelMarkerAndNeverFallsBackToBeta()
+    {
+        var storage = CreateConfiguredStorage();
+        var gate = new StubReleaseGateService { Decision = new ReleaseGateDecision(true, "2.0.0-beta.1") };
+        var controller = CreateController(storage, gate, tokenType: "node_access", nodeId: "node-1");
+
+        var result = await controller.Download("PlanCope.Local.Host-2.0.0-beta.1-full.nupkg", CancellationToken.None);
+
+        Assert.IsType<BadRequestResult>(result);
+        Assert.Null(storage.RequestedAssetName);
+        Assert.Null(gate.RequestedChannel);
     }
 
     private static UpdatePackagesController CreateController(StubInstallerStorage storage, StubReleaseGateService gate, string tokenType, string nodeId)

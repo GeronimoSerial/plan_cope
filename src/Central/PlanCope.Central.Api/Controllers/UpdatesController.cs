@@ -42,6 +42,12 @@ public sealed class UpdatesController(
             return Forbid();
         }
 
+        if (!channel.Equals("stable", StringComparison.OrdinalIgnoreCase) &&
+            !channel.Equals("beta", StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest();
+        }
+
         if (!updateStorage.IsConfigured)
         {
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = "Update storage is not configured." });
@@ -71,11 +77,14 @@ public sealed class UpdatesController(
             candidate.PackageId == PackageId && candidate.Type == 1 && candidate.Version == decision.TargetVersion);
         if (asset is null) return JsonBody("""{"Assets":[]}""");
 
+        // Velopack downloads packages from the feed base URL using FileName. Include the
+        // channel in that path component so the package endpoint can repeat the same gate
+        // decision without trusting a caller-supplied channel query parameter.
         return JsonBody(JsonSerializer.Serialize(new ReleaseFeedDto([new ReleaseAssetDto(
             asset.PackageId,
             asset.Version,
             asset.Type,
-            asset.FileName,
+            $"{channel.ToLowerInvariant()}__{asset.FileName}",
             asset.SHA1,
             asset.SHA256,
             asset.Size,

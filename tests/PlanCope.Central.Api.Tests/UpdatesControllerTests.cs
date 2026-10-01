@@ -111,7 +111,7 @@ public sealed class UpdatesControllerTests
         // deserialized round-trip — catches a nested-object "Version" regression, which would
         // still deserialize into some C# object.
         const string expected =
-            """{"Assets":[{"PackageId":"PlanCope.Local.Host","Version":"1.4.0","Type":1,"FileName":"PlanCope.Local.Host-1.4.0-full.nupkg","SHA1":"","SHA256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","Size":12345,"NotesMarkdown":null,"NotesHTML":null}]}""";
+            """{"Assets":[{"PackageId":"PlanCope.Local.Host","Version":"1.4.0","Type":1,"FileName":"stable__PlanCope.Local.Host-1.4.0-full.nupkg","SHA1":"","SHA256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","Size":12345,"NotesMarkdown":null,"NotesHTML":null}]}""";
         Assert.Equal(expected, content.Content);
 
         using var document = JsonDocument.Parse(content.Content!);
@@ -121,7 +121,7 @@ public sealed class UpdatesControllerTests
         Assert.Equal("1.4.0", version.GetString());
         Assert.Equal(JsonValueKind.Number, asset.GetProperty("Type").ValueKind);
         Assert.Equal(1, asset.GetProperty("Type").GetInt32());
-        Assert.Equal("PlanCope.Local.Host-1.4.0-full.nupkg", asset.GetProperty("FileName").GetString());
+        Assert.Equal("stable__PlanCope.Local.Host-1.4.0-full.nupkg", asset.GetProperty("FileName").GetString());
         Assert.Equal(new string('a', 64), asset.GetProperty("SHA256").GetString());
         Assert.Equal(string.Empty, asset.GetProperty("SHA1").GetString());
         Assert.Equal(12345, asset.GetProperty("Size").GetInt64());

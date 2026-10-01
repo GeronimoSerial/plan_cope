@@ -88,8 +88,9 @@ public sealed class GitHubReleaseInstallerStorage(
 
         return cache.GetOrCreateAsync($"update-feed:{channel.ToLowerInvariant()}", async entry =>
         {
-            entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
-            return await LoadUpdateReleaseFeedAsync(channel, cancellationToken).ConfigureAwait(false);
+            var feed = await LoadUpdateReleaseFeedAsync(channel, cancellationToken).ConfigureAwait(false);
+            entry.AbsoluteExpirationRelativeToNow = feed is null ? TimeSpan.FromSeconds(30) : TimeSpan.FromMinutes(5);
+            return feed;
         });
     }
 
@@ -111,8 +112,9 @@ public sealed class GitHubReleaseInstallerStorage(
         {
             var assetUrl = await cache.GetOrCreateAsync($"update-package:{channel.ToLowerInvariant()}:{version}:{fileName}", async entry =>
             {
-                entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
-                return await FindPublishedPackageAssetUrlAsync(channel, version, fileName, cancellationToken).ConfigureAwait(false);
+                var found = await FindPublishedPackageAssetUrlAsync(channel, version, fileName, cancellationToken).ConfigureAwait(false);
+                entry.AbsoluteExpirationRelativeToNow = found is null ? TimeSpan.FromSeconds(30) : TimeSpan.FromMinutes(5);
+                return found;
             }).ConfigureAwait(false);
             if (assetUrl is null) return null;
             return await DownloadAssetAsync(assetUrl, fileName, cancellationToken).ConfigureAwait(false);
