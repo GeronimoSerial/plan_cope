@@ -948,7 +948,7 @@ public sealed class ExamsController(
             asset.MimeType,
             asset.SizeBytes,
             asset.Checksum,
-            asset.StoragePath);
+            "database");
     }
 
     private static PublishedAssetDto ToPublishedDto(ExamAsset asset)

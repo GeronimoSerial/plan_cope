@@ -135,6 +135,7 @@ export interface ExamAsset {
   mimeType: string;
   sizeBytes: number;
   checksum: string;
+  /** Opaque storage marker. Image content is served by the asset endpoint. */
   storagePath: string;
 }
 
