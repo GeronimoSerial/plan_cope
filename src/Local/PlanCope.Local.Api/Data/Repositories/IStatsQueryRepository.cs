@@ -7,6 +7,8 @@ namespace PlanCope.Local.Api.Data.Repositories;
 
 public sealed record BlockStatDto(
     string BlockId,
+    int? OrderIndex,
+    string? Title,
     int CorrectCount,
     int PartialCount,
     int IncorrectCount,

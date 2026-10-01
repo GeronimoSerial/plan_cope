@@ -178,7 +178,7 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
   };
 
   return (
-    <section className="panel">
+    <section className="panel node-workspace-panel stats-workspace-panel">
       <h2>Estadísticas</h2>
       <p className="stats-live-copy">Pantalla en vivo. El informe HTML es una captura e indica cuándo se generó.</p>
 
@@ -254,11 +254,12 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
           {examStats.map(exam => (
             <details key={exam.examVersionId}>
               <summary>{exam.examCode} v{exam.versionNumber} — {displayAttemptCount(exam.attemptCount)} intentos</summary>
-              <div className="table-wrap"><table>
+              <div className="table-wrap stats-block-table-wrap"><table className="stats-block-table">
                 <thead><tr><th>Bloque</th><th>Correctas</th><th>Parciales</th><th>Incorrectas</th><th>En blanco</th><th>No corregibles</th></tr></thead>
-                <tbody>{exam.blocks.map(block => (
+                <tbody>{exam.blocks.map((block, index) => (
                   <tr key={block.blockId}>
-                    <td>{block.blockId}</td><td>{block.correctCount}</td><td>{block.partialCount}</td><td>{block.incorrectCount}</td><td>{block.blankCount}</td><td>{block.ungradableCount}</td>
+                    <td><div className="stats-block-label"><strong>Pregunta {(block.orderIndex ?? index) + 1}</strong>{block.title && <span title={block.title}>{block.title}</span>}</div></td>
+                    <td>{block.correctCount}</td><td>{block.partialCount}</td><td>{block.incorrectCount}</td><td>{block.blankCount}</td><td>{block.ungradableCount}</td>
                   </tr>
                 ))}</tbody>
               </table></div>

@@ -30,7 +30,7 @@ export type PullExamsResult = {
 };
 
 export type CourseStatDto = { course: string; attemptCount: number | string; averageScorePercent: number | string };
-export type BlockStatDto = { blockId: string; correctCount: number; partialCount: number; incorrectCount: number; blankCount: number; ungradableCount: number };
+export type BlockStatDto = { blockId: string; orderIndex: number | null; title: string | null; correctCount: number; partialCount: number; incorrectCount: number; blankCount: number; ungradableCount: number };
 export type ExamStatDto = { examVersionId: string; examCode: string; versionNumber: number; attemptCount: number | string; averageScorePercent: number | string; blocks: BlockStatDto[] };
 export type StatsFilterOptionsDto = { schoolYears: string[]; courses: string[]; exams: { examVersionId: string; examCode: string; versionNumber: number }[] };
 

@@ -48,6 +48,11 @@ public sealed class StatsEndpointsAggregationTests
                 ("@now", now));
 
             LocalApiFactory.Execute(connection, transaction, """
+                INSERT INTO local_exam_blocks (id, local_exam_version_id, remote_block_id, order_index, block_type, config_json, validation_json)
+                VALUES ('blk-1', 'exam-a', 'remote-blk-1', 2, 'MultipleChoice', '{"question":"¿Cuánto es 2 + 2?"}', '{}');
+                """);
+
+            LocalApiFactory.Execute(connection, transaction, """
                 INSERT INTO local_roster_snapshots (id, cue, school_year, fetched_at, checksum, section_count, student_count, status)
                 VALUES ('snap-1', '123456789', '2026', @now, 'chk', 2, 2, 'current');
                 """,
@@ -156,9 +161,10 @@ public sealed class StatsEndpointsAggregationTests
         }
 
         var examResponse = await client.GetAsync("/api/stats/exam?cue=123456789&schoolYear=2026");
-        Assert.Equal(HttpStatusCode.OK, examResponse.StatusCode);
+        var examBody = await examResponse.Content.ReadAsStringAsync();
+        Assert.True(examResponse.StatusCode == HttpStatusCode.OK, $"EXAM BODY: {examBody}");
         var exams = JsonSerializer.Deserialize<ExamStatsResponse[]>(
-            await examResponse.Content.ReadAsStringAsync(), jsonOptions);
+            examBody, jsonOptions);
         Assert.NotNull(exams);
         Assert.Equal(2, exams.Length);
         foreach (var expectedExamVersionId in new[] { "exam-a", "exam-b" })
@@ -171,6 +177,8 @@ public sealed class StatsEndpointsAggregationTests
 
             var block = Assert.Single(exam.Blocks);
             Assert.Equal("blk-1", block.BlockId);
+            Assert.Equal(expectedExamVersionId == "exam-a" ? (int?)2 : null, block.OrderIndex);
+            Assert.Equal(expectedExamVersionId == "exam-a" ? "¿Cuánto es 2 + 2?" : null, block.Title);
             Assert.Equal(expectedCorrectPerExam, block.CorrectCount);
             Assert.Equal(expectedIncorrectPerExam, block.IncorrectCount);
             Assert.Equal(0, block.PartialCount);
@@ -187,6 +195,9 @@ public sealed class StatsEndpointsAggregationTests
         Assert.Contains("Escuela Test", report);
         Assert.Contains("Distribución de puntajes", report);
         Assert.Contains("Resultados por bloque", report);
+        Assert.Contains("Pregunta 3", report);
+        Assert.Contains(WebUtility.HtmlEncode("¿Cuánto es 2 + 2?"), report);
+        Assert.DoesNotContain("blk-1", report);
 
         var filteredReportResponse = await client.GetAsync("/api/stats/report.html?cue=123456789&schoolYear=2026&exam=exam-a");
         Assert.Equal(HttpStatusCode.OK, filteredReportResponse.StatusCode);
@@ -242,6 +253,8 @@ public sealed class StatsEndpointsAggregationTests
 
     private sealed record BlockStatsResponse(
         string BlockId,
+        int? OrderIndex,
+        string? Title,
         int CorrectCount,
         int PartialCount,
         int IncorrectCount,

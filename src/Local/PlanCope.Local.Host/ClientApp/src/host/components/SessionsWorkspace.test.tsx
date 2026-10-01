@@ -26,6 +26,8 @@ describe("SessionsWorkspace", () => {
     expect(view.textContent).toContain("Escuela Norte");
     expect(view.textContent).toContain("Escuela Sur");
     expect(view.textContent).not.toContain("Código de sesión");
+    expect(view.querySelector(".badge-info")?.textContent).toBe("Abierta");
+    expect(view.querySelector(".node-session-card .button")?.textContent).toBe("Ver");
     expect(state.activeSession.selectSession).not.toHaveBeenCalled();
     button(view, "Ver").click();
     expect(state.activeSession.selectSession).toHaveBeenCalledWith(state.activeSession.activeSessions[0]);
@@ -45,6 +47,8 @@ describe("SessionsWorkspace", () => {
     const view = render(state);
     act(() => button(view, "Nueva sesión").click());
     expect(view.textContent).toContain("Escuela Norte");
+    expect(view.textContent).toContain("Elegir");
+    expect(view.querySelector(".school-choice")).not.toBeNull();
     act(() => button(view, "Ingresar otro CUE").click());
     expect(view.querySelector('input[maxlength="9"]')).not.toBeNull();
     expect(view.textContent).toContain("Ingresar otro CUE");
@@ -68,6 +72,8 @@ describe("SessionsWorkspace", () => {
     const view = render(delivery([]), "history");
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(view.textContent).toContain("CODEclosed");
+    expect(view.querySelector(".badge-neutral")?.textContent).toBe("Cerrada");
+    expect(view.querySelector("td small")?.textContent).toMatch(/\d+ h \d+ min · hasta \d{2}:\d{2}/);
     const selects = view.querySelectorAll("select");
     act(() => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(selects[0], "180055400"); selects[0].dispatchEvent(new Event("change", { bubbles: true })); });
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });

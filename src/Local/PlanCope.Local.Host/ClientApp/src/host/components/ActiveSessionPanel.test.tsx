@@ -37,7 +37,7 @@ describe("ActiveSessionPanel", () => {
     container = undefined;
   });
 
-  function render(progressData: SessionProgress | null, sessionData = session, callbacks: { onStatusChange?: (status: "active" | "paused" | "closed") => Promise<{ submitted: number; failed: number } | void | null>; onDiscard?: () => Promise<boolean>; onAddExtraStudent?: (request: { document: string; firstName: string; lastName: string }) => Promise<void>; onRemoveExtraStudent?: (studentId: string) => Promise<void> } = {}) {
+  function render(progressData: SessionProgress | null, sessionData = session, callbacks: { onStatusChange?: (status: "active" | "paused" | "closed") => Promise<{ submitted: number; failed: number } | void | null>; onDiscard?: () => Promise<boolean>; onReturn?: () => void; onStats?: () => void; onAddExtraStudent?: (request: { document: string; firstName: string; lastName: string }) => Promise<void>; onRemoveExtraStudent?: (studentId: string) => Promise<void> } = {}) {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -138,14 +138,23 @@ describe("ActiveSessionPanel", () => {
   it("shows a read-only close summary with nominal missing and teacher-submitted students", () => {
     const closed = { ...session, status: "closed" };
     const view = render(progress({ submittedCount: 1, inProgressCount: 0, startedCount: 1, students: [
-      student({ id: "done", displayName: "Ana Entregada", status: "submitted", submissionReason: "closed_by_teacher" }),
-      student({ id: "missing", displayName: "Brenda Ausente", status: "not_started" })
-    ] }), closed);
+      student({ id: "done", displayName: "Entregada, Ana", status: "submitted", submittedAt: "2026-10-01T10:14:00Z", submissionReason: "closed_by_teacher" }),
+      student({ id: "missing", displayName: "Ausente, Brenda", status: "not_started" })
+    ] }), closed, { onReturn: vi.fn(), onStats: vi.fn() });
     expect(view.textContent).toContain("Entregaron 1 de 2.");
     expect(view.textContent).toContain("No rindieron: Brenda Ausente.");
     expect(view.textContent).toContain("Entregados por cierre: Ana Entregada.");
+    const summary = view.querySelector(".session-close-summary")!;
+    const studentList = view.querySelector(".session-students")!;
+    expect(Boolean(summary.compareDocumentPosition(studentList) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(view.textContent).not.toContain("Enlace para estudiantes");
+    expect(view.querySelector(".progress-summary")).toBeNull();
+    const closedSubmissionRow = [...view.querySelectorAll("tbody tr")].find(row => row.textContent?.includes("Entregado por cierre"));
+    expect(closedSubmissionRow?.querySelector('[data-label="Entregó"]')?.textContent).toMatch(/\d{2}:\d{2}/);
+    expect(view.querySelectorAll(".session-close-summary .button")).toHaveLength(2);
     expect(view.textContent).not.toContain("Pausar");
     expect(view.textContent).toContain("Volver al inicio");
+    expect(view.textContent).toContain("Ver estadísticas");
   });
 
   it("keeps the roster label and missing filter after every rostered student has started", () => {

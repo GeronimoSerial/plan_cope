@@ -10,7 +10,6 @@ type AppShellProps = {
   status: string;
   apiBaseUrl?: string;
   appVersion?: string;
-  activeSessionGradeLabel?: string | null;
   activeTab: HostTab;
   onTabChange: (tab: HostTab) => void;
   children: ReactNode;
@@ -22,7 +21,7 @@ const tabs: Array<{ id: HostTab; label: string }> = [
   { id: "stats", label: "Estadísticas" }
 ];
 
-export function AppShell({ status, apiBaseUrl, appVersion, activeSessionGradeLabel, activeTab, onTabChange, children }: AppShellProps) {
+export function AppShell({ status, apiBaseUrl, appVersion, activeTab, onTabChange, children }: AppShellProps) {
   const update = useUpdateStatus();
   const sync = useSyncStatus(apiBaseUrl ?? "");
 
@@ -70,7 +69,6 @@ export function AppShell({ status, apiBaseUrl, appVersion, activeSessionGradeLab
         </div>
       </header>
 
-      {activeSessionGradeLabel && <p className="topbar-session-grade">Sesión activa · {activeSessionGradeLabel}</p>}
       <main className="app-content">
         <div className="workspace">{children}</div>
       </main>

@@ -10,6 +10,7 @@ type ActiveSessionPanelProps = {
   onStatusChange?: (status: "active" | "paused" | "closed") => Promise<{ submitted: number; failed: number } | void | null>;
   onDiscard?: () => Promise<boolean>;
   onReturn?: () => void;
+  onStats?: () => void;
   onAddExtraStudent?: (request: { document: string; firstName: string; lastName: string }) => Promise<void>;
   onRemoveExtraStudent?: (studentId: string) => Promise<void>;
   extraStudentError?: string | null;
@@ -30,7 +31,7 @@ function formatSubmissionTime(value: string | null): string {
   return Number.isNaN(date.getTime()) ? "—" : new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit" }).format(date);
 }
 
-function ActiveSessionContent({ progress, session, sessionLink, onStatusChange, onDiscard, onReturn, onAddExtraStudent, onRemoveExtraStudent, extraStudentError, isBusy = false }: ActiveSessionPanelProps & { session: LocalSession }) {
+function ActiveSessionContent({ progress, session, sessionLink, onStatusChange, onDiscard, onReturn, onStats, onAddExtraStudent, onRemoveExtraStudent, extraStudentError, isBusy = false }: ActiveSessionPanelProps & { session: LocalSession }) {
   const [filter, setFilter] = useState<StudentFilter>("all");
   const [showExtraStudentForm, setShowExtraStudentForm] = useState(false);
   const [extraDocument, setExtraDocument] = useState("");
@@ -101,25 +102,39 @@ function ActiveSessionContent({ progress, session, sessionLink, onStatusChange, 
         {progress?.gradeLabel && <p className="session-grade-label">{progress.gradeLabel}</p>}
       </div>
 
-      <div className="session-code session-code-active">
+      {isClosed && <section className="session-close-summary" aria-label="Resumen de cierre">
+        <h3>Resumen</h3>
+        <p>Entregaron {submitted} de {expected}.</p>
+        {nominal && <p>No rindieron: {formatSummaryNames(students.filter(student => student.status === "not_started").map(student => student.displayName))}.</p>}
+        <p>Entregados por cierre: {formatSummaryNames(students.filter(student => student.submissionReason === "closed_by_teacher").map(student => student.displayName))}.</p>
+        {progress?.averageScorePercent != null && <p>Promedio de puntaje: {progress.averageScorePercent.toFixed(1)}%.</p>}
+        {inProgress > 0 && <p role="alert">Quedaron {inProgress} exámenes sin entregar. Revisá los intentos pendientes.</p>}
+        {closeResult?.failed ? <p role="alert">No se pudieron entregar {closeResult.failed} exámenes. Revisá los intentos pendientes.</p> : null}
+        <div className="session-close-actions">
+          <ActionButton variant="secondary" onClick={() => onReturn?.()}>Volver al inicio</ActionButton>
+          {onStats && <ActionButton variant="secondary" onClick={onStats}>Ver estadísticas</ActionButton>}
+        </div>
+      </section>}
+
+      <div className={`session-code session-code-active${isClosed ? " session-code-reference" : ""}`}>
         <span>Código de sesión</span>
         <strong>{session.accessCode}</strong>
       </div>
 
-      <Field label="Enlace para estudiantes">
+      {!isClosed && <Field label="Enlace para estudiantes">
         <TextInput value={sessionLink} readOnly placeholder="Se genera al crear la sesión" onChange={() => undefined} />
-      </Field>
+      </Field>}
 
-      <div className="progress-summary" aria-live="polite" aria-atomic="true">
+      {!isClosed && <div className="progress-summary" aria-live="polite" aria-atomic="true">
         <div><span>Entregaron</span><strong>{submitted} / {expected}</strong></div>
         <div><span>Rindiendo</span><strong>{inProgress}</strong></div>
         {nominal && <div><span>Faltan</span><strong>{missing}</strong></div>}
-      </div>
+      </div>}
 
-      <div className="progress-bar" role="progressbar" aria-label="Progreso de la sesión" aria-valuemin={0} aria-valuemax={100} aria-valuenow={completion} aria-valuetext={`${completion}% completado`}>
+      {!isClosed && <div className="progress-bar" role="progressbar" aria-label="Progreso de la sesión" aria-valuemin={0} aria-valuemax={100} aria-valuenow={completion} aria-valuetext={`${completion}% completado`}>
         <span style={{ width: `${completion}%` }} />
-      </div>
-      <p className="progress-label">{completion}% completado</p>
+      </div>}
+      {!isClosed && <p className="progress-label">{completion}% completado</p>}
 
       <section className="session-students" aria-label="Estado de estudiantes">
         <h3>Estudiantes</h3>
@@ -141,7 +156,7 @@ function ActiveSessionContent({ progress, session, sessionLink, onStatusChange, 
                     <td data-label="Nombre">{student.displayName} {student.offRoster && <span className="student-off-roster-badge">Fuera de padrón</span>}</td>
                     <td data-label="DNI">{student.maskedDocument ?? "—"}</td>
                     <td data-label="Estado"><span className={`student-status ${student.submissionReason === "closed_by_teacher" ? "student-status-closed" : `student-status-${student.status}`}`}>{student.submissionReason === "closed_by_teacher" ? "Entregado por cierre" : STATUS_LABELS[student.status]}</span></td>
-                    <td data-label="Entregó">{student.submissionReason === "closed_by_teacher" ? "Entregado por cierre" : student.status === "submitted" ? formatSubmissionTime(student.submittedAt) : "—"}</td>
+                    <td data-label="Entregó">{student.status === "submitted" ? formatSubmissionTime(student.submittedAt) : "—"}</td>
                     {onRemoveExtraStudent && <td data-label="Acciones">{student.offRoster && !student.attemptId && !isClosed && <button type="button" className="button button-secondary" disabled={isBusy} onClick={() => void onRemoveExtraStudent(student.id).catch(() => undefined)}>Quitar</button>}</td>}
                   </tr>
                 ))}
@@ -165,16 +180,6 @@ function ActiveSessionContent({ progress, session, sessionLink, onStatusChange, 
         </div>}
       </section>
 
-      {isClosed && <section className="session-close-summary" aria-label="Resumen de cierre">
-        <h3>Resumen</h3>
-        <p>Entregaron {submitted} de {expected}.</p>
-        {nominal && <p>No rindieron: {students.filter(student => student.status === "not_started").map(student => student.displayName).join(", ") || "Ningún estudiante"}.</p>}
-        <p>Entregados por cierre: {students.filter(student => student.submissionReason === "closed_by_teacher").map(student => student.displayName).join(", ") || "Ningún estudiante"}.</p>
-        {progress?.averageScorePercent != null && <p>Promedio de puntaje: {progress.averageScorePercent.toFixed(1)}%.</p>}
-        {isClosed && inProgress > 0 && <p role="alert">Quedaron {inProgress} exámenes sin entregar. Revisá los intentos pendientes.</p>}
-        {closeResult?.failed ? <p role="alert">No se pudieron entregar {closeResult.failed} exámenes. Revisá los intentos pendientes.</p> : null}
-      </section>}
-
       {!isClosed && <div className="session-control-actions">
         {onStatusChange && <>
           {session.status === "paused"
@@ -194,9 +199,16 @@ function ActiveSessionContent({ progress, session, sessionLink, onStatusChange, 
       {!isClosed && <ActionButton variant="secondary" onClick={() => postHostMessage({ type: "host:openStudentView", accessCode: session.accessCode })}>
         Abrir vista del estudiante
       </ActionButton>}
-      {isClosed && <ActionButton variant="secondary" onClick={() => onReturn?.()}>Volver al inicio</ActionButton>}
     </aside>
   );
+}
+
+function formatSummaryNames(names: string[]): string {
+  if (names.length === 0) return "Ningún estudiante";
+  return names.map(name => {
+    const [surname, givenName] = name.split(",").map(part => part.trim());
+    return givenName ? `${givenName} ${surname}` : name;
+  }).join(", ");
 }
 
 export function ActiveSessionPanel(props: ActiveSessionPanelProps) {

@@ -35,6 +35,30 @@ describe("StatsWorkspace", () => {
     expect(html).toContain("Todavía no hay intentos entregados");
   });
 
+  it("shows ordered question labels and prompts instead of block identifiers", async () => {
+    const blockId = "1f37ed04-5275-4e47-90c0-14d5e18ff1ae";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const body = url.includes("/api/stats/filters?")
+        ? { schoolYears: ["2026"], courses: [], exams: [] }
+        : url.includes("/api/stats/course?")
+          ? [{ course: "6", attemptCount: 2, averageScorePercent: 75 }]
+          : url.includes("/api/stats/exam?")
+            ? [{ examVersionId: "exam-v1", examCode: "BIO", versionNumber: 1, attemptCount: 2, averageScorePercent: 75, blocks: [{ blockId, orderIndex: 2, title: "¿Cuál es la función principal de las raíces?", correctCount: 1, partialCount: 0, incorrectCount: 1, blankCount: 0, ungradableCount: 0 }] }]
+            : [];
+      return { ok: true, json: async () => body };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await renderComponent();
+
+    expect(container?.querySelector(".stats-workspace-panel")).not.toBeNull();
+    expect(container?.querySelector(".stats-block-table")).not.toBeNull();
+    expect(container?.textContent).toContain("Pregunta 3");
+    expect(container?.textContent).toContain("¿Cuál es la función principal de las raíces?");
+    expect(container?.textContent).not.toContain(blockId);
+  });
+
   it("sends selected filters to the host and shows the report result", async () => {
     installFetchMock();
     const listeners = new Set<(event: MessageEvent) => void>();
