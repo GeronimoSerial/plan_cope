@@ -219,7 +219,7 @@ public sealed class LocalExamPullService(
         var metadataJson = JsonSerializer.Serialize(new
         {
             title = package.Title,
-            grade = TargetValue(package, "grade"),
+            grade = TargetValues(package, "grade"),
             division = TargetValue(package, "division"),
             subject = TargetValue(package, "subject"),
             source = "central-pull",
@@ -280,6 +280,17 @@ public sealed class LocalExamPullService(
     private static string? TargetValue(PublishedExamPackageDto package, string targetType)
     {
         return package.Targets.FirstOrDefault(target => string.Equals(target.TargetType, targetType, StringComparison.OrdinalIgnoreCase))?.TargetId;
+    }
+
+    private static IReadOnlyList<string> TargetValues(PublishedExamPackageDto package, string targetType)
+    {
+        return package.Targets
+            .Where(target => string.Equals(target.TargetType, targetType, StringComparison.OrdinalIgnoreCase))
+            .Select(target => target.TargetId)
+            .Where(static value => !string.IsNullOrWhiteSpace(value))
+            .Select(static value => value!)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
     }
 
     private async Task<DateTimeOffset?> ReadLastPullAtAsync(CancellationToken cancellationToken)

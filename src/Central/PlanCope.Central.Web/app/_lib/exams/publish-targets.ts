@@ -28,8 +28,8 @@ export interface NodeTargetRow {
 }
 
 export interface BuildPublishRequestInput {
-  grade: string;
   subject?: string | null;
+  division?: string | null;
   mode: PublishTargetMode;
   /** School CUEs (the API accepts a School id or its CUE; we always send the CUE). */
   schoolIds?: readonly string[];
@@ -63,8 +63,8 @@ function optionalText(value: string | null | undefined): string | null {
  */
 export function buildPublishRequest(input: BuildPublishRequestInput): PublishExamVersionRequest {
   const request: PublishExamVersionRequest = {
-    grade: input.grade.trim(),
-    subject: optionalText(input.subject)
+    subject: optionalText(input.subject),
+    division: optionalText(input.division)
   };
 
   if (input.mode === "schools") {
@@ -83,13 +83,12 @@ export function buildPublishRequest(input: BuildPublishRequestInput): PublishExa
 }
 
 export interface PublishTargetSelection {
-  grade: string;
   mode: PublishTargetMode;
   schoolIds: readonly string[];
   nodeIds: readonly string[];
 }
 
-export type PublishValidationField = "grade" | "targets";
+export type PublishValidationField = "targets";
 
 export interface PublishTargetValidationError {
   field: PublishValidationField;
@@ -98,9 +97,6 @@ export interface PublishTargetValidationError {
 
 /** Returns the first validation error, or null when the selection is valid. */
 export function validatePublishTargets(selection: PublishTargetSelection): PublishTargetValidationError | null {
-  if (selection.grade.trim().length === 0) {
-    return { field: "grade", message: "Ingresá el curso o grado." };
-  }
   if (selection.mode === "schools" && cleanIds(selection.schoolIds).length === 0) {
     return { field: "targets", message: "Elegí al menos una escuela." };
   }

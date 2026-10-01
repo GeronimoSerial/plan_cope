@@ -17,6 +17,7 @@ import {
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import type { ExamSummary, UpdateExamRequest } from "../../_lib/contracts";
+import { areaOptions, courseOptions } from "../../_lib/exams/catalog";
 
 interface EditExamButtonProps {
   exam: ExamSummary;
@@ -40,14 +41,15 @@ function mapUpdateExamError(error: unknown): EditExamErrors {
   return { form: "No se pudieron guardar los datos. Revisá los campos e intentá de nuevo." };
 }
 
-// "Editar datos" del examen: titulo, nivel, area y materia. El codigo es inmutable y se muestra
+// "Editar datos" del examen: titulo, cursos, area y materia. El codigo es inmutable y se muestra
 // solo de lectura; el API devuelve 400 bajo la clave "code" si llegara a cambiar.
 export function EditExamButton({ exam, canEditExams }: EditExamButtonProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState(exam.title);
-  const [level, setLevel] = useState(exam.level ?? "");
-  const [area, setArea] = useState(exam.area ?? "");
+  const [courses, setCourses] = useState(exam.courses ?? []);
+  const [areaChoice, setAreaChoice] = useState(() => exam.area && areaOptions.includes(exam.area as (typeof areaOptions)[number]) ? exam.area : exam.area ? "Otro" : "");
+  const [customArea, setCustomArea] = useState(() => exam.area && !areaOptions.includes(exam.area as (typeof areaOptions)[number]) ? exam.area : "");
   const [subject, setSubject] = useState(exam.subject ?? "");
   const [errors, setErrors] = useState<EditExamErrors>({});
   const [pending, setPending] = useState(false);
@@ -56,8 +58,9 @@ export function EditExamButton({ exam, canEditExams }: EditExamButtonProps) {
 
   function resetForm() {
     setTitle(exam.title);
-    setLevel(exam.level ?? "");
-    setArea(exam.area ?? "");
+    setCourses(exam.courses ?? []);
+    setAreaChoice(exam.area && areaOptions.includes(exam.area as (typeof areaOptions)[number]) ? exam.area : exam.area ? "Otro" : "");
+    setCustomArea(exam.area && !areaOptions.includes(exam.area as (typeof areaOptions)[number]) ? exam.area : "");
     setSubject(exam.subject ?? "");
     setErrors({});
     setPending(false);
@@ -69,12 +72,16 @@ export function EditExamButton({ exam, canEditExams }: EditExamButtonProps) {
       setErrors({ title: "El título es requerido." });
       return;
     }
+    if (courses.length === 0 || (areaChoice === "Otro" && !customArea.trim())) {
+      setErrors({ form: courses.length === 0 ? "Seleccioná al menos un curso." : "Ingresá el nombre del área." });
+      return;
+    }
     setErrors({});
     setPending(true);
     const body: UpdateExamRequest = {
       title: trimmedTitle,
-      level: level.trim() || null,
-      area: area.trim() || null,
+      courses,
+      area: areaChoice === "Otro" ? customArea.trim() : areaChoice || null,
       subject: subject.trim() || null
     };
     try {
@@ -140,15 +147,32 @@ export function EditExamButton({ exam, canEditExams }: EditExamButtonProps) {
                 {errors.title && <FieldError>{errors.title}</FieldError>}
               </Field>
 
-              <div className="grid gap-4 sm:grid-cols-3">
-                <Field>
-                  <FieldLabel htmlFor="edit-exam-level">Nivel / Curso</FieldLabel>
-                  <Input id="edit-exam-level" value={level} onChange={event => setLevel(event.target.value)} />
-                </Field>
+              <Field>
+                <FieldLabel>Curso / grado</FieldLabel>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {courseOptions.map(course => <label key={course.key} className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={courses.includes(course.key)} onChange={event => setCourses(current => event.target.checked
+                      ? [...current, course.key] : current.filter(key => key !== course.key))} />
+                    {course.label}
+                  </label>)}
+                </div>
+              </Field>
+              <div className="grid gap-4 sm:grid-cols-2">
                 <Field>
                   <FieldLabel htmlFor="edit-exam-area">Área</FieldLabel>
-                  <Input id="edit-exam-area" value={area} onChange={event => setArea(event.target.value)} />
+                  <select id="edit-exam-area" className="h-9 rounded-md border bg-background px-3 text-sm"
+                    value={areaChoice}
+                    onChange={event => setAreaChoice(event.target.value)}>
+                    <option value="">Seleccionar área</option>
+                    {areaOptions.map(value => <option key={value} value={value}>{value}</option>)}
+                  </select>
                 </Field>
+                {areaChoice === "Otro" &&
+                  <Field data-invalid={!customArea.trim() ? true : undefined}>
+                    <FieldLabel htmlFor="edit-exam-custom-area">Área</FieldLabel>
+                    <Input id="edit-exam-custom-area" value={customArea} onChange={event => setCustomArea(event.target.value)} />
+                    {!customArea.trim() && <FieldError>Ingresá el nombre del área.</FieldError>}
+                  </Field>}
                 <Field>
                   <FieldLabel htmlFor="edit-exam-subject">Materia</FieldLabel>
                   <Input id="edit-exam-subject" value={subject} onChange={event => setSubject(event.target.value)} />

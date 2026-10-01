@@ -46,8 +46,8 @@ public sealed class ExamsController(
             request.Code.Trim(),
             request.Title.Trim(),
             request.Description,
-            request.Level,
-            request.Area,
+            request.Courses?.Distinct(StringComparer.Ordinal).ToArray() ?? [],
+            NormalizeArea(request.Area),
             request.Subject,
             "Draft",
             null,
@@ -98,7 +98,7 @@ public sealed class ExamsController(
             exam.Id,
             exam.Code,
             exam.Title,
-            exam.Level,
+            exam.Courses,
             exam.Area,
             exam.Subject,
             exam.Status,
@@ -347,8 +347,8 @@ public sealed class ExamsController(
         {
             Title = request.Title?.Trim() ?? string.Empty,
             Description = request.Description,
-            Level = request.Level,
-            Area = request.Area,
+            Courses = request.Courses?.Distinct(StringComparer.Ordinal).ToArray() ?? exam.Courses,
+            Area = NormalizeArea(request.Area),
             Subject = request.Subject,
             UpdatedAt = now
         };
@@ -600,13 +600,13 @@ public sealed class ExamsController(
             return Conflict(new { code = "older_than_current" });
         }
 
-        if (string.IsNullOrWhiteSpace(request.Grade))
+        var exam = await dbContext.Exams.SingleAsync(x => x.Id == version.ExamId, cancellationToken);
+        if (exam.Courses.Length == 0 || exam.Courses.Any(course => !ExamCourses.IsValid(course)))
         {
-            ModelState.AddModelError(nameof(request.Grade), "Grade/course is required.");
+            ModelState.AddModelError("courses", "At least one valid course is required before publishing.");
             return ValidationProblem(ModelState);
         }
 
-        var exam = await dbContext.Exams.SingleAsync(x => x.Id == version.ExamId, cancellationToken);
         var blocks = await dbContext.ExamBlocks
             .Where(x => x.ExamVersionId == versionId)
             .OrderBy(x => x.OrderIndex)
@@ -807,6 +807,26 @@ public sealed class ExamsController(
         var updatedVersion = version with { Metadata = metadata, UpdatedAt = now };
         dbContext.Entry(version).CurrentValues.SetValues(updatedVersion);
 
+        if (request.Metadata is { ValueKind: JsonValueKind.Object } examMetadata)
+        {
+            var exam = await dbContext.Exams.SingleAsync(x => x.Id == version.ExamId, cancellationToken);
+            var updatedExam = exam with
+            {
+                Courses = ReadStringArray(examMetadata, "courses") ?? exam.Courses,
+                Area = ReadOptionalString(examMetadata, "area") ??
+                    (examMetadata.TryGetProperty("area", out _) ? null : exam.Area),
+                UpdatedAt = now
+            };
+            var examValidation = await examValidator.ValidateAsync(updatedExam, cancellationToken);
+            if (!examValidation.IsValid)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return BadRequest(new ValidationProblemDetails(examValidation.ToDictionary()));
+            }
+
+            dbContext.Entry(exam).CurrentValues.SetValues(updatedExam);
+        }
+
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
@@ -882,8 +902,8 @@ public sealed class ExamsController(
     }
 
     /// <summary>
-    /// Per-version readiness independent of the publish request. The publish endpoint applies two
-    /// additional request-level gates (<c>grade</c> required, block-level validation), so
+    /// Per-version readiness independent of the publish request. The publish endpoint also applies
+    /// block-level validation,
     /// <see cref="ExamVersionDto.CanPublish"/> true means "this version is not blocked by its own
     /// content", not a guarantee the next publish call will succeed.
     /// </summary>
@@ -973,7 +993,10 @@ public sealed class ExamsController(
         }
 
         // grade/subject/division are descriptive metadata, not delivery filters.
-        Add(PublicationTargetTypes.Grade, request.Grade);
+        foreach (var course in exam.Courses)
+        {
+            Add(PublicationTargetTypes.Grade, course);
+        }
         Add(PublicationTargetTypes.Subject, request.Subject ?? exam.Subject);
         Add(PublicationTargetTypes.Division, request.Division);
 
@@ -989,6 +1012,25 @@ public sealed class ExamsController(
         }
 
         return targets;
+    }
+
+    private static string? NormalizeArea(string? value) => value?.Trim();
+
+    private static string[]? ReadStringArray(JsonElement json, string propertyName)
+    {
+        if (!json.TryGetProperty(propertyName, out var value)) return null;
+        if (value.ValueKind != JsonValueKind.Array) return [];
+        return value.EnumerateArray()
+            .Where(static item => item.ValueKind == JsonValueKind.String)
+            .Select(static item => item.GetString()!)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static string? ReadOptionalString(JsonElement json, string propertyName)
+    {
+        if (!json.TryGetProperty(propertyName, out var value) || value.ValueKind == JsonValueKind.Null) return null;
+        return value.ValueKind == JsonValueKind.String ? NormalizeArea(value.GetString()) : string.Empty;
     }
 
     private async Task<List<ExamSummaryDto>> BuildExamSummariesAsync(
@@ -1086,7 +1128,7 @@ public sealed class ExamsController(
                 exam.Id,
                 exam.Code,
                 exam.Title,
-                exam.Level,
+                exam.Courses,
                 exam.Area,
                 exam.Subject,
                 exam.Status,

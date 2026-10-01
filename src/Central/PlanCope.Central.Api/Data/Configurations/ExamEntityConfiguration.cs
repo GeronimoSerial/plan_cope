@@ -14,6 +14,8 @@ public sealed class ExamConfiguration : IEntityTypeConfiguration<Exam>
         builder.Property(static x => x.Code).HasMaxLength(64).IsRequired();
         builder.Property(static x => x.Title).HasMaxLength(256).IsRequired();
         builder.Property(static x => x.Status).HasMaxLength(32).IsRequired();
+        builder.Property(static x => x.Courses).HasColumnType("text[]").IsRequired();
+        builder.Property(static x => x.Area).HasMaxLength(256);
         builder.HasIndex(static x => x.Code).IsUnique();
     }
 }

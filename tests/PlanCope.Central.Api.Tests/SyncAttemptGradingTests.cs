@@ -211,7 +211,7 @@ public sealed class SyncAttemptGradingTests
             "EXA-2026-01",
             "Matematica · Primer Año",
             null,
-            "Secundario",
+            [],
             "Matematica",
             "Numeros y Operaciones",
             "Approved",

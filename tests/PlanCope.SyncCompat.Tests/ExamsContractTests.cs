@@ -42,7 +42,7 @@ public sealed class ExamsContractTests
             "ex-1",
             "EXA-2026-01",
             "Matemática · Primer Año",
-            "Secundario",
+            ["secundaria-2"],
             "Matemática",
             "Números y Operaciones",
             "Approved",
@@ -55,7 +55,7 @@ public sealed class ExamsContractTests
         AssertHasProperty(root, "id");
         AssertHasProperty(root, "code");
         AssertHasProperty(root, "title");
-        AssertHasProperty(root, "level");
+        AssertHasProperty(root, "courses");
         AssertHasProperty(root, "area");
         AssertHasProperty(root, "subject");
         AssertHasProperty(root, "status");
@@ -364,7 +364,7 @@ public sealed class ExamsContractTests
             "EXA-2026-02",
             "Lengua · Segundo Año",
             "Evaluación de comprensión lectora",
-            "Secundario",
+            ["secundaria-2"],
             "Lengua",
             "Literatura");
 
@@ -375,7 +375,7 @@ public sealed class ExamsContractTests
         AssertHasProperty(root, "code");
         AssertHasProperty(root, "title");
         AssertHasProperty(root, "description");
-        AssertHasProperty(root, "level");
+        AssertHasProperty(root, "courses");
         AssertHasProperty(root, "area");
         AssertHasProperty(root, "subject");
 
@@ -409,7 +409,7 @@ public sealed class ExamsContractTests
             "EXA-2026-01",
             "Matemática · Primer Año",
             "Evaluación de comprensión lectora",
-            "Secundario",
+            ["secundaria-1"],
             "Matemática",
             "Literatura");
 
@@ -420,7 +420,7 @@ public sealed class ExamsContractTests
         AssertHasProperty(root, "code");
         AssertHasProperty(root, "title");
         AssertHasProperty(root, "description");
-        AssertHasProperty(root, "level");
+        AssertHasProperty(root, "courses");
         AssertHasProperty(root, "area");
         AssertHasProperty(root, "subject");
 
@@ -471,14 +471,13 @@ public sealed class ExamsContractTests
     [Fact]
     public void PublishExamVersionRequest_round_trips_through_source_generated_context()
     {
-        var sample = new PublishExamVersionRequest("Matemática", "1°", "A");
+        var sample = new PublishExamVersionRequest("Matemática", "A");
 
         var json = Serialize(sample, PlanCopeJsonSerializerContext.Default.PublishExamVersionRequest);
 
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
         AssertHasProperty(root, "subject");
-        AssertHasProperty(root, "grade");
         AssertHasProperty(root, "division");
         AssertHasProperty(root, "nodeIds");
         AssertHasProperty(root, "schoolIds");

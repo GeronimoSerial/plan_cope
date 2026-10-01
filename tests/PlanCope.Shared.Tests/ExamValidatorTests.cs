@@ -14,7 +14,7 @@ public sealed class ExamValidatorTests
         Code: "EXAM-2026-A1",
         Title: "Anatomy Midterm",
         Description: null,
-        Level: null,
+        Courses: ["primaria-1"],
         Area: null,
         Subject: null,
         Status: "Draft",
@@ -101,6 +101,27 @@ public sealed class ExamValidatorTests
         var result = _validator.TestValidate(ValidExam() with { Title = "Pharmacology Final" });
 
         result.ShouldNotHaveValidationErrorFor(x => x.Title);
+    }
+
+    [Fact]
+    public void Exam_without_courses_fails()
+    {
+        _validator.TestValidate(ValidExam() with { Courses = [] })
+            .ShouldHaveValidationErrorFor(x => x.Courses);
+    }
+
+    [Fact]
+    public void Exam_with_unknown_course_fails()
+    {
+        _validator.TestValidate(ValidExam() with { Courses = ["unknown-course"] })
+            .ShouldHaveValidationErrorFor(x => x.Courses);
+    }
+
+    [Fact]
+    public void Empty_area_when_provided_fails()
+    {
+        _validator.TestValidate(ValidExam() with { Area = " " })
+            .ShouldHaveValidationErrorFor(x => x.Area);
     }
 
     [Fact]

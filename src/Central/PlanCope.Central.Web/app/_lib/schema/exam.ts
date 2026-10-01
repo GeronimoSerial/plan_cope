@@ -1,5 +1,8 @@
 import { z } from "zod";
 import type { GlossaryTerm } from "../glossary";
+import { courseOptions } from "../exams/catalog";
+
+const courseKeys = courseOptions.map(course => course.key) as [string, ...string[]];
 
 // ============================================================
 // Canonical exam schema — the source of truth.
@@ -103,8 +106,8 @@ export const examDocumentSchema = z.object({
   title: z.string().trim().min(1, "El título es requerido."),
   description: z.string().trim().optional(),
   subject: z.string().trim().optional(),
-  level: z.string().trim().optional(),
-  area: z.string().trim().optional(),
+  courses: z.array(z.enum(courseKeys)).min(1, "Seleccioná al menos un curso."),
+  area: z.string().trim().min(1, "El área no puede estar vacía.").optional(),
   questions: z.array(questionSchema).min(1, "Agregá al menos una pregunta.")
 });
 
@@ -117,8 +120,8 @@ export const createExamSchema = z.object({
   code: z.string().trim().min(1, "El código es requerido.").max(64),
   title: z.string().trim().min(1, "El título es requerido.").max(256),
   subject: z.string().trim().optional(),
-  level: z.string().trim().optional(),
-  area: z.string().trim().optional(),
+  courses: z.array(z.enum(courseKeys)).min(1, "Seleccioná al menos un curso."),
+  area: z.string().trim().min(1, "El área no puede estar vacía.").optional(),
   description: z.string().trim().optional()
 });
 
@@ -127,7 +130,6 @@ export type CreateExamValues = z.infer<typeof createExamSchema>;
 // ---- Publication ----
 export const publishSchema = z.object({
   subject: z.string().trim().optional(),
-  grade: z.string().trim().min(1, "El curso/grado es requerido."),
   division: z.string().trim().optional()
 });
 

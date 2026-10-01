@@ -250,7 +250,7 @@ public sealed class SyncNodeIdentityTests
             $"CODE-{packageId}",
             "Exam",
             Description: null,
-            Level: null,
+            Courses: [],
             Area: null,
             Subject: "Matematica",
             Status: "Published",

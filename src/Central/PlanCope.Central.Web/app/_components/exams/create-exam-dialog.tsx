@@ -19,6 +19,7 @@ import {
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import type { ExamSummary } from "../../_lib/contracts";
+import { areaOptions, courseOptions } from "../../_lib/exams/catalog";
 
 function mapCreateExamError(error: unknown): string {
   const message = getErrorMessage(error, "");
@@ -33,6 +34,9 @@ export function CreateExamButton({ canEditExams }: { canEditExams: boolean }) {
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState("");
   const [title, setTitle] = useState("");
+  const [courses, setCourses] = useState<string[]>([]);
+  const [areaChoice, setAreaChoice] = useState("");
+  const [customArea, setCustomArea] = useState("");
   const [errors, setErrors] = useState<CreateExamErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -42,6 +46,9 @@ export function CreateExamButton({ canEditExams }: { canEditExams: boolean }) {
   function resetForm() {
     setCode("");
     setTitle("");
+    setCourses([]);
+    setAreaChoice("");
+    setCustomArea("");
     setErrors({});
     setFormError(null);
     setPending(false);
@@ -57,8 +64,8 @@ export function CreateExamButton({ canEditExams }: { canEditExams: boolean }) {
           code: code.trim(),
           title: title.trim(),
           description: null,
-          level: null,
-          area: null,
+          courses,
+          area: areaChoice === "Otro" ? customArea.trim() : areaChoice || null,
           subject: null
         })
       });
@@ -79,7 +86,7 @@ export function CreateExamButton({ canEditExams }: { canEditExams: boolean }) {
     event.preventDefault();
     const nextErrors = validateCreateExam({ code, title });
     setErrors(nextErrors);
-    if (nextErrors.code || nextErrors.title) {
+    if (nextErrors.code || nextErrors.title || courses.length === 0 || (areaChoice === "Otro" && !customArea.trim())) {
       return;
     }
     void createExam();
@@ -104,7 +111,7 @@ export function CreateExamButton({ canEditExams }: { canEditExams: boolean }) {
           <form onSubmit={onSubmit} noValidate className="grid gap-4">
             <DialogHeader>
               <DialogTitle>Nuevo examen</DialogTitle>
-              <DialogDescription>Código y título. Después agregás las preguntas en el builder.</DialogDescription>
+              <DialogDescription>Código, título y curso. Después agregás las preguntas en el builder.</DialogDescription>
             </DialogHeader>
 
             <FieldGroup className="gap-4">
@@ -142,6 +149,39 @@ export function CreateExamButton({ canEditExams }: { canEditExams: boolean }) {
                 />
                 {errors.title && <FieldError>{errors.title}</FieldError>}
               </Field>
+              <Field data-invalid={courses.length === 0 ? true : undefined}>
+                <FieldLabel>Curso / grado</FieldLabel>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-md border p-3 sm:grid-cols-3">
+                  {["Primaria", "Secundaria"].map(level => (
+                    <fieldset key={level} className="grid content-start gap-2">
+                      <legend className="text-sm font-medium">{level}</legend>
+                      {courseOptions.filter(course => course.level === level).map(course => (
+                        <label key={course.key} className="flex items-center gap-2 text-sm">
+                          <input type="checkbox" checked={courses.includes(course.key)} disabled={pending}
+                            onChange={event => setCourses(current => event.target.checked
+                              ? [...current, course.key]
+                              : current.filter(key => key !== course.key))} />
+                          {course.label}
+                        </label>
+                      ))}
+                    </fieldset>
+                  ))}
+                </div>
+                {courses.length === 0 && <FieldError>Seleccioná al menos un curso.</FieldError>}
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="new-exam-area">Área (opcional)</FieldLabel>
+                <select id="new-exam-area" className="h-9 rounded-md border bg-background px-3 text-sm" value={areaChoice}
+                  onChange={event => setAreaChoice(event.target.value)}>
+                  <option value="">Seleccionar área</option>
+                  {areaOptions.map(area => <option key={area} value={area}>{area}</option>)}
+                </select>
+              </Field>
+              {areaChoice === "Otro" && <Field data-invalid={!customArea.trim() ? true : undefined}>
+                <FieldLabel htmlFor="new-exam-custom-area">Área</FieldLabel>
+                <Input id="new-exam-custom-area" value={customArea} onChange={event => setCustomArea(event.target.value)} />
+                {!customArea.trim() && <FieldError>Ingresá el nombre del área.</FieldError>}
+              </Field>}
             </FieldGroup>
 
             {formError && (

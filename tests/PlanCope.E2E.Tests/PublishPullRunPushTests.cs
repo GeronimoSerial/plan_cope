@@ -197,6 +197,12 @@ public sealed class PublishPullRunPushTests
         Assert.Equal("published", examNode.GetProperty("publicationState").GetString());
         Assert.Equal(exam.InitialVersionId, examNode.GetProperty("publishedVersionId").GetString());
         Assert.Equal(0, examNode.GetProperty("pulledByNodeCount").GetInt32());
+        var courseTags = examNode.GetProperty("targets").EnumerateArray()
+            .Where(target => target.GetProperty("targetType").GetString() == "grade")
+            .Select(target => target.GetProperty("targetId").GetString())
+            .ToHashSet(StringComparer.Ordinal);
+        Assert.Contains("primaria-6", courseTags);
+        Assert.Contains("secundaria-1", courseTags);
     }
 
     [Fact]
@@ -429,7 +435,7 @@ public sealed class PublishPullRunPushTests
     private static async Task<ExamCreated> CreateExamOnCentralAsync(HttpClient client)
     {
         var response = await client.PostAsJsonAsync("/api/exams", new CreateExamRequest(
-            "E2E-MAT-001", "Matematica E2E", null, "Primaria", "Matematica", "Matematica"));
+            "E2E-MAT-001", "Matematica E2E", null, ["primaria-6", "secundaria-1"], "Matematica", "Matematica"));
         Assert.True(response.StatusCode == HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
         var exam = await response.Content.ReadFromJsonAsync<ExamCreated>();
         Assert.NotNull(exam);
@@ -494,7 +500,7 @@ public sealed class PublishPullRunPushTests
     private static async Task PublishVersionOnCentralAsync(HttpClient client, string versionId)
     {
         var response = await client.PostAsJsonAsync($"/api/exams/versions/{versionId}/publish", new PublishExamVersionRequest(
-            "Matematica", "6", null));
+            "Matematica", null));
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var publish = await response.Content.ReadFromJsonAsync<PublishExamVersionResponse>();
         Assert.NotNull(publish);

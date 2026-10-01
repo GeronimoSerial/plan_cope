@@ -197,7 +197,7 @@ public sealed class SyncTargetingTests
             $"CODE-{packageId}",
             "Exam",
             Description: null,
-            Level: null,
+            Courses: [],
             Area: null,
             Subject: "Matematica",
             Status: "Published",

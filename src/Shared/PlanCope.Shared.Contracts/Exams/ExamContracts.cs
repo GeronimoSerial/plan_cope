@@ -37,7 +37,7 @@ public sealed record ExamSummaryDto(
     string Id,
     string Code,
     string Title,
-    string? Level,
+    IReadOnlyList<string> Courses,
     string? Area,
     string? Subject,
     string Status,
@@ -93,7 +93,7 @@ public sealed record PublishedAssetDto(string Id, string VersionId, string FileN
 
 public sealed record PublicationTargetDto(string TargetType, string? TargetId);
 
-public sealed record CreateExamRequest(string Code, string Title, string? Description, string? Level, string? Area, string? Subject);
+public sealed record CreateExamRequest(string Code, string Title, string? Description, IReadOnlyList<string>? Courses, string? Area, string? Subject);
 
 // Body is fully optional. Without sourceVersionId the new version is a deep copy of the exam's
 // highest-numbered published version, falling back to the highest-numbered version overall when the
@@ -107,7 +107,7 @@ public sealed record CreateExamVersionRequest(
     bool Empty = false,
     bool Force = false);
 
-public sealed record UpdateExamRequest(string? Code, string Title, string? Description, string? Level, string? Area, string? Subject);
+public sealed record UpdateExamRequest(string? Code, string Title, string? Description, IReadOnlyList<string>? Courses, string? Area, string? Subject);
 
 public sealed record UpsertBlockRequest(int OrderIndex, BlockType BlockType, string? Title, string? Description, JsonElement Config, JsonElement? Validation);
 
@@ -115,7 +115,6 @@ public sealed record CreateAssetRequest(string FileName, string MimeType, string
 
 public sealed record PublishExamVersionRequest(
     string? Subject,
-    string Grade,
     string? Division,
     IReadOnlyList<string>? NodeIds = null,
     IReadOnlyList<string>? SchoolIds = null);

@@ -92,7 +92,7 @@ Per-version readiness is exposed on every `ExamVersionDto` (version list and ver
 | `publishBlockedReason`| `string?` | `already_published` \| `no_blocks` \| null.|
 
 `canPublish = true` means the version is not blocked by its own content. The publish call still
-applies request-level gates (`grade` required, block validation, referenced image assets must
+applies block validation and checks that referenced image assets must
 exist), so it is possible for `canPublish` to be true and publish to return `400`.
 
 Computed publication fields on every `ExamVersionDto` (version list and version detail). They are
@@ -122,7 +122,7 @@ Request:
   "code": "EXA-2026-01",
   "title": "Matemática · Primer Año",
   "description": null,
-  "level": "Secundario",
+  "courses": ["secundaria-1"],
   "area": "Matemática",
   "subject": "Números y Operaciones"
 }
@@ -135,7 +135,7 @@ Response `201 Created`:
   "id": "ex_abc123",
   "code": "EXA-2026-01",
   "title": "Matemática · Primer Año",
-  "level": "Secundario",
+  "courses": ["secundaria-1"],
   "area": "Matemática",
   "subject": "Números y Operaciones",
   "status": "Draft",
@@ -265,14 +265,13 @@ Request:
 ```json
 {
   "subject": "Matemática",
-  "grade": "6",
   "division": null,
   "nodeIds": ["node_a1"],
   "schoolIds": ["1001"]
 }
 ```
 
-- `grade` is required.
+- `grade` tags are derived from the exam's selected courses.
 - `subject`, `division` are descriptive metadata (see §4).
 - `nodeIds` / `schoolIds` are optional delivery filters. Omit both (or send empty arrays) for
   "all nodes".
@@ -286,7 +285,7 @@ Response `200`:
   "packageVersion": 1,
   "checksum": "sha256-...",
   "targets": [
-    { "targetType": "grade", "targetId": "6" },
+    { "targetType": "grade", "targetId": "secundaria-1" },
     { "targetType": "node", "targetId": "node_a1" },
     { "targetType": "school", "targetId": "1001" }
   ]
@@ -304,7 +303,7 @@ the losing request receives the same already-published conflict as a later retry
 Errors: `404` unknown version, `409` already published, `409` when the version's `versionNumber` is
 lower than the current published version's (out-of-order publish, body
 `{ "code": "older_than_current" }`, nothing changes), `400` with a `ValidationProblemDetails`
-whose error keys are `blocks` (no blocks), `grade` (missing), or per-block/config keys; `400` when
+whose error keys are `blocks` (no blocks) or per-block/config keys; `400` when
 an `Image` block references an asset that does not exist.
 
 ### 3.10 Edit exam metadata — `PUT /api/exams/{examId}`
@@ -318,13 +317,13 @@ Request:
   "code": "EXA-2026-01",
   "title": "Matemática · Primer Año (revisado)",
   "description": "Segunda edición",
-  "level": "Secundario",
+  "courses": ["secundaria-1"],
   "area": "Matemática",
   "subject": "Números y Operaciones"
 }
 ```
 
-- `title` is required; `description` / `level` / `area` / `subject` are optional and replace the
+- `title` is required; `description` / `courses` / `area` / `subject` are optional and replace the
   stored value.
 - `code` is optional. Omitted (or equal to the stored code) keeps it; present and different from the
   stored code is a `400` with validation key `code`.

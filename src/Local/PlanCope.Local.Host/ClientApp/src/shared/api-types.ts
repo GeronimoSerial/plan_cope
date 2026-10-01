@@ -17,7 +17,7 @@ export type LocalExam = {
 
 export type ExamMetadata = {
   title?: string;
-  grade?: string;
+  grade?: string | string[];
   course?: string;
   curso?: string;
   division?: string;

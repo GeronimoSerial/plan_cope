@@ -12,6 +12,7 @@ function baseDoc(questions: ExamDocument["questions"]): ExamDocument {
     schemaVersion: 1,
     code: "MAT-2026-01",
     title: "Examen de prueba",
+    courses: ["primaria-1"],
     questions
   };
 }
@@ -37,6 +38,12 @@ describe("examDocumentSchema", () => {
   it("rechaza un examen sin preguntas", () => {
     const result = examDocumentSchema.safeParse(baseDoc([]));
     expect(result.success).toBe(false);
+  });
+
+  it("requires at least one known course", () => {
+    const valid = baseDoc([]);
+    expect(examDocumentSchema.safeParse({ ...valid, courses: [] }).success).toBe(false);
+    expect(examDocumentSchema.safeParse({ ...valid, courses: ["curso-inexistente"] }).success).toBe(false);
   });
 
   it("rechaza opción única con dos respuestas correctas", () => {

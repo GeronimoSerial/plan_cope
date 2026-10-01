@@ -39,7 +39,13 @@ public sealed class LocalExamRepository(ILocalSqliteConnectionFactory connection
         {
             sql += """
 
-                AND json_extract(ranked.metadata_json, '$.grade') = @Grade
+                AND (
+                    json_extract(ranked.metadata_json, '$.grade') = @Grade
+                    OR EXISTS (
+                        SELECT 1 FROM json_each(ranked.metadata_json, '$.grade') AS grade
+                        WHERE grade.value = @Grade
+                    )
+                )
                 """;
             parameters = new { Grade = grade };
         }

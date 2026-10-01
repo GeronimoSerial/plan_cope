@@ -69,8 +69,8 @@ export function PublishDialog({
   onPublished
 }: PublishDialogProps) {
   const router = useRouter();
-  const [grade, setGrade] = useState("");
   const [subject, setSubject] = useState("");
+  const [division, setDivision] = useState("");
   const [mode, setMode] = useState<PublishTargetMode>("all");
   const [schools, setSchools] = useState<SchoolTargetRow[] | null>(null);
   const [nodes, setNodes] = useState<NodeTargetRow[] | null>(null);
@@ -89,8 +89,8 @@ export function PublishDialog({
     if (!open) {
       return;
     }
-    setGrade(document.level ?? "");
     setSubject(document.subject ?? "");
+    setDivision("");
     setMode("all");
     setSchoolQuery("");
     setNodeQuery("");
@@ -99,7 +99,7 @@ export function PublishDialog({
     setValidationError(null);
     setPublishError(null);
     setDone(false);
-  }, [open, document.level, document.subject]);
+  }, [open, document.subject]);
 
   useEffect(() => {
     if (!open) {
@@ -163,7 +163,6 @@ export function PublishDialog({
 
   async function handlePublish() {
     const validation = validatePublishTargets({
-      grade,
       mode,
       schoolIds: selectedSchools.map(school => school.cue),
       nodeIds: selectedNodes.map(node => node.id)
@@ -183,8 +182,8 @@ export function PublishDialog({
         return;
       }
       const payload = buildPublishRequest({
-        grade,
         subject,
+        division,
         mode,
         schoolIds: selectedSchools.map(school => school.cue),
         nodeIds: selectedNodes.map(node => node.id)
@@ -236,21 +235,14 @@ export function PublishDialog({
             </DialogHeader>
 
             <div className="grid gap-5">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field data-invalid={validationError?.field === "grade" ? true : undefined}>
-                  <FieldLabel htmlFor="publish-grade">
-                    <TermLabel term="curso-grado">Curso / grado</TermLabel>
-                  </FieldLabel>
-                  <Input
-                    id="publish-grade"
-                    value={grade}
-                    onChange={event => setGrade(event.target.value)}
-                    placeholder="Ej. 6"
-                  />
-                </Field>
+              <div className="grid gap-4">
                 <Field>
                   <FieldLabel htmlFor="publish-subject">Materia (opcional)</FieldLabel>
                   <Input id="publish-subject" value={subject} onChange={event => setSubject(event.target.value)} />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="publish-division">División (opcional)</FieldLabel>
+                  <Input id="publish-division" value={division} onChange={event => setDivision(event.target.value)} />
                 </Field>
               </div>
 

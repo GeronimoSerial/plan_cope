@@ -36,7 +36,7 @@ public sealed class ExamAuthoringPublicationTests
         var controller = CreateController(dbContext);
 
         var result = await controller.Create(
-            new CreateExamRequest("EXA-2026-01", "Matematica", null, "Secundario", "Matematica", "Numeros"),
+            new CreateExamRequest("EXA-2026-01", "Matematica", null, ["secundaria-1"], "Matematica", "Numeros"),
             CancellationToken.None);
 
         var created = Assert.IsType<CreatedAtActionResult>(result.Result);
@@ -59,7 +59,7 @@ public sealed class ExamAuthoringPublicationTests
         var controller = CreateController(dbContext);
 
         var create = await controller.Create(
-            new CreateExamRequest("EXA-2026-02", "Lengua", null, null, null, null),
+            new CreateExamRequest("EXA-2026-02", "Lengua", null, ["primaria-1", "secundaria-1"], null, null),
             CancellationToken.None);
         var createdSummary = Assert.IsType<ExamSummaryDto>(Assert.IsType<CreatedAtActionResult>(create.Result).Value);
         var examId = createdSummary.Id;
@@ -78,7 +78,7 @@ public sealed class ExamAuthoringPublicationTests
 
         var publish = await controller.PublishVersion(
             versionId,
-            new PublishExamVersionRequest(null, "6", null),
+            new PublishExamVersionRequest(null, null),
             CancellationToken.None);
         Assert.IsType<OkObjectResult>(publish.Result);
 
@@ -89,17 +89,56 @@ public sealed class ExamAuthoringPublicationTests
         Assert.NotNull(published.PublishedAt);
         Assert.NotNull(published.Targets);
         Assert.Contains(published.Targets!, target =>
-            target.TargetType == PublicationTargetTypes.Grade && target.TargetId == "6");
+            target.TargetType == PublicationTargetTypes.Grade && target.TargetId == "primaria-1");
+        Assert.Contains(published.Targets!, target =>
+            target.TargetType == PublicationTargetTypes.Grade && target.TargetId == "secundaria-1");
         Assert.Equal(0, published.PulledByNodeCount);
 
         var duplicatePublish = await controller.PublishVersion(
             versionId,
-            new PublishExamVersionRequest(null, "6", null),
+            new PublishExamVersionRequest(null, null),
             CancellationToken.None);
 
         var duplicateConflict = Assert.IsAssignableFrom<ObjectResult>(duplicatePublish.Result);
         Assert.Equal(StatusCodes.Status409Conflict, duplicateConflict.StatusCode);
         Assert.Single(await dbContext.PublicationPackages.ToListAsync());
+    }
+
+    [Theory]
+    [MemberData(nameof(InvalidCourseLists))]
+    public async Task Create_exam_rejects_missing_or_unknown_courses(IReadOnlyList<string>? courses)
+    {
+        using var dbContext = new PlanCopeDbContext(CreateOptions());
+        var controller = CreateController(dbContext);
+
+        var result = await controller.Create(
+            new CreateExamRequest("EXA-INVALID-COURSE", "Examen", null, courses, null, null),
+            CancellationToken.None);
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        var problem = Assert.IsType<ValidationProblemDetails>(badRequest.Value);
+        Assert.Contains("Courses", problem.Errors.Keys);
+    }
+
+    public static IEnumerable<object?[]> InvalidCourseLists =>
+    [
+        [Array.Empty<string>()],
+        [new[] { "unknown-course" }]
+    ];
+
+    [Fact]
+    public async Task Create_exam_rejects_an_empty_area_when_provided()
+    {
+        using var dbContext = new PlanCopeDbContext(CreateOptions());
+        var controller = CreateController(dbContext);
+
+        var result = await controller.Create(
+            new CreateExamRequest("EXA-INVALID-AREA", "Examen", null, ["primaria-1"], "   ", null),
+            CancellationToken.None);
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        var problem = Assert.IsType<ValidationProblemDetails>(badRequest.Value);
+        Assert.Contains("Area", problem.Errors.Keys);
     }
 
     [Fact]
@@ -110,14 +149,14 @@ public sealed class ExamAuthoringPublicationTests
         var controller = CreateController(dbContext);
 
         var create = await controller.Create(
-            new CreateExamRequest("EXA-2026-03", "Historia", null, null, null, null),
+            new CreateExamRequest("EXA-2026-03", "Historia", null, ["secundaria-1"], null, null),
             CancellationToken.None);
         var versionId = Assert.IsType<ExamSummaryDto>(
             Assert.IsType<CreatedAtActionResult>(create.Result).Value).InitialVersionId!;
 
         var publish = await controller.PublishVersion(
             versionId,
-            new PublishExamVersionRequest(null, "1A", null),
+            new PublishExamVersionRequest(null, null),
             CancellationToken.None);
 
         var objectResult = Assert.IsAssignableFrom<ObjectResult>(publish.Result);
@@ -142,7 +181,7 @@ public sealed class ExamAuthoringPublicationTests
         Assert.IsType<OkObjectResult>(upsert.Result);
 
         var publish = await controller.PublishVersion(versionId,
-            new PublishExamVersionRequest(null, "6", null), CancellationToken.None);
+            new PublishExamVersionRequest(null, null), CancellationToken.None);
 
         var result = Assert.IsAssignableFrom<ObjectResult>(publish.Result);
         Assert.Equal(StatusCodes.Status400BadRequest, result.StatusCode);
@@ -180,7 +219,7 @@ public sealed class ExamAuthoringPublicationTests
         var controller = CreateController(dbContext);
 
         var create = await controller.Create(
-            new CreateExamRequest("EXA-2026-04", "Biologia", null, null, null, null),
+            new CreateExamRequest("EXA-2026-04", "Biologia", null, ["secundaria-1"], null, null),
             CancellationToken.None);
         var createdSummary = Assert.IsType<ExamSummaryDto>(
             Assert.IsType<CreatedAtActionResult>(create.Result).Value);
@@ -215,7 +254,7 @@ public sealed class ExamAuthoringPublicationTests
     private static async Task<ExamSummaryDto> CreateExamAsync(ExamsController controller, string code)
     {
         var result = await controller.Create(
-            new CreateExamRequest(code, "Matemática", null, "Secundario", "Matemática", "Números"),
+            new CreateExamRequest(code, "Matemática", null, ["secundaria-1"], "Matemática", "Números"),
             CancellationToken.None);
         return Assert.IsType<ExamSummaryDto>(Assert.IsType<CreatedAtActionResult>(result.Result).Value);
     }

@@ -32,7 +32,7 @@ export interface ExamSummary {
   id: string;
   code: string;
   title: string;
-  level?: string | null;
+  courses: string[];
   area?: string | null;
   subject?: string | null;
   status: string;
@@ -50,7 +50,7 @@ export interface CreateExamRequest {
   code: string;
   title: string;
   description?: string | null;
-  level?: string | null;
+  courses: string[];
   area?: string | null;
   subject?: string | null;
 }
@@ -70,7 +70,7 @@ export interface CreateExamVersionRequest {
 export interface UpdateExamRequest {
   title: string;
   description?: string | null;
-  level?: string | null;
+  courses: string[];
   area?: string | null;
   subject?: string | null;
   code?: string;
@@ -158,7 +158,6 @@ export interface DocumentBlock {
 
 export interface PublishExamVersionRequest {
   subject?: string | null;
-  grade: string;
   division?: string | null;
   nodeIds?: string[];
   schoolIds?: string[];

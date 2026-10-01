@@ -77,6 +77,20 @@ public sealed class LocalExamCatalogGradeFilterTests : IDisposable
         Assert.Equal("ev-01-v3", current.Id);
     }
 
+    [Fact]
+    public async Task Grade_filter_matches_any_course_in_a_multi_course_exam()
+    {
+        var exam = new LocalExamVersion(
+            "ev-multi", "remote-multi", "EXA-MULTI", 1, "checksum",
+            JsonSerializer.Serialize(new { title = "Exam", grade = new[] { "primaria-6", "secundaria-1" } }),
+            SchemaVersion: 1, SyncedAt: "2026-01-01T00:00:00.0000000+00:00");
+        await examRepository.UpsertImportedExamAsync(exam, [], [], []);
+
+        Assert.Equal("ev-multi", Assert.Single(await examRepository.GetExamsAsync("primaria-6")).Id);
+        Assert.Equal("ev-multi", Assert.Single(await examRepository.GetExamsAsync("secundaria-1")).Id);
+        Assert.Empty(await examRepository.GetExamsAsync("primaria-5"));
+    }
+
     private async Task SeedExamAsync(string examCode, string id, int versionNumber, string grade)
     {
         var exam = new LocalExamVersion(

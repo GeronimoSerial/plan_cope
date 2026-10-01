@@ -99,7 +99,7 @@ describe("scoring policy block mapping", () => {
         config: { question: "¿2+2?", multiple: true, scoringPolicy: "ProportionalPlain", options: [{ value: "a", label: "4" }, { value: "b", label: "5" }] }, validation: { required: true } }],
       answerKeys: [{ id: "k1", blockId: "b1", correctAnswer: ["a"], scoreValue: 3 }], assets: []
     };
-    const exam = { code: "MAT-1", title: "Examen", subject: null, level: null, area: null };
+    const exam = { code: "MAT-1", title: "Examen", subject: null, courses: ["primaria-1"], area: null };
     const question = versionToDocument(version, exam).questions[0];
     expect(question.type === "multiple_choice" && question.scoringPolicy).toBe("ProportionalPlain");
     const withoutPolicy = { ...version, blocks: [{ ...version.blocks[0], config: { ...version.blocks[0].config, scoringPolicy: undefined } }] };
@@ -131,7 +131,7 @@ describe("versionToDocument", () => {
     assets: []
   };
 
-  const doc = versionToDocument(version, { code: "MAT-1", title: "Examen de prueba", subject: null, level: null, area: null });
+  const doc = versionToDocument(version, { code: "MAT-1", title: "Examen de prueba", subject: null, courses: ["primaria-1"], area: null });
 
   it("rebuilds metadata and questions from the API version", () => {
     expect(doc.title).toBe("Título guardado");
@@ -154,7 +154,7 @@ describe("versionToDocument", () => {
       ...version,
       blocks: [{ ...version.blocks[0], config: { ...version.blocks[0].config, imageAssetId: "asset-42" } }]
     };
-    const question = versionToDocument(withImage, { code: "MAT-1", title: "Examen", subject: null, level: null, area: null }).questions[0];
+    const question = versionToDocument(withImage, { code: "MAT-1", title: "Examen", subject: null, courses: ["primaria-1"], area: null }).questions[0];
     expect(question.imageAssetId).toBe("asset-42");
     expect(documentToReplaceRequest({ ...doc, questions: [question] }).blocks[0].config.imageAssetId).toBe("asset-42");
   });
@@ -162,7 +162,7 @@ describe("versionToDocument", () => {
 
 describe("evaluateDocumentReadiness", () => {
   it("blocks when there are no questions", () => {
-    expect(evaluateDocumentReadiness({ schemaVersion: 1, code: "MAT-1", title: "T", questions: [] })).toEqual({
+    expect(evaluateDocumentReadiness({ schemaVersion: 1, code: "MAT-1", title: "T", courses: ["primaria-1"], questions: [] })).toEqual({
       canPublish: false,
       blockedReason: "no_blocks"
     });
@@ -186,7 +186,7 @@ describe("versionToDocument fallbacks", () => {
     code: "EXA-2026-01",
     title: "Matemática · Primer Año",
     subject: "Números",
-    level: "Secundario",
+    courses: ["secundaria-2"],
     area: "Matemática"
   };
 
@@ -195,7 +195,7 @@ describe("versionToDocument fallbacks", () => {
     expect(doc.title).toBe("Matemática · Primer Año");
     expect(doc.code).toBe("EXA-2026-01");
     expect(doc.subject).toBe("Números");
-    expect(doc.level).toBe("Secundario");
+    expect(doc.courses).toEqual(["secundaria-2"]);
     expect(doc.area).toBe("Matemática");
   });
 
@@ -205,9 +205,9 @@ describe("versionToDocument fallbacks", () => {
   });
 
   it("uses metadata values ahead of the fallback", () => {
-    const doc = versionToDocument({ ...emptyVersion, metadata: { title: "Título guardado", level: "Primario" } }, summary);
+    const doc = versionToDocument({ ...emptyVersion, metadata: { title: "Título guardado", courses: ["primaria-2"] } }, summary);
     expect(doc.title).toBe("Título guardado");
-    expect(doc.level).toBe("Primario");
+    expect(doc.courses).toEqual(["primaria-2"]);
     expect(doc.subject).toBe("Números");
     expect(doc.area).toBe("Matemática");
   });

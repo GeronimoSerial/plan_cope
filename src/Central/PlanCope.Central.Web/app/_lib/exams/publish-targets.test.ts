@@ -12,66 +12,59 @@ import {
 
 describe("buildPublishRequest", () => {
   it("modo all: omite nodeIds y schoolIds", () => {
-    const request = buildPublishRequest({ grade: "6", subject: "Matemática", mode: "all" });
-    expect(request).toEqual({ grade: "6", subject: "Matemática" });
+    const request = buildPublishRequest({ subject: "Matemática", mode: "all" });
+    expect(request).toEqual({ subject: "Matemática", division: null });
     expect(request.nodeIds).toBeUndefined();
     expect(request.schoolIds).toBeUndefined();
   });
 
   it("modo schools: envía los CUE y no nodeIds", () => {
     const request = buildPublishRequest({
-      grade: " 6 ",
       mode: "schools",
       schoolIds: ["1001", "1001", "1002"]
     });
-    expect(request.grade).toBe("6");
-    expect(request.schoolIds).toEqual(["1001", "1002"]);
+        expect(request.schoolIds).toEqual(["1001", "1002"]);
     expect(request.nodeIds).toBeUndefined();
   });
 
   it("modo nodes: envía solo nodeIds", () => {
-    const request = buildPublishRequest({ grade: "1", mode: "nodes", nodeIds: ["node_a", "node_a", "node_b"] });
+    const request = buildPublishRequest({ mode: "nodes", nodeIds: ["node_a", "node_a", "node_b"] });
     expect(request.nodeIds).toEqual(["node_a", "node_b"]);
     expect(request.schoolIds).toBeUndefined();
   });
 
   it("omite arrays vacíos", () => {
-    const schools = buildPublishRequest({ grade: "6", mode: "schools", schoolIds: [] });
-    const nodes = buildPublishRequest({ grade: "6", mode: "nodes", nodeIds: ["", "  "] });
+    const schools = buildPublishRequest({ mode: "schools", schoolIds: [] });
+    const nodes = buildPublishRequest({ mode: "nodes", nodeIds: ["", "  "] });
     expect(schools.schoolIds).toBeUndefined();
     expect(nodes.nodeIds).toBeUndefined();
   });
 
   it("normaliza subject vacío a null", () => {
-    const request = buildPublishRequest({ grade: "6", subject: "  ", mode: "all" });
+    const request = buildPublishRequest({ subject: "  ", mode: "all" });
     expect(request.subject).toBeNull();
   });
 });
 
 describe("validatePublishTargets", () => {
-  it("exige el curso/grado", () => {
-    expect(
-      validatePublishTargets({ grade: "  ", mode: "all", schoolIds: [], nodeIds: [] })
-    ).toEqual({ field: "grade", message: "Ingresá el curso o grado." });
-  });
 
   it("exige selección en modo schools", () => {
     expect(
-      validatePublishTargets({ grade: "6", mode: "schools", schoolIds: [], nodeIds: [] })
+      validatePublishTargets({ mode: "schools", schoolIds: [], nodeIds: [] })
     ).toEqual({ field: "targets", message: "Elegí al menos una escuela." });
   });
 
   it("exige selección en modo nodes", () => {
     expect(
-      validatePublishTargets({ grade: "6", mode: "nodes", schoolIds: [], nodeIds: [] })
+      validatePublishTargets({ mode: "nodes", schoolIds: [], nodeIds: [] })
     ).toEqual({ field: "targets", message: "Elegí al menos un nodo." });
   });
 
   it("acepta una selección válida", () => {
     expect(
-      validatePublishTargets({ grade: "6", mode: "schools", schoolIds: ["1001"], nodeIds: [] })
+      validatePublishTargets({ mode: "schools", schoolIds: ["1001"], nodeIds: [] })
     ).toBeNull();
-    expect(validatePublishTargets({ grade: "6", mode: "all", schoolIds: [], nodeIds: [] })).toBeNull();
+    expect(validatePublishTargets({ mode: "all", schoolIds: [], nodeIds: [] })).toBeNull();
   });
 });
 

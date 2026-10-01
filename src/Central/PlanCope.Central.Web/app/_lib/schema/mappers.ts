@@ -45,7 +45,7 @@ export function documentToReplaceRequest(document: ExamDocument): ReplaceExamDoc
       title: document.title,
       description: document.description ?? null,
       subject: document.subject ?? null,
-      level: document.level ?? null,
+      courses: document.courses,
       area: document.area ?? null
     },
     blocks
@@ -89,7 +89,7 @@ function questionToBlock(question: Question, orderIndex: number): DocumentBlock 
 
 // ---------- API -> canonical (load in the builder) ----------
 // Version metadata takes precedence when it has a useful value; ExamSummary data
-// (title/level/area/subject) is the fallback because POST /api/exams leaves Metadata=null in the
+// (title/courses/area/subject) is the fallback because POST /api/exams leaves Metadata=null in the
 // initial version, so without this fallback the builder would have no title.
 function metadataText(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
@@ -97,7 +97,7 @@ function metadataText(value: unknown): string | undefined {
 
 export function versionToDocument(
   version: ExamVersion,
-  exam: Pick<ExamSummary, "code" | "title" | "subject" | "level" | "area">
+  exam: Pick<ExamSummary, "code" | "title" | "subject" | "courses" | "area">
 ): ExamDocument {
   const answerByBlock = new Map(version.answerKeys?.map(key => [key.blockId, key]) ?? []);
   const metadata = (version.metadata ?? {}) as Record<string, unknown>;
@@ -162,7 +162,9 @@ export function versionToDocument(
     title: metadataText(metadata.title) ?? exam.title,
     description: typeof metadata.description === "string" ? metadata.description : undefined,
     subject: metadataText(metadata.subject) ?? exam.subject ?? undefined,
-    level: metadataText(metadata.level) ?? exam.level ?? undefined,
+    courses: Array.isArray(metadata.courses)
+      ? metadata.courses.filter((course): course is string => typeof course === "string")
+      : exam.courses,
     area: metadataText(metadata.area) ?? exam.area ?? undefined,
     questions
   };

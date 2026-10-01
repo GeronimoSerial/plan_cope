@@ -1,6 +1,7 @@
 "use client";
 
 import type { ExamDocument } from "../../_lib/schema/exam";
+import { courseLabel } from "../../_lib/exams/catalog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -13,7 +14,7 @@ interface ExamPreviewProps {
 
 // Read-only preview showing the exam as a student will see it.
 export function ExamPreview({ document, versionId }: ExamPreviewProps) {
-  const meta = [document.subject, document.level, document.area].filter(Boolean).join(" · ");
+  const meta = [document.subject, (document.courses ?? []).map(courseLabel).join(", "), document.area].filter(Boolean).join(" · ");
 
   return (
     <Card>

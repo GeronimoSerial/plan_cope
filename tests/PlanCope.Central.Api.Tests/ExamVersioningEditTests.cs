@@ -47,7 +47,7 @@ public sealed class ExamVersioningEditTests
         Assert.IsType<OkObjectResult>(blockResult.Result);
 
         var publishResult = await controller.PublishVersion(versionId,
-            new PublishExamVersionRequest(null, "6", null), CancellationToken.None);
+            new PublishExamVersionRequest(null, null), CancellationToken.None);
 
         Assert.IsType<OkObjectResult>(publishResult.Result);
     }
@@ -242,13 +242,13 @@ public sealed class ExamVersioningEditTests
 
         var result = await controller.UpdateExam(
             exam.Id,
-            new UpdateExamRequest("EXA-EDIT-01", "Matemática Avanzada", "Nueva descripción", "Terciario", "Ciencias", "Álgebra"),
+            new UpdateExamRequest("EXA-EDIT-01", "Matemática Avanzada", "Nueva descripción", ["secundaria-3"], "Ciencias", "Álgebra"),
             CancellationToken.None);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var summary = Assert.IsType<ExamSummaryDto>(ok.Value);
         Assert.Equal("Matemática Avanzada", summary.Title);
-        Assert.Equal("Terciario", summary.Level);
+        Assert.Equal(new[] { "secundaria-3" }, summary.Courses);
         Assert.Equal("Ciencias", summary.Area);
         Assert.Equal("Álgebra", summary.Subject);
         Assert.Equal(1, summary.VersionCount);
@@ -362,13 +362,13 @@ public sealed class ExamVersioningEditTests
             0,
             new UpsertBlockRequest(0, BlockType.TrueFalse, "P1", null, Json("""{"question":"v1"}"""), null),
             CancellationToken.None);
-        Assert.IsType<OkObjectResult>((await controller.PublishVersion(v1, new PublishExamVersionRequest(null, "6", null), CancellationToken.None)).Result);
+        Assert.IsType<OkObjectResult>((await controller.PublishVersion(v1, new PublishExamVersionRequest(null, null), CancellationToken.None)).Result);
 
         var copyResult = await controller.CreateVersion(exam.Id, new CreateExamVersionRequest(), CancellationToken.None);
         var v2 = Assert.IsType<ExamVersionDto>(Assert.IsType<CreatedAtActionResult>(copyResult.Result).Value);
         Assert.Equal(1, v2.BasedOnVersionNumber);
         Assert.Single(v2.Blocks);
-        Assert.IsType<OkObjectResult>((await controller.PublishVersion(v2.Id, new PublishExamVersionRequest(null, "6", null), CancellationToken.None)).Result);
+        Assert.IsType<OkObjectResult>((await controller.PublishVersion(v2.Id, new PublishExamVersionRequest(null, null), CancellationToken.None)).Result);
 
         var versions = await ListVersionsAsync(controller, exam.Id);
         var current = versions.Single(version => version.Id == v2.Id);
@@ -412,7 +412,7 @@ public sealed class ExamVersioningEditTests
         var v1 = exam.InitialVersionId!;
         await AddImageAssetAsync(controller, v1);
         await SeedQuestionDocumentAsync(dbContext, controller, v1);
-        Assert.IsType<OkObjectResult>((await controller.PublishVersion(v1, new PublishExamVersionRequest(null, "6", null), CancellationToken.None)).Result);
+        Assert.IsType<OkObjectResult>((await controller.PublishVersion(v1, new PublishExamVersionRequest(null, null), CancellationToken.None)).Result);
 
         var documentEdit = await controller.ReplaceDocument(
             v1,
@@ -448,7 +448,7 @@ public sealed class ExamVersioningEditTests
         var t1 = new DateTimeOffset(2026, 9, 1, 10, 0, 0, TimeSpan.Zero);
         var t2 = t1.AddMinutes(5);
 
-        dbContext.Exams.Add(new Exam("ex-sync", "EXA-SYNC-01", "Exam", null, null, null, "Matematica", "Published", null, t1, t2));
+        dbContext.Exams.Add(new Exam("ex-sync", "EXA-SYNC-01", "Exam", null, [], null, "Matematica", "Published", null, t1, t2));
         dbContext.ExamVersions.Add(new ExamVersion("ev-1", "ex-sync", 1, 1, "Published", null, null, null, null, null, t1, t1, t1));
         dbContext.ExamVersions.Add(new ExamVersion("ev-2", "ex-sync", 2, 1, "Published", null, null, null, null, null, t2, t2, t2, SourceVersionId: "ev-1"));
         const string referencedAssetId = "asset-in-question";
@@ -484,7 +484,7 @@ public sealed class ExamVersioningEditTests
     private static async Task<ExamSummaryDto> CreateExamAsync(ExamsController controller, string code)
     {
         var result = await controller.Create(
-            new CreateExamRequest(code, "Matemática", null, "Secundario", "Matemática", "Números"),
+            new CreateExamRequest(code, "Matemática", null, ["secundaria-1"], "Matemática", "Números"),
             CancellationToken.None);
         return Assert.IsType<ExamSummaryDto>(Assert.IsType<CreatedAtActionResult>(result.Result).Value);
     }

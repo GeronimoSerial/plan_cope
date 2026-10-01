@@ -10,7 +10,7 @@ namespace PlanCope.Central.Api.Tests;
 public sealed class ExamPackageChecksumTests
 {
     private static readonly DateTimeOffset Now = new(2026, 9, 15, 12, 0, 0, TimeSpan.Zero);
-    private static Exam MakeExam() => new("ex-1", "EXA-2026-01", "Matematica", null, null, null, null, "Approved", null, Now, Now);
+    private static Exam MakeExam() => new("ex-1", "EXA-2026-01", "Matematica", null, [], null, null, "Approved", null, Now, Now);
     private static ExamVersion MakeVersion() => new("ev-1", "ex-1", 2, 1, "Approved", null, null, null, null, null, null, Now, Now);
     private static IReadOnlyList<BlockDto> MakeBlocks(string policy) => new[]
     {

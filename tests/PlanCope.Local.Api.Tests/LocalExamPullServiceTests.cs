@@ -100,6 +100,9 @@ public sealed class LocalExamPullServiceTests : IDisposable
         Assert.Equal("Se importó 1 examen nuevo.", response.Message);
 
         Assert.NotNull(await examRepository.GetByIdAsync("ev-1", CancellationToken.None));
+        var imported = await examRepository.GetByIdAsync("ev-1", CancellationToken.None);
+        using var metadata = JsonDocument.Parse(imported!.MetadataJson!);
+        Assert.Equal(new[] { "primaria-6", "secundaria-1" }, metadata.RootElement.GetProperty("grade").EnumerateArray().Select(item => item.GetString()).ToArray());
         Assert.Equal("false", await ReadStateRawAsync("sync_offline"));
         Assert.Equal("\"\"", await ReadStateRawAsync("sync_last_error"));
     }
@@ -269,7 +272,7 @@ public sealed class LocalExamPullServiceTests : IDisposable
                 Array.Empty<BlockDto>(),
                 Array.Empty<AnswerKeyDto>(),
                 Array.Empty<PublishedAssetDto>(),
-                [new PublicationTargetDto("grade", "6")]);
+                [new PublicationTargetDto("grade", "primaria-6"), new PublicationTargetDto("grade", "secundaria-1")]);
 
             return new SyncItem(
                 "publication_package",

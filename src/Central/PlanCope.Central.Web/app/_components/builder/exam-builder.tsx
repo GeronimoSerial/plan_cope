@@ -28,6 +28,7 @@ import { PublishDialog } from "./publish-dialog";
 import { CreateVersionDialog } from "../exams/create-version-dialog";
 import { useNavigationGuard } from "../layout/navigation-guard";
 import { versionStatusLine, versionStatusTerm } from "../../_lib/exams/version-state";
+import { areaOptions, courseOptions } from "../../_lib/exams/catalog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Breadcrumb,
@@ -92,6 +93,7 @@ export function ExamBuilder({
   const router = useRouter();
   const { setDirty, intercept } = useNavigationGuard();
   const [document, setDocument] = useState<ExamDocument>(initialDocument);
+  const [areaOther, setAreaOther] = useState(() => Boolean(initialDocument.area && !areaOptions.includes(initialDocument.area as (typeof areaOptions)[number])));
   const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(initialDocument));
   const [published, setPublished] = useState(() => status.toLowerCase() === "published");
   const [activeTab, setActiveTab] = useState("edit");
@@ -354,7 +356,7 @@ export function ExamBuilder({
                   {errors.title && <FieldError>{errors.title}</FieldError>}
                 </Field>
               </div>
-              <div className="grid gap-4 sm:grid-cols-3">
+              <div className="grid gap-4 sm:grid-cols-2">
                 <Field>
                   <FieldLabel htmlFor="meta-subject">Materia</FieldLabel>
                   <Input
@@ -364,26 +366,48 @@ export function ExamBuilder({
                     onChange={event => patchDocument({ subject: event.target.value || undefined })}
                   />
                 </Field>
+              </div>
+              <Field data-invalid={!document.courses?.length ? true : undefined}>
+                <FieldLabel><TermLabel term="curso-grado">Curso / grado</TermLabel></FieldLabel>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-md border p-3 sm:grid-cols-3">
+                  {["Primaria", "Secundaria"].map(level => (
+                    <fieldset key={level} className="grid content-start gap-2">
+                      <legend className="text-sm font-medium">{level}</legend>
+                      {courseOptions.filter(course => course.level === level).map(course => (
+                        <label key={course.key} className="flex items-center gap-2 text-sm">
+                          <input type="checkbox" checked={(document.courses ?? []).includes(course.key)} disabled={isReadOnly}
+                            onChange={event => patchDocument({ courses: event.target.checked
+                              ? [...(document.courses ?? []), course.key]
+                              : (document.courses ?? []).filter(key => key !== course.key) })} />
+                          {course.label}
+                        </label>
+                      ))}
+                    </fieldset>
+                  ))}
+                </div>
+                {!document.courses?.length && <FieldError>Seleccioná al menos un curso.</FieldError>}
+              </Field>
+              <div className="grid gap-4 sm:grid-cols-2">
                 <Field>
-                  <FieldLabel htmlFor="meta-level">
-                    <TermLabel term="curso-grado">Curso / grado</TermLabel>
-                  </FieldLabel>
-                  <Input
-                    id="meta-level"
-                    value={document.level ?? ""}
-                    disabled={isReadOnly}
-                    onChange={event => patchDocument({ level: event.target.value || undefined })}
-                  />
+                  <FieldLabel htmlFor="meta-area-choice">Área</FieldLabel>
+                  <select id="meta-area-choice" className="h-9 rounded-md border bg-background px-3 text-sm" disabled={isReadOnly}
+                    value={areaOther ? "Otro" : document.area ?? ""}
+                    onChange={event => {
+                      const other = event.target.value === "Otro";
+                      setAreaOther(other);
+                      patchDocument({ area: other ? "" : event.target.value || undefined });
+                    }}>
+                    <option value="">Seleccionar área</option>
+                    {areaOptions.map(area => <option key={area} value={area}>{area}</option>)}
+                  </select>
                 </Field>
-                <Field>
-                  <FieldLabel htmlFor="meta-area">Área</FieldLabel>
-                  <Input
-                    id="meta-area"
-                    value={document.area ?? ""}
-                    disabled={isReadOnly}
-                    onChange={event => patchDocument({ area: event.target.value || undefined })}
-                  />
-                </Field>
+                {areaOther &&
+                  <Field data-invalid={!document.area?.trim() ? true : undefined}>
+                    <FieldLabel htmlFor="meta-area-custom">Área</FieldLabel>
+                    <Input id="meta-area-custom" value={document.area ?? ""} disabled={isReadOnly}
+                      onChange={event => patchDocument({ area: event.target.value })} />
+                    {!document.area?.trim() && <FieldError>Ingresá el nombre del área.</FieldError>}
+                  </Field>}
               </div>
               <Field>
                 <FieldLabel htmlFor="meta-description">Descripción</FieldLabel>
