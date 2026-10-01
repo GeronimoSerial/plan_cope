@@ -18,7 +18,7 @@ const session = (id: string, schoolCode: string, schoolName: string): LocalSessi
 describe("SessionsWorkspace", () => {
   let root: Root | undefined;
   let container: HTMLDivElement | undefined;
-  afterEach(() => { if (root) act(() => root?.unmount()); root = undefined; container?.remove(); container = undefined; vi.restoreAllMocks(); });
+  afterEach(() => { if (root) act(() => root?.unmount()); root = undefined; container?.remove(); container = undefined; vi.restoreAllMocks(); vi.useRealTimers(); });
 
   it("shows multiple node sessions before a school is selected and waits for an explicit selection", () => {
     const state = delivery([session("a", "180055400", "Escuela Norte"), { ...session("b", "180055401", "Escuela Sur"), offRosterSubmittedCount: 1 }]);
@@ -49,13 +49,19 @@ describe("SessionsWorkspace", () => {
     expect(state.sessionForm.updateForm).toHaveBeenCalledWith("cue", "");
   });
 
-  it("asks for a CUE and reaches session creation for a ready roster", () => {
+  it("searches ready schools and reaches session creation after selection", () => {
     const state = delivery([]);
     const view = render(state);
     act(() => button(view, "Nueva sesión").click());
-    expect(view.textContent).toContain("Escuela Norte");
-    expect(view.textContent).toContain("Elegir");
-    expect(view.querySelector(".school-choice")).not.toBeNull();
+    const schoolInput = view.querySelector<HTMLInputElement>('#new-session-school[role="combobox"]')!;
+    expect(schoolInput).not.toBeNull();
+    act(() => { schoolInput.focus(); setInputValue(schoolInput, "norte"); });
+    expect(view.querySelectorAll('[role="option"]')).toHaveLength(1);
+    act(() => view.querySelector<HTMLElement>('[role="option"]')!.click());
+    expect(view.textContent).toContain("CUE 180055400");
+    act(() => button(view, "Continuar").click());
+    expect(state.sessionForm.updateForm).toHaveBeenCalledWith("cue", "180055400");
+    act(() => button(view, "Volver").click());
     act(() => button(view, "Ingresar otro CUE").click());
     expect(view.querySelector('input[maxlength="9"]')).not.toBeNull();
     expect(view.textContent).toContain("Ingresar otro CUE");
@@ -82,10 +88,26 @@ describe("SessionsWorkspace", () => {
     expect(view.querySelector(".badge-neutral")?.textContent).toBe("Cerrada");
     expect(view.querySelector("td small")?.textContent).toMatch(/\d+ h \d+ min · hasta \d{2}:\d{2}/);
     expect(view.querySelectorAll("tbody tr td")[5].textContent).toBe("4/20+1 fuera de padrón");
-    const selects = view.querySelectorAll("select");
-    act(() => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(selects[0], "180055400"); selects[0].dispatchEvent(new Event("change", { bubbles: true })); });
+    const schoolPicker = view.querySelector<HTMLInputElement>('#history-school[role="combobox"]')!;
+    act(() => schoolPicker.focus());
+    act(() => view.querySelectorAll<HTMLElement>('[role="option"]')[1].click());
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    expect(historyLoader).toHaveBeenLastCalledWith({ schoolCode: "180055400", status: "", page: 1, pageSize: 20 }, expect.any(AbortSignal));
+    expect(historyLoader).toHaveBeenLastCalledWith({ schoolCode: "180055400", status: "", q: "", page: 1, pageSize: 20 }, expect.any(AbortSignal));
+  });
+
+  it("debounces history search and resets pagination to the first page", async () => {
+    vi.useFakeTimers();
+    const historyLoader = vi.spyOn(ApiClient.prototype, "getSessionHistory").mockImplementation(async filters => ({ items: [], page: filters.page ?? 1, pageSize: 20, totalCount: 40 }));
+    const view = render(delivery([]), "history");
+    await act(async () => { for (let index = 0; index < 8; index++) await Promise.resolve(); });
+    expect(button(view, "Siguiente").disabled).toBe(false);
+    act(() => button(view, "Siguiente").click());
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(historyLoader).toHaveBeenLastCalledWith({ schoolCode: "", status: "", q: "", page: 2, pageSize: 20 }, expect.any(AbortSignal));
+    const search = view.querySelector<HTMLInputElement>("#history-search")!;
+    act(() => setInputValue(search, "Álamo"));
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    expect(historyLoader).toHaveBeenLastCalledWith({ schoolCode: "", status: "", q: "Álamo", page: 1, pageSize: 20 }, expect.any(AbortSignal));
   });
 
   function render(state: DeliverySessionState, tab: "home" | "history" = "home") {
@@ -99,6 +121,11 @@ function button(view: HTMLElement, label: string): HTMLButtonElement {
   const found = [...view.querySelectorAll("button")].find(item => item.textContent?.trim() === label);
   if (!found) throw new Error(`Button not found: ${label}`);
   return found;
+}
+
+function setInputValue(input: HTMLInputElement, value: string) {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
 function delivery(sessions: LocalSession[]): DeliverySessionState {
