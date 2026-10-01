@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useNavigationGuard } from "./navigation-guard";
 import {
   BarChart3,
+  Activity,
   Download,
   FileText,
   Home,
@@ -42,7 +43,7 @@ const links: NavItem[] = [
   { href: "/descargas", label: "Descargas", icon: Download }
 ];
 
-export function AppSidebar() {
+export function AppSidebar({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
   const { intercept } = useNavigationGuard();
@@ -78,7 +79,7 @@ export function AppSidebar() {
           <SidebarGroupLabel>Navegación</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {links.map(link => {
+              {[...links, ...(isAdmin ? [{ href: "/sesiones-en-curso", label: "Sesiones en curso", icon: Activity }] : [])].map(link => {
                 const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
                 const Icon = link.icon;
                 return (
