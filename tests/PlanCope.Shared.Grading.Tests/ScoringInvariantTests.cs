@@ -44,7 +44,7 @@ public sealed class ScoringInvariantTests
             var blockId = $"b{i}";
             var type = AllBlockTypes[random.Next(AllBlockTypes.Length)];
             var scoreMax = (decimal)random.Next(0, 11);
-            var block = new GradableBlock { BlockId = blockId, Type = type, ScoreMax = scoreMax };
+            var block = new GradableBlock { BlockId = blockId, Type = type, ScoreMax = scoreMax, AllowsMultipleAnswers = type == BlockType.MultipleChoice, ScoringPolicy = type == BlockType.MultipleChoice ? Policies[random.Next(Policies.Length)] : null };
 
             switch (type)
             {
@@ -74,7 +74,6 @@ public sealed class ScoringInvariantTests
         var exam = new ExamVersion
         {
             ExamVersionId = $"random-{random.Next()}",
-            DeclaredScoringPolicy = Policies[random.Next(Policies.Length)],
             Blocks = blocks
         };
 

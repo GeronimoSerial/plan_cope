@@ -7,7 +7,7 @@ import {
   type ReplaceExamDocumentRequest,
   type ExamSummary
 } from "../contracts";
-import type { ExamDocument, Question, ExamOption, ScoringPolicy } from "./exam";
+import { isScoringPolicy, type ExamDocument, type Question, type ExamOption } from "./exam";
 
 // ============================================================
 // Anti-corruption layer: translates between the canonical schema (the source
@@ -48,11 +48,7 @@ export function documentToReplaceRequest(document: ExamDocument): ReplaceExamDoc
       level: document.level ?? null,
       area: document.area ?? null
     },
-    blocks,
-    // Known limitation: the API cannot clear a stored policy. ExamsController.ReplaceDocument
-    // merges with `request.ScoringPolicy ?? version.ScoringPolicy`, so sending null here keeps the
-    // previous policy server-side; removing every multiple-choice question does not unset it.
-    scoringPolicy: document.scoringPolicy ?? null
+    blocks
   };
 }
 
@@ -75,6 +71,7 @@ function questionToBlock(question: Question, orderIndex: number): DocumentBlock 
           question: question.prompt,
           help: question.help ?? null,
           multiple: question.type === "multiple_choice",
+          ...(question.type === "multiple_choice" ? { scoringPolicy: question.scoringPolicy ?? "AllOrNothing" } : {}),
           options: question.options.map(option => ({ value: option.id, label: option.label }))
         },
         correctAnswer: question.options.filter(option => option.isCorrect).map(option => option.id)
@@ -117,6 +114,7 @@ export function versionToDocument(
 
       if (type === "MultipleChoice") {
         const multiple = config.multiple === true;
+        const rawScoringPolicy = config.scoringPolicy;
         const rawOptions = Array.isArray(config.options) ? (config.options as Array<Record<string, unknown>>) : [];
         const correctIds = new Set(Array.isArray(answer?.correctAnswer) ? (answer?.correctAnswer as unknown[]).map(String) : []);
         const options: ExamOption[] = rawOptions.map(option => {
@@ -130,6 +128,7 @@ export function versionToDocument(
         return {
           id: block.id,
           type: multiple ? "multiple_choice" : "single_choice",
+          ...(multiple ? { scoringPolicy: isScoringPolicy(rawScoringPolicy) ? rawScoringPolicy : "AllOrNothing" } : {}),
           prompt: String(config.question ?? block.title ?? ""),
           help,
           required,
@@ -161,7 +160,6 @@ export function versionToDocument(
     subject: metadataText(metadata.subject) ?? exam.subject ?? undefined,
     level: metadataText(metadata.level) ?? exam.level ?? undefined,
     area: metadataText(metadata.area) ?? exam.area ?? undefined,
-    scoringPolicy: (version.scoringPolicy as ScoringPolicy | null) ?? null,
     questions
   };
 }
@@ -170,15 +168,7 @@ function emptyOptions(count: number): ExamOption[] {
   return Array.from({ length: Math.max(0, count) }, () => ({ id: newId(), label: "", isCorrect: false }));
 }
 
-// Mirrors ExamsController.EvaluatePublishReadiness: a version can be published when it has
-// at least one block and, when it contains MultipleChoice, a scoring policy.
-// single_choice is also saved as MultipleChoice (config.multiple=false), so
-// the API requires a policy for it just as for multiple_choice.
-export function documentNeedsScoringPolicy(document: ExamDocument): boolean {
-  return document.questions.some(question => question.type === "single_choice" || question.type === "multiple_choice");
-}
-
-export type DocumentBlockedReason = "no_blocks" | "scoring_policy_required" | "unknown" | null;
+export type DocumentBlockedReason = "no_blocks" | "unknown" | null;
 
 export interface DocumentReadiness {
   canPublish: boolean;
@@ -188,9 +178,6 @@ export interface DocumentReadiness {
 export function evaluateDocumentReadiness(document: ExamDocument): DocumentReadiness {
   if (document.questions.length === 0) {
     return { canPublish: false, blockedReason: "no_blocks" };
-  }
-  if (documentNeedsScoringPolicy(document) && !document.scoringPolicy) {
-    return { canPublish: false, blockedReason: "scoring_policy_required" };
   }
   return { canPublish: true, blockedReason: null };
 }
@@ -212,7 +199,7 @@ export function mergeDocumentReadiness(
     return local;
   }
   if (!server.canPublish) {
-    if (server.blockedReason === "no_blocks" || server.blockedReason === "scoring_policy_required") {
+    if (server.blockedReason === "no_blocks") {
       return { canPublish: false, blockedReason: server.blockedReason };
     }
     // Unknown/unmapped server reason (for example already_published, or a new reason this client
@@ -244,6 +231,7 @@ export function blankQuestion(type: Question["type"]): Question {
       return {
         ...base,
         type,
+        ...(type === "multiple_choice" ? { scoringPolicy: "AllOrNothing" as const } : {}),
         options: [
           { id: newId(), label: "", isCorrect: false },
           { id: newId(), label: "", isCorrect: false }

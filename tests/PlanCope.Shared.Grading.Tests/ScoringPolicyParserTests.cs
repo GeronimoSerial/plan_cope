@@ -26,30 +26,23 @@ public sealed class ScoringPolicyParserTests
     [InlineData("")]
     [InlineData("NotARealPolicy")]
     [InlineData("0")]
-    [InlineData("AllOrNothing,ProportionalPlain")]
-    public void Every_string_the_parser_rejects_leaves_the_engine_unable_to_grade_a_multiple_choice_block(string? raw)
+    public void Invalid_policy_config_maps_to_null_for_the_grading_default(string? raw)
     {
-        var resolved = ScoringPolicyParser.Parse(raw);
-        Assert.Null(resolved);
-
-        var exam = new ExamVersion
+        using var configDocument = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(new
         {
-            ExamVersionId = "malformed-policy",
-            DeclaredScoringPolicy = resolved,
-            Blocks = new[]
-            {
-                new GradableBlock
-                {
-                    BlockId = "mc",
-                    Type = BlockType.MultipleChoice,
-                    ScoreMax = 10,
-                    AnswerKey = new GradingAnswerKey { CorrectOptionIds = new[] { "a" } }
-                }
-            }
-        };
+            multiple = true,
+            scoringPolicy = raw
+        }));
+        using var answerKey = System.Text.Json.JsonDocument.Parse("[\"a\",\"b\"]");
+        var block = GradingJsonMapper.MapBlock("mc", BlockType.MultipleChoice, 10m, answerKey.RootElement, configDocument.RootElement);
+        Assert.Null(block.ScoringPolicy);
+        Assert.True(block.AllowsMultipleAnswers);
 
-        Assert.Throws<UngradableExamException>(
-            () => new GradingEngine().Grade(exam, new Dictionary<string, SubmittedAnswer>()));
+        var result = new GradingEngine().Grade(new ExamVersion { Blocks = new[] { block } }, new Dictionary<string, SubmittedAnswer>
+        {
+            ["mc"] = new() { SelectedOptionIds = new[] { "a" } }
+        });
+        Assert.Equal(0m, result.Score);
     }
 
     [Fact]

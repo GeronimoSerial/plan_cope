@@ -87,8 +87,7 @@ public sealed class LocalExamCatalogGradeFilterTests : IDisposable
             $"checksum-{id}",
             JsonSerializer.Serialize(new { title = $"Exam {examCode}", grade }),
             SchemaVersion: 1,
-            SyncedAt: "2026-01-01T00:00:00.0000000+00:00",
-            ScoringPolicy: null);
+            SyncedAt: "2026-01-01T00:00:00.0000000+00:00");
 
         await examRepository.UpsertImportedExamAsync(exam, [], [], []);
     }

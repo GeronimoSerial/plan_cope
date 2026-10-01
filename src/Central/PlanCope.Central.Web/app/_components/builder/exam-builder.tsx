@@ -11,20 +11,17 @@ import {
   examDocumentSchema,
   type ExamDocument,
   type Question,
-  type QuestionType,
-  type ScoringPolicy
+  type QuestionType
 } from "../../_lib/schema/exam";
 import {
   blankQuestion,
   cloneQuestion,
-  documentNeedsScoringPolicy,
   documentToReplaceRequest,
   evaluateDocumentReadiness,
   mergeDocumentReadiness,
   type DocumentReadiness,
   type ServerReadiness
 } from "../../_lib/schema/mappers";
-import { PolicyPicker } from "../policy/policy-picker";
 import { QuestionList } from "./question-list";
 import { ExamPreview } from "./exam-preview";
 import { PublishDialog } from "./publish-dialog";
@@ -71,9 +68,6 @@ function blockedReasonMessage(reason: DocumentReadiness["blockedReason"]): strin
   if (reason === "no_blocks") {
     return "Agregá al menos una pregunta.";
   }
-  if (reason === "scoring_policy_required") {
-    return "Elegí una regla de puntaje.";
-  }
   // Unknown/unmapped server reasons keep the button disabled and fall back to this generic text.
   return "No se puede publicar todavía.";
 }
@@ -114,7 +108,6 @@ export function ExamBuilder({
   const isReadOnly = published || !canEditExams;
   const statusLine = versionStatusLine({ versionNumber, status, isCurrent, basedOnVersionNumber });
   const statusTerm = versionStatusTerm({ status, isCurrent });
-  const needsPolicy = useMemo(() => documentNeedsScoringPolicy(document), [document]);
   const readiness = useMemo(
     () => mergeDocumentReadiness(evaluateDocumentReadiness(document), serverReadiness, dirty),
     [document, dirty, serverReadiness]
@@ -144,10 +137,7 @@ export function ExamBuilder({
     setErrors({});
     setSaving(true);
     try {
-      const effective: ExamDocument = {
-        ...result.data,
-        scoringPolicy: documentNeedsScoringPolicy(result.data) ? result.data.scoringPolicy ?? null : null
-      };
+      const effective: ExamDocument = result.data;
       const updated = await callCentral<ExamVersion>(`exams/versions/${encodeURIComponent(versionId)}/document`, {
         method: "PUT",
         body: JSON.stringify(documentToReplaceRequest(effective))
@@ -314,7 +304,7 @@ export function ExamBuilder({
         </p>
 
         <p className="text-sm text-muted-foreground">
-          Armá las preguntas y la regla de puntaje. Al guardar y publicar, los nodos lo reciben en la próxima
+          Armá las preguntas y definí la regla de puntaje de cada pregunta de opción múltiple. Al guardar y publicar, los nodos lo reciben en la próxima
           sincronización.
         </p>
       </header>
@@ -406,24 +396,6 @@ export function ExamBuilder({
               </Field>
             </CardContent>
           </Card>
-
-          {needsPolicy && (
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  <TermLabel term="regla-puntaje">Regla de puntaje</TermLabel>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <PolicyPicker
-                  value={document.scoringPolicy ?? null}
-                  disabled={isReadOnly}
-                  idPrefix="builder-policy"
-                  onChange={(policy: ScoringPolicy) => patchDocument({ scoringPolicy: policy })}
-                />
-              </CardContent>
-            </Card>
-          )}
 
           <QuestionList
             questions={document.questions}

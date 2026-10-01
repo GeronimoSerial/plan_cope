@@ -82,8 +82,7 @@ public sealed class ExamsController(
             null,
             null,
             now,
-            now,
-            null);
+            now);
 
         var versionValidation = await versionValidator.ValidateAsync(initialVersion, cancellationToken);
         if (!versionValidation.IsValid)
@@ -187,7 +186,6 @@ public sealed class ExamsController(
             null,
             now,
             now,
-            request.ScoringPolicy ?? source?.ScoringPolicy,
             source?.Id);
 
         var validation = await versionValidator.ValidateAsync(version, cancellationToken);
@@ -586,15 +584,6 @@ public sealed class ExamsController(
             return ValidationProblem(ModelState);
         }
 
-        var hasMultipleChoiceBlock = blocks.Any(block => block.BlockType == PlanCope.Shared.Domain.BlockType.MultipleChoice);
-        if (hasMultipleChoiceBlock && PlanCope.Shared.Grading.ScoringPolicyParser.Parse(version.ScoringPolicy) is null)
-        {
-            ModelState.AddModelError(
-                "scoringPolicy",
-                "A scoring policy must be chosen before publishing an exam with multiple-choice questions.");
-            return ValidationProblem(ModelState);
-        }
-
         foreach (var block in blocks)
         {
             var validation = await blockValidator.ValidateAsync(block, cancellationToken);
@@ -636,8 +625,6 @@ public sealed class ExamsController(
                 title = exam.Title,
                 versionId = version.Id,
                 versionNumber = version.VersionNumber,
-                schemaVersion = version.SchemaVersion,
-                scoringPolicy = version.ScoringPolicy,
                 targets
             })),
             "Published",
@@ -762,7 +749,7 @@ public sealed class ExamsController(
         dbContext.AnswerKeys.AddRange(newAnswerKeys);
 
         var metadata = request.Metadata.HasValue ? ToJsonDocument(request.Metadata.Value) : version.Metadata;
-        var updatedVersion = version with { Metadata = metadata, UpdatedAt = now, ScoringPolicy = request.ScoringPolicy ?? version.ScoringPolicy };
+        var updatedVersion = version with { Metadata = metadata, UpdatedAt = now };
         dbContext.Entry(version).CurrentValues.SetValues(updatedVersion);
 
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -790,7 +777,6 @@ public sealed class ExamsController(
             blocks.Select(ToDto).ToList(),
             answerKeys.Select(ToDto).ToList(),
             assets.Select(ToDto).ToList(),
-            version.ScoringPolicy,
             blocks.Count,
             canPublish,
             publishBlockedReason,
@@ -856,12 +842,6 @@ public sealed class ExamsController(
         if (blocks.Count == 0)
         {
             return (false, "no_blocks");
-        }
-
-        var hasMultipleChoiceBlock = blocks.Any(static block => block.BlockType == PlanCope.Shared.Domain.BlockType.MultipleChoice);
-        if (hasMultipleChoiceBlock && PlanCope.Shared.Grading.ScoringPolicyParser.Parse(version.ScoringPolicy) is null)
-        {
-            return (false, "scoring_policy_required");
         }
 
         return (true, null);

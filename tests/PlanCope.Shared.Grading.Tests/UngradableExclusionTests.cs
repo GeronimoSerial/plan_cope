@@ -11,7 +11,6 @@ public sealed class UngradableExclusionTests
         var exam = new ExamVersion
         {
             ExamVersionId = "exclusion",
-            DeclaredScoringPolicy = ScoringPolicy.AllOrNothing,
             Blocks = new[] { new GradableBlock { BlockId = "removed", Type = (BlockType)0, ScoreMax = 1 } }
         };
 

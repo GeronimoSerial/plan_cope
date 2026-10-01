@@ -22,10 +22,10 @@ Source of truth: `src/Central/PlanCope.Central.Api/Controllers/ExamsController.c
 POST /api/exams                                  create exam + initial empty draft version
         |
         v   examSummary.initialVersionId
-PUT  /api/exams/versions/{versionId}/document    (builder) replace blocks + scoring policy
+PUT  /api/exams/versions/{versionId}/document    (builder) replace blocks and answer keys
   or PUT /api/exams/versions/{versionId}/blocks  (single block upsert)
         |
-        v   version is READY when blockCount >= 1 (and scoring policy set if any MCQ)
+        v   version is READY when blockCount >= 1
 POST /api/exams/versions/{versionId}/publish     emit PublicationPackage (Status=Published)
         |
         v   examSummary.publishedVersion* now points at this version
@@ -34,7 +34,7 @@ GET  /api/sync/pull?nodeId=&cursor=&limit=       node receives the package
 Editing a published exam (published versions are immutable):
 PUT  /api/exams/{examId}                         (metadata only; code is immutable)
 POST /api/exams/{examId}/versions                deep-copy of a version -> NEW draft
-        |   body: { sourceVersionId?, schemaVersion?, metadata?, scoringPolicy? }
+        |   body: { sourceVersionId?, schemaVersion?, metadata? }
         v   edit the draft copy, then publish it; it supersedes the previous version
 ```
 
@@ -89,7 +89,7 @@ Per-version readiness is exposed on every `ExamVersionDto` (version list and ver
 | --------------------- | --------- | ----------------------------------------------------------------------- |
 | `blockCount`          | `int`     | Number of blocks on the version.                                        |
 | `canPublish`          | `bool`    | Not published, has blocks, and no blocker.                              |
-| `publishBlockedReason`| `string?` | `already_published` \| `no_blocks` \| `scoring_policy_required` \| null.|
+| `publishBlockedReason`| `string?` | `already_published` \| `no_blocks` \| null.|
 
 `canPublish = true` means the version is not blocked by its own content. The publish call still
 applies request-level gates (`grade` required, block validation, referenced image assets must
@@ -167,7 +167,6 @@ optional and so is the body itself: a request with no body (or no `Content-Type`
 {
   "schemaVersion": 1,
   "metadata": { "generatedBy": "teacher01" },
-  "scoringPolicy": "AllOrNothing",
   "sourceVersionId": "ev_def456",
   "empty": false,
   "force": false
@@ -179,7 +178,6 @@ optional and so is the body itself: a request with no body (or no `Content-Type`
 | `sourceVersionId` | The exam's highest-`versionNumber` **published** version. When the exam has no published version, the highest-`versionNumber` version overall. An unpublished draft is never copied by default. |
 | `schemaVersion`   | The source version's `schemaVersion`, else `1`.                                             |
 | `metadata`        | Deep copy of the source version's metadata.                                                 |
-| `scoringPolicy`   | Copy of the source version's scoring policy.                                                |
 | `empty`           | `false`. Set `empty: true` to create an empty version instead of copying (legacy behaviour).|
 | `force`           | `false`. Set `force: true` to create the version even when the exam already has a draft.    |
 
@@ -218,22 +216,22 @@ Errors: `404`.
 
 ### 3.6 Write the document (canonical builder path) — `PUT /api/exams/versions/{versionId}/document`
 
-Replaces the whole block/answer-key set in one call. Setting `scoringPolicy` here is how the UI
-chooses the policy required to publish an exam that contains multiple-choice blocks.
+Replaces the whole block/answer-key set in one call. Multiple-choice questions carry their scoring
+policy in `config.scoringPolicy`; when absent, grading uses `AllOrNothing`. Single-choice and
+true/false questions do not carry a policy.
 
 Request:
 
 ```json
 {
   "metadata": { "revision": 7 },
-  "scoringPolicy": "ProportionalPenalised",
   "blocks": [
     {
       "orderIndex": 0,
       "blockType": "MultipleChoice",
       "title": "Pregunta 1",
       "description": null,
-      "config": { "question": "¿Cuánto es 2 + 2?", "options": [{ "value": "42", "label": "42" }, { "value": "44", "label": "44" }] },
+      "config": { "question": "¿Cuánto es 2 + 2?", "multiple": true, "scoringPolicy": "ProportionalPenalised", "options": [{ "value": "42", "label": "42" }, { "value": "44", "label": "44" }] },
       "validation": null,
       "correctAnswer": { "value": "42" },
       "scoreValue": 1
@@ -306,8 +304,8 @@ the losing request receives the same already-published conflict as a later retry
 Errors: `404` unknown version, `409` already published, `409` when the version's `versionNumber` is
 lower than the current published version's (out-of-order publish, body
 `{ "code": "older_than_current" }`, nothing changes), `400` with a `ValidationProblemDetails`
-whose error keys are `blocks` (no blocks), `scoringPolicy` (MCQ without policy), `grade` (missing),
-or per-block/config keys; `400` when an `Image` block references an asset that does not exist.
+whose error keys are `blocks` (no blocks), `grade` (missing), or per-block/config keys; `400` when
+an `Image` block references an asset that does not exist.
 
 ### 3.10 Edit exam metadata — `PUT /api/exams/{examId}`
 
@@ -432,7 +430,8 @@ Node-side pieces (Local API; implemented outside this Central change):
 
 The package payload (`PublishedExamPackageDto`) contains `packageId`, `examId`, `examVersionId`,
 `examCode`, `title`, `versionNumber`, `schemaVersion`, `checksum`, `metadata`, `blocks`,
-`answerKeys`, `assets` (base64), `targets`, `scoringPolicy`.
+`answerKeys`, `assets` (base64), `targets`. Each multiple-choice block's `config.scoringPolicy`
+travels with the block.
 
 ### 6.1 Node identity binding (D6)
 

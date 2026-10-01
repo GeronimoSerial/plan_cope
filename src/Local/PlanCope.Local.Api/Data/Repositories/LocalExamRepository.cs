@@ -13,7 +13,7 @@ public sealed class LocalExamRepository(ILocalSqliteConnectionFactory connection
     public async Task<IReadOnlyList<LocalExamVersion>> GetExamsAsync(string? grade = null, CancellationToken cancellationToken = default)
     {
         var sql = """
-            SELECT id, remote_exam_version_id, exam_code, version_number, checksum, metadata_json, schema_version, synced_at, scoring_policy
+            SELECT id, remote_exam_version_id, exam_code, version_number, checksum, metadata_json, schema_version, synced_at
             FROM (
                 SELECT
                     id,
@@ -24,7 +24,6 @@ public sealed class LocalExamRepository(ILocalSqliteConnectionFactory connection
                     metadata_json,
                     schema_version,
                     synced_at,
-                    scoring_policy,
                     ROW_NUMBER() OVER (
                         PARTITION BY exam_code
                         ORDER BY version_number DESC, synced_at DESC, id ASC
@@ -58,7 +57,7 @@ public sealed class LocalExamRepository(ILocalSqliteConnectionFactory connection
     public async Task<LocalExamVersion?> GetByIdAsync(string id, CancellationToken cancellationToken = default)
     {
         const string sql = """
-            SELECT id, remote_exam_version_id, exam_code, version_number, checksum, metadata_json, schema_version, synced_at, scoring_policy
+            SELECT id, remote_exam_version_id, exam_code, version_number, checksum, metadata_json, schema_version, synced_at
             FROM local_exam_versions
             WHERE id = @Id
             LIMIT 1;
@@ -132,8 +131,8 @@ public sealed class LocalExamRepository(ILocalSqliteConnectionFactory connection
         CancellationToken cancellationToken = default)
     {
         const string upsertExamSql = """
-            INSERT INTO local_exam_versions (id, remote_exam_version_id, exam_code, version_number, checksum, metadata_json, schema_version, synced_at, scoring_policy)
-            VALUES (@Id, @RemoteExamVersionId, @ExamCode, @VersionNumber, @Checksum, @MetadataJson, @SchemaVersion, @SyncedAt, @ScoringPolicy)
+            INSERT INTO local_exam_versions (id, remote_exam_version_id, exam_code, version_number, checksum, metadata_json, schema_version, synced_at)
+            VALUES (@Id, @RemoteExamVersionId, @ExamCode, @VersionNumber, @Checksum, @MetadataJson, @SchemaVersion, @SyncedAt)
             ON CONFLICT(id) DO UPDATE SET
                 remote_exam_version_id = excluded.remote_exam_version_id,
                 exam_code = excluded.exam_code,
@@ -141,8 +140,7 @@ public sealed class LocalExamRepository(ILocalSqliteConnectionFactory connection
                 checksum = excluded.checksum,
                 metadata_json = excluded.metadata_json,
                 schema_version = excluded.schema_version,
-                synced_at = excluded.synced_at,
-                scoring_policy = excluded.scoring_policy;
+                synced_at = excluded.synced_at;
             """;
 
         const string upsertBlockSql = """
@@ -268,11 +266,10 @@ public sealed class LocalExamRepository(ILocalSqliteConnectionFactory connection
         public string? MetadataJson { get; init; }
         public long SchemaVersion { get; init; }
         public string SyncedAt { get; init; } = string.Empty;
-        public string? ScoringPolicy { get; init; }
 
         public LocalExamVersion ToDomain()
         {
-            return new LocalExamVersion(Id, RemoteExamVersionId, ExamCode, checked((int)VersionNumber), Checksum, MetadataJson, checked((int)SchemaVersion), SyncedAt, ScoringPolicy);
+            return new LocalExamVersion(Id, RemoteExamVersionId, ExamCode, checked((int)VersionNumber), Checksum, MetadataJson, checked((int)SchemaVersion), SyncedAt);
         }
     }
 

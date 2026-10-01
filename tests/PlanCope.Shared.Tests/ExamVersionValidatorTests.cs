@@ -22,8 +22,7 @@ public sealed class ExamVersionValidatorTests
         PublishedBy: null,
         PublishedAt: null,
         CreatedAt: DateTimeOffset.UtcNow,
-        UpdatedAt: DateTimeOffset.UtcNow,
-        ScoringPolicy: null);
+        UpdatedAt: DateTimeOffset.UtcNow);
 
     [Fact]
     public void Fully_valid_exam_version_passes_with_no_errors()

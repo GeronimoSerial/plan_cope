@@ -66,22 +66,15 @@ const baseQuestion = z.object({
   score: z.number().min(0, "El puntaje no puede ser negativo.")
 });
 
-const choiceQuestion = baseQuestion
-  .extend({
-    type: z.enum(["single_choice", "multiple_choice"]),
-    options: z.array(optionSchema).min(2, "Se requieren al menos 2 opciones.")
-  })
-  .refine(question => question.options.some(option => option.isCorrect), {
-    message: "Marca al menos una opción correcta.",
-    path: ["options"]
-  })
-  .refine(
-    question => question.type !== "single_choice" || question.options.filter(option => option.isCorrect).length === 1,
-    {
-      message: "La opción única admite una sola respuesta correcta.",
-      path: ["options"]
-    }
-  );
+const choiceQuestionBase = baseQuestion.extend({
+  options: z.array(optionSchema).min(2, "Se requieren al menos 2 opciones.")
+});
+
+const singleChoiceQuestion = choiceQuestionBase.extend({ type: z.literal("single_choice") });
+const multipleChoiceQuestion = choiceQuestionBase.extend({
+  type: z.literal("multiple_choice"),
+  scoringPolicy: z.enum(scoringPolicies).default("AllOrNothing")
+});
 
 const trueFalseQuestion = baseQuestion.extend({
   type: z.literal("true_false"),
@@ -89,9 +82,19 @@ const trueFalseQuestion = baseQuestion.extend({
 });
 
 export const questionSchema = z.discriminatedUnion("type", [
-  choiceQuestion,
+  singleChoiceQuestion,
+  multipleChoiceQuestion,
   trueFalseQuestion
-]);
+]).superRefine((question, context) => {
+  if (question.type === "single_choice" || question.type === "multiple_choice") {
+    if (!question.options.some(option => option.isCorrect)) {
+      context.addIssue({ code: "custom", message: "Marca al menos una opción correcta.", path: ["options"] });
+    }
+    if (question.type === "single_choice" && question.options.filter(option => option.isCorrect).length !== 1) {
+      context.addIssue({ code: "custom", message: "La opción única admite una sola respuesta correcta.", path: ["options"] });
+    }
+  }
+});
 
 export const examDocumentSchema = z.object({
   schemaVersion: z.literal(1),
@@ -101,13 +104,12 @@ export const examDocumentSchema = z.object({
   subject: z.string().trim().optional(),
   level: z.string().trim().optional(),
   area: z.string().trim().optional(),
-  scoringPolicy: z.enum(scoringPolicies).nullable().optional(),
   questions: z.array(questionSchema).min(1, "Agregá al menos una pregunta.")
 });
 
 export type ExamOption = z.infer<typeof optionSchema>;
-export type Question = z.infer<typeof questionSchema>;
-export type ExamDocument = z.infer<typeof examDocumentSchema>;
+export type Question = z.input<typeof questionSchema>;
+export type ExamDocument = z.input<typeof examDocumentSchema>;
 
 // ---- Create exam (initial metadata) ----
 export const createExamSchema = z.object({

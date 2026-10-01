@@ -123,6 +123,37 @@ public sealed class ExamBlockValidatorTests
     }
 
     [Fact]
+    public void MultipleChoice_accepts_known_policy_when_multiple_is_true()
+    {
+        var result = _validator.TestValidate(CreateBlock(config: "{\"question\":\"q\",\"multiple\":true,\"scoringPolicy\":\"ProportionalPlain\",\"options\":[\"a\",\"b\"]}"));
+        result.ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Theory]
+    [InlineData("NotARealPolicy")]
+    [InlineData("0")]
+    public void MultipleChoice_rejects_unknown_policy_values(string policy)
+    {
+        var config = JsonSerializer.Serialize(new { question = "q", multiple = true, scoringPolicy = policy, options = new[] { "a", "b" } });
+        var result = _validator.TestValidate(CreateBlock(config: config));
+        result.ShouldHaveValidationErrorFor("config.scoringPolicy");
+    }
+
+    [Fact]
+    public void SingleChoice_rejects_a_policy()
+    {
+        var result = _validator.TestValidate(CreateBlock(config: "{\"question\":\"q\",\"multiple\":false,\"scoringPolicy\":\"AllOrNothing\",\"options\":[\"a\",\"b\"]}"));
+        result.ShouldHaveValidationErrorFor("config.scoringPolicy");
+    }
+
+    [Fact]
+    public void TrueFalse_rejects_a_policy()
+    {
+        var result = _validator.TestValidate(CreateBlock(blockType: BlockType.TrueFalse, config: "{\"question\":\"q\",\"scoringPolicy\":\"AllOrNothing\"}"));
+        result.ShouldHaveValidationErrorFor("config.scoringPolicy");
+    }
+
+    [Fact]
     public void TrueFalse_without_a_question_fails_on_question()
     {
         var result = _validator.TestValidate(CreateBlock(blockType: BlockType.TrueFalse, config: "{}"));

@@ -18,7 +18,6 @@ const GENERIC = "No se pudo publicar. Probá de nuevo.";
 const ALREADY_PUBLISHED = "Esta versión ya está publicada.";
 const NOT_FOUND = "No se encontró la versión.";
 const NO_BLOCKS = "Agregá al menos una pregunta.";
-const NO_POLICY = "Elegí una regla de puntaje.";
 const NO_GRADE = "Ingresá el curso o grado.";
 
 const NETWORK_MARKERS = ["failed to fetch", "load failed", "networkerror", "no se pudo conectar"];
@@ -26,7 +25,6 @@ const NETWORK_MARKERS = ["failed to fetch", "load failed", "networkerror", "no s
 // FluentValidation messages from ExamBlockValidator plus the publish gates.
 const BLOCK_VALIDATION_MARKERS = [
   "at least one block",
-  "scoring policy must be chosen",
   "grade/course is required",
   "requires a content string",
   "requires a question string",
@@ -80,9 +78,6 @@ export function mapPublishError(input: PublishErrorInput): string {
     if (hasErrorKey(errors, "blocks")) {
       return NO_BLOCKS;
     }
-    if (hasErrorKey(errors, "scoringPolicy")) {
-      return NO_POLICY;
-    }
     if (hasErrorKey(errors, "grade")) {
       return NO_GRADE;
     }
@@ -95,9 +90,6 @@ export function mapPublishError(input: PublishErrorInput): string {
   if (isBlockValidationMessage(lower)) {
     if (lower.includes("at least one block")) {
       return NO_BLOCKS;
-    }
-    if (lower.includes("scoring policy must be chosen")) {
-      return NO_POLICY;
     }
     if (lower.includes("grade/course is required")) {
       return NO_GRADE;

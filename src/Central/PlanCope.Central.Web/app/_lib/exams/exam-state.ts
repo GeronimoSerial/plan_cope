@@ -111,21 +111,9 @@ export function publishBlockedMessage(reason: PublishBlockedReason | string | nu
       return "Esta versión ya está publicada";
     case "no_blocks":
       return "Agregá al menos una pregunta";
-    case "scoring_policy_required":
-      return "Elegí una regla de puntaje";
     default:
       return "";
   }
-}
-
-export function unassignedVersionsAlert(count: number): string {
-  if (count <= 0) {
-    return "";
-  }
-  if (count === 1) {
-    return "1 versión publicada no tiene regla de puntaje";
-  }
-  return `${count} versiones publicadas no tienen regla de puntaje`;
 }
 
 export interface CreateExamInput {

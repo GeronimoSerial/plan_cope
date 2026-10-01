@@ -158,17 +158,6 @@ export function listSchoolStats(schoolYear?: string, course?: string): Promise<S
   return serverGet<SchoolStatsRow[]>(`/api/stats/schools${query ? `?${query}` : ""}`);
 }
 
-export interface UnassignedExamVersion {
-  examVersionId: string;
-  examCode: string;
-  versionNumber: number;
-  publishedAt?: string | null;
-}
-
-export function listUnassignedGradingPolicies(): Promise<UnassignedExamVersion[]> {
-  return serverGet<UnassignedExamVersion[]>("/api/admin/grading-policies/unassigned");
-}
-
 export interface UserSummary {
   id: string;
   email: string;

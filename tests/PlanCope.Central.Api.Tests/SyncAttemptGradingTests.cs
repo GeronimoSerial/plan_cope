@@ -26,7 +26,7 @@ public sealed class SyncAttemptGradingTests
     {
         using var dbContext = CreateDbContext();
         var exam = MakeExam("ex-1");
-        var version = MakeVersion("ev-1", exam.Id, "AllOrNothing");
+        var version = MakeVersion("ev-1", exam.Id);
         var block = MakeBlock("blk-1", version.Id);
         SeedExam(dbContext, exam, version, block, MakeAnswerKey("ak-1", block.Id, """["B"]""", 1m));
         await dbContext.SaveChangesAsync();
@@ -46,7 +46,6 @@ public sealed class SyncAttemptGradingTests
         Assert.Equal("graded", result.Status);
         Assert.Equal(1m, result.Score);
         Assert.Equal(1m, result.ScoreMax);
-        Assert.Equal("AllOrNothing", result.ScoringPolicy);
         Assert.Equal(GradingSchemaVersion.Current, result.GradingSchemaVersion);
         Assert.NotNull(result.BlocksJson);
         var blockResult = Assert.Single(result.BlocksJson!.RootElement.EnumerateArray().ToList());
@@ -56,11 +55,11 @@ public sealed class SyncAttemptGradingTests
     }
 
     [Fact]
-    public async Task Attempt_against_no_policy_exam_is_accepted_and_marked_ungradable()
+    public async Task Attempt_with_missing_question_policy_defaults_to_all_or_nothing()
     {
         using var dbContext = CreateDbContext();
         var exam = MakeExam("ex-2");
-        var version = MakeVersion("ev-2", exam.Id, null);
+        var version = MakeVersion("ev-2", exam.Id);
         var block = MakeBlock("blk-2", version.Id);
         SeedExam(dbContext, exam, version, block, MakeAnswerKey("ak-2", block.Id, """["B"]""", 1m));
         await dbContext.SaveChangesAsync();
@@ -77,10 +76,9 @@ public sealed class SyncAttemptGradingTests
 
         var received = await dbContext.ReceivedStudentAttempts.SingleAsync(x => x.RemoteLocalId == attemptId);
         var result = await dbContext.CentralAttemptResults.SingleAsync(x => x.ReceivedStudentAttemptId == received.Id);
-        Assert.Equal("ungradable", result.Status);
-        Assert.Null(result.Score);
-        Assert.Null(result.ScoreMax);
-        Assert.Null(result.ScoringPolicy);
+        Assert.Equal("graded", result.Status);
+        Assert.Equal(1m, result.Score);
+        Assert.Equal(1m, result.ScoreMax);
     }
 
     [Fact]
@@ -88,7 +86,7 @@ public sealed class SyncAttemptGradingTests
     {
         using var dbContext = CreateDbContext();
         var exam = MakeExam("ex-3");
-        var version = MakeVersion("ev-3", exam.Id, "AllOrNothing");
+        var version = MakeVersion("ev-3", exam.Id);
         var block = MakeBlock("blk-3", version.Id);
         SeedExam(dbContext, exam, version, block, MakeAnswerKey("ak-3", block.Id, """["B"]""", 1m));
         await dbContext.SaveChangesAsync();
@@ -108,12 +106,12 @@ public sealed class SyncAttemptGradingTests
     }
 
     [Fact]
-    public async Task Attempt_with_unknown_policy_string_is_ungradable_never_all_or_nothing()
+    public async Task Attempt_with_unknown_question_policy_falls_back_to_all_or_nothing()
     {
         using var dbContext = CreateDbContext();
         var exam = MakeExam("ex-4");
-        var version = MakeVersion("ev-4", exam.Id, "NotARealPolicy");
-        var block = MakeBlock("blk-4", version.Id);
+        var version = MakeVersion("ev-4", exam.Id);
+        var block = MakeBlock("blk-4", version.Id, "NotARealPolicy");
         SeedExam(dbContext, exam, version, block, MakeAnswerKey("ak-4", block.Id, """["B"]""", 1m));
         await dbContext.SaveChangesAsync();
 
@@ -129,47 +127,9 @@ public sealed class SyncAttemptGradingTests
 
         var received = await dbContext.ReceivedStudentAttempts.SingleAsync(x => x.RemoteLocalId == attemptId);
         var result = await dbContext.CentralAttemptResults.SingleAsync(x => x.ReceivedStudentAttemptId == received.Id);
-        Assert.Equal("ungradable", result.Status);
-        Assert.Null(result.Score);
-        Assert.Null(result.ScoreMax);
-        Assert.Null(result.ScoringPolicy);
-    }
-
-    [Fact]
-    public async Task Attempt_against_no_policy_exam_with_assignment_is_graded_using_assigned_policy()
-    {
-        using var dbContext = CreateDbContext();
-        var exam = MakeExam("ex-5");
-        var version = MakeVersion("ev-5", exam.Id, null);
-        var block = MakeBlock("blk-5", version.Id);
-        SeedExam(dbContext, exam, version, block, MakeAnswerKey("ak-5", block.Id, """["B"]""", 1m));
-        dbContext.GradingPolicyAssignments.Add(new GradingPolicyAssignment(
-            "gpa-1",
-            version.Id,
-            "AllOrNothing",
-            "admin-1",
-            Now,
-            null));
-        await dbContext.SaveChangesAsync();
-
-        const string attemptId = "attempt-5";
-        var response = await PushAsync(dbContext, CreateAttemptItem(
-            "key-5",
-            attemptId,
-            version.Id,
-            new[] { MakeAnswerPayload(attemptId, block.Id, """["B"]""") }));
-
-        Assert.Equal(1, response.Received);
-        Assert.Equal("accepted", response.Results[0].Status);
-
-        var received = await dbContext.ReceivedStudentAttempts.SingleAsync(x => x.RemoteLocalId == attemptId);
-        var result = await dbContext.CentralAttemptResults.SingleAsync(x => x.ReceivedStudentAttemptId == received.Id);
         Assert.Equal("graded", result.Status);
         Assert.Equal(1m, result.Score);
         Assert.Equal(1m, result.ScoreMax);
-        Assert.Equal("AllOrNothing", result.ScoringPolicy);
-        Assert.Equal(GradingSchemaVersion.Current, result.GradingSchemaVersion);
-        Assert.NotNull(result.BlocksJson);
     }
 
     private static void SeedExam(
@@ -260,7 +220,7 @@ public sealed class SyncAttemptGradingTests
             Now);
     }
 
-    private static ExamVersion MakeVersion(string id, string examId, string? scoringPolicy)
+    private static ExamVersion MakeVersion(string id, string examId)
     {
         return new ExamVersion(
             id,
@@ -275,11 +235,10 @@ public sealed class SyncAttemptGradingTests
             null,
             null,
             Now,
-            Now,
-            scoringPolicy);
+            Now);
     }
 
-    private static ExamBlock MakeBlock(string id, string versionId)
+    private static ExamBlock MakeBlock(string id, string versionId, string? policy = null)
     {
         return new ExamBlock(
             id,
@@ -288,7 +247,7 @@ public sealed class SyncAttemptGradingTests
             BlockType.MultipleChoice,
             "Pregunta 1",
             "Cuanto es 18 + 24?",
-            JsonDocument.Parse("""{"options":["A","B"]}"""),
+            JsonDocument.Parse(policy is null ? """{"multiple":true,"options":["A","B"]}""" : JsonSerializer.Serialize(new { multiple = true, scoringPolicy = policy, options = new[] { "A", "B" } })),
             null,
             Now,
             Now);

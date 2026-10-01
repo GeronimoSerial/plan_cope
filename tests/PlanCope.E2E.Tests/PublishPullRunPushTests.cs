@@ -436,7 +436,7 @@ public sealed class PublishPullRunPushTests
     {
         // Exam creation already leaves its initial draft; this helper intentionally creates a follow-on draft.
         var response = await client.PostAsJsonAsync($"/api/exams/{examId}/versions", new CreateExamVersionRequest(
-            1, JsonSerializer.Deserialize<JsonElement>("{}"), "ProportionalPenalised", Force: true));
+            SchemaVersion: 1, Metadata: JsonSerializer.Deserialize<JsonElement>("{}"), Force: true));
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var version = await response.Content.ReadFromJsonAsync<VersionCreated>();
         Assert.NotNull(version);
@@ -447,7 +447,7 @@ public sealed class PublishPullRunPushTests
     private static async Task<BlockCreated> AddBlockOnCentralAsync(HttpClient client, string versionId)
     {
         var config = JsonSerializer.Deserialize<JsonElement>("""
-            {"question":"Cuanto es 18 + 24?","options":[{"value":"42","label":"42"},{"value":"44","label":"44"}]}
+            {"question":"Cuanto es 18 + 24?","multiple":true,"scoringPolicy":"AllOrNothing","options":[{"value":"42","label":"42"},{"value":"44","label":"44"}]}
             """);
         var response = await client.PutAsJsonAsync($"/api/exams/versions/{versionId}/blocks", new UpsertBlockRequest(
             0, BlockType.MultipleChoice, "Pregunta 1", null, config, null));

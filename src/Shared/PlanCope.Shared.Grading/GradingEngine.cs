@@ -21,41 +21,36 @@ public sealed class GradingEngine
 
     /// <summary>
     /// Grades every block of <paramref name="examVersion"/> against <paramref name="answers"/>
-    /// (keyed by block id; absent keys are blank). The effective policy is the caller-supplied
-    /// override when present, otherwise the exam's declared policy. If an exam contains a
-    /// multiple-choice block and no policy resolves, an <see cref="UngradableExamException"/>
-    /// is thrown — the engine never guesses a policy.
+    /// (keyed by block id; absent keys are blank). Each block carries its scoring policy.
     /// </summary>
     public AttemptResult Grade(
         ExamVersion examVersion,
-        IReadOnlyDictionary<string, SubmittedAnswer>? answers,
-        ScoringPolicy? overridePolicy = null)
+        IReadOnlyDictionary<string, SubmittedAnswer>? answers)
     {
-        var policy = overridePolicy ?? examVersion.DeclaredScoringPolicy;
-        var hasMultipleChoice = examVersion.Blocks.Any(block => block.Type == BlockType.MultipleChoice);
-        if (hasMultipleChoice && policy is null)
-        {
-            throw new UngradableExamException(
-                $"No scoring policy resolved for exam version '{examVersion.ExamVersionId}'; " +
-                "cannot grade its multiple-choice blocks.");
-        }
-
         var results = new List<BlockResult>(examVersion.Blocks.Count);
         foreach (var block in examVersion.Blocks)
         {
-            results.Add(GradeBlock(block, answers, policy));
+            results.Add(GradeBlock(block, answers));
         }
 
         var score = results.Sum(result => result.Score);
         var scoreMax = results
             .Where(result => result.Outcome != BlockOutcome.Ungradable)
             .Sum(result => result.ScoreMax);
+        var effectivePolicies = examVersion.Blocks
+            .Select(static block => block.Type == BlockType.MultipleChoice && block.AllowsMultipleAnswers
+                ? block.ScoringPolicy ?? ScoringPolicy.AllOrNothing
+                : ScoringPolicy.AllOrNothing)
+            .Distinct()
+            .ToList();
 
         return new AttemptResult
         {
             ExamVersionId = examVersion.ExamVersionId,
             GradingSchemaVersion = GradingSchemaVersion.Current,
-            ScoringPolicy = policy,
+            // The legacy attempt summary is retained only when every block used the same rule.
+            // Mixed-policy attempts are described by their block results and have no scalar summary.
+            ScoringPolicy = effectivePolicies.Count == 1 ? effectivePolicies[0] : null,
             Score = score,
             ScoreMax = scoreMax,
             Blocks = results
@@ -64,8 +59,7 @@ public sealed class GradingEngine
 
     private BlockResult GradeBlock(
         GradableBlock block,
-        IReadOnlyDictionary<string, SubmittedAnswer>? answers,
-        ScoringPolicy? policy)
+        IReadOnlyDictionary<string, SubmittedAnswer>? answers)
     {
         if (!_graders.TryGetValue(block.Type, out var grader))
         {
@@ -78,7 +72,7 @@ public sealed class GradingEngine
             submitted = found;
         }
 
-        return grader.Grade(block, submitted, policy);
+        return grader.Grade(block, submitted);
     }
 
     private static IEnumerable<IBlockGrader> DefaultGraders()

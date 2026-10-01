@@ -61,7 +61,6 @@ export interface CreateExamRequest {
 export interface CreateExamVersionRequest {
   schemaVersion?: number;
   metadata?: Record<string, unknown> | null;
-  scoringPolicy?: string | null;
   sourceVersionId?: string;
   empty?: boolean;
 }
@@ -77,7 +76,7 @@ export interface UpdateExamRequest {
   code?: string;
 }
 
-export type PublishBlockedReason = "already_published" | "no_blocks" | "scoring_policy_required";
+export type PublishBlockedReason = "already_published" | "no_blocks";
 
 export interface ExamVersion {
   id: string;
@@ -89,7 +88,6 @@ export interface ExamVersion {
   blocks: ExamBlock[];
   answerKeys: AnswerKey[];
   assets: ExamAsset[];
-  scoringPolicy: string | null;
   blockCount: number;
   canPublish: boolean;
   publishBlockedReason?: PublishBlockedReason | null;
@@ -145,7 +143,6 @@ export interface ExamAsset {
 export interface ReplaceExamDocumentRequest {
   metadata?: Record<string, unknown> | null;
   blocks: DocumentBlock[];
-  scoringPolicy: string | null;
 }
 
 export interface DocumentBlock {

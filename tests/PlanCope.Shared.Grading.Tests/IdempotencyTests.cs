@@ -12,7 +12,6 @@ public sealed class IdempotencyTests
         var exam = new ExamVersion
         {
             ExamVersionId = "idempotent",
-            DeclaredScoringPolicy = ScoringPolicy.ProportionalPenalised,
             Blocks = new[]
             {
                 new GradableBlock

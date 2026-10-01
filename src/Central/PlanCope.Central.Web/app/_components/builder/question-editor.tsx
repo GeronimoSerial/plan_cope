@@ -5,9 +5,14 @@ import { XIcon } from "lucide-react";
 import {
   questionTypes,
   questionTypeLabels,
+  scoringPolicies,
+  scoringPolicyExplanations,
+  scoringPolicyLabels,
+  scoringPolicyWarnings,
   type Question,
   type QuestionType,
-  type ExamOption
+  type ExamOption,
+  type ScoringPolicy
 } from "../../_lib/schema/exam";
 import { blankQuestion, newId } from "../../_lib/schema/mappers";
 import { Button } from "@/components/ui/button";
@@ -201,43 +206,75 @@ function ChoiceEditor({
   }
 
   return (
-    <Field data-invalid={errors.options ? true : undefined}>
-      <FieldLabel>Opciones {single ? "(marcá la correcta)" : "(marcá todas las correctas)"}</FieldLabel>
-      <div className="grid gap-2">
-        {question.options.map((option, index) => (
-          <div key={option.id} className="flex items-center gap-2">
-            <Checkbox
-              checked={option.isCorrect}
-              disabled={disabled}
-              onCheckedChange={() => toggleCorrect(option.id)}
-              aria-label={`Marcar opción ${index + 1} como correcta`}
-            />
-            <Input
-              value={option.label}
-              disabled={disabled}
-              onChange={event => setLabel(option.id, event.target.value)}
-              placeholder={`Opción ${index + 1}`}
-              aria-label={`Texto de la opción ${index + 1}`}
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              disabled={disabled || question.options.length <= 2}
-              onClick={() => removeOption(option.id)}
-              aria-label={`Eliminar opción ${index + 1}`}
-            >
-              <XIcon />
-            </Button>
-          </div>
-        ))}
-      </div>
-      {errors.options && <FieldError>{errors.options}</FieldError>}
-      <div>
-        <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={addOption}>
-          Agregar opción
-        </Button>
-      </div>
-    </Field>
+    <div className="grid gap-4">
+      {!single && (
+        <Field>
+          <FieldLabel htmlFor={`scoring-policy-${question.id}`}>Regla de puntaje</FieldLabel>
+          <Select
+            value={question.scoringPolicy ?? "AllOrNothing"}
+            onValueChange={value => onChange({ ...question, scoringPolicy: value as ScoringPolicy })}
+            disabled={disabled}
+            items={scoringPolicyLabels}
+          >
+            <SelectTrigger id={`scoring-policy-${question.id}`} className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {scoringPolicies.map(policy => (
+                <SelectItem key={policy} value={policy}>
+                  {scoringPolicyLabels[policy]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            {scoringPolicyExplanations[question.scoringPolicy ?? "AllOrNothing"]}
+          </p>
+          {scoringPolicyWarnings[question.scoringPolicy ?? "AllOrNothing"] && (
+            <p className="text-xs text-muted-foreground">
+              {scoringPolicyWarnings[question.scoringPolicy ?? "AllOrNothing"]}
+            </p>
+          )}
+        </Field>
+      )}
+      <Field data-invalid={errors.options ? true : undefined}>
+        <FieldLabel>Opciones {single ? "(marcá la correcta)" : "(marcá todas las correctas)"}</FieldLabel>
+        <div className="grid gap-2">
+          {question.options.map((option, index) => (
+            <div key={option.id} className="flex items-center gap-2">
+              <Checkbox
+                checked={option.isCorrect}
+                disabled={disabled}
+                onCheckedChange={() => toggleCorrect(option.id)}
+                aria-label={`Marcar opción ${index + 1} como correcta`}
+              />
+              <Input
+                value={option.label}
+                disabled={disabled}
+                onChange={event => setLabel(option.id, event.target.value)}
+                placeholder={`Opción ${index + 1}`}
+                aria-label={`Texto de la opción ${index + 1}`}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                disabled={disabled || question.options.length <= 2}
+                onClick={() => removeOption(option.id)}
+                aria-label={`Eliminar opción ${index + 1}`}
+              >
+                <XIcon />
+              </Button>
+            </div>
+          ))}
+        </div>
+        {errors.options && <FieldError>{errors.options}</FieldError>}
+        <div>
+          <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={addOption}>
+            Agregar opción
+          </Button>
+        </div>
+      </Field>
+    </div>
   );
 }

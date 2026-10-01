@@ -38,8 +38,7 @@ public sealed class LocalDemoExamSeeder(ILocalExamRepository repository)
             "demo",
             """{"title":"Matematica 6 - Demo","grade":"6","division":"A","subject":"Matematica","fallback":true}""",
             1,
-            now,
-            null);
+            now);
 
         repository.UpsertImportedExamAsync(exam, blocks, [], []).GetAwaiter().GetResult();
     }
@@ -74,8 +73,7 @@ public sealed class LocalDemoExamSeeder(ILocalExamRepository repository)
             "demo-extensive",
             """{"title":"Examen integrado 6 - Demo extenso","grade":"6","division":"Demo","subject":"Matematica, Ciencias y Lengua","fallback":true}""",
             1,
-            now,
-            null);
+            now);
 
         repository.UpsertImportedExamAsync(exam, blocks, [], []).GetAwaiter().GetResult();
     }

@@ -2,6 +2,7 @@ using System.Text.Json;
 using FluentValidation;
 using PlanCope.Shared.Domain;
 using PlanCope.Shared.Domain.Central;
+using PlanCope.Shared.Grading;
 
 namespace PlanCope.Shared.Infrastructure.Validation;
 
@@ -23,6 +24,18 @@ public sealed class ExamBlockValidator : AbstractValidator<ExamBlock>
 
         if (block.BlockType is BlockType.MultipleChoice)
         {
+            if (config.TryGetProperty("scoringPolicy", out var scoringPolicy))
+            {
+                if (!config.TryGetProperty("multiple", out var multiple) || multiple.ValueKind != JsonValueKind.True)
+                {
+                    context.AddFailure("config.scoringPolicy", "scoringPolicy is only valid for multiple-choice questions.");
+                }
+                else if (scoringPolicy.ValueKind != JsonValueKind.String || ScoringPolicyParser.Parse(scoringPolicy.GetString()) is null)
+                {
+                    context.AddFailure("config.scoringPolicy", "scoringPolicy must be a known scoring policy.");
+                }
+            }
+
             if (!config.TryGetProperty("question", out var question) || question.ValueKind is not JsonValueKind.String)
             {
                 context.AddFailure("config.question", "multiple_choice requires a question string.");
@@ -32,6 +45,10 @@ public sealed class ExamBlockValidator : AbstractValidator<ExamBlock>
             {
                 context.AddFailure("config.options", "multiple_choice requires at least two options.");
             }
+        }
+        else if (config.TryGetProperty("scoringPolicy", out _))
+        {
+            context.AddFailure("config.scoringPolicy", "scoringPolicy is only valid for multiple-choice questions.");
         }
 
         if (block.BlockType is BlockType.TrueFalse &&

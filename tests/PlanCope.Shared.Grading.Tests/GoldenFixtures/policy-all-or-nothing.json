@@ -1,25 +1,47 @@
 {
   "ExamVersion": {
     "ExamVersionId": "fixture-policy-allornothing",
-    "DeclaredScoringPolicy": 0,
     "Blocks": [
       {
         "BlockId": "b1",
         "Type": 2,
         "ScoreMax": 10,
-        "AnswerKey": { "CorrectOptionIds": ["a", "b"] }
+        "AnswerKey": {
+          "CorrectOptionIds": [
+            "a",
+            "b"
+          ]
+        },
+        "AllowsMultipleAnswers": true,
+        "ScoringPolicy": 0
       },
       {
         "BlockId": "b2",
         "Type": 2,
         "ScoreMax": 10,
-        "AnswerKey": { "CorrectOptionIds": ["a", "b"] }
+        "AnswerKey": {
+          "CorrectOptionIds": [
+            "a",
+            "b"
+          ]
+        },
+        "AllowsMultipleAnswers": true,
+        "ScoringPolicy": 0
       }
     ]
   },
   "Answers": {
-    "b1": { "SelectedOptionIds": ["a", "b"] },
-    "b2": { "SelectedOptionIds": ["a"] }
+    "b1": {
+      "SelectedOptionIds": [
+        "a",
+        "b"
+      ]
+    },
+    "b2": {
+      "SelectedOptionIds": [
+        "a"
+      ]
+    }
   },
   "Expected": {
     "ExamVersionId": "fixture-policy-allornothing",

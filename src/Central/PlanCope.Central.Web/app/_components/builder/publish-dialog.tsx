@@ -17,13 +17,8 @@ import {
 } from "../../_lib/exams/publish-targets";
 import { publishErrorMessage } from "../../_lib/exams/publish-errors";
 import { publishSupersedeMessage } from "../../_lib/exams/version-state";
-import {
-  isScoringPolicy,
-  scoringPolicyLabels,
-  scoringPolicyTerms,
-  type ExamDocument
-} from "../../_lib/schema/exam";
-import { TermHint, TermLabel } from "../help/term-hint";
+import type { ExamDocument } from "../../_lib/schema/exam";
+import { TermLabel } from "../help/term-hint";
 import type { PublishExamVersionResponse } from "../../_lib/contracts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -148,7 +143,6 @@ export function PublishDialog({
   const nodeResults = useMemo(() => searchNodes(nodes ?? [], nodeQuery), [nodes, nodeQuery]);
 
   const questionCount = document.questions.length;
-  const policyLabel = document.scoringPolicy ? scoringPolicyLabels[document.scoringPolicy] : "sin regla de puntaje";
   const targetSummary = summarizeTargets(mode, selectedSchools, selectedNodes);
   const supersedeMessage = publishSupersedeMessage({
     currentPublishedNumber: currentPublishedVersionNumber,
@@ -348,13 +342,8 @@ export function PublishDialog({
               <div className="rounded-lg border bg-muted/40 p-3 text-sm">
                 <p className="font-medium">{targetSummary}</p>
                 {supersedeMessage && <p className="text-muted-foreground">{supersedeMessage}</p>}
-                <p className="inline-flex flex-wrap items-center gap-1 text-muted-foreground">
-                  <span>
-                    {questionCount} {questionCount === 1 ? "pregunta" : "preguntas"} · regla: {policyLabel}
-                  </span>
-                  {isScoringPolicy(document.scoringPolicy) && (
-                    <TermHint term={scoringPolicyTerms[document.scoringPolicy]} />
-                  )}
+                <p className="text-muted-foreground">
+                  {questionCount} {questionCount === 1 ? "pregunta" : "preguntas"}
                 </p>
               </div>
 

@@ -26,7 +26,7 @@ public sealed class GoldenFixtureTests
             ?? throw new InvalidOperationException($"Could not deserialize fixture '{fixtureFileName}'.");
 
         var engine = new GradingEngine();
-        var actual = engine.Grade(fixture.ExamVersion, fixture.Answers, fixture.OverridePolicy);
+        var actual = engine.Grade(fixture.ExamVersion, fixture.Answers);
 
         ResultAssert.Equal(fixture.Expected, actual);
     }

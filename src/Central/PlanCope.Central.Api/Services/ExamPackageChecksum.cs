@@ -25,7 +25,6 @@ public static class ExamPackageChecksum
             VersionId = version.Id,
             version.VersionNumber,
             version.SchemaVersion,
-            version.ScoringPolicy,
             Metadata = metadata,
             Blocks = blocks,
             AnswerKeys = answerKeys,

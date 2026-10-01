@@ -270,8 +270,7 @@ public sealed class SyncNodeIdentityTests
             PublishedBy: null,
             PublishedAt: publishedAt,
             CreatedAt: publishedAt,
-            UpdatedAt: publishedAt,
-            ScoringPolicy: null));
+            UpdatedAt: publishedAt));
         dbContext.PublicationPackages.Add(new PublicationPackage(
             packageId,
             versionId,

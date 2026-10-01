@@ -12,11 +12,7 @@ describe("mapPublishError", () => {
     ).toBe("Agregá al menos una pregunta.");
   });
 
-  it("mapea 400 con clave scoringPolicy", () => {
-    expect(
-      mapPublishError({ status: 400, problem: { errors: { scoringPolicy: ["Must be chosen."] } } })
-    ).toBe("Elegí una regla de puntaje.");
-  });
+
 
   it("mapea 400 con clave grade", () => {
     expect(mapPublishError({ status: 400, problem: { errors: { Grade: ["required"] } } })).toBe(

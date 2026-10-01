@@ -7,7 +7,6 @@ import {
   publicationStateBadgeVariant,
   publicationStateLabel,
   publishBlockedMessage,
-  unassignedVersionsAlert,
   validateCreateExam,
   versionStateLabel
 } from "./exam-state";
@@ -111,7 +110,6 @@ describe("publishBlockedMessage", () => {
   it("traduce cada motivo", () => {
     expect(publishBlockedMessage("already_published")).toBe("Esta versión ya está publicada");
     expect(publishBlockedMessage("no_blocks")).toBe("Agregá al menos una pregunta");
-    expect(publishBlockedMessage("scoring_policy_required")).toBe("Elegí una regla de puntaje");
   });
 
   it("devuelve vacío si no hay motivo", () => {
@@ -120,16 +118,7 @@ describe("publishBlockedMessage", () => {
   });
 });
 
-describe("unassignedVersionsAlert", () => {
-  it("pluraliza el aviso", () => {
-    expect(unassignedVersionsAlert(1)).toBe("1 versión publicada no tiene regla de puntaje");
-    expect(unassignedVersionsAlert(4)).toBe("4 versiones publicadas no tienen regla de puntaje");
-  });
 
-  it("no avisa si no hay pendientes", () => {
-    expect(unassignedVersionsAlert(0)).toBe("");
-  });
-});
 
 describe("validateCreateExam", () => {
   it("acepta código y título válidos", () => {

@@ -34,6 +34,25 @@ public sealed class ExamVersioningEditTests
     private static readonly IServiceProvider ControllerServices = CreateControllerServices();
 
     [Fact]
+    public async Task Publish_multiple_choice_question_without_policy_succeeds()
+    {
+        using var dbContext = new PlanCopeDbContext(CreateOptions());
+        var controller = CreateController(dbContext);
+        var exam = await CreateExamAsync(controller, "EXA-POLICY-01");
+        var versionId = exam.InitialVersionId!;
+        var config = Json("""{"question":"Elegí las respuestas correctas","multiple":true,"options":[{"value":"a","label":"A"},{"value":"b","label":"B"}]}""");
+
+        var blockResult = await controller.UpsertBlock(versionId, 0,
+            new UpsertBlockRequest(0, BlockType.MultipleChoice, "Pregunta", null, config, null), CancellationToken.None);
+        Assert.IsType<OkObjectResult>(blockResult.Result);
+
+        var publishResult = await controller.PublishVersion(versionId,
+            new PublishExamVersionRequest(null, "6", null), CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(publishResult.Result);
+    }
+
+    [Fact]
     public async Task Create_version_defaults_to_a_deep_copy_of_the_latest_version()
     {
         var options = CreateOptions();
@@ -120,7 +139,6 @@ public sealed class ExamVersioningEditTests
 
         var sourceVersion = await dbContext.ExamVersions.SingleAsync(x => x.Id == versionId);
         var copiedVersion = await dbContext.ExamVersions.SingleAsync(x => x.Id == dto.Id);
-        Assert.Equal(sourceVersion.ScoringPolicy, copiedVersion.ScoringPolicy);
         Assert.Equal(versionId, copiedVersion.SourceVersionId);
         Assert.True(JsonEquals(
             sourceVersion.Metadata!.RootElement,
@@ -398,7 +416,7 @@ public sealed class ExamVersioningEditTests
 
         var documentEdit = await controller.ReplaceDocument(
             v1,
-            new ReplaceExamDocumentRequest(null, [new DocumentBlockDto(0, BlockType.MultipleChoice, "T", null, Json("""{"question":"x","options":["a","b"]}"""), null, null, null)], null),
+            new ReplaceExamDocumentRequest(null, [new DocumentBlockDto(0, BlockType.MultipleChoice, "T", null, Json("""{"question":"x","multiple":true,"scoringPolicy":"AllOrNothing","options":["a","b"]}"""), null, null, null)]),
             CancellationToken.None);
         var documentConflict = Assert.IsAssignableFrom<ObjectResult>(documentEdit.Result);
         Assert.Equal(StatusCodes.Status409Conflict, documentConflict.StatusCode);
@@ -431,8 +449,8 @@ public sealed class ExamVersioningEditTests
         var t2 = t1.AddMinutes(5);
 
         dbContext.Exams.Add(new Exam("ex-sync", "EXA-SYNC-01", "Exam", null, null, null, "Matematica", "Published", null, t1, t2));
-        dbContext.ExamVersions.Add(new ExamVersion("ev-1", "ex-sync", 1, 1, "Published", null, null, null, null, null, t1, t1, t1, null));
-        dbContext.ExamVersions.Add(new ExamVersion("ev-2", "ex-sync", 2, 1, "Published", null, null, null, null, null, t2, t2, t2, null, SourceVersionId: "ev-1"));
+        dbContext.ExamVersions.Add(new ExamVersion("ev-1", "ex-sync", 1, 1, "Published", null, null, null, null, null, t1, t1, t1));
+        dbContext.ExamVersions.Add(new ExamVersion("ev-2", "ex-sync", 2, 1, "Published", null, null, null, null, null, t2, t2, t2, SourceVersionId: "ev-1"));
         dbContext.PublicationPackages.Add(new PublicationPackage("pkg-1", "ev-1", 1, "sha-1", JsonDocument.Parse("{}"), "Published", t1, t1));
         dbContext.PublicationPackages.Add(new PublicationPackage("pkg-2", "ev-2", 1, "sha-2", JsonDocument.Parse("{}"), "Published", t2, t2));
         dbContext.PublicationTargets.Add(new PublicationTarget("pt-1", "pkg-1", "grade", "6", t1, t1));
@@ -470,13 +488,13 @@ public sealed class ExamVersioningEditTests
         return Assert.IsType<AssetDto>(Assert.IsType<CreatedAtActionResult>(result.Result).Value).Id;
     }
 
-    // Builds a source version with the supported question types, answer keys, metadata and a
-    // scoring policy. Uses UpsertBlock because EF's InMemory provider rejects ReplaceDocument's
+    // Builds a source version with the supported question types and answer keys. Uses UpsertBlock
+    // because EF's InMemory provider rejects ReplaceDocument's
     // transaction; the behavior under test is version copying, not the write path.
     private static async Task SeedQuestionDocumentAsync(PlanCopeDbContext dbContext, ExamsController controller, string versionId)
     {
         var now = DateTimeOffset.UtcNow;
-        await controller.UpsertBlock(versionId, 0, new UpsertBlockRequest(0, BlockType.MultipleChoice, "MCQ", null, Json("""{"question":"¿Cuánto es 2 + 2?","options":[{"value":"3","label":"3"},{"value":"4","label":"4"}]}"""), Json("""{"required":true}""")), CancellationToken.None);
+        await controller.UpsertBlock(versionId, 0, new UpsertBlockRequest(0, BlockType.MultipleChoice, "MCQ", null, Json("""{"question":"¿Cuánto es 2 + 2?","multiple":true,"options":[{"value":"3","label":"3"},{"value":"4","label":"4"}]}"""), Json("""{"required":true}""")), CancellationToken.None);
         await controller.UpsertBlock(versionId, 1, new UpsertBlockRequest(1, BlockType.TrueFalse, "Verdadero/Falso", null, Json("""{"question":"La Tierra es redonda"}"""), null), CancellationToken.None);
 
         var blocks = await dbContext.ExamBlocks
@@ -489,8 +507,7 @@ public sealed class ExamVersioningEditTests
         var version = await dbContext.ExamVersions.SingleAsync(x => x.Id == versionId);
         dbContext.Entry(version).CurrentValues.SetValues(version with
         {
-            Metadata = JsonDocument.Parse("""{"author":"teacher01","revision":1}"""),
-            ScoringPolicy = "AllOrNothing"
+            Metadata = JsonDocument.Parse("""{"author":"teacher01","revision":1}""")
         });
         await dbContext.SaveChangesAsync();
     }

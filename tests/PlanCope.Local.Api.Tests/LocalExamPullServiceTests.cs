@@ -269,8 +269,7 @@ public sealed class LocalExamPullServiceTests : IDisposable
                 Array.Empty<BlockDto>(),
                 Array.Empty<AnswerKeyDto>(),
                 Array.Empty<PublishedAssetDto>(),
-                [new PublicationTargetDto("grade", "6")],
-                null);
+                [new PublicationTargetDto("grade", "6")]);
 
             return new SyncItem(
                 "publication_package",

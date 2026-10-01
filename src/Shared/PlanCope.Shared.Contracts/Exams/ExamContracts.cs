@@ -60,7 +60,6 @@ public sealed record ExamVersionDto(
     IReadOnlyList<BlockDto> Blocks,
     IReadOnlyList<AnswerKeyDto> AnswerKeys,
     IReadOnlyList<AssetDto> Assets,
-    string? ScoringPolicy,
     int BlockCount = 0,
     bool CanPublish = false,
     string? PublishBlockedReason = null,
@@ -88,8 +87,7 @@ public sealed record PublishedExamPackageDto(
     IReadOnlyList<BlockDto> Blocks,
     IReadOnlyList<AnswerKeyDto> AnswerKeys,
     IReadOnlyList<PublishedAssetDto> Assets,
-    IReadOnlyList<PublicationTargetDto> Targets,
-    string? ScoringPolicy);
+    IReadOnlyList<PublicationTargetDto> Targets);
 
 public sealed record PublishedAssetDto(string Id, string VersionId, string FileName, string MimeType, long SizeBytes, string Checksum, string ContentBase64);
 
@@ -105,7 +103,6 @@ public sealed record CreateExamRequest(string Code, string Title, string? Descri
 public sealed record CreateExamVersionRequest(
     int? SchemaVersion = null,
     JsonElement? Metadata = null,
-    string? ScoringPolicy = null,
     string? SourceVersionId = null,
     bool Empty = false,
     bool Force = false);
@@ -126,7 +123,7 @@ public sealed record PublishExamVersionRequest(
 public sealed record PublishExamVersionResponse(string PackageId, string ExamVersionId, int PackageVersion, string Checksum, IReadOnlyList<PublicationTargetDto> Targets);
 
 // Contrato canonico: reemplaza el documento completo de una version (bloques + answer keys) en una sola operacion.
-public sealed record ReplaceExamDocumentRequest(JsonElement? Metadata, IReadOnlyList<DocumentBlockDto> Blocks, string? ScoringPolicy);
+public sealed record ReplaceExamDocumentRequest(JsonElement? Metadata, IReadOnlyList<DocumentBlockDto> Blocks);
 
 public sealed record DocumentBlockDto(
     int OrderIndex,
