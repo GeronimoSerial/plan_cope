@@ -76,8 +76,8 @@ describe("SessionsWorkspace", () => {
   it("refreshes the local catalog on focus and every minute while the session form is open", async () => {
     vi.useFakeTimers();
     const state = delivery([]);
-    const reloadExams = vi.fn();
-    state.examCatalog.reloadExams = reloadExams;
+    const reloadExamsSilently = vi.fn();
+    state.examCatalog.reloadExamsSilently = reloadExamsSilently;
     const view = render(state);
 
     act(() => button(view, "Nueva sesión").click());
@@ -91,16 +91,16 @@ describe("SessionsWorkspace", () => {
     act(() => root?.render(<SessionsWorkspace delivery={state} apiBaseUrl="http://local" tab="home" expiryPending={false} onStats={() => undefined} onReturnHome={() => undefined} />));
     act(() => button(view, "Continuar").click());
 
-    expect(reloadExams).toHaveBeenCalledTimes(1);
+    expect(reloadExamsSilently).toHaveBeenCalledTimes(1);
     act(() => window.dispatchEvent(new Event("focus")));
-    expect(reloadExams).toHaveBeenCalledTimes(2);
+    expect(reloadExamsSilently).toHaveBeenCalledTimes(2);
     await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
-    expect(reloadExams).toHaveBeenCalledTimes(3);
+    expect(reloadExamsSilently).toHaveBeenCalledTimes(3);
 
     act(() => button(view, "Volver").click());
     act(() => window.dispatchEvent(new Event("focus")));
     await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
-    expect(reloadExams).toHaveBeenCalledTimes(3);
+    expect(reloadExamsSilently).toHaveBeenCalledTimes(3);
   });
 
   it("loads node history and applies school and status filters", async () => {
@@ -133,7 +133,7 @@ function button(view: HTMLElement, label: string): HTMLButtonElement {
 
 function delivery(sessions: LocalSession[]): DeliverySessionState {
   const state = {
-    examCatalog: { exams: [], isLoadingExams: false, selectedExamId: "", setSelectedExamId: vi.fn(), loadExams: vi.fn(), reloadExams: vi.fn() },
+    examCatalog: { exams: [], isLoadingExams: false, selectedExamId: "", setSelectedExamId: vi.fn(), loadExams: vi.fn(), reloadExamsSilently: vi.fn() },
     syncPull: { isPulling: false, message: null, lastPullAt: null, pullExamsNow: vi.fn() },
     roster: { snapshot: null, sections: [], selectedSectionId: "", setSelectedSectionId: vi.fn(), isLoading: false, error: null },
     sessionForm: { form: { cue: "", classroomCode: "", commissionCode: "", operatorName: "Docente", expectedStudentCount: 0 }, formErrors: {}, schoolName: "", updateForm: vi.fn() },

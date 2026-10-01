@@ -146,27 +146,34 @@ export function useDeliverySession(hostContext: HostContext) {
     setStatus(`API local activa en ${hostContext.lanBaseUrl}`);
   }, [hostContext.lanBaseUrl, hostContext.operatorName]);
 
-  const loadExams = useCallback(async (signal?: AbortSignal) => {
-    setIsLoadingExams(true);
-    setError(null);
+  const loadExams = useCallback(async (signal?: AbortSignal, loadOptions: { silent?: boolean } = {}) => {
+    const silent = loadOptions.silent === true;
+    if (!silent) {
+      setIsLoadingExams(true);
+      setError(null);
+    }
 
     try {
       const items = await api.getExams(signal);
-      const options = items.map(toExamOption);
-      setExams(options);
-      setSelectedExamId(current => ensureSelectedExamId(options, current));
-      setStatus(options.length > 0 ? `API local activa en ${hostContext.lanBaseUrl}` : "No hay examenes locales publicados en este equipo.");
+      const examOptions = items.map(toExamOption);
+      setExams(examOptions);
+      setSelectedExamId(current => ensureSelectedExamId(examOptions, current));
+      if (!silent) {
+        setStatus(examOptions.length > 0 ? `API local activa en ${hostContext.lanBaseUrl}` : "No hay examenes locales publicados en este equipo.");
+      }
     } catch (exception) {
-      if (!signal?.aborted) {
+      if (!signal?.aborted && !silent) {
         setError(exception instanceof Error ? exception.message : "No se pudieron cargar los examenes locales.");
         setStatus("No se pudieron cargar los examenes locales.");
       }
     } finally {
-      if (!signal?.aborted) {
+      if (!signal?.aborted && !silent) {
         setIsLoadingExams(false);
       }
     }
   }, [api, hostContext.lanBaseUrl]);
+
+  const reloadExamsSilently = useCallback((signal?: AbortSignal) => loadExams(signal, { silent: true }), [loadExams]);
 
   const refreshExams = useCallback(async (signal?: AbortSignal) => {
     setIsLoadingExams(true);
@@ -453,7 +460,7 @@ export function useDeliverySession(hostContext: HostContext) {
       selectedExamId,
       setSelectedExamId,
       loadExams: refreshExams,
-      reloadExams: loadExams
+      reloadExamsSilently
     },
     syncPull: {
       isPulling: isPullingExams,

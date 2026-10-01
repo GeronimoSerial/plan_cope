@@ -61,7 +61,7 @@ export function SessionsWorkspace({ delivery, apiBaseUrl, tab, expiryPending, on
     if (tab !== "home" || currentSession || createStep !== "form") return;
 
     const controller = new AbortController();
-    const reloadCatalog = () => void examCatalog.reloadExams(controller.signal);
+    const reloadCatalog = () => void examCatalog.reloadExamsSilently(controller.signal);
     reloadCatalog();
     window.addEventListener("focus", reloadCatalog);
     const interval = window.setInterval(reloadCatalog, 60_000);
@@ -71,7 +71,7 @@ export function SessionsWorkspace({ delivery, apiBaseUrl, tab, expiryPending, on
       window.removeEventListener("focus", reloadCatalog);
       window.clearInterval(interval);
     };
-  }, [createStep, currentSession, examCatalog.reloadExams, tab]);
+  }, [createStep, currentSession, examCatalog.reloadExamsSilently, tab]);
 
   const createPanel = <SessionCreatePanel exams={examCatalog.exams} formErrors={sessionForm.formErrors} selectedExamId={examCatalog.selectedExamId}
     isBusy={delivery.isBusy || expiryPending} isLoadingExams={examCatalog.isLoadingExams} onCreateSession={delivery.createSession}
