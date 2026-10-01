@@ -68,13 +68,13 @@ public sealed class SyncAttemptGradingTests
 
         var item = CreateAttemptItem("session-key-1", "session-attempt", version.Id,
             new[] { MakeAnswerPayload("session-attempt", block.Id, "[\"B\"]") },
-            new { id = "session-1", schoolCue = "180000100", schoolYear = "2026", course = "6to A", sectionId = "session-section", examVersionId = version.Id, startedAt = Now.ToString("O"), closedAt = Now.ToString("O") },
+            new { id = "session-1", schoolCue = "180000101", schoolYear = "2026", course = "6to A", sectionId = "session-section", examVersionId = version.Id, startedAt = Now.ToString("O"), closedAt = Now.ToString("O"), status = "closed" },
             "session-section");
         var first = await PushAsync(dbContext, item);
         var duplicate = await PushAsync(dbContext, item);
         var updatedSessionItem = CreateAttemptItem("session-key-2", "session-attempt-2", null,
             Array.Empty<object>(),
-            new { id = "session-1", schoolCue = "180000101", schoolYear = "2026", course = "6to A", sectionId = "session-section", examVersionId = version.Id, startedAt = Now.ToString("O"), closedAt = Now.AddMinutes(5).ToString("O") },
+            new { id = "session-1", schoolCue = (string?)null, schoolYear = "2026", course = "6to A", sectionId = "session-section", examVersionId = (string?)null, startedAt = Now.AddMinutes(1).ToString("O"), closedAt = (string?)null, status = "active" },
             "session-section");
         var update = await PushAsync(dbContext, updatedSessionItem);
 
@@ -84,11 +84,42 @@ public sealed class SyncAttemptGradingTests
         var session = await dbContext.DeliverySessions.SingleAsync();
         Assert.Equal("180000101", session.SchoolId);
         Assert.Equal(version.Id, session.ExamVersionId);
-        Assert.Equal(Now.AddMinutes(5), session.EndedAt);
+        Assert.Equal(Now, session.EndedAt);
+        Assert.Equal("closed", session.Status);
+        Assert.Equal("node-1", session.SourceNodeId);
         Assert.Equal(2, await dbContext.ReceivedStudentAttempts.CountAsync());
         var rollup = await dbContext.ExamRollups.SingleAsync();
         Assert.Equal(1, rollup.AttemptCount);
         Assert.Equal("6to A", rollup.Course);
+        Assert.Equal("180000100", rollup.Cue);
+    }
+
+    [Fact]
+    public async Task Session_ids_are_scoped_to_the_owning_node()
+    {
+        using var dbContext = CreateDbContext();
+        var exam = MakeExam("owned-session-exam");
+        var version = MakeVersion("owned-session-version", exam.Id, null);
+        var block = MakeBlock("owned-session-block", version.Id);
+        SeedExam(dbContext, exam, version, block, MakeAnswerKey("owned-session-key", block.Id, "[\"B\"]", 1m));
+        SeedRoster(dbContext, "owned-session-section");
+        await dbContext.SaveChangesAsync();
+
+        var first = CreateAttemptItem("owner-one-key", "owner-one-attempt", null, Array.Empty<object>(),
+            new { id = "shared-local-session", schoolCue = "180000100", examVersionId = version.Id, closedAt = Now.ToString("O"), status = "closed" });
+        var second = CreateAttemptItem("owner-two-key", "owner-two-attempt", null, Array.Empty<object>(),
+            new { id = "shared-local-session", schoolCue = "180000101", examVersionId = (string?)null, closedAt = (string?)null, status = "active" });
+
+        Assert.Equal("accepted", (await PushAsync(dbContext, first, "node-one")).Results.Single().Status);
+        Assert.Equal("accepted", (await PushAsync(dbContext, second, "node-two")).Results.Single().Status);
+
+        var sessions = await dbContext.DeliverySessions.OrderBy(session => session.SourceNodeId).ToListAsync();
+        Assert.Equal(2, sessions.Count);
+        Assert.Equal(new[] { "node-one", "node-two" }, sessions.Select(session => session.SourceNodeId));
+        Assert.Equal("180000100", sessions[0].SchoolId);
+        Assert.Equal("180000101", sessions[1].SchoolId);
+        Assert.Null(sessions[1].ExamVersionId);
+        Assert.Equal("closed", sessions[0].Status);
     }
 
     [Fact]
@@ -114,6 +145,32 @@ public sealed class SyncAttemptGradingTests
     }
 
     [Fact]
+    public async Task Session_cue_is_used_when_roster_cue_is_invalid_and_cue_is_known()
+    {
+        using var dbContext = CreateDbContext();
+        var exam = MakeExam("known-cue-exam");
+        var version = MakeVersion("known-cue-version", exam.Id, "AllOrNothing");
+        var block = MakeBlock("known-cue-block", version.Id);
+        SeedExam(dbContext, exam, version, block, MakeAnswerKey("known-cue-key", block.Id, "[\"B\"]", 1m));
+        SeedRoster(dbContext, "invalid-cue-section", "not-a-cue");
+        dbContext.GeRosterSnapshots.Add(new GeRosterSnapshot
+        {
+            Id = "known-cue-snapshot", Cue = "180000101", SchoolYear = "2026", FetchedAt = Now,
+            Checksum = "known", SectionCount = 0, StudentCount = 0, Status = "current"
+        });
+        await dbContext.SaveChangesAsync();
+
+        var item = CreateAttemptItem("known-cue-key-1", "known-cue-attempt", version.Id,
+            new[] { MakeAnswerPayload("known-cue-attempt", block.Id, "[\"B\"]") },
+            new { id = "known-cue-session", schoolCue = "180000101", examVersionId = version.Id },
+            "invalid-cue-section");
+        var response = await PushAsync(dbContext, item);
+
+        Assert.Equal("accepted", response.Results.Single().Status);
+        Assert.Equal("180000101", (await dbContext.ExamRollups.SingleAsync()).Cue);
+    }
+
+    [Fact]
     public async Task Rollup_rebuild_reproduces_existing_aggregates()
     {
         using var dbContext = CreateDbContext();
@@ -126,6 +183,11 @@ public sealed class SyncAttemptGradingTests
         var item = CreateAttemptItem("rebuild-push-key", "rebuild-attempt", version.Id,
             new[] { MakeAnswerPayload("rebuild-attempt", block.Id, "[\"B\"]") }, rosterSectionId: "rebuild-section");
         await PushAsync(dbContext, item);
+        dbContext.SyncInbox.Add(new SyncInbox(
+            "duplicate-attempt-inbox", "another-node", SyncEventTypes.AttemptSubmitted, "student_attempt",
+            "rebuild-attempt", "duplicate-aggregate-key",
+            JsonDocument.Parse("""{"examVersionRemoteId":"wrong-version"}"""), "processed", Now, Now));
+        await dbContext.SaveChangesAsync();
 
         var before = await dbContext.ExamRollups.AsNoTracking().SingleAsync();
         var rebuilt = await new CentralStatsRollupService(dbContext).RebuildAllAsync();
@@ -273,21 +335,21 @@ public sealed class SyncAttemptGradingTests
         dbContext.AnswerKeys.Add(answerKey);
     }
 
-    private static async Task<PushResponse> PushAsync(PlanCopeDbContext dbContext, PushItem item)
+    private static async Task<PushResponse> PushAsync(PlanCopeDbContext dbContext, PushItem item, string nodeId = "node-1")
     {
-        var request = new PushRequest("node-1", new[] { item });
+        var request = new PushRequest(nodeId, new[] { item });
         var controller = new SyncController(dbContext, new CentralStatsRollupService(dbContext));
-        SyncTestPrincipals.BindNode(controller, "node-1");
-        var result = await controller.Push(request, "node-1", new PushRequestValidator(), CancellationToken.None);
+        SyncTestPrincipals.BindNode(controller, nodeId);
+        var result = await controller.Push(request, nodeId, new PushRequestValidator(), CancellationToken.None);
         var okResult = Assert.IsType<OkObjectResult>(result.Result);
         return Assert.IsType<PushResponse>(okResult.Value);
     }
 
-    private static void SeedRoster(PlanCopeDbContext dbContext, string sectionId)
+    private static void SeedRoster(PlanCopeDbContext dbContext, string sectionId, string cue = "180000100")
     {
         dbContext.GeRosterSnapshots.Add(new GeRosterSnapshot
         {
-            Id = $"snapshot-{sectionId}", Cue = "180000100", SchoolYear = "2026", FetchedAt = Now,
+            Id = $"snapshot-{sectionId}", Cue = cue, SchoolYear = "2026", FetchedAt = Now,
             Checksum = "test", SectionCount = 1, StudentCount = 1, Status = "current"
         });
         dbContext.GeRosterSections.Add(new GeRosterSection

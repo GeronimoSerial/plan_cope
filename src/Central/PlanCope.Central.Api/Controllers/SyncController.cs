@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using FluentValidation;
 using PlanCope.Central.Api.Data;
 using PlanCope.Central.Api.Services;
@@ -180,7 +181,7 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
         return Ok(new PushResponse(accepted, results.Count - accepted, results));
     }
 
-    private async Task<PushItemResult> AcceptItemAsync(string nodeId, PushItem item, CancellationToken cancellationToken)
+    private async Task<PushItemResult> AcceptItemAsync(string nodeId, PushItem item, CancellationToken cancellationToken, int retryCount = 0)
     {
         var existing = await dbContext.SyncInbox
             .AsNoTracking()
@@ -200,6 +201,13 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
             }
 
             await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+            if (dbContext.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL" &&
+                item.EventType is SyncEventTypes.AttemptSubmitted)
+            {
+                await dbContext.Database.ExecuteSqlRawAsync(
+                    $"SELECT pg_advisory_xact_lock({CentralStatsRollupService.AdvisoryLockNamespace}, {CentralStatsRollupService.AdvisoryLockKey});",
+                    cancellationToken);
+            }
             dbContext.SyncInbox.Add(new SyncInbox(
                 Guid.NewGuid().ToString("N"),
                 nodeId,
@@ -214,7 +222,7 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
 
             if (item.EventType is SyncEventTypes.AttemptSubmitted)
             {
-                await AddAttemptAsync(item, payload.RootElement, cancellationToken);
+                await AddAttemptAsync(nodeId, item, payload.RootElement, cancellationToken);
             }
 
             await dbContext.SaveChangesAsync(cancellationToken);
@@ -222,7 +230,7 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
             dbContext.ChangeTracker.Clear();
             return new PushItemResult(item.IdempotencyKey, "accepted", null);
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException exception)
         {
             dbContext.ChangeTracker.Clear();
             var nowExisting = await dbContext.SyncInbox
@@ -230,6 +238,11 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
                 .SingleOrDefaultAsync(x => x.IdempotencyKey == item.IdempotencyKey, cancellationToken);
             if (nowExisting is null)
             {
+                if (retryCount == 0 && IsUniqueViolation(exception))
+                {
+                    return await AcceptItemAsync(nodeId, item, cancellationToken, retryCount + 1);
+                }
+
                 return new PushItemResult(item.IdempotencyKey, "failed", "The item could not be persisted.");
             }
 
@@ -242,7 +255,7 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
         }
     }
 
-    private async Task AddAttemptAsync(PushItem item, JsonElement payload, CancellationToken cancellationToken)
+    private async Task AddAttemptAsync(string nodeId, PushItem item, JsonElement payload, CancellationToken cancellationToken)
     {
         if (!payload.TryGetProperty("attempt", out var attemptElement))
         {
@@ -262,11 +275,11 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
         DateTimeOffset? verifiedAt = ParseOptionalDate(attempt.VerifiedAt);
         var receivedAt = DateTimeOffset.UtcNow;
         var receivedAttemptId = Guid.NewGuid().ToString("N");
-        UpsertDeliverySession(payload, receivedAt);
+        var centralSessionId = UpsertDeliverySession(nodeId, payload, receivedAt);
         dbContext.ReceivedStudentAttempts.Add(new ReceivedStudentAttempt(
             receivedAttemptId,
             attempt.Id,
-            attempt.DeliverySessionId,
+            centralSessionId ?? attempt.DeliverySessionId,
             attempt.StudentCode,
             attempt.Status,
             startedAt,
@@ -314,38 +327,44 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
         }
     }
 
-    private void UpsertDeliverySession(JsonElement payload, DateTimeOffset receivedAt)
+    private string? UpsertDeliverySession(string nodeId, JsonElement payload, DateTimeOffset receivedAt)
     {
         if (!payload.TryGetProperty("deliverySession", out var sessionElement) ||
             sessionElement.ValueKind is not JsonValueKind.Object)
         {
-            return;
+            return null;
         }
 
         var id = ReadOptionalString(sessionElement, "id");
         if (string.IsNullOrWhiteSpace(id))
         {
-            return;
+            return null;
         }
 
         var schoolCueValue = ReadOptionalString(sessionElement, "schoolCue");
         var schoolCue = CueCode.TryNormalize(schoolCueValue, out var normalizedCue) ? normalizedCue : null;
         var startedAt = ParseOptionalDate(ReadOptionalString(sessionElement, "startedAt"));
         var closedAt = ParseOptionalDate(ReadOptionalString(sessionElement, "closedAt"));
-        var existing = dbContext.DeliverySessions.Local.FirstOrDefault(session => session.Id == id);
-        existing ??= dbContext.DeliverySessions.Find(id);
+        var existing = dbContext.DeliverySessions.Local.FirstOrDefault(session =>
+            session.SourceNodeId == nodeId && session.RemoteLocalId == id);
+        existing ??= dbContext.DeliverySessions.SingleOrDefault(session =>
+            session.SourceNodeId == nodeId && session.RemoteLocalId == id);
+        var incomingStatus = ReadOptionalString(sessionElement, "status");
+        var closed = existing?.Status.Equals("closed", StringComparison.OrdinalIgnoreCase) == true ||
+            closedAt is not null || string.Equals(incomingStatus, "closed", StringComparison.OrdinalIgnoreCase);
         var session = new CentralDeliverySession(
+            existing?.Id ?? Guid.NewGuid().ToString("N"),
             id,
-            id,
-            schoolCue,
-            ReadOptionalString(sessionElement, "examVersionId"),
-            null,
-            null,
-            closedAt is null ? "open" : "closed",
-            startedAt,
-            closedAt,
+            existing?.SchoolId ?? schoolCue,
+            existing?.ExamVersionId ?? ReadOptionalString(sessionElement, "examVersionId"),
+            existing?.ClassroomCode ?? ReadOptionalString(sessionElement, "classroomCode"),
+            existing?.CommissionCode ?? ReadOptionalString(sessionElement, "commissionCode"),
+            closed ? "closed" : existing?.Status ?? incomingStatus ?? "open",
+            existing?.StartedAt ?? startedAt,
+            existing?.EndedAt ?? closedAt,
             receivedAt,
-            existing?.CreatedAt ?? receivedAt);
+            existing?.CreatedAt ?? receivedAt,
+            nodeId);
         if (existing is null)
         {
             dbContext.DeliverySessions.Add(session);
@@ -354,6 +373,18 @@ public sealed class SyncController(PlanCopeDbContext dbContext, PlanCope.Central
         {
             dbContext.Entry(existing).CurrentValues.SetValues(session);
         }
+
+        return session.Id;
+    }
+
+    private static bool IsUniqueViolation(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation }) return true;
+        }
+
+        return false;
     }
 
     /// <summary>

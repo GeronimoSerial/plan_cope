@@ -53,7 +53,8 @@ public sealed class AttemptSubmissionService(
                 sectionId = session.RosterSectionId,
                 examVersionId = examVersion?.RemoteExamVersionId,
                 startedAt = session.StartAt,
-                closedAt = session.EndAt
+                closedAt = session.EndAt,
+                status = session.Status
             }
         }, SyncJsonOptions);
         var submitted = await attemptRepository.SubmitWithOutboxAsync(attemptId, submittedAt, confirmationCode, new SyncOutbox(
@@ -132,7 +133,8 @@ public sealed class AttemptSubmissionService(
                 sectionId = session.RosterSectionId,
                 examVersionId = (string?)null,
                 startedAt = session.StartAt,
-                closedAt = session.EndAt
+                closedAt = session.EndAt,
+                status = session.Status
             }
         }, SyncJsonOptions);
         var outbox = new SyncOutbox(Guid.NewGuid().ToString(), SyncEventTypes.AttemptSubmitted,

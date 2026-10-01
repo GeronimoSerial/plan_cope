@@ -12,8 +12,15 @@ public sealed class StatsRollupAdminController(CentralStatsRollupService rollupS
     [HttpPost("rebuild")]
     public async Task<ActionResult<StatsRollupRebuildResponse>> Rebuild(CancellationToken cancellationToken)
     {
-        var rebuilt = await rollupService.RebuildAllAsync(cancellationToken);
-        return Ok(new StatsRollupRebuildResponse(rebuilt));
+        try
+        {
+            var rebuilt = await rollupService.RebuildAllAsync(cancellationToken);
+            return Ok(new StatsRollupRebuildResponse(rebuilt));
+        }
+        catch (StatsRollupRebuildInProgressException)
+        {
+            return Conflict(new { error = "A statistics rebuild is already running." });
+        }
     }
 }
 
