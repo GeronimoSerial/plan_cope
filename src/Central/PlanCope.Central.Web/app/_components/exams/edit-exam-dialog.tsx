@@ -43,7 +43,6 @@ function mapUpdateExamError(error: unknown): EditExamErrors {
 // "Editar datos" del examen: titulo, nivel, area y materia. El codigo es inmutable y se muestra
 // solo de lectura; el API devuelve 400 bajo la clave "code" si llegara a cambiar.
 export function EditExamButton({ exam, canEditExams }: EditExamButtonProps) {
-  if (!canEditExams) return null;
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState(exam.title);
@@ -52,6 +51,8 @@ export function EditExamButton({ exam, canEditExams }: EditExamButtonProps) {
   const [subject, setSubject] = useState(exam.subject ?? "");
   const [errors, setErrors] = useState<EditExamErrors>({});
   const [pending, setPending] = useState(false);
+
+  if (!canEditExams) return null;
 
   function resetForm() {
     setTitle(exam.title);
