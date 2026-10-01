@@ -9,7 +9,7 @@ public sealed class CentralCredentialHandler(ISyncStateRepository syncStateRepos
 {
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        await AttachTokenAsync(request, cancellationToken);
+        var rejectedAccessToken = await AttachTokenAsync(request, cancellationToken);
         var response = await base.SendAsync(request, cancellationToken);
         if (response.StatusCode != HttpStatusCode.Unauthorized)
         {
@@ -19,7 +19,7 @@ public sealed class CentralCredentialHandler(ISyncStateRepository syncStateRepos
         // Clone before the refresh so a failed refresh can still return the original 401 body,
         // then dispose the consumed 401 response so the socket is released before the retry.
         var retryRequest = await CloneAsync(request);
-        var refreshed = await refresher.TryRefreshAsync(cancellationToken);
+        var refreshed = await refresher.TryRefreshAfterUnauthorizedAsync(rejectedAccessToken, cancellationToken);
         if (!refreshed)
         {
             retryRequest.Dispose();
@@ -31,10 +31,10 @@ public sealed class CentralCredentialHandler(ISyncStateRepository syncStateRepos
         return await base.SendAsync(retryRequest, cancellationToken);
     }
 
-    private async Task AttachTokenAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    private async Task<string?> AttachTokenAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var state = await syncStateRepository.GetAsync("central_access_token", cancellationToken);
-        if (string.IsNullOrWhiteSpace(state?.ValueJson)) return;
+        if (string.IsNullOrWhiteSpace(state?.ValueJson)) return null;
         using var document = JsonDocument.Parse(state.ValueJson);
         var token = document.RootElement.ValueKind is JsonValueKind.String
             ? document.RootElement.GetString()
@@ -42,7 +42,10 @@ public sealed class CentralCredentialHandler(ISyncStateRepository syncStateRepos
         if (!string.IsNullOrWhiteSpace(token))
         {
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            return token;
         }
+
+        return null;
     }
 
     private static async Task<HttpRequestMessage> CloneAsync(HttpRequestMessage original)

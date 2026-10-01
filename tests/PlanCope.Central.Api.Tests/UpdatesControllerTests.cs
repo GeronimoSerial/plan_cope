@@ -43,7 +43,7 @@ public sealed class UpdatesControllerTests
         var gate = new StubReleaseGateService();
         var controller = CreateController(gate, NodePrincipal(tokenType: "access", nodeId: "node-1"));
 
-        var result = await controller.Releases("stable", "PlanCope.Local.Host", "1.0.0", CancellationToken.None);
+        var result = await controller.Releases("stable", "stable", "PlanCope.Local.Host", "1.0.0", CancellationToken.None);
 
         Assert.IsType<ForbidResult>(result);
         Assert.False(gate.WasCalled);
@@ -55,7 +55,7 @@ public sealed class UpdatesControllerTests
         var gate = new StubReleaseGateService();
         var controller = CreateController(gate, NodePrincipal(tokenType: null, nodeId: "node-1"));
 
-        var result = await controller.Releases("stable", "PlanCope.Local.Host", "1.0.0", CancellationToken.None);
+        var result = await controller.Releases("stable", "stable", "PlanCope.Local.Host", "1.0.0", CancellationToken.None);
 
         Assert.IsType<ForbidResult>(result);
         Assert.False(gate.WasCalled);
@@ -67,10 +67,34 @@ public sealed class UpdatesControllerTests
         var gate = new StubReleaseGateService();
         var controller = CreateController(gate, NodePrincipal(tokenType: "node_access", nodeId: null));
 
-        var result = await controller.Releases("stable", "PlanCope.Local.Host", "1.0.0", CancellationToken.None);
+        var result = await controller.Releases("stable", "stable", "PlanCope.Local.Host", "1.0.0", CancellationToken.None);
 
         Assert.IsType<ForbidResult>(result);
         Assert.False(gate.WasCalled);
+    }
+
+    [Fact]
+    public async Task Releases_RejectsMismatchedChannelPathAndFeedName()
+    {
+        var gate = new StubReleaseGateService();
+        var controller = CreateController(gate, NodePrincipal(tokenType: "node_access", nodeId: "node-1"));
+
+        var result = await controller.Releases("stable", "beta", "PlanCope.Local.Host", "1.0.0", CancellationToken.None);
+
+        Assert.IsType<BadRequestResult>(result);
+        Assert.False(gate.WasCalled);
+    }
+
+    [Fact]
+    public void UpdateRoutesKeepChannelInPathAndPackageFileNameCanonical()
+    {
+        var feedRoute = typeof(UpdatesController).GetMethod(nameof(UpdatesController.Releases))!
+            .GetCustomAttribute<HttpGetAttribute>()!.Template;
+        var packageRoute = typeof(UpdatePackagesController).GetMethod(nameof(UpdatePackagesController.Download))!
+            .GetCustomAttribute<HttpGetAttribute>()!.Template;
+
+        Assert.Equal("{channel}/releases.{feedChannel}.json", feedRoute);
+        Assert.Equal("{channel}/{fileName}", packageRoute);
     }
 
     [Fact]
@@ -79,7 +103,7 @@ public sealed class UpdatesControllerTests
         var gate = new StubReleaseGateService { Decision = ReleaseGateDecision.None };
         var controller = CreateController(gate, NodePrincipal(tokenType: "node_access", nodeId: "node-1"));
 
-        var result = await controller.Releases("stable", "PlanCope.Local.Host", "1.0.0", CancellationToken.None);
+        var result = await controller.Releases("stable", "stable", "PlanCope.Local.Host", "1.0.0", CancellationToken.None);
 
         var content = Assert.IsType<ContentResult>(result);
         Assert.Equal(StatusCodes.Status200OK, content.StatusCode!.Value);
@@ -90,20 +114,17 @@ public sealed class UpdatesControllerTests
         Assert.Equal("node-1", gate.RequestedNodeId);
         Assert.Equal("1.0.0", gate.RequestedCurrentVersion);
         Assert.Equal("stable", gate.RequestedChannel);
+        Assert.Equal("1.4.0", gate.RequestedLatestPublishedVersion);
     }
 
     [Fact]
     public async Task Releases_WhenGateOffersUpdate_Returns200WithSingleAssetFeedAndPlainStringVersion()
     {
-        var decision = new ReleaseGateDecision(
-            MayInstall: true,
-            TargetVersion: "1.4.0",
-            DownloadUrl: "https://downloads.example.test/stable/PlanCope-1.4.0-win-x64.zip",
-            Sha256: "abcd1234");
+        var decision = new ReleaseGateDecision(MayInstall: true, TargetVersion: "1.4.0");
         var gate = new StubReleaseGateService { Decision = decision };
         var controller = CreateController(gate, NodePrincipal(tokenType: "node_access", nodeId: "node-1"));
 
-        var result = await controller.Releases("stable", "PlanCope.Local.Host", "1.0.0", CancellationToken.None);
+        var result = await controller.Releases("stable", "stable", "PlanCope.Local.Host", "1.0.0", CancellationToken.None);
 
         var content = Assert.IsType<ContentResult>(result);
         Assert.Equal(StatusCodes.Status200OK, content.StatusCode!.Value);
@@ -114,7 +135,7 @@ public sealed class UpdatesControllerTests
         // deserialized round-trip — catches a nested-object "Version" regression, which would
         // still deserialize into some C# object.
         const string expected =
-            """{"Assets":[{"PackageId":"PlanCope.Local.Host","Version":"1.4.0","Type":1,"FileName":"PlanCope-1.4.0-win-x64.zip","SHA1":"","SHA256":"abcd1234","Size":0,"NotesMarkdown":null,"NotesHTML":null}]}""";
+            """{"Assets":[{"PackageId":"PlanCope.Local.Host","Version":"1.4.0","Type":1,"FileName":"PlanCope.Local.Host-1.4.0-full.nupkg","SHA1":"","SHA256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","Size":12345,"NotesMarkdown":null,"NotesHTML":null}]}""";
         Assert.Equal(expected, content.Content);
 
         using var document = JsonDocument.Parse(content.Content!);
@@ -124,10 +145,10 @@ public sealed class UpdatesControllerTests
         Assert.Equal("1.4.0", version.GetString());
         Assert.Equal(JsonValueKind.Number, asset.GetProperty("Type").ValueKind);
         Assert.Equal(1, asset.GetProperty("Type").GetInt32());
-        Assert.Equal("PlanCope-1.4.0-win-x64.zip", asset.GetProperty("FileName").GetString());
-        Assert.Equal("abcd1234", asset.GetProperty("SHA256").GetString());
+        Assert.Equal("PlanCope.Local.Host-1.4.0-full.nupkg", asset.GetProperty("FileName").GetString());
+        Assert.Equal(new string('a', 64), asset.GetProperty("SHA256").GetString());
         Assert.Equal(string.Empty, asset.GetProperty("SHA1").GetString());
-        Assert.Equal(0, asset.GetProperty("Size").GetInt64());
+        Assert.Equal(12345, asset.GetProperty("Size").GetInt64());
         Assert.Equal(JsonValueKind.Null, asset.GetProperty("NotesMarkdown").ValueKind);
         Assert.Equal(JsonValueKind.Null, asset.GetProperty("NotesHTML").ValueKind);
         Assert.Equal(JsonValueKind.Array, document.RootElement.GetProperty("Assets").ValueKind);
@@ -140,7 +161,7 @@ public sealed class UpdatesControllerTests
         var gate = new StubReleaseGateService { Decision = ReleaseGateDecision.None };
         var controller = CreateController(gate, NodePrincipal(tokenType: "node_access", nodeId: "node-1"));
 
-        await controller.Releases("stable", "PlanCope.Local.Host", null, CancellationToken.None);
+        await controller.Releases("stable", "stable", "PlanCope.Local.Host", null, CancellationToken.None);
 
         Assert.Equal(string.Empty, gate.RequestedCurrentVersion);
     }
@@ -223,7 +244,7 @@ public sealed class UpdatesControllerTests
 
     private static UpdatesController CreateController(IReleaseGateService gate, PlanCopeDbContext dbContext, ClaimsPrincipal user)
     {
-        return new UpdatesController(gate, dbContext)
+        return new UpdatesController(gate, CreateUpdateStorage(), dbContext)
         {
             ControllerContext = new ControllerContext
             {
@@ -231,6 +252,13 @@ public sealed class UpdatesControllerTests
             }
         };
     }
+
+    private static StubUpdateStorage CreateUpdateStorage() => new()
+    {
+        Feed = new UpdateReleaseFeed("stable", "1.4.0", [new UpdateReleaseAsset(
+            "PlanCope.Local.Host", "1.4.0", 1, "PlanCope.Local.Host-1.4.0-full.nupkg", string.Empty,
+            new string('a', 64), 12345, null, null)])
+    };
 
     private static PlanCopeDbContext CreateDbContext()
     {
@@ -268,14 +296,26 @@ public sealed class UpdatesControllerTests
         public string? RequestedCurrentVersion { get; private set; }
 
         public string? RequestedChannel { get; private set; }
+        public string? RequestedLatestPublishedVersion { get; private set; }
 
-        public Task<ReleaseGateDecision> ResolveAsync(string nodeId, string currentVersion, string channel, CancellationToken cancellationToken)
+        public Task<ReleaseGateDecision> ResolveAsync(string nodeId, string currentVersion, string channel, string? latestPublishedVersion, CancellationToken cancellationToken)
         {
             WasCalled = true;
             RequestedNodeId = nodeId;
             RequestedCurrentVersion = currentVersion;
             RequestedChannel = channel;
+            RequestedLatestPublishedVersion = latestPublishedVersion;
             return Task.FromResult(Decision);
         }
+    }
+
+    private sealed class StubUpdateStorage : IInstallerStorage
+    {
+        public UpdateReleaseFeed? Feed { get; set; }
+        public bool IsConfigured => true;
+        public Task<InstallerReference?> GetLatestAsync(string channel, CancellationToken cancellationToken) => Task.FromResult<InstallerReference?>(null);
+        public Task<InstallerDownload?> GetLatestDownloadAsync(string channel, CancellationToken cancellationToken) => Task.FromResult<InstallerDownload?>(null);
+        public Task<UpdateReleaseFeed?> GetUpdateReleaseFeedAsync(string channel, CancellationToken cancellationToken) => Task.FromResult(Feed);
+        public Task<InstallerDownload?> GetUpdatePackageDownloadAsync(string channel, string version, string fileName, CancellationToken cancellationToken) => Task.FromResult<InstallerDownload?>(null);
     }
 }

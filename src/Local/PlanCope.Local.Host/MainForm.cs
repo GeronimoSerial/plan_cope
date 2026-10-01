@@ -9,6 +9,7 @@ using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using PlanCope.Local.Api;
 using PlanCope.Local.Api.Data.Repositories;
+using PlanCope.Local.Api.Services;
 using PlanCope.Local.Host.Services;
 using PlanCope.Shared.Domain.Local;
 using Microsoft.Data.Sqlite;
@@ -45,8 +46,14 @@ public partial class MainForm : Form
     private string? _updateAccessToken;
     private string _updateState = "idle";
     private string? _updateTargetVersion;
+    private string? _updateSha256;
+    private string? _updateFileName;
     private string? _updateMessage;
+    private bool _updateCheckInProgress;
+    private bool _pendingSessionUpdatePrompt;
     private readonly System.Windows.Forms.Timer _sessionGateTimer = new() { Interval = 30000, Enabled = false };
+    private readonly System.Windows.Forms.Timer _updateCheckTimer = new() { Interval = 4 * 60 * 60 * 1000, Enabled = false };
+    private string? _updateFeedUrl;
 
     public MainForm(DataDirectoryResolver directories, UpdateHealthTracker healthTracker)
     {
@@ -55,6 +62,7 @@ public partial class MainForm : Form
         InitializeComponent();
         Controls.Add(_loadingLabel);
         _sessionGateTimer.Tick += (_, _) => _ = EvaluateSessionGateAsync();
+        _updateCheckTimer.Tick += (_, _) => _ = HandleCheckForUpdatesAsync(manual: false);
     }
 
     private async void MainForm_Shown(object? sender, EventArgs e)
@@ -108,16 +116,21 @@ public partial class MainForm : Form
     private void InitializeUpdateService()
     {
         var feedUrl = Environment.GetEnvironmentVariable("PLANCOPE_UPDATE_FEED_URL");
-        if (string.IsNullOrWhiteSpace(feedUrl))
-        {
-            return;
-        }
+        var centralBaseUrl = _api?.Configuration["Central:BaseUrl"];
+        _updateFeedUrl = !string.IsNullOrWhiteSpace(feedUrl)
+            ? feedUrl.TrimEnd('/')
+            : string.IsNullOrWhiteSpace(centralBaseUrl)
+                ? null
+                : centralBaseUrl.TrimEnd('/') + "/api/updates";
+        if (string.IsNullOrWhiteSpace(_updateFeedUrl)) return;
 
-        var channelName = Environment.GetEnvironmentVariable("PLANCOPE_UPDATE_CHANNEL") is { } c && !string.IsNullOrWhiteSpace(c)
+        var configuredChannel = Environment.GetEnvironmentVariable("PLANCOPE_UPDATE_CHANNEL") is { } c && !string.IsNullOrWhiteSpace(c)
             ? c
             : "stable";
-        var channel = channelName.Equals("beta", StringComparison.OrdinalIgnoreCase) ? UpdateChannel.Beta : UpdateChannel.Stable;
-        var backend = new VelopackUpdateBackend(feedUrl, channelName, () => _updateAccessToken);
+        var channel = configuredChannel.Equals("beta", StringComparison.OrdinalIgnoreCase) ? UpdateChannel.Beta : UpdateChannel.Stable;
+        var channelName = channel == UpdateChannel.Beta ? "beta" : "stable";
+        var channelFeedUrl = $"{_updateFeedUrl.TrimEnd('/')}/{channelName}";
+        var backend = new VelopackUpdateBackend(channelFeedUrl, channelName, () => _updateAccessToken);
         _updateService = new UpdateService(backend, channel);
         _updateChannel = channelName;
     }
@@ -165,6 +178,9 @@ public partial class MainForm : Form
             _healthTracker.MarkHealthy(version);
             _ = ReportHealthAsync(version, healthy: true, detail: null);
         }
+
+        _updateCheckTimer.Start();
+        _ = HandleCheckForUpdatesAsync(manual: false);
     }
 
     private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
@@ -187,10 +203,18 @@ public partial class MainForm : Form
                 _ = OnActivationCompleteAsync();
                 break;
             case "host:checkForUpdates":
-                _ = HandleCheckForUpdatesAsync();
+                _ = HandleCheckForUpdatesAsync(manual: true);
                 break;
-            case "host:confirmRestart":
-                _ = HandleConfirmRestartAsync();
+            case "host:downloadUpdate":
+                _ = HandleDownloadUpdateAsync();
+                break;
+            case "host:deferUpdate":
+                _pendingSessionUpdatePrompt = false;
+                StopSessionGatePolling();
+                _updateState = "idle";
+                _updateTargetVersion = null;
+                _updateMessage = null;
+                PushUpdateStatus();
                 break;
         }
     }
@@ -246,17 +270,19 @@ public partial class MainForm : Form
             ? Velopack.Locators.VelopackLocator.Current.CurrentlyInstalledVersion?.ToString()
             : null;
 
-    private async Task HandleCheckForUpdatesAsync()
+    private async Task HandleCheckForUpdatesAsync(bool manual)
     {
+        if (_updateCheckInProgress || _updateState is "updateAvailable" or "downloading" or "readyPendingSessionClose" or "readyToRestart") return;
         if (_updateService is null)
         {
-            _updateState = "notConfigured";
+            _updateState = manual ? "error" : "idle";
             _updateTargetVersion = null;
-            _updateMessage = null;
+            _updateMessage = manual ? "La búsqueda de actualizaciones no está configurada para este equipo." : null;
             PushUpdateStatus();
             return;
         }
 
+        _updateCheckInProgress = true;
         try
         {
             _updateState = "checking";
@@ -264,13 +290,9 @@ public partial class MainForm : Form
             _updateMessage = null;
             PushUpdateStatus();
 
-            // Read the node access token once for this check+download sequence. Velopack's
-            // downloader invokes the Func<string?> provider on every HTTP request; re-reading
-            // the persisted token from SQLite there would block a background thread repeatedly
-            // for no benefit within one short-lived check+download. Deliberate tradeoff.
-            _updateAccessToken = ReadCentralAccessToken();
-
-            var result = await _updateService.CheckForUpdatesAsync();
+            var result = await UpdateRequestAuth.RunAsync(
+                () => _updateService.CheckForUpdatesAsync(),
+                RefreshUpdateAccessTokenAsync);
             if (!result.UpdateAvailable)
             {
                 _updateState = "upToDate";
@@ -278,65 +300,69 @@ public partial class MainForm : Form
                 return;
             }
 
-            _updateState = "downloading";
+            _updateState = "updateAvailable";
             _updateTargetVersion = result.TargetVersion;
+            _updateSha256 = result.Sha256;
+            _updateFileName = result.FileName;
+            if (await HasActiveSessionAsync())
+            {
+                _pendingSessionUpdatePrompt = true;
+                _updateState = "updateAvailablePendingSession";
+                StartSessionGatePolling();
+            }
             PushUpdateStatus();
+        }
+        catch (Exception)
+        {
+            _updateState = manual ? "error" : "idle";
+            _updateMessage = manual
+                ? "No se pudo verificar si hay actualizaciones. Revisá la conexión y la configuración de Central."
+                : null;
+            PushUpdateStatus();
+        }
+        finally
+        {
+            _updateCheckInProgress = false;
+        }
+    }
 
-            await _updateService.DownloadUpdateAsync(result.Sha256 ?? string.Empty);
+    private async Task HandleDownloadUpdateAsync()
+    {
+        if (_updateService is null || string.IsNullOrWhiteSpace(_updateSha256)) return;
+        try
+        {
+            _pendingSessionUpdatePrompt = false;
+            _updateState = "downloading";
+            _updateMessage = null;
+            PushUpdateStatus();
+            await UpdateRequestAuth.RunAsync(
+                () => _updateService.DownloadUpdateAsync(_updateSha256),
+                RefreshUpdateAccessTokenAsync);
             if (_updateService.LastDownloadIntegrityFailed)
             {
                 _updateState = "integrityFailed";
-                _updateMessage = "La actualizacion no paso la verificacion SHA-256.";
+                _updateMessage = "La actualización no superó la verificación SHA-256.";
                 PushUpdateStatus();
                 return;
             }
 
-            if (!string.IsNullOrEmpty(result.TargetVersion) &&
-                !string.IsNullOrEmpty(result.Sha256) &&
-                !string.IsNullOrEmpty(result.FileName))
+            if (!string.IsNullOrEmpty(_updateTargetVersion) &&
+                !string.IsNullOrEmpty(_updateSha256) &&
+                !string.IsNullOrEmpty(_updateFileName))
             {
                 _healthTracker.MarkPendingRestart(
-                    result.TargetVersion,
-                    result.FileName,
-                    result.Sha256,
-                    Environment.GetEnvironmentVariable("PLANCOPE_UPDATE_FEED_URL") ?? string.Empty);
+                    _updateTargetVersion,
+                    _updateFileName,
+                    _updateSha256,
+                    _updateFeedUrl ?? string.Empty);
             }
 
             await EvaluateSessionGateAsync();
         }
-        catch (Exception exception)
+        catch (Exception)
         {
             _updateState = "error";
-            _updateMessage = exception.Message;
-            PushUpdateStatus();
-        }
-    }
-
-    private async Task HandleConfirmRestartAsync()
-    {
-        if (_updateService is null)
-        {
-            _updateState = "notConfigured";
-            _updateTargetVersion = null;
-            _updateMessage = null;
-            PushUpdateStatus();
-            return;
-        }
-
-        // Re-check the gate now: a session may have started since the confirm control appeared.
-        if (await HasActiveSessionAsync())
-        {
-            _updateState = "readyPendingSessionClose";
-            _updateMessage = null;
-            PushUpdateStatus();
-            StartSessionGatePolling();
-            return;
-        }
-
-        if (!_updateService.TryApplyAndRestart(userConfirmedRestart: true))
-        {
-            _updateState = "error";
-            _updateMessage = "No se pudo aplicar la actualizacion.";
+            _updateMessage = "No se pudo descargar la actualización. Revisá la conexión e intentá buscar de nuevo.";
             PushUpdateStatus();
         }
     }
@@ -345,17 +371,33 @@ public partial class MainForm : Form
     {
         if (await HasActiveSessionAsync())
         {
-            _updateState = "readyPendingSessionClose";
+            _updateState = _pendingSessionUpdatePrompt ? "updateAvailablePendingSession" : "readyPendingSessionClose";
             _updateMessage = null;
             PushUpdateStatus();
             StartSessionGatePolling();
             return;
         }
 
-        _updateState = "readyToApply";
+        if (_pendingSessionUpdatePrompt)
+        {
+            _pendingSessionUpdatePrompt = false;
+            _updateState = "updateAvailable";
+            _updateMessage = null;
+            PushUpdateStatus();
+            StopSessionGatePolling();
+            return;
+        }
+
+        _updateState = "readyToRestart";
         _updateMessage = null;
         PushUpdateStatus();
         StopSessionGatePolling();
+        if (_updateService?.TryApplyAndRestart(userConfirmedRestart: true) != true)
+        {
+            _updateState = "error";
+            _updateMessage = "No se pudo reiniciar para completar la actualización. Volvé a buscar actualizaciones para reintentar.";
+            PushUpdateStatus();
+        }
     }
 
     private void StartSessionGatePolling()
@@ -419,17 +461,51 @@ public partial class MainForm : Form
         }
     }
 
+    private async Task RefreshUpdateAccessTokenAsync(bool forceRefresh)
+    {
+        if (_api is null) return;
+
+        using var scope = _api.Services.CreateScope();
+        var services = scope.ServiceProvider;
+        var repository = services.GetService<ISyncStateRepository>();
+        if (repository is null) return;
+
+        var expiryState = await repository.GetAsync("central_access_token_expires_at");
+        var expiryText = ReadSyncStateString(expiryState?.ValueJson);
+        var expiresAt = DateTimeOffset.TryParse(expiryText, out var parsedExpiry)
+            ? parsedExpiry
+            : (DateTimeOffset?)null;
+        var refresher = services.GetRequiredService<NodeCredentialRefresher>();
+        if (forceRefresh)
+        {
+            await refresher.TryRefreshAfterUnauthorizedAsync(_updateAccessToken, CancellationToken.None);
+        }
+        else if (expiresAt is not null && UpdateRequestAuth.ShouldRefresh(expiresAt, DateTimeOffset.UtcNow))
+        {
+            await refresher.TryRefreshAsync(CancellationToken.None);
+        }
+
+        var tokenState = await repository.GetAsync("central_access_token");
+        _updateAccessToken = ReadSyncStateString(tokenState?.ValueJson);
+    }
+
+    private static string? ReadSyncStateString(string? valueJson)
+    {
+        if (string.IsNullOrWhiteSpace(valueJson)) return null;
+        using var document = JsonDocument.Parse(valueJson);
+        return document.RootElement.ValueKind is JsonValueKind.String
+            ? document.RootElement.GetString()
+            : document.RootElement.GetRawText();
+    }
+
     /// <summary>
     /// Reports launch health to Central as fire-and-forget telemetry so a bad release is visible
     /// before it reaches the whole fleet. Never throws into the caller and never blocks anything:
-    /// a failed report is silently dropped. Returns immediately when no feed is configured —
-    /// there is nothing to report to. The feed URL is the same <c>PLANCOPE_UPDATE_FEED_URL</c>
-    /// <see cref="InitializeUpdateService"/> reads; Central exposes the endpoint at
-    /// <c>{feedUrl}/health</c>.
+    /// a failed report is silently dropped. Returns immediately when Central is not configured.
     /// </summary>
     private async Task ReportHealthAsync(string version, bool healthy, string? detail)
     {
-        var feedUrl = Environment.GetEnvironmentVariable("PLANCOPE_UPDATE_FEED_URL");
+        var feedUrl = _updateFeedUrl;
         if (string.IsNullOrWhiteSpace(feedUrl))
         {
             return;
@@ -464,6 +540,7 @@ public partial class MainForm : Form
     {
         await RefreshPhaseAStatusAsync();
         PostHostContext();
+        _ = HandleCheckForUpdatesAsync(manual: false);
     }
 
     private static Uri ResolveClientAppUri(CoreWebView2 coreWebView)

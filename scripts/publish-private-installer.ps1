@@ -44,6 +44,10 @@
     if omitted, from the PLANCOPE_PRIVATE_INSTALLER_REPO environment variable.
     Never hardcoded; if neither is present the script exits non-zero.
 
+.PARAMETER UpdateAssetPaths
+    Optional Velopack package and feed files uploaded to the same private release for Central's
+    authenticated update proxy.
+
 .EXAMPLE
     ./scripts/publish-private-installer.ps1 -InstallerPath '.\artifacts\PlanCope.setup.exe' -Version '1.2.3' -Channel 'stable' -PrivateRepo 'acme/plan-cope-installers'
 
@@ -76,7 +80,10 @@ param(
     # that Windows will warn about must be identifiable as such from the release list
     # alone, months later, without opening the asset.
     [Parameter(Mandatory = $false)]
-    [switch] $Unsigned
+    [switch] $Unsigned,
+
+    [Parameter(Mandatory = $false)]
+    [string[]] $UpdateAssetPaths = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -138,6 +145,18 @@ if ($releaseExists) {
 if ($LASTEXITCODE -ne 0) {
     Write-Error "gh release upload failed for '$assetName' onto release '$Version' in '$PrivateRepo' (exit code $LASTEXITCODE)."
     exit 1
+}
+
+foreach ($updateAssetPath in $UpdateAssetPaths) {
+    if (-not (Test-Path -LiteralPath $updateAssetPath -PathType Leaf)) {
+        Write-Error "Update asset not found: $updateAssetPath"
+        exit 1
+    }
+    & gh release upload $Version --repo $PrivateRepo --clobber $updateAssetPath
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "gh release upload failed for update asset '$updateAssetPath' onto release '$Version' (exit code $LASTEXITCODE)."
+        exit 1
+    }
 }
 
 $releaseAssets = (& gh release view $Version --repo $PrivateRepo --json assets) | ConvertFrom-Json
