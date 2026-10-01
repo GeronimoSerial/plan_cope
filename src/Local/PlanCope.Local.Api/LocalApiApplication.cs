@@ -4,6 +4,7 @@ using PlanCope.Local.Api.Endpoints;
 using PlanCope.Shared.Infrastructure.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using PlanCope.Local.Api.Services;
+using PlanCope.Local.Api.Services.Stats;
 
 namespace PlanCope.Local.Api;
 
@@ -20,6 +21,7 @@ public static class LocalApiApplication
 
         builder.Services.AddPlanCopeSharedInfrastructure();
         builder.Services.AddPlanCopeLocalData(builder.Configuration);
+        builder.Services.AddSingleton<StatsHtmlReportBuilder>();
         builder.Services.AddCors(options =>
         {
             options.AddPolicy(HostUiCorsPolicy, policy =>

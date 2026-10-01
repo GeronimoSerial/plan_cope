@@ -31,7 +31,7 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
             new CommandDefinition(sql, BuildRollupsParams(cue, schoolYear, course), cancellationToken: cancellationToken));
 
         var attemptCount = (int)row.AttemptCount;
-        var averageScorePercent = row.ScoreMaxSum > 0 ? row.ScoreSum / row.ScoreMaxSum * 100 : 0;
+        var averageScorePercent = row.ScoreMaxSum > 0 ? Math.Clamp(row.ScoreSum / row.ScoreMaxSum * 100, 0, 100) : 0;
 
         return new SchoolStatsDto(
             SuppressibleValue<int>.For(rosterScope, attemptCount, attemptCount),
@@ -67,7 +67,7 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
         var result = new List<CourseStatsDto>();
         foreach (var row in rows)
         {
-            var averageScorePercent = row.ScoreMaxSum > 0 ? row.ScoreSum / row.ScoreMaxSum * 100 : 0;
+            var averageScorePercent = row.ScoreMaxSum > 0 ? Math.Clamp(row.ScoreSum / row.ScoreMaxSum * 100, 0, 100) : 0;
 
             result.Add(new CourseStatsDto(
                 row.Course,
@@ -141,7 +141,7 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
                   .ToList();
 
             var attemptCount = (int)row.AttemptCount;
-            var averageScorePercent = row.ScoreMaxSum > 0 ? row.ScoreSum / row.ScoreMaxSum * 100 : 0;
+            var averageScorePercent = row.ScoreMaxSum > 0 ? Math.Clamp(row.ScoreSum / row.ScoreMaxSum * 100, 0, 100) : 0;
 
             result.Add(new ExamStatsDto(
                 row.ExamVersionId,
@@ -154,6 +154,99 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
 
         return result;
     }
+
+    public async Task<StatsReportDataDto> GetReportDataAsync(string cue, string? schoolYear, string? course, string? examVersionId, CancellationToken cancellationToken = default)
+    {
+        using var connection = _connectionFactory.CreateOpenConnection();
+
+        var schoolName = await connection.QuerySingleOrDefaultAsync<string>(new CommandDefinition(
+            "SELECT COALESCE(name, cue) FROM schools WHERE cue = @Cue", new { Cue = cue }, cancellationToken: cancellationToken)) ?? cue;
+
+        var filters = "ds.school_code = @Cue AND a.status = 'submitted' AND a.submitted_at IS NOT NULL";
+        if (schoolYear is not null) filters += " AND ds.school_year = @SchoolYear";
+        if (course is not null) filters += " AND COALESCE(NULLIF(rs.course, ''), 'sin_asignar') = @Course";
+        if (examVersionId is not null) filters += " AND ds.exam_version_id = @ExamVersionId";
+
+        var args = new { Cue = cue, SchoolYear = schoolYear, Course = course, ExamVersionId = examVersionId };
+        var hasAttempts = await connection.ExecuteScalarAsync<bool>(new CommandDefinition($@"
+            SELECT EXISTS (
+                SELECT 1 FROM student_attempts a
+                JOIN delivery_sessions ds ON ds.id = a.delivery_session_id
+                JOIN local_exam_versions ev ON ev.id = ds.exam_version_id
+                LEFT JOIN local_roster_sections rs ON rs.id = ds.roster_section_id
+                WHERE {filters})", args, cancellationToken: cancellationToken));
+        var rows = hasAttempts
+            ? await connection.QueryAsync<ReportAttemptRow>(new CommandDefinition($@"
+            SELECT a.student_first_name AS FirstName,
+                   a.student_last_name AS LastName,
+                   a.document_last4 AS DocumentLast4,
+                   CAST(COALESCE(NULLIF(rs.course, ''), 'Sin asignar') AS TEXT) AS Course,
+                   CAST(TRIM(COALESCE(rs.division, '') || CASE WHEN rs.division IS NOT NULL AND rs.shift IS NOT NULL THEN ' · ' ELSE '' END || COALESCE(rs.shift, '')) AS TEXT) AS Section,
+                   ds.exam_version_id AS ExamVersionId,
+                   ev.exam_code AS ExamCode,
+                   CAST(CASE WHEN ar.score_max > 0 THEN ar.score * 100.0 / ar.score_max ELSE NULL END AS REAL) AS ScorePercent,
+                   a.started_at AS StartedAt,
+                   a.submitted_at AS SubmittedAt
+            FROM student_attempts a
+            JOIN delivery_sessions ds ON ds.id = a.delivery_session_id
+            JOIN local_exam_versions ev ON ev.id = ds.exam_version_id
+            LEFT JOIN local_roster_sections rs ON rs.id = ds.roster_section_id
+            LEFT JOIN attempt_results ar ON ar.id = (
+                SELECT result.id FROM attempt_results result
+                WHERE result.student_attempt_id = a.id AND result.status = 'graded'
+                ORDER BY result.graded_at DESC LIMIT 1)
+            WHERE {filters}
+            ORDER BY ev.exam_code, rs.course, rs.division, ar.score, a.student_last_name, a.student_first_name", args, cancellationToken: cancellationToken))
+            : Array.Empty<ReportAttemptRow>();
+
+        var expectedFilters = "ds.school_code = @Cue";
+        if (schoolYear is not null) expectedFilters += " AND ds.school_year = @SchoolYear";
+        if (course is not null) expectedFilters += " AND COALESCE(NULLIF(rs.course, ''), 'sin_asignar') = @Course";
+        if (examVersionId is not null) expectedFilters += " AND ds.exam_version_id = @ExamVersionId";
+        var deliveredExams = await connection.ExecuteScalarAsync<long>(new CommandDefinition($@"
+            SELECT COUNT(DISTINCT ds.exam_version_id)
+            FROM delivery_sessions ds
+            LEFT JOIN local_roster_sections rs ON rs.id = ds.roster_section_id
+            WHERE {expectedFilters}", args, cancellationToken: cancellationToken));
+        var expected = await connection.ExecuteScalarAsync<long>(new CommandDefinition($@"
+            SELECT COALESCE(SUM(ds.expected_student_count), 0)
+            FROM delivery_sessions ds
+            LEFT JOIN local_roster_sections rs ON rs.id = ds.roster_section_id
+            WHERE {expectedFilters}", args, cancellationToken: cancellationToken));
+
+        var attempts = rows.Select(row => new StatsReportAttemptDto(
+            string.Join(" ", new[] { row.FirstName, row.LastName }.Where(value => !string.IsNullOrWhiteSpace(value))),
+            row.DocumentLast4,
+            row.Course,
+            row.Section,
+            row.ExamVersionId,
+            row.ExamCode,
+            row.ScorePercent is double scorePercent ? Math.Clamp(scorePercent, 0, 100) : null,
+            ParseDate(row.StartedAt),
+            ParseDate(row.SubmittedAt))).ToList();
+
+        return new StatsReportDataDto(cue, schoolName, attempts, (int)Math.Min(deliveredExams, int.MaxValue), (int)Math.Min(expected, int.MaxValue));
+    }
+
+    public async Task<StatsFilterOptionsDto> GetReportFilterOptionsAsync(string cue, CancellationToken cancellationToken = default)
+    {
+        using var connection = _connectionFactory.CreateOpenConnection();
+        var years = (await connection.QueryAsync<string>(new CommandDefinition(
+            "SELECT DISTINCT school_year FROM delivery_sessions WHERE school_code = @Cue AND school_year IS NOT NULL ORDER BY school_year DESC",
+            new { Cue = cue }, cancellationToken: cancellationToken))).ToList();
+        var courses = (await connection.QueryAsync<string>(new CommandDefinition(
+            "SELECT DISTINCT course FROM stats_rollups WHERE cue = @Cue ORDER BY course",
+            new { Cue = cue }, cancellationToken: cancellationToken))).ToList();
+        var exams = (await connection.QueryAsync<ExamFilterOptionDto>(new CommandDefinition(@"
+            SELECT DISTINCT ev.id AS ExamVersionId, ev.exam_code AS ExamCode, ev.version_number AS VersionNumber
+            FROM delivery_sessions ds JOIN local_exam_versions ev ON ev.id = ds.exam_version_id
+            WHERE ds.school_code = @Cue ORDER BY ev.exam_code, ev.version_number",
+            new { Cue = cue }, cancellationToken: cancellationToken))).ToList();
+        return new StatsFilterOptionsDto(years, courses, exams);
+    }
+
+    private static DateTimeOffset? ParseDate(string? value) =>
+        DateTimeOffset.TryParse(value, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out var parsed) ? parsed : null;
 
     private static string BuildRollupsFilters(string? schoolYear, string? course)
     {
@@ -181,4 +274,6 @@ public sealed class StatsQueryRepository : IStatsQueryRepository
     private sealed record ExamStatsRow(string ExamVersionId, string ExamCode, long VersionNumber, long AttemptCount, double ScoreSum, double ScoreMaxSum);
 
     private sealed record BlockStatRow(string BlockId, long CorrectCount, long PartialCount, long IncorrectCount, long BlankCount, long UngradableCount);
+
+    private sealed record ReportAttemptRow(string? FirstName, string? LastName, string? DocumentLast4, string Course, string Section, string ExamVersionId, string ExamCode, double? ScorePercent, string? StartedAt, string? SubmittedAt);
 }
