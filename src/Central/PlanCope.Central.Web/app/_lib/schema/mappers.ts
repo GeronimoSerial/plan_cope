@@ -162,10 +162,8 @@ export function versionToDocument(
     title: metadataText(metadata.title) ?? exam.title,
     description: typeof metadata.description === "string" ? metadata.description : undefined,
     subject: metadataText(metadata.subject) ?? exam.subject ?? undefined,
-    courses: Array.isArray(metadata.courses)
-      ? metadata.courses.filter((course): course is string => typeof course === "string")
-      : exam.courses,
-    area: metadataText(metadata.area) ?? exam.area ?? undefined,
+    courses: exam.courses,
+    area: exam.area ?? undefined,
     questions
   };
 }

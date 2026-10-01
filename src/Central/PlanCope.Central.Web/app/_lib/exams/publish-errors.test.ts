@@ -14,9 +14,9 @@ describe("mapPublishError", () => {
 
 
 
-  it("mapea 400 con clave grade", () => {
-    expect(mapPublishError({ status: 400, problem: { errors: { Grade: ["required"] } } })).toBe(
-      "Ingresá el curso o grado."
+  it("mapea 400 con clave courses", () => {
+    expect(mapPublishError({ status: 400, problem: { errors: { Courses: ["At least one valid course is required."] } } })).toBe(
+      "Seleccioná al menos un curso en los datos del examen."
     );
   });
 

@@ -204,10 +204,13 @@ describe("versionToDocument fallbacks", () => {
     expect(doc.title).toBe("Matemática · Primer Año");
   });
 
-  it("uses metadata values ahead of the fallback", () => {
-    const doc = versionToDocument({ ...emptyVersion, metadata: { title: "Título guardado", courses: ["primaria-2"] } }, summary);
+  it("uses exam summary courses and area when version metadata is stale", () => {
+    const doc = versionToDocument({
+      ...emptyVersion,
+      metadata: { title: "Título guardado", courses: ["primaria-2"], area: "Área anterior" }
+    }, summary);
     expect(doc.title).toBe("Título guardado");
-    expect(doc.courses).toEqual(["primaria-2"]);
+    expect(doc.courses).toEqual(["secundaria-2"]);
     expect(doc.subject).toBe("Números");
     expect(doc.area).toBe("Matemática");
   });
