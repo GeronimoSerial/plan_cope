@@ -19,7 +19,7 @@ namespace PlanCope.Central.Api.Tests;
 /// Pins the sync node-identity contract: the node id is always resolved from the validated JWT
 /// (node_access + node_id claim), never from the query string, X-Node-Id header or request body.
 /// A user/operator token is rejected with 403, a node token cannot act for another node, and the
-/// claim value is what targeting and the delivery/cursor writes use.
+/// claim value is what delivery and cursor writes use.
 /// </summary>
 public sealed class SyncNodeIdentityTests
 {
@@ -57,7 +57,7 @@ public sealed class SyncNodeIdentityTests
     }
 
     [Fact]
-    public async Task Pull_without_nodeId_query_uses_the_claim_for_targeting()
+    public async Task Pull_without_nodeId_query_uses_the_claim_for_progress_tracking()
     {
         using var dbContext = CreateDbContext();
         await SeedNodeAsync(dbContext, "node-A", "1001");
@@ -71,7 +71,7 @@ public sealed class SyncNodeIdentityTests
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var response = Assert.IsType<PullResponse>(ok.Value);
-        Assert.Equal("pkg-A", Assert.Single(response.Items).EntityId);
+        Assert.Equal(new[] { "pkg-A", "pkg-B" }, response.Items.Select(static item => item.EntityId));
     }
 
     [Fact]
@@ -122,7 +122,7 @@ public sealed class SyncNodeIdentityTests
         Assert.Contains(cursors, cursor => cursor.NodeId == "node-A" && cursor.CursorKey == SyncCursorKeys.ExamPull);
         Assert.Contains(cursors, cursor => cursor.NodeId == "node-A" && cursor.CursorKey == "package:pkg-A");
         Assert.DoesNotContain(cursors, cursor => cursor.NodeId == "node-B");
-        Assert.DoesNotContain(cursors, cursor => cursor.CursorKey == "package:pkg-B");
+        Assert.Contains(cursors, cursor => cursor.NodeId == "node-A" && cursor.CursorKey == "package:pkg-B");
     }
 
     [Fact]

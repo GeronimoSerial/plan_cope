@@ -15,9 +15,8 @@ using Xunit;
 namespace PlanCope.Central.Api.Tests;
 
 /// <summary>
-/// Pins the sync targeting contract: untargeted packages reach every node, node/school targeted
-/// packages reach only matching nodes, grade/subject/division never filter delivery, and the cursor
-/// advances past packages skipped by targeting without skipping a package the node must receive.
+/// Pins the sync delivery contract: every published package reaches every node, including packages
+/// that retain legacy node/school targets, and descriptive targets never filter delivery.
 /// </summary>
 public sealed class SyncTargetingTests
 {
@@ -45,24 +44,28 @@ public sealed class SyncTargetingTests
     }
 
     [Fact]
-    public async Task Node_targeted_package_is_delivered_only_to_matching_node()
+    public async Task Legacy_node_targeted_package_is_delivered_to_unrelated_node_without_rewriting_target()
     {
         var options = CreateOptions();
         using var dbContext = new PlanCopeDbContext(options);
         await SeedNodeAsync(dbContext, "node-A", "1001");
         await SeedNodeAsync(dbContext, "node-B", "1002");
         await SeedPackageAsync(dbContext, "pkg-node", 1, ("grade", "6"), ("node", "node-A"));
+        var originalTarget = dbContext.PublicationTargets.Single(target => target.TargetType == "node");
         var controller = CreateController(dbContext);
 
-        var matched = await PullAsync(controller, "node-A");
-        Assert.Equal("pkg-node", Assert.Single(matched.Items).EntityId);
-
         var unmatched = await PullAsync(controller, "node-B");
-        Assert.Empty(unmatched.Items);
+        var delivered = Assert.Single(unmatched.Items);
+        Assert.Equal("pkg-node", delivered.EntityId);
+        Assert.Equal("checksum-pkg-node", delivered.Checksum);
+        var storedTarget = Assert.Single(dbContext.PublicationTargets.Where(target => target.TargetType == "node"));
+        Assert.Equal(originalTarget.Id, storedTarget.Id);
+        Assert.Equal("node-A", storedTarget.TargetId);
+        Assert.Equal(originalTarget.UpdatedAt, storedTarget.UpdatedAt);
     }
 
     [Fact]
-    public async Task School_targeted_package_matches_the_nodes_school_cue()
+    public async Task Legacy_school_targeted_package_is_delivered_to_node_with_another_cue()
     {
         var options = CreateOptions();
         using var dbContext = new PlanCopeDbContext(options);
@@ -75,11 +78,11 @@ public sealed class SyncTargetingTests
         Assert.Equal("pkg-school", Assert.Single(matched.Items).EntityId);
 
         var unmatched = await PullAsync(controller, "node-B");
-        Assert.Empty(unmatched.Items);
+        Assert.Equal("pkg-school", Assert.Single(unmatched.Items).EntityId);
     }
 
     [Fact]
-    public async Task School_targeted_package_matches_by_internal_school_id()
+    public async Task Legacy_school_targeted_package_is_delivered_by_internal_school_id()
     {
         var options = CreateOptions();
         using var dbContext = new PlanCopeDbContext(options);
@@ -94,7 +97,7 @@ public sealed class SyncTargetingTests
     }
 
     [Fact]
-    public async Task Universal_node_receives_all_school_targeted_packages()
+    public async Task Node_receives_legacy_school_targets_for_every_school()
     {
         var options = CreateOptions();
         using var dbContext = new PlanCopeDbContext(options);
@@ -111,7 +114,7 @@ public sealed class SyncTargetingTests
     }
 
     [Fact]
-    public async Task Unknown_node_still_receives_untargeted_packages()
+    public async Task Unknown_node_receives_legacy_targeted_packages()
     {
         var options = CreateOptions();
         using var dbContext = new PlanCopeDbContext(options);
@@ -121,11 +124,11 @@ public sealed class SyncTargetingTests
 
         var response = await PullAsync(controller, "unknown-node");
 
-        Assert.Equal("pkg-1", Assert.Single(response.Items).EntityId);
+        Assert.Equal(new[] { "pkg-1", "pkg-node" }, response.Items.Select(static item => item.EntityId));
     }
 
     [Fact]
-    public async Task Cursor_advances_past_skipped_targeted_package_and_still_delivers_later_match()
+    public async Task Cursor_page_delivers_legacy_targeted_and_untargeted_packages()
     {
         var options = CreateOptions();
         using var dbContext = new PlanCopeDbContext(options);
@@ -136,7 +139,7 @@ public sealed class SyncTargetingTests
         var controller = CreateController(dbContext);
 
         var first = await PullAsync(controller, "node-B", cursor: "0", limit: 1);
-        Assert.Empty(first.Items);
+        Assert.Equal("pkg-targeted", Assert.Single(first.Items).EntityId);
         Assert.True(first.HasMore);
         Assert.NotEqual("0", first.NextCursor);
 

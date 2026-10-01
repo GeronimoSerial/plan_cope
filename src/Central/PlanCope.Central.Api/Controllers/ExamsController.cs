@@ -954,17 +954,6 @@ public sealed class ExamsController(
         Add(PublicationTargetTypes.Subject, request.Subject ?? exam.Subject);
         Add(PublicationTargetTypes.Division, request.Division);
 
-        // node/school targets opt a package into per-node delivery; absence of these means "all nodes".
-        foreach (var nodeId in request.NodeIds ?? [])
-        {
-            Add(PublicationTargetTypes.Node, nodeId);
-        }
-
-        foreach (var schoolId in request.SchoolIds ?? [])
-        {
-            Add(PublicationTargetTypes.School, schoolId);
-        }
-
         return targets;
     }
 
