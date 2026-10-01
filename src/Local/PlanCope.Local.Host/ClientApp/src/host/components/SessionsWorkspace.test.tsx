@@ -18,7 +18,7 @@ const session = (id: string, schoolCode: string, schoolName: string): LocalSessi
 describe("SessionsWorkspace", () => {
   let root: Root | undefined;
   let container: HTMLDivElement | undefined;
-  afterEach(() => { if (root) act(() => root?.unmount()); root = undefined; container?.remove(); container = undefined; vi.restoreAllMocks(); });
+  afterEach(() => { if (root) act(() => root?.unmount()); root = undefined; container?.remove(); container = undefined; vi.useRealTimers(); vi.restoreAllMocks(); });
 
   it("shows multiple node sessions before a school is selected and waits for an explicit selection", () => {
     const state = delivery([session("a", "180055400", "Escuela Norte"), { ...session("b", "180055401", "Escuela Sur"), offRosterSubmittedCount: 1 }]);
@@ -73,6 +73,36 @@ describe("SessionsWorkspace", () => {
     expect(state.createSession).toHaveBeenCalledOnce();
   });
 
+  it("refreshes the local catalog on focus and every minute while the session form is open", async () => {
+    vi.useFakeTimers();
+    const state = delivery([]);
+    const reloadExams = vi.fn();
+    state.examCatalog.reloadExams = reloadExams;
+    const view = render(state);
+
+    act(() => button(view, "Nueva sesión").click());
+    act(() => button(view, "Ingresar otro CUE").click());
+    Object.assign(state.sessionForm.form, { cue: "180055402" });
+    Object.assign(state.roster, {
+      snapshot: { id: "snapshot", cue: "180055402", schoolYear: "2026", fetchedAt: "2026-10-01", checksum: "hash", sectionCount: 1, studentCount: 1, status: "ready" },
+      sections: [{ id: "section", snapshotId: "snapshot", course: "6", division: "A", studentCount: 1 }],
+      selectedSectionId: "section"
+    });
+    act(() => root?.render(<SessionsWorkspace delivery={state} apiBaseUrl="http://local" tab="home" expiryPending={false} onStats={() => undefined} onReturnHome={() => undefined} />));
+    act(() => button(view, "Continuar").click());
+
+    expect(reloadExams).toHaveBeenCalledTimes(1);
+    act(() => window.dispatchEvent(new Event("focus")));
+    expect(reloadExams).toHaveBeenCalledTimes(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(reloadExams).toHaveBeenCalledTimes(3);
+
+    act(() => button(view, "Volver").click());
+    act(() => window.dispatchEvent(new Event("focus")));
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(reloadExams).toHaveBeenCalledTimes(3);
+  });
+
   it("loads node history and applies school and status filters", async () => {
     const historySession = { ...session("closed", "180055400", "Escuela Norte"), status: "closed", endAt: "2026-10-01T10:35:00Z", offRosterSubmittedCount: 1 };
     const historyLoader = vi.spyOn(ApiClient.prototype, "getSessionHistory").mockResolvedValue({ items: [historySession], page: 1, pageSize: 20, totalCount: 1 });
@@ -103,7 +133,7 @@ function button(view: HTMLElement, label: string): HTMLButtonElement {
 
 function delivery(sessions: LocalSession[]): DeliverySessionState {
   const state = {
-    examCatalog: { exams: [], isLoadingExams: false, selectedExamId: "", setSelectedExamId: vi.fn(), loadExams: vi.fn() },
+    examCatalog: { exams: [], isLoadingExams: false, selectedExamId: "", setSelectedExamId: vi.fn(), loadExams: vi.fn(), reloadExams: vi.fn() },
     syncPull: { isPulling: false, message: null, lastPullAt: null, pullExamsNow: vi.fn() },
     roster: { snapshot: null, sections: [], selectedSectionId: "", setSelectedSectionId: vi.fn(), isLoading: false, error: null },
     sessionForm: { form: { cue: "", classroomCode: "", commissionCode: "", operatorName: "Docente", expectedStudentCount: 0 }, formErrors: {}, schoolName: "", updateForm: vi.fn() },

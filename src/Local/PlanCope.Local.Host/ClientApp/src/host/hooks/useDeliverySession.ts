@@ -187,8 +187,8 @@ export function useDeliverySession(hostContext: HostContext) {
     await loadExams(signal);
   }, [api, loadExams]);
 
-  // Operator-triggered pull: reports the server message inline, records the last successful
-  // pull time, and only reloads the exam catalog when something actually changed locally.
+  // Operator-triggered pull: a background sync may already have imported the exam, so reload the
+  // local catalog after every successful request even when Central reports no new exams.
   const pullExamsNow = useCallback(async (signal?: AbortSignal) => {
     setIsPullingExams(true);
     setPullMessage(null);
@@ -204,9 +204,7 @@ export function useDeliverySession(hostContext: HostContext) {
         setLastPullAt(result.lastPullAt);
       }
 
-      if (result.status === "updated") {
-        await loadExams(signal);
-      }
+      await loadExams(signal);
     } catch (exception) {
       if (!signal?.aborted) {
         setPullMessage(exception instanceof Error ? exception.message : "No se pudieron buscar exámenes nuevos.");
@@ -454,7 +452,8 @@ export function useDeliverySession(hostContext: HostContext) {
       isLoadingExams,
       selectedExamId,
       setSelectedExamId,
-      loadExams: refreshExams
+      loadExams: refreshExams,
+      reloadExams: loadExams
     },
     syncPull: {
       isPulling: isPullingExams,
