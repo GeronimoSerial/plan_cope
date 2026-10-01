@@ -8,6 +8,7 @@ public partial class RemoveExamVersionScoringPolicy : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)
     {
+        // Intentionally do not backfill per-block policies because only test data exists.
         migrationBuilder.DropColumn(name: "ScoringPolicy", schema: "exam", table: "versions");
         migrationBuilder.DropTable(name: "grading_policies", schema: "exam");
     }
