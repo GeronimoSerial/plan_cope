@@ -1,4 +1,7 @@
+using System.Reflection;
+using System.Security.Claims;
 using System.Text.Json;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -18,6 +21,40 @@ public sealed class PublicationSectionsControllerTests
         .AddEntityFrameworkInMemoryDatabase()
         .AddSingleton<IModelCustomizer, JsonDocumentFriendlyModelCustomizer>()
         .BuildServiceProvider();
+
+    [Fact]
+    public void Controller_requires_the_exam_author_policy()
+    {
+        var attribute = typeof(PublicationSectionsController).GetCustomAttribute<AuthorizeAttribute>();
+
+        Assert.NotNull(attribute);
+        Assert.Equal("ExamAuthor", attribute!.Policy);
+    }
+
+    [Fact]
+    public async Task Exam_author_policy_rejects_an_unauthenticated_principal()
+    {
+        using var provider = CreateAuthorizationProvider();
+
+        var result = await provider.GetRequiredService<IAuthorizationService>()
+            .AuthorizeAsync(new ClaimsPrincipal(new ClaimsIdentity()), null, "ExamAuthor");
+
+        Assert.False(result.Succeeded);
+    }
+
+    [Theory]
+    [InlineData("Grader")]
+    [InlineData("Operator")]
+    public async Task Exam_author_policy_rejects_non_author_roles(string role)
+    {
+        using var provider = CreateAuthorizationProvider();
+        var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, role)], "test"));
+
+        var result = await provider.GetRequiredService<IAuthorizationService>()
+            .AuthorizeAsync(principal, null, "ExamAuthor");
+
+        Assert.False(result.Succeeded);
+    }
 
     [Fact]
     public async Task GetOptions_UnionsLatestActiveTargetRostersAndSeparatesShifts()
@@ -69,6 +106,11 @@ public sealed class PublicationSectionsControllerTests
         .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
         .UseInternalServiceProvider(InMemoryServices)
         .Options;
+
+    private static ServiceProvider CreateAuthorizationProvider() => new ServiceCollection()
+        .AddLogging()
+        .AddAuthorization(options => options.AddPolicy("ExamAuthor", policy => policy.RequireRole("Admin", "ExamAuthor")))
+        .BuildServiceProvider();
 
     private static RegisteredNode Node(string id, string cue, string status, DateTimeOffset? revokedAt) => new(
         id, null, id, null, status, null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, id,

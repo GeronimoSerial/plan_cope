@@ -187,11 +187,13 @@ export function PublishDialog({
                   <FieldLabel htmlFor="publish-subject">Materia (opcional)</FieldLabel>
                   <Input id="publish-subject" value={subject} onChange={event => setSubject(event.target.value)} />
                 </Field>
-                {sectionsError ? (
+                {sectionsError || gradeKeys.length === 0 ? (
                   <Field>
                     <FieldLabel htmlFor="publish-division">División (opcional)</FieldLabel>
                     <Input id="publish-division" value={division} onChange={event => setDivision(event.target.value)} />
-                    <p className="text-xs text-muted-foreground">{sectionsError}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {sectionsError ?? "Agregá cursos al examen para consultar las divisiones disponibles."}
+                    </p>
                   </Field>
                 ) : (
                   <div className="grid gap-2 sm:col-span-2">
