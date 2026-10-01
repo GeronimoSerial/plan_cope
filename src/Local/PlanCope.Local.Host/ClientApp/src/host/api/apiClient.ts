@@ -2,7 +2,9 @@ import type {
   CreateSessionRequest,
   LocalSession,
   RosterResponse,
-  SessionProgress
+  SessionProgress,
+  LocalSchool,
+  SessionHistoryPage
 } from "../types";
 import type { ApiErrorPayload, LocalExam } from "../../shared/api-types";
 
@@ -66,6 +68,16 @@ export class ApiClient {
 
   getActiveSessions(signal?: AbortSignal): Promise<LocalSession[]> {
     return this.get<LocalSession[]>("/api/sessions/active", signal);
+  }
+
+  getSessionHistory(filters: { schoolCode?: string; status?: string; page?: number; pageSize?: number }, signal?: AbortSignal): Promise<SessionHistoryPage> {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters)) if (value !== undefined && value !== "") query.set(key, String(value));
+    return this.get<SessionHistoryPage>(`/api/sessions/history?${query.toString()}`, signal);
+  }
+
+  getSchools(signal?: AbortSignal): Promise<LocalSchool[]> {
+    return this.get<LocalSchool[]>("/api/schools", signal);
   }
 
   getSession(idOrAccessCode: string, signal?: AbortSignal): Promise<LocalSession> {

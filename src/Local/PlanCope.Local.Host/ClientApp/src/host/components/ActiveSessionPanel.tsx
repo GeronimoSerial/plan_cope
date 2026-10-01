@@ -172,7 +172,7 @@ function ActiveSessionContent({ progress, session, sessionLink, onStatusChange, 
       {!isClosed && <ActionButton variant="secondary" onClick={() => postHostMessage({ type: "host:openStudentView", accessCode: session.accessCode })}>
         Abrir vista del estudiante
       </ActionButton>}
-      {isClosed && <ActionButton variant="secondary" onClick={() => onReturn?.()}>Volver al espacio de sesiones</ActionButton>}
+      {isClosed && <ActionButton variant="secondary" onClick={() => onReturn?.()}>Volver al inicio</ActionButton>}
     </aside>
   );
 }

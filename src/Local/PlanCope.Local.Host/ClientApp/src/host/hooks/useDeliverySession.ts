@@ -14,7 +14,8 @@ import type {
   LocalSession,
   RosterSection,
   RosterSnapshot,
-  SessionProgress
+  SessionProgress,
+  LocalSchool
 } from "../types";
 import { isValidCue } from "../domain/cue";
 
@@ -121,6 +122,7 @@ export function useDeliverySession(hostContext: HostContext) {
   const [form, setForm] = useState<SessionForm>(() => initialSessionForm(hostContext.operatorName));
   const [session, setSession] = useState<LocalSession | null>(null);
   const [activeSessions, setActiveSessions] = useState<LocalSession[]>([]);
+  const [schools, setSchools] = useState<LocalSchool[]>([]);
   const [progress, setProgress] = useState<SessionProgress | null>(null);
   const [status, setStatus] = useState("Iniciando API local...");
   const [isBusy, setIsBusy] = useState(false);
@@ -275,8 +277,6 @@ export function useDeliverySession(hostContext: HostContext) {
     try {
       const sessions = await api.getActiveSessions(signal);
       setActiveSessions(sessions);
-      setSession(current => current ?? sessions[0] ?? null);
-      setResumeAccessCode(current => current || sessions[0]?.accessCode || "");
     } catch (exception) {
       if (!signal?.aborted) {
         setError(exception instanceof Error ? exception.message : "No se pudieron recuperar las sesiones activas.");
@@ -284,14 +284,20 @@ export function useDeliverySession(hostContext: HostContext) {
     }
   }, [api]);
 
+  const loadSchools = useCallback(async (signal?: AbortSignal) => {
+    try { setSchools(await api.getSchools(signal)); }
+    catch (exception) { if (!signal?.aborted) setError(exception instanceof Error ? exception.message : "No se pudieron recuperar las escuelas del equipo."); }
+  }, [api]);
+
   useEffect(() => {
     const controller = new AbortController();
 
     void refreshExams(controller.signal);
     void loadActiveSessions(controller.signal);
+    void loadSchools(controller.signal);
 
     return () => controller.abort();
-  }, [loadActiveSessions, refreshExams]);
+  }, [loadActiveSessions, loadSchools, refreshExams]);
 
   useEffect(() => {
     setSelectedExamId(current => ensureSelectedExamId(exams, current));
@@ -371,6 +377,13 @@ export function useDeliverySession(hostContext: HostContext) {
     }
   }, [api, resumeAccessCode]);
 
+  const selectSession = useCallback((selected: LocalSession) => {
+    setSession(selected);
+    setForm(current => ({ ...current, cue: selected.schoolCode }));
+    setResumeAccessCode(selected.accessCode);
+    setError(null);
+  }, []);
+
   const updateSessionStatus = useCallback(async (nextStatus: "active" | "paused" | "closed") => {
     if (!session) return null;
     setIsBusy(true);
@@ -379,7 +392,9 @@ export function useDeliverySession(hostContext: HostContext) {
       const result = await api.updateSessionStatus(session.id, nextStatus);
       const updated = { ...session, status: nextStatus, ...(nextStatus === "closed" ? { endAt: new Date().toISOString() } : {}) };
       setSession(updated);
-      if (nextStatus === "closed") setActiveSessions(current => current.filter(item => item.id !== session.id));
+      setActiveSessions(current => nextStatus === "closed"
+        ? current.filter(item => item.id !== session.id)
+        : current.map(item => item.id === session.id ? { ...item, status: nextStatus } : item));
       return result;
     } catch (exception) {
       setError(exception instanceof Error ? exception.message : "No se pudo actualizar la sesión.");
@@ -406,7 +421,8 @@ export function useDeliverySession(hostContext: HostContext) {
   const returnToSessions = useCallback(() => {
     setSession(null);
     setProgress(null);
-  }, []);
+    void loadActiveSessions();
+  }, [loadActiveSessions]);
 
   useEffect(() => {
     if (!session?.accessCode) {
@@ -457,9 +473,11 @@ export function useDeliverySession(hostContext: HostContext) {
       progress,
       sessionLink,
       activeSessions,
+      schools,
       resumeAccessCode,
       setResumeAccessCode,
       resumeSession,
+      selectSession,
       updateSessionStatus,
       discardSession,
       returnToSessions

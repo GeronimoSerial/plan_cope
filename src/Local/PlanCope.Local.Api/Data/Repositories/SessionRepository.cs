@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text.Json;
 using PlanCope.Local.Api.Services;
 using PlanCope.Shared.Domain.Local;
+using PlanCope.Shared.Domain.ValueObjects;
 
 namespace PlanCope.Local.Api.Data.Repositories;
 
@@ -77,6 +78,139 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
         using var connection = connectionFactory.CreateOpenConnection();
         var sessions = await connection.QueryAsync<LocalDeliverySessionRow>(new CommandDefinition(sql, cancellationToken: cancellationToken));
         return sessions.Select(static row => row.ToDomain()).ToList();
+    }
+
+    public async Task<IReadOnlyList<SessionListItem>> GetActiveSummariesAsync(string? schoolCode, CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT s.id AS Id, s.exam_version_id AS ExamVersionId, s.school_code AS SchoolCode,
+                   COALESCE(NULLIF(sc.name, ''), NULLIF(rs.school_name, ''), 'CUE ' || s.school_code) AS SchoolName,
+                   ev.exam_code AS ExamCode, ev.metadata_json AS MetadataJson,
+                   COALESCE(section.course, json_extract(ev.metadata_json, '$.grade')) AS Course,
+                   COALESCE(section.division, json_extract(ev.metadata_json, '$.division')) AS Division,
+                   section.shift AS Shift, s.start_at AS StartAt, s.end_at AS EndAt, s.status AS Status,
+                   s.access_code AS AccessCode, s.expected_student_count AS ExpectedStudentCount,
+                   (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'submitted') AS SubmittedCount,
+                   (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'in_progress') AS InProgressCount
+            FROM delivery_sessions s
+            JOIN local_exam_versions ev ON ev.id = s.exam_version_id
+            LEFT JOIN schools sc ON sc.cue = s.school_code
+            LEFT JOIN local_roster_snapshots rs ON rs.id = s.roster_snapshot_id
+            LEFT JOIN local_roster_sections section ON section.id = s.roster_section_id AND section.snapshot_id = s.roster_snapshot_id
+            WHERE s.status IN ('active', 'paused') AND (@SchoolCode IS NULL OR s.school_code = @SchoolCode)
+            ORDER BY s.start_at DESC;
+            """;
+        using var connection = connectionFactory.CreateOpenConnection();
+        var rows = await connection.QueryAsync<SessionListRow>(new CommandDefinition(sql,
+            new { SchoolCode = NormalizeOptionalCue(schoolCode) }, cancellationToken: cancellationToken));
+        return rows.Select(ToListItem).ToList();
+    }
+
+    public async Task<SessionHistoryPage> GetHistoryAsync(string? schoolCode, string? status, int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            WITH filtered AS (
+                SELECT s.id AS Id, s.exam_version_id AS ExamVersionId, s.school_code AS SchoolCode,
+                       COALESCE(NULLIF(sc.name, ''), NULLIF(rs.school_name, ''), 'CUE ' || s.school_code) AS SchoolName,
+                       ev.exam_code AS ExamCode, ev.metadata_json AS MetadataJson,
+                       COALESCE(section.course, json_extract(ev.metadata_json, '$.grade')) AS Course,
+                       COALESCE(section.division, json_extract(ev.metadata_json, '$.division')) AS Division,
+                       section.shift AS Shift, s.start_at AS StartAt, s.end_at AS EndAt, s.status AS Status,
+                       s.access_code AS AccessCode, s.expected_student_count AS ExpectedStudentCount,
+                       (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'submitted') AS SubmittedCount,
+                       (SELECT COUNT(*) FROM student_attempts a WHERE a.delivery_session_id = s.id AND a.status = 'in_progress') AS InProgressCount,
+                       COUNT(*) OVER() AS TotalCount
+                FROM delivery_sessions s
+                JOIN local_exam_versions ev ON ev.id = s.exam_version_id
+                LEFT JOIN schools sc ON sc.cue = s.school_code
+                LEFT JOIN local_roster_snapshots rs ON rs.id = s.roster_snapshot_id
+                LEFT JOIN local_roster_sections section ON section.id = s.roster_section_id AND section.snapshot_id = s.roster_snapshot_id
+                WHERE (@SchoolCode IS NULL OR s.school_code = @SchoolCode)
+                  AND (@Status IS NULL OR s.status = @Status)
+            )
+            SELECT * FROM filtered ORDER BY StartAt DESC LIMIT @PageSize OFFSET @Offset;
+            """;
+        using var connection = connectionFactory.CreateOpenConnection();
+        var rows = (await connection.QueryAsync<SessionListRow>(new CommandDefinition(sql, new
+        {
+            SchoolCode = NormalizeOptionalCue(schoolCode),
+            Status = NormalizeOptionalStatus(status),
+            PageSize = pageSize,
+            Offset = (page - 1) * pageSize
+        }, cancellationToken: cancellationToken))).ToList();
+        return new SessionHistoryPage(rows.Select(ToListItem).ToList(), page, pageSize, rows.FirstOrDefault()?.TotalCount ?? 0);
+    }
+
+    public async Task<IReadOnlyList<LocalSchoolListItem>> GetSchoolsAsync(CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT s.cue AS Code, COALESCE(NULLIF(s.name, ''), NULLIF(r.school_name, ''), 'CUE ' || s.cue) AS Name,
+                   EXISTS (SELECT 1 FROM local_roster_snapshots ready WHERE ready.id = r.id AND lower(ready.status) = 'ready'
+                           AND EXISTS (SELECT 1 FROM local_roster_sections sec WHERE sec.snapshot_id = ready.id)) AS HasReadyRoster
+            FROM schools s
+            LEFT JOIN local_roster_snapshots r ON r.id = (
+                SELECT snap.id FROM local_roster_snapshots snap WHERE snap.cue = s.cue ORDER BY snap.fetched_at DESC LIMIT 1)
+            ORDER BY Name COLLATE NOCASE, s.cue;
+            """;
+        using var connection = connectionFactory.CreateOpenConnection();
+        var rows = await connection.QueryAsync<LocalSchoolListRow>(new CommandDefinition(sql, cancellationToken: cancellationToken));
+        return rows.Select(row => new LocalSchoolListItem(row.Code, row.Name, row.HasReadyRoster != 0)).ToList();
+    }
+
+    private static SessionListItem ToListItem(SessionListRow row) => new(
+        row.Id, row.ExamVersionId, row.SchoolCode, row.SchoolName,
+        ReadExamTitle(row.MetadataJson, row.ExamCode),
+        GradeLabelFormatter.Format(row.Course, row.Division, row.Shift), row.StartAt, row.EndAt,
+        row.Status, row.AccessCode, checked((int)row.ExpectedStudentCount), checked((int)row.SubmittedCount), checked((int)row.InProgressCount));
+
+    private static string ReadExamTitle(string? metadataJson, string fallback)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(metadataJson ?? "{}");
+            if (document.RootElement.TryGetProperty("title", out var title) && title.ValueKind == JsonValueKind.String)
+                return title.GetString() ?? fallback;
+        }
+        catch (JsonException) { }
+        return fallback;
+    }
+
+    private static string? NormalizeOptionalCue(string? cue) => string.IsNullOrWhiteSpace(cue) ? null : CueCode.Normalize(cue);
+
+    private static string? NormalizeOptionalStatus(string? status) => string.IsNullOrWhiteSpace(status) ? null : status.Trim().ToLowerInvariant() switch
+    {
+        "active" or "abierta" => "active",
+        "paused" or "pausada" => "paused",
+        "closed" or "cerrada" => "closed",
+        _ => "invalid"
+    };
+
+    private sealed class SessionListRow
+    {
+        public string Id { get; init; } = "";
+        public string ExamVersionId { get; init; } = "";
+        public string SchoolCode { get; init; } = "";
+        public string SchoolName { get; init; } = "";
+        public string ExamCode { get; init; } = "";
+        public string? MetadataJson { get; init; }
+        public string? Course { get; init; }
+        public string? Division { get; init; }
+        public string? Shift { get; init; }
+        public string StartAt { get; init; } = "";
+        public string? EndAt { get; init; }
+        public string Status { get; init; } = "";
+        public string AccessCode { get; init; } = "";
+        public long ExpectedStudentCount { get; init; }
+        public long SubmittedCount { get; init; }
+        public long InProgressCount { get; init; }
+        public int TotalCount { get; init; }
+    }
+
+    private sealed class LocalSchoolListRow
+    {
+        public string Code { get; init; } = "";
+        public string Name { get; init; } = "";
+        public long HasReadyRoster { get; init; }
     }
 
     public async Task<LocalSessionProgress?> GetProgressAsync(string idOrAccessCode, CancellationToken cancellationToken = default)

@@ -145,10 +145,10 @@ describe("StatsWorkspace", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     await renderComponent();
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
 
     await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
 
     await act(async () => {
       pendingRequests.splice(0).forEach(resolve => resolve());
@@ -157,7 +157,7 @@ describe("StatsWorkspace", () => {
     });
     await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
 
-    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
     expect(container?.textContent).toContain("Actualizado hace 15s");
   });
 
@@ -165,14 +165,14 @@ describe("StatsWorkspace", () => {
     vi.useFakeTimers();
     const fetchMock = installFetchMock();
     await renderComponent();
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
 
     await act(async () => {
       Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
       document.dispatchEvent(new Event("visibilitychange"));
       await vi.advanceTimersByTimeAsync(30000);
     });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
 
     await act(async () => {
       Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
@@ -180,13 +180,13 @@ describe("StatsWorkspace", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 
   it("refreshes immediately when requested manually", async () => {
     const fetchMock = installFetchMock();
     await renderComponent();
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
 
     await act(async () => {
       findButton("Actualizar ahora").click();
@@ -194,7 +194,7 @@ describe("StatsWorkspace", () => {
       await Promise.resolve();
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 
   async function renderComponent(): Promise<void> {

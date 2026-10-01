@@ -15,11 +15,24 @@ public static class SessionEndpoints
     {
         var group = endpoints.MapGroup("/api/sessions");
 
-        group.MapGet("/active", async (ISessionRepository repository, CancellationToken cancellationToken) =>
+        group.MapGet("/active", async (string? schoolCode, ISessionRepository repository, CancellationToken cancellationToken) =>
         {
-            var sessions = await repository.GetActiveAsync(cancellationToken);
+            var sessions = await repository.GetActiveSummariesAsync(schoolCode, cancellationToken);
             return Results.Ok(sessions);
         });
+
+        group.MapGet("/history", async (string? schoolCode, string? status, int? page, int? pageSize,
+            ISessionRepository repository, CancellationToken cancellationToken) =>
+        {
+            if (!string.IsNullOrWhiteSpace(status) && status.Trim().ToLowerInvariant() is not ("active" or "paused" or "closed" or "abierta" or "pausada" or "cerrada"))
+                return Results.BadRequest(new { error = "El estado de sesión no es válido." });
+            var currentPage = Math.Max(1, page ?? 1);
+            var currentPageSize = Math.Clamp(pageSize ?? 20, 1, 100);
+            return Results.Ok(await repository.GetHistoryAsync(schoolCode, status, currentPage, currentPageSize, cancellationToken));
+        });
+
+        endpoints.MapGet("/api/schools", async (ISessionRepository repository, CancellationToken cancellationToken) =>
+            Results.Ok(await repository.GetSchoolsAsync(cancellationToken)));
 
         group.MapGet("/{idOrAccessCode}", async (
             string idOrAccessCode,

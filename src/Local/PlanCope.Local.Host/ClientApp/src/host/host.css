@@ -699,6 +699,32 @@
   text-align: left;
 }
 
+.node-workspace-panel {
+  grid-column: 1 / -1;
+}
+
+.node-session-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid var(--border);
+  padding: 14px 16px;
+  background: var(--surface);
+}
+
+.node-session-card > div {
+  display: grid;
+  gap: 4px;
+}
+
+.node-session-card span,
+.student-table small {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .footer {
   display: flex;
   justify-content: space-between;

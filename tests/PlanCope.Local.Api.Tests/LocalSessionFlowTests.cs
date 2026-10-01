@@ -18,6 +18,62 @@ namespace PlanCope.Local.Api.Tests;
 public sealed class LocalSessionFlowTests
 {
     [Fact]
+    public async Task Node_sessions_include_school_exam_grade_and_counters_and_history_filters_paginate()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "student-a", 501, "12.345.678", "Ana", "Pérez");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "student-b", 502, "23.456.789", "Luis", "Gómez");
+        factory.SetSchoolName("180055400", "Escuela Norte");
+        var open = await CreateRosterSessionAsync(client);
+        var secondResponse = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
+            LocalApiFactory.ExamVersionId, "180055401", "6 B", null, "Operador", 4, null));
+        var second = await secondResponse.Content.ReadFromJsonAsync<LocalDeliverySession>();
+        Assert.NotNull(second);
+        Assert.Equal(HttpStatusCode.OK, (await client.PutAsJsonAsync($"/api/sessions/{second!.Id}/status", new UpdateSessionStatusRequest("closed"))).StatusCode);
+
+        factory.SeedAttempt(open.Id, "active-attempt", "student-a", 501, "in_progress", "2026-10-01T10:10:00Z");
+        var active = await client.GetFromJsonAsync<JsonElement>("/api/sessions/active?schoolCode=1800-55400");
+        var activeItem = Assert.Single(active.EnumerateArray());
+        Assert.Equal("Escuela Norte", activeItem.GetProperty("schoolName").GetString());
+        Assert.Equal("Matematica 6", activeItem.GetProperty("examTitle").GetString());
+        Assert.Equal("6° A · Turno mañana", activeItem.GetProperty("gradeLabel").GetString());
+        Assert.Equal(0, activeItem.GetProperty("submittedCount").GetInt32());
+        Assert.Equal(1, activeItem.GetProperty("inProgressCount").GetInt32());
+
+        var page = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history?page=1&pageSize=1");
+        Assert.Equal(2, page.GetProperty("totalCount").GetInt32());
+        Assert.Single(page.GetProperty("items").EnumerateArray());
+        var filtered = await client.GetFromJsonAsync<JsonElement>("/api/sessions/history?schoolCode=180055400&status=active");
+        Assert.Equal(1, filtered.GetProperty("totalCount").GetInt32());
+        Assert.Equal(open.Id, filtered.GetProperty("items")[0].GetProperty("id").GetString());
+
+        var schoolsResponse = await client.GetAsync("/api/schools");
+        Assert.True(schoolsResponse.IsSuccessStatusCode, await schoolsResponse.Content.ReadAsStringAsync());
+        var schools = (await schoolsResponse.Content.ReadFromJsonAsync<JsonElement>()).Clone();
+        Assert.Contains(schools.EnumerateArray(), school => school.GetProperty("code").GetString() == "180055400" && school.GetProperty("hasReadyRoster").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Closed_session_progress_remains_available_for_read_only_summary()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        var session = await CreateSessionAsync(client);
+        Assert.Equal(HttpStatusCode.OK, (await client.PutAsJsonAsync($"/api/sessions/{session.Id}/status", new UpdateSessionStatusRequest("closed"))).StatusCode);
+        var response = await client.GetAsync($"/api/sessions/{session.Id}/progress");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var progress = await response.Content.ReadFromJsonAsync<LocalSessionProgress>();
+        Assert.NotNull(progress);
+        Assert.Equal(session.Id, progress!.SessionId);
+    }
+
+    [Fact]
     public async Task Progress_returns_roster_students_with_mixed_statuses_and_grade_label()
     {
         using var factory = new LocalApiFactory();
@@ -866,6 +922,16 @@ public sealed class LocalSessionFlowTests
                 """,
                 ("$id", sectionId), ("$snapshot", snapshotId));
             transaction.Commit();
+        }
+
+        public void SetSchoolName(string cue, string name)
+        {
+            using var connection = CreateConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE schools SET name = $name WHERE cue = $cue;";
+            command.Parameters.AddWithValue("$name", name);
+            command.Parameters.AddWithValue("$cue", cue);
+            command.ExecuteNonQuery();
         }
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)

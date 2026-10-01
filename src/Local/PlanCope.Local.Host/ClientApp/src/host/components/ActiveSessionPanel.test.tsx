@@ -128,6 +128,6 @@ describe("ActiveSessionPanel", () => {
     expect(view.textContent).toContain("No rindieron: Brenda Ausente.");
     expect(view.textContent).toContain("Entregados por cierre: Ana Entregada.");
     expect(view.textContent).not.toContain("Pausar");
-    expect(view.textContent).toContain("Volver al espacio de sesiones");
+    expect(view.textContent).toContain("Volver al inicio");
   });
 });

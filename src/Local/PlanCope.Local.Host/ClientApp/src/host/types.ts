@@ -89,7 +89,15 @@ export type LocalSession = {
   schoolYear?: string | null;
   rosterSnapshotId?: string | null;
   rosterSectionId?: string | null;
+  schoolName?: string;
+  examTitle?: string;
+  gradeLabel?: string | null;
+  submittedCount?: number;
+  inProgressCount?: number;
 };
+
+export type LocalSchool = { code: string; name: string; hasReadyRoster: boolean };
+export type SessionHistoryPage = { items: LocalSession[]; page: number; pageSize: number; totalCount: number };
 
 export type SessionCloseSummary = { submitted: number; failed: number };
 
