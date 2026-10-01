@@ -16,9 +16,6 @@ using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// A 2 MiB image expands to about 2.67 MiB in the JSON base64 upload request.
-builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 10 * 1024 * 1024);
-
 var connectionString = builder.Configuration.GetConnectionString("CentralDatabase") ??
                        "Host=localhost;Port=5432;Database=plan_cope_central;Username=plancope;Password=plancope";
 
