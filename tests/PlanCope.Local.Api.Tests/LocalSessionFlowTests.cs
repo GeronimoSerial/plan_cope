@@ -562,6 +562,81 @@ public sealed class LocalSessionFlowTests
     }
 
     [Fact]
+    public async Task Resume_credential_revocation_is_idempotent_expiry_safe_and_token_specific()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        var session = await CreateSessionAsync(client);
+        var started = await StartAttemptAsync(client, session.AccessCode);
+        var revokePath = $"/api/attempts/{started.Attempt.Id}/resume-credential/revoke";
+
+        using var unauthenticated = factory.CreateClient();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await unauthenticated.PostAsync(revokePath, null)).StatusCode);
+
+        var rotatedCredential = "rotated-resume-credential-with-at-least-32-chars";
+        using (var connection = factory.CreateConnection())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "UPDATE attempt_resume_credentials SET token_hash = $hash, expires_at = $expires WHERE attempt_id = $id;";
+            command.Parameters.AddWithValue("$hash", Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rotatedCredential))).ToLowerInvariant());
+            command.Parameters.AddWithValue("$expires", DateTimeOffset.UtcNow.AddHours(1).ToString("O"));
+            command.Parameters.AddWithValue("$id", started.Attempt.Id);
+            Assert.Equal(1, command.ExecuteNonQuery());
+        }
+
+        SetResumeCredential(client, started);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync(revokePath, null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync(revokePath, null)).StatusCode);
+
+        client.DefaultRequestHeaders.Remove("Authorization");
+        client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", $"Bearer {rotatedCredential}");
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"/api/attempts/{started.Attempt.Id}/restore")).StatusCode);
+
+        using (var connection = factory.CreateConnection())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "UPDATE attempt_resume_credentials SET expires_at = '2000-01-01T00:00:00.0000000+00:00' WHERE attempt_id = $id;";
+            command.Parameters.AddWithValue("$id", started.Attempt.Id);
+            Assert.Equal(1, command.ExecuteNonQuery());
+        }
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync(revokePath, null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync(revokePath, null)).StatusCode);
+
+        var revokeBySession = $"/api/sessions/{session.AccessCode}/attempts/resume-credential/revoke";
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync(revokeBySession, null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync(revokeBySession, null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync(
+            $"/api/sessions/{session.AccessCode}/attempts",
+            new StartAttemptRequest(ResumeCredential: rotatedCredential))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Session_revocation_cleans_up_attempt_when_start_response_was_lost()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        var session = await CreateSessionAsync(client);
+        var lostResponseCredential = "lost-start-resume-credential-with-more-than-32-characters";
+        var start = await client.PostAsJsonAsync($"/api/sessions/{session.AccessCode}/attempts", new StartAttemptRequest(ResumeCredential: lostResponseCredential));
+        Assert.Equal(HttpStatusCode.Created, start.StatusCode);
+        client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", $"Bearer {lostResponseCredential}");
+
+        using var unauthenticated = factory.CreateClient();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await unauthenticated.PostAsync(
+            $"/api/sessions/{session.AccessCode}/attempts/resume-credential/revoke", null)).StatusCode);
+        var revokePath = $"/api/sessions/{session.AccessCode}/attempts/resume-credential/revoke";
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync(revokePath, null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync(revokePath, null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync(
+            $"/api/sessions/{session.AccessCode}/attempts",
+            new StartAttemptRequest(ResumeCredential: lostResponseCredential))).StatusCode);
+    }
+
+    [Fact]
     public async Task Concurrent_answer_save_and_submit_cannot_write_after_delivery()
     {
         using var factory = new LocalApiFactory();

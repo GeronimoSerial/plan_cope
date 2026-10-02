@@ -30,7 +30,8 @@ const emptyProps = {
   error: "",
   onAnswerChange: () => undefined,
   onSave: () => undefined,
-  onSubmit: () => undefined
+  onSubmit: () => undefined,
+  onReset: () => undefined
 };
 
 function renderPanel(blocks: LocalExamBlock[], answers: AnswerMap = {}) {
@@ -45,6 +46,7 @@ function renderPanel(blocks: LocalExamBlock[], answers: AnswerMap = {}) {
       onAnswerChange={() => undefined}
       onSave={() => undefined}
       onSubmit={() => undefined}
+      onReset={() => undefined}
     />
   );
 }

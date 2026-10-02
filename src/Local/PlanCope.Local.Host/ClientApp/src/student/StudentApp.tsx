@@ -45,6 +45,7 @@ export function StudentApp() {
           onAnswerChange={exam.setAnswer}
           onSave={exam.saveAnswers}
           onSubmit={exam.submitAttempt}
+          onReset={exam.resetExam}
         />
       )}
     </StudentShell>

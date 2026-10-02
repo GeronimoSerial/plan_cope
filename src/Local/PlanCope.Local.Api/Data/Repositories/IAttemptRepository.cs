@@ -66,6 +66,12 @@ public interface IAttemptRepository
 
     Task RevokeResumeCredentialAsync(string attemptId, CancellationToken cancellationToken = default);
 
+    Task RevokeResumeCredentialAsync(string attemptId, string credentialHash, CancellationToken cancellationToken = default);
+
+    Task RevokeResumeCredentialForSessionAsync(string deliverySessionId, string credentialHash, CancellationToken cancellationToken = default);
+
+    Task<bool> IsResumeCredentialRevokedAsync(string deliverySessionId, string credentialHash, string now, CancellationToken cancellationToken = default);
+
     Task<bool> ExistsForStudentAsync(string deliverySessionId, string studentCode, CancellationToken cancellationToken = default);
 
     Task<int> GetNextLocalSequenceAsync(string deliverySessionId, CancellationToken cancellationToken = default);

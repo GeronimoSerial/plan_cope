@@ -149,8 +149,13 @@ public static class AttemptEndpoints
             if (resumeCredential.Length < 32)
                 return Results.BadRequest(new { error = "La credencial de reanudación no es válida." });
 
+            var credentialHash = tokenService.HashToken(resumeCredential);
+            var now = DateTimeOffset.UtcNow.ToString("O");
+            if (await attemptRepository.IsResumeCredentialRevokedAsync(session.Id, credentialHash, now, cancellationToken))
+                return Results.Conflict(new { error = "La credencial de este intento fue revocada.", kind = "resume_credential_revoked" });
+
             var existingForCredential = await attemptRepository.GetAttemptByResumeCredentialAsync(
-                session.Id, tokenService.HashToken(resumeCredential), DateTimeOffset.UtcNow.ToString("O"), cancellationToken);
+                session.Id, credentialHash, now, cancellationToken);
             if (existingForCredential is not null)
                 return await CreatedAttemptAsync(existingForCredential, session.ExamVersionId, examRepository, attemptRepository, tokenService, resumeCredential, cancellationToken);
 
@@ -255,6 +260,67 @@ public static class AttemptEndpoints
                 }),
                 sessionStatus = session.Status
             });
+        });
+
+        endpoints.MapPost("/api/attempts/{attemptId}/resume-credential/revoke", async Task<IResult> (
+            string attemptId,
+            HttpRequest httpRequest,
+            IAttemptRepository repository,
+            IStudentResolutionTokenService tokenService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryReadCredential(httpRequest, out var credential)) return Unauthorized();
+            await AttemptStartGate.WaitAsync(cancellationToken);
+            try
+            {
+                await AttemptMutationGate.WaitAsync(cancellationToken);
+                try
+                {
+                    // Hash matching makes retries idempotent and prevents a delayed reset from
+                    // revoking a newer credential issued for the same attempt.
+                    await repository.RevokeResumeCredentialAsync(attemptId, tokenService.HashToken(credential), cancellationToken);
+                    return Results.NoContent();
+                }
+                finally
+                {
+                    AttemptMutationGate.Release();
+                }
+            }
+            finally
+            {
+                AttemptStartGate.Release();
+            }
+        });
+
+        endpoints.MapPost("/api/sessions/{sessionIdOrAccessCode}/attempts/resume-credential/revoke", async Task<IResult> (
+            string sessionIdOrAccessCode,
+            HttpRequest httpRequest,
+            ISessionRepository sessionRepository,
+            IAttemptRepository repository,
+            IStudentResolutionTokenService tokenService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryReadCredential(httpRequest, out var credential)) return Unauthorized();
+            var session = await sessionRepository.GetByIdOrAccessCodeAsync(sessionIdOrAccessCode, cancellationToken);
+            if (session is null) return Results.NoContent();
+            await AttemptStartGate.WaitAsync(cancellationToken);
+            try
+            {
+                await AttemptMutationGate.WaitAsync(cancellationToken);
+                try
+                {
+                    await repository.RevokeResumeCredentialForSessionAsync(session.Id, tokenService.HashToken(credential), cancellationToken);
+                    return Results.NoContent();
+                }
+                finally
+                {
+                    AttemptMutationGate.Release();
+                }
+            }
+            finally
+            {
+                AttemptStartGate.Release();
+            }
         });
 
         endpoints.MapPut("/api/attempts/{attemptId}/answers", async (

@@ -5,6 +5,7 @@ import { ResumeCredentialError, StudentApi, StudentNotFoundError } from "../stud
 import type { ResolvedStudent, StudentAttempt } from "../types";
 
 const STORAGE_KEY = "plancope.student.exam.v1";
+const REVOCATION_KEY = "plancope.student.exam.revocation.v1";
 const AUTOSAVE_DELAY_MS = 500;
 type PendingAnswer = { blockId: string; answer: string | null; revision: number };
 type StoredExam = {
@@ -16,6 +17,7 @@ type StoredExam = {
   nextRevision: number;
   pending: PendingAnswer[];
 };
+type PendingRevocation = { attemptId: string; sessionIdOrCode: string; credential: string };
 
 function readStoredExam(): StoredExam | null {
   try {
@@ -38,10 +40,32 @@ function writeStoredExam(value: StoredExam | null): void {
   }
 }
 
+function readPendingRevocation(): PendingRevocation | null {
+  try {
+    const raw = window.sessionStorage.getItem(REVOCATION_KEY);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as PendingRevocation;
+    return value.sessionIdOrCode && value.credential ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function writePendingRevocation(value: PendingRevocation | null): void {
+  try {
+    if (value) window.sessionStorage.setItem(REVOCATION_KEY, JSON.stringify(value));
+    else window.sessionStorage.removeItem(REVOCATION_KEY);
+  } catch {
+    // Reset still clears the exam immediately; a future reset can retry if storage is unavailable.
+  }
+}
+
 export function useStudentExam() {
   const api = useMemo(() => new StudentApi(), []);
   const initialStored = useMemo(readStoredExam, []);
   const storedRef = useRef<StoredExam | null>(initialStored);
+  const revocationRef = useRef<PendingRevocation | null>(readPendingRevocation());
+  const resetEpochRef = useRef(0);
   const flushRef = useRef<() => Promise<boolean>>(async () => false);
   const serialRef = useRef<Promise<unknown>>(Promise.resolve());
   const [sessionCode, setSessionCode] = useState(initialStored?.sessionCode ?? getInitialSessionCode);
@@ -65,12 +89,19 @@ export function useStudentExam() {
   useEffect(() => {
     const stored = storedRef.current;
     if (!stored) return;
+    const resetEpoch = resetEpochRef.current;
+    if (revocationRef.current) {
+      writeStoredExam(null);
+      storedRef.current = null;
+      setIsRestoring(false);
+      return;
+    }
     let cancelled = false;
     let retrying = false;
     void (async () => {
       try {
         const restored = await api.restoreAttempt(stored.attemptId, stored.sessionCode, stored.credential);
-        if (cancelled) return;
+        if (cancelled || resetEpoch !== resetEpochRef.current) return;
         stored.attemptId = restored.attempt.id;
         stored.deliverySessionId = restored.attempt.deliverySessionId;
         writeStoredExam(stored);
@@ -93,7 +124,7 @@ export function useStudentExam() {
         setAnswers(restoredAnswers);
         setStatus(stored.pending.length ? "Pendiente por conexión." : "");
       } catch (exception) {
-        if (!cancelled) {
+        if (!cancelled && resetEpoch === resetEpochRef.current) {
           if (exception instanceof ResumeCredentialError && (exception.status === 401 || exception.status === 410)) {
             writeStoredExam(null);
             storedRef.current = null;
@@ -112,11 +143,33 @@ export function useStudentExam() {
           window.setTimeout(() => { if (!cancelled) setRestoreRetry(value => value + 1); }, 3000);
         }
       } finally {
-        if (!cancelled && !retrying) setIsRestoring(false);
+        if (!cancelled && resetEpoch === resetEpochRef.current && !retrying) setIsRestoring(false);
       }
     })();
     return () => { cancelled = true; };
   }, [api, restoreRetry]);
+
+  const retryPendingRevocation = useCallback(async () => {
+    const pending = revocationRef.current;
+    if (!pending) return true;
+    try {
+      await api.revokeResumeCredential(pending.attemptId || pending.sessionIdOrCode, pending.credential, Boolean(pending.attemptId));
+      if (revocationRef.current === pending) {
+        revocationRef.current = null;
+        writePendingRevocation(null);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }, [api]);
+
+  useEffect(() => {
+    void retryPendingRevocation();
+    const retry = () => { void retryPendingRevocation(); };
+    window.addEventListener("online", retry);
+    return () => window.removeEventListener("online", retry);
+  }, [retryPendingRevocation]);
 
   useEffect(() => {
     if (!attemptId || confirmationCode || isRestoring || !sessionCode.trim()) return;
@@ -210,6 +263,7 @@ export function useStudentExam() {
   }, []);
 
   const beginAttempt = useCallback(async (code: string, resolutionToken?: string) => {
+    if (!await retryPendingRevocation()) throw new Error("Esperá a que se cierre el intento anterior para iniciar otro.");
     let stored = storedRef.current;
     let credential: string;
     if (!stored || stored.sessionCode !== code || stored.attemptId) {
@@ -243,7 +297,7 @@ export function useStudentExam() {
     setSubmittedAt(null);
     setStatus("");
     setSessionStatus("active");
-  }, [api]);
+  }, [api, retryPendingRevocation]);
 
   const resolveStudent = useCallback(async () => {
     setNotFoundPrompt(null);
@@ -269,12 +323,54 @@ export function useStudentExam() {
   }, [api, beginAttempt, document, runBusy, sessionCode]);
 
   const correctIdentity = useCallback(() => {
+    const stored = storedRef.current;
+    if (stored?.credential) {
+      const pending = {
+        attemptId: stored.attemptId,
+        sessionIdOrCode: stored.deliverySessionId || stored.sessionCode,
+        credential: stored.credential
+      };
+      revocationRef.current = pending;
+      writePendingRevocation(pending);
+      void retryPendingRevocation();
+    }
     writeStoredExam(null);
     storedRef.current = null;
     setResolution(null);
+    setDocument("");
     setError("");
     setNotFoundPrompt(null);
-  }, []);
+  }, [retryPendingRevocation]);
+
+  const resetExam = useCallback(() => {
+    resetEpochRef.current++;
+    const stored = storedRef.current;
+    if (stored?.credential) {
+      const pending = {
+        attemptId: stored.attemptId,
+        sessionIdOrCode: stored.deliverySessionId || stored.sessionCode,
+        credential: stored.credential
+      };
+      revocationRef.current = pending;
+      writePendingRevocation(pending);
+    }
+    writeStoredExam(null);
+    storedRef.current = null;
+    setAttemptId(null);
+    setAttempt(null);
+    setBlocks([]);
+    setAnswers({});
+    setMissingRequired(new Set());
+    setResolution(null);
+    setDocument("");
+    setConfirmationCode(null);
+    setSubmittedAt(null);
+    setStatus("");
+    setError("");
+    setSessionStatus("active");
+    setIsRestoring(false);
+    void retryPendingRevocation();
+  }, [retryPendingRevocation]);
 
   const startAttempt = useCallback(async () => {
     if (!sessionCode.trim() || !resolution) return;
@@ -310,6 +406,7 @@ export function useStudentExam() {
     blocks,
     confirmationCode,
     correctIdentity,
+    resetExam,
     document,
     error: isRestoring ? "" : error,
     isBusy: isBusy || isRestoring,
