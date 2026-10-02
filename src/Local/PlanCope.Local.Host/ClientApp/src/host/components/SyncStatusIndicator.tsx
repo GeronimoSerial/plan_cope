@@ -36,5 +36,20 @@ export function SyncStatusIndicator({ status }: SyncStatusIndicatorProps) {
     );
   }
 
-  return <p role="status">Sincronizado.</p>;
+  if (status.heartbeatErrorCode) {
+    const nextAttempt = formatTime(status.nextAttempt);
+    const httpStatus = status.heartbeatLastHttpStatus ? ` (HTTP ${status.heartbeatLastHttpStatus})` : "";
+    return <p role="status">Heartbeat: {status.heartbeatErrorCode}{httpStatus}.{nextAttempt ? ` Próximo intento: ${nextAttempt}` : ""}</p>;
+  }
+
+  const receivedHeartbeatAt = formatTime(status.lastHeartbeatReceivedAt ?? null);
+  if (receivedHeartbeatAt) return <p role="status">Heartbeat recibido · {receivedHeartbeatAt}.</p>;
+
+  const receivedResultsAt = formatTime(status.lastPushAckAt ?? null);
+  if (receivedResultsAt) return <p role="status">Resultados recibidos · {receivedResultsAt}.</p>;
+
+  const latestObservedAt = formatTime(status.lastPushAt) ?? formatTime(status.lastPullAt);
+  return latestObservedAt
+    ? <p role="status">Conexión observada · {latestObservedAt}.</p>
+    : <p role="status">Sin dato de conexión con Central.</p>;
 }

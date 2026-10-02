@@ -2,14 +2,14 @@ import type { ReactNode } from "react";
 import { UpdateStatus } from "./UpdateStatus";
 import { SyncStatusIndicator } from "./SyncStatusIndicator";
 import { useUpdateStatus } from "../hooks/useUpdateStatus";
-import { useSyncStatus } from "../hooks/useSyncStatus";
+import type { SyncStatusDto } from "../api/apiClient";
 
 export type HostTab = "home" | "history" | "stats";
 
 type AppShellProps = {
   status: string;
-  apiBaseUrl?: string;
   appVersion?: string;
+  syncStatus: SyncStatusDto | null;
   sessionContext?: { schoolName: string; schoolCode: string } | null;
   activeTab: HostTab;
   onTabChange: (tab: HostTab) => void;
@@ -22,9 +22,8 @@ const tabs: Array<{ id: HostTab; label: string }> = [
   { id: "stats", label: "Estadísticas" }
 ];
 
-export function AppShell({ status, apiBaseUrl, appVersion, sessionContext, activeTab, onTabChange, children }: AppShellProps) {
+export function AppShell({ status, syncStatus, appVersion, sessionContext, activeTab, onTabChange, children }: AppShellProps) {
   const update = useUpdateStatus();
-  const sync = useSyncStatus(apiBaseUrl ?? "");
 
   return (
     <div className="app-page" id="inicio">
@@ -55,7 +54,7 @@ export function AppShell({ status, apiBaseUrl, appVersion, sessionContext, activ
               ))}
             </nav>
             <div className="app-header-actions" aria-label="Estado del equipo">
-              <div className="app-sync-action"><SyncStatusIndicator status={sync} /></div>
+              <div className="app-sync-action"><SyncStatusIndicator status={syncStatus} /></div>
               <div className="app-update-action">
                 <UpdateStatus
                   appVersion={appVersion}

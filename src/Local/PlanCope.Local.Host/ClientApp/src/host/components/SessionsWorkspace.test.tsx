@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiClient } from "../api/apiClient";
+import { ApiClient, type SyncStatusDto } from "../api/apiClient";
 import type { DeliverySessionState } from "../hooks/useDeliverySession";
 import type { LocalSession } from "../types";
 import { SessionsWorkspace } from "./SessionsWorkspace";
@@ -40,6 +40,28 @@ describe("SessionsWorkspace", () => {
     expect(state.activeSession.selectSession).toHaveBeenCalledWith(state.activeSession.activeSessions[0]);
   });
 
+  it("summarizes observed connection, open and closed sessions, and pending attempts", async () => {
+    vi.spyOn(ApiClient.prototype, "getSessionHistoryFilters").mockResolvedValue([]);
+    vi.spyOn(ApiClient.prototype, "getSessionHistory").mockResolvedValue({ items: [], page: 1, pageSize: 1, totalCount: 8 });
+    const status: SyncStatusDto = { healthy: true, offline: false, lastError: null, lastPullAt: null,
+      lastPushAt: "2026-10-01T14:12:00Z", nextAttempt: null, pendingItems: 3,
+      lastHeartbeatAttemptAt: "2026-10-01T14:12:00Z", lastHeartbeatSentAt: "2026-10-01T14:12:01Z",
+      lastHeartbeatReceivedAt: "2026-10-01T14:12:02Z", heartbeatLastHttpStatus: 200, lastPushAckAt: "2026-10-01T14:12:03Z" };
+    const view = render(delivery([session("a", "180055400", "Escuela Norte")]), "home", status);
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    expect(view.textContent).toContain("Conexión observada");
+    expect(view.textContent).toContain("Último envío local");
+    expect(view.textContent).toContain("Última descarga de exámenes");
+    expect(view.textContent).toContain("Heartbeat · intento");
+    expect(view.textContent).toContain("Heartbeat · enviado");
+    expect(view.textContent).toContain("Heartbeat · recibido");
+    expect(view.textContent).toContain("ACK durable Central");
+    expect(view.textContent).toContain("Sesiones abiertas1");
+    expect(view.textContent).toContain("Sesiones finalizadas8");
+    expect(view.textContent).toContain("Intentos pendientes de envío3");
+  });
+
   it("clears a manually entered CUE when the teacher cancels that step", () => {
     const state = delivery([]);
     const view = render(state);
@@ -72,7 +94,7 @@ describe("SessionsWorkspace", () => {
       selectedSectionId: "section"
     });
     Object.assign(state.examCatalog, { exams: [{ id: "exam-1", displayName: "Matemática 6" }], selectedExamId: "exam-1" });
-    act(() => root?.render(<SessionsWorkspace delivery={state} apiBaseUrl="http://local" tab="home" expiryPending={false} onStats={() => undefined} onReturnHome={() => undefined} />));
+    act(() => root?.render(<SessionsWorkspace delivery={state} apiBaseUrl="http://local" syncStatus={null} tab="home" expiryPending={false} onStats={() => undefined} onReturnHome={() => undefined} />));
     act(() => button(view, "Continuar").click());
     expect(view.textContent).toContain("Crear sesión");
     expect(view.querySelector(".session-create-workspace .session-create-header")).not.toBeNull();
@@ -112,7 +134,7 @@ describe("SessionsWorkspace", () => {
       sections: [{ id: "section", snapshotId: "snapshot", course: "6", division: "A", studentCount: 1 }],
       selectedSectionId: "section"
     });
-    act(() => root?.render(<SessionsWorkspace delivery={state} apiBaseUrl="http://local" tab="home" expiryPending={false} onStats={() => undefined} onReturnHome={() => undefined} />));
+    act(() => root?.render(<SessionsWorkspace delivery={state} apiBaseUrl="http://local" syncStatus={null} tab="home" expiryPending={false} onStats={() => undefined} onReturnHome={() => undefined} />));
     act(() => button(view, "Continuar").click());
 
     expect(reloadExamsSilently).toHaveBeenCalledTimes(1);
@@ -182,9 +204,9 @@ describe("SessionsWorkspace", () => {
     await act(async () => finishSearch?.({ items: [], page: 1, pageSize: 20, totalCount: 0 }));
   });
 
-  function render(state: DeliverySessionState, tab: "home" | "history" = "home") {
+  function render(state: DeliverySessionState, tab: "home" | "history" = "home", syncStatus: SyncStatusDto | null = null) {
     container = document.createElement("div"); document.body.append(container); root = createRoot(container);
-    act(() => root?.render(<SessionsWorkspace delivery={state} apiBaseUrl="http://local" tab={tab} expiryPending={false} onStats={() => undefined} onReturnHome={() => undefined} />));
+    act(() => root?.render(<SessionsWorkspace delivery={state} apiBaseUrl="http://local" syncStatus={syncStatus} tab={tab} expiryPending={false} onStats={() => undefined} onReturnHome={() => undefined} />));
     return container;
   }
 });

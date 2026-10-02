@@ -23,14 +23,14 @@ describe("StatsWorkspace", () => {
   });
 
   it("renders report controls, known filter selectors, live copy, and a useful empty state", () => {
-    const html = renderToStaticMarkup(<StatsWorkspace apiBaseUrl="http://localhost" cue="123456789" schoolYear="2026" />);
+    const html = renderToStaticMarkup(<StatsWorkspace apiBaseUrl="http://localhost" cue="123456789" schoolYear="2026" onBack={() => undefined} />);
 
     expect(html).toContain("Año lectivo");
     expect(html).toContain('id="stats-school-year-filter"');
     expect(html).toContain('id="stats-course-filter"');
     expect(html).toContain("Generar informe HTML");
-    expect(html).toContain("Pantalla en vivo");
-    expect(html).toContain("Descargar CSV");
+    expect(html).toContain("Los datos se actualizan cada 15 segundos");
+    expect(html).toContain("Volver a sesiones");
     expect(html).toContain("Actualizar ahora");
     expect(html).toContain("Todavía no hay intentos entregados");
   });
@@ -128,127 +128,34 @@ describe("StatsWorkspace", () => {
     expect(container?.textContent).not.toContain(blockId);
   });
 
-  it("filters course rows and exam sections with the search field", async () => {
+  it("uses the course and exam selectors as the only statistics filters", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       const body = url.includes("/api/schools?withAttempts=true")
         ? [{ code: "123456789", name: "Escuela Test", submittedAttemptCount: 2, lastSubmittedAt: "2026-09-30T10:12:00Z" }]
         : url.includes("/api/stats/filters?")
-          ? { schoolYears: ["2026"], courses: ["6", "7"], exams: [] }
+          ? { schoolYears: ["2026"], courses: ["6", "7"], exams: [{ examVersionId: "math-v1", examCode: "MAT-6", versionNumber: 1 }, { examVersionId: "bio-v1", examCode: "BIO-7", versionNumber: 1 }] }
           : url.includes("/api/stats/course?")
             ? [{ course: "6", attemptCount: 1, averageScorePercent: 80 }, { course: "7", attemptCount: 1, averageScorePercent: 60 }]
-            : [{ examVersionId: "math-v1", examCode: "MAT-6", title: "Matemática diagnóstico", courses: ["6"], versionNumber: 1, attemptCount: 1, averageScorePercent: 80, blocks: [] }, { examVersionId: "bio-v1", examCode: "BIO-7", title: "Biología", courses: ["7"], versionNumber: 1, attemptCount: 1, averageScorePercent: 60, blocks: [] }];
+            : url.includes("/api/stats/exam?") && new URL(url).searchParams.get("course") === "7"
+              ? [{ examVersionId: "bio-v1", examCode: "BIO-7", title: "Biología", courses: ["7"], versionNumber: 1, attemptCount: 1, averageScorePercent: 60, blocks: [] }]
+              : [{ examVersionId: "math-v1", examCode: "MAT-6", title: "Matemática diagnóstico", courses: ["6"], versionNumber: 1, attemptCount: 1, averageScorePercent: 80, blocks: [] }, { examVersionId: "bio-v1", examCode: "BIO-7", title: "Biología", courses: ["7"], versionNumber: 1, attemptCount: 1, averageScorePercent: 60, blocks: [] }];
       return { ok: true, json: async () => body };
     });
     vi.stubGlobal("fetch", fetchMock);
 
     await renderComponent();
-    await act(async () => {
-      container?.querySelector<HTMLInputElement>("#stats-school-filter")?.click();
-      await Promise.resolve();
-    });
-    expect(container?.querySelectorAll('[role="option"]')).toHaveLength(1);
-    expect(container?.textContent).toContain("2 entregas · última 30/09/2026");
-    const search = container?.querySelector<HTMLInputElement>("#stats-search");
-    expect(search).not.toBeNull();
-    await act(async () => {
-      if (search) {
-        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-        setter?.call(search, "matematica");
-        search.dispatchEvent(new Event("input", { bubbles: true }));
-      }
-      await Promise.resolve();
-    });
+    const grade = container!.querySelector<HTMLSelectElement>("#stats-course-filter")!;
+    act(() => { grade.value = "7"; grade.dispatchEvent(new Event("change", { bubbles: true })); });
+    await flushEffects();
+    expect([...container!.querySelectorAll("details summary")].map(summary => summary.textContent)).toEqual([expect.stringContaining("BIO-7")]);
 
-    expect(container?.textContent).toContain("Matemática diagnóstico");
-    expect(container?.textContent).not.toContain("Biología");
-    expect(container?.textContent).toContain("1 intentos");
-
-    await act(async () => {
-      if (search) {
-        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-        setter?.call(search, "7");
-        search.dispatchEvent(new Event("input", { bubbles: true }));
-      }
-      await Promise.resolve();
-    });
-    expect(container?.textContent).toContain("BIO-7");
-    expect(container?.textContent).not.toContain("MAT-6");
-
-    await act(async () => {
-      if (search) {
-        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-        setter?.call(search, "6b");
-        search.dispatchEvent(new Event("input", { bubbles: true }));
-      }
-      await Promise.resolve();
-    });
-    expect(container?.textContent).toContain("MAT-6");
-    expect(container?.textContent).not.toContain("BIO-7");
+    const exam = container!.querySelector<HTMLSelectElement>("#stats-exam-filter")!;
+    act(() => { exam.value = "bio-v1"; exam.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect([...container!.querySelectorAll("details summary")].map(summary => summary.textContent)).toEqual([expect.stringContaining("BIO-7")]);
   });
 
-  it("matches a division suffix only when section data contains that division", async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      const body = url.includes("/api/schools?withAttempts=true")
-        ? [{ code: "123456789", name: "Escuela Test", submittedAttemptCount: 1, lastSubmittedAt: "2026-09-30T10:12:00Z" }]
-        : url.includes("/api/stats/filters?")
-          ? { schoolYears: ["2026"], courses: ["6"], exams: [] }
-          : url.includes("/api/stats/course?")
-            ? [{ course: "6", sections: ["B"], attemptCount: 1, averageScorePercent: 80 }]
-            : [{ examVersionId: "math-v1", examCode: "MAT-6", courses: ["6"], sections: [{ course: "6", division: "B" }], versionNumber: 1, attemptCount: 1, averageScorePercent: 80, blocks: [] }];
-      return { ok: true, json: async () => body };
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    await renderComponent();
-    const search = container?.querySelector<HTMLInputElement>("#stats-search");
-    const setSearch = async (value: string) => act(async () => {
-      if (search) {
-        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(search, value);
-        search.dispatchEvent(new Event("input", { bubbles: true }));
-      }
-      await Promise.resolve();
-    });
-    await setSearch("6b");
-    expect(container?.textContent).toContain("MAT-6");
-    await setSearch("6a");
-    expect(container?.textContent).not.toContain("MAT-6");
-    expect(container?.textContent).toContain("Sin resultados para la búsqueda.");
-  });
-
-  it.each(["1ro", "3er", "7mo"])("searches course %s using its Spanish grade alias", async alias => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      const body = url.includes("/api/schools?withAttempts=true")
-        ? [{ code: "123456789", name: "Escuela Test", submittedAttemptCount: 3, lastSubmittedAt: "2026-09-30T10:12:00Z" }]
-        : url.includes("/api/stats/filters?")
-          ? { schoolYears: ["2026"], courses: ["1", "3", "7"], exams: [] }
-          : url.includes("/api/stats/course?")
-            ? ["1", "3", "7"].map(course => ({ course, attemptCount: 1, averageScorePercent: 80 }))
-            : ["1", "3", "7"].map(course => ({ examVersionId: `exam-${course}`, examCode: `MAT-${course}`, courses: [course], versionNumber: 1, attemptCount: 1, averageScorePercent: 80, blocks: [] }));
-      return { ok: true, json: async () => body };
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    await renderComponent();
-    const search = container?.querySelector<HTMLInputElement>("#stats-search");
-    await act(async () => {
-      if (search) {
-        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(search, alias);
-        search.dispatchEvent(new Event("input", { bubbles: true }));
-      }
-      await Promise.resolve();
-    });
-
-    const expectedGrade = alias.startsWith("1") ? "1" : alias.startsWith("3") ? "3" : "7";
-    expect(container?.textContent).toContain(`MAT-${expectedGrade}`);
-    for (const otherGrade of ["1", "3", "7"].filter(grade => grade !== expectedGrade)) {
-      expect(container?.textContent).not.toContain(`MAT-${otherGrade}`);
-    }
-  });
-
-  it("shows the school empty state and disables exports when there are no submitted attempts", async () => {
+  it("shows the school empty state and disables the HTML report when there are no submitted attempts", async () => {
     const fetchMock = vi.fn(async () => ({ ok: true, json: async () => [] }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -256,7 +163,6 @@ describe("StatsWorkspace", () => {
 
     expect(container?.textContent).toContain("Todavía no hay exámenes entregados en este equipo.");
     expect(findButton("Generar informe HTML").disabled).toBe(true);
-    expect(findButton("Descargar CSV").disabled).toBe(true);
   });
 
   it("sends selected filters to the host and shows the report result", async () => {
@@ -342,7 +248,7 @@ describe("StatsWorkspace", () => {
     await renderComponent();
     expect(container?.textContent).toContain("BIO v1 — 1 intentos");
     await act(async () => {
-      root?.render(<StatsWorkspace apiBaseUrl="http://localhost" cue="123456789" schoolYear="2025" />);
+      root?.render(<StatsWorkspace apiBaseUrl="http://localhost" cue="123456789" schoolYear="2025" onBack={() => undefined} />);
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -432,7 +338,7 @@ describe("StatsWorkspace", () => {
     document.body.append(container);
     root = createRoot(container);
     await act(async () => {
-      root?.render(<StatsWorkspace apiBaseUrl="http://localhost" cue="123456789" schoolYear="2026" />);
+      root?.render(<StatsWorkspace apiBaseUrl="http://localhost" cue="123456789" schoolYear="2026" onBack={() => undefined} />);
       await Promise.resolve();
       await Promise.resolve();
     });

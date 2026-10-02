@@ -54,8 +54,25 @@ describe("SyncStatusIndicator", () => {
     expect(html).toContain("Se reintentará automáticamente.");
   });
 
-  it("renders the healthy confirmation", () => {
-    expect(render(healthyStatus)).toContain("Sincronizado.");
+  it("shows the last observed Central activity instead of claiming continuous connection", () => {
+    expect(render(healthyStatus)).toContain("Conexión observada");
+    expect(render(healthyStatus)).not.toContain("Sincronizado.");
+  });
+
+  it("prefers the received heartbeat and durable result acknowledgement timestamps", () => {
+    expect(render({ ...healthyStatus, lastHeartbeatReceivedAt: "2026-09-16T10:15:00Z" })).toContain("Heartbeat recibido");
+    expect(render({ ...healthyStatus, lastPullAt: null, lastPushAt: null, lastPushAckAt: "2026-09-16T10:15:00Z" })).toContain("Resultados recibidos");
+  });
+
+  it("shows a heartbeat error code and HTTP status", () => {
+    const html = render({ ...healthyStatus, heartbeatErrorCode: "timeout", heartbeatLastHttpStatus: 504 });
+    expect(html).toContain("timeout");
+    expect(html).toContain("HTTP 504");
+  });
+
+  it("keeps the connection unknown when no communication timestamp is available", () => {
+    const noSignal = { ...healthyStatus, lastPullAt: null, lastPushAt: null };
+    expect(render(noSignal)).toContain("Sin dato de conexión con Central.");
   });
 
   it("keeps the offline and error states textually distinct", () => {

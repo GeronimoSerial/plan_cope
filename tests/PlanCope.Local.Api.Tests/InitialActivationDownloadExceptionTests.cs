@@ -45,6 +45,7 @@ public sealed class InitialActivationDownloadExceptionTests
                 await outbox.InsertAsync(new SyncOutbox("pending", "attempt_submitted", "student_attempt", "a", "key", "{}",
                     "pending", 0, null, null, DateTimeOffset.UtcNow.ToString("O"), null));
             var download = new InitialActivationDownloadService(outbox,
+                state,
                 new ThrowingPushService(), new StubExamPullService(stage == "exam"),
                 new StubRosterPullService(stage == "roster"), revalidation, NullLogger<InitialActivationDownloadService>.Instance);
 
@@ -53,6 +54,11 @@ public sealed class InitialActivationDownloadExceptionTests
             Assert.False(result.Success);
             Assert.Contains("Reintentá la descarga", result.Error);
             Assert.True(await revalidation.IsActivationInProgressAsync());
+            var progressState = await state.GetAsync("activation_download_progress");
+            Assert.NotNull(progressState);
+            var progress = JsonSerializer.Deserialize<ActivationDownloadProgress>(progressState.ValueJson,
+                new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            Assert.Equal(stage == "push" ? "pending-results" : "exams", progress?.Phase);
         }
         finally
         {
