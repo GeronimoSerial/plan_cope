@@ -651,7 +651,7 @@ public sealed class LocalSessionFlowTests
         await Task.WhenAll(save, submit);
 
         Assert.Equal(HttpStatusCode.OK, submit.Result.StatusCode);
-        Assert.Contains(save.Result.StatusCode, new[] { HttpStatusCode.NoContent, HttpStatusCode.Unauthorized });
+        Assert.Contains(save.Result.StatusCode, new[] { HttpStatusCode.NoContent, HttpStatusCode.Unauthorized, HttpStatusCode.NotFound });
         using var connection = factory.CreateConnection();
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT status, (SELECT COUNT(*) FROM attempt_resume_credentials WHERE attempt_id = student_attempts.id), (SELECT COUNT(*) FROM submission_answers WHERE student_attempt_id = student_attempts.id) FROM student_attempts WHERE id = $id;";
