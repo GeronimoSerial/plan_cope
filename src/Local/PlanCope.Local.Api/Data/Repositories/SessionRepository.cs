@@ -590,7 +590,21 @@ public sealed class SessionRepository(ILocalSqliteConnectionFactory connectionFa
     {
         const string sql = "UPDATE delivery_sessions SET status = 'closed', end_at = @EndAt WHERE id = @Id AND status IN ('active', 'paused');";
         using var connection = connectionFactory.CreateOpenConnection();
-        return await connection.ExecuteAsync(new CommandDefinition(sql, new { Id = id, EndAt = endAt }, cancellationToken: cancellationToken)) == 1;
+        using var transaction = connection.BeginTransaction();
+        var closed = await connection.ExecuteAsync(new CommandDefinition(sql, new { Id = id, EndAt = endAt }, transaction, cancellationToken: cancellationToken));
+        if (closed != 1)
+        {
+            transaction.Rollback();
+            return false;
+        }
+        await connection.ExecuteAsync(new CommandDefinition("""
+            UPDATE attempt_resume_credentials SET revoked_at = @EndAt
+            WHERE delivery_session_id = @Id AND revoked_at IS NULL;
+            UPDATE attempt_resume_proofs SET revoked_at = @EndAt
+            WHERE delivery_session_id = @Id AND revoked_at IS NULL;
+            """, new { Id = id, EndAt = endAt }, transaction, cancellationToken: cancellationToken));
+        transaction.Commit();
+        return true;
     }
 
     public async Task<IReadOnlyList<string>> GetInProgressAttemptIdsAsync(string sessionId, CancellationToken cancellationToken = default)

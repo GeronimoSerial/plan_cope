@@ -19,6 +19,7 @@ export function StudentApp() {
           document={exam.document}
           isBusy={exam.isBusy}
           error={exam.error}
+          recoveryRequired={exam.recoveryRequired}
           notFoundPrompt={exam.notFoundPrompt}
           onSessionCodeChange={exam.setSessionCode}
           onDocumentChange={exam.setDocument}

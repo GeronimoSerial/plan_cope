@@ -6,6 +6,7 @@ const baseProps = {
   sessionCode: "ABC-123",
   document: "12345678",
   isBusy: false,
+  recoveryRequired: false,
   onSessionCodeChange: () => undefined,
   onDocumentChange: () => undefined,
   onResolveStudent: () => undefined
@@ -20,6 +21,16 @@ describe("SessionEntryPanel", () => {
     expect(html).toMatch(/<section class="student-gate"><div class="student-card">/);
     expect(html).toContain("Código de sesión");
     expect(html).toContain("DNI");
+  });
+
+  it("explains how to resume pending answers without assuming the session is nominal", () => {
+    const html = renderToStaticMarkup(
+      <SessionEntryPanel {...baseProps} recoveryRequired error="" notFoundPrompt={null} />
+    );
+
+    expect(html).toContain("Tus respuestas pendientes siguen guardadas en esta pestaña.");
+    expect(html).toContain("Ingresá el mismo código para retomar el mismo intento.");
+    expect(html).toContain("Si la sesión pide identidad, volvé a confirmar tus datos.");
   });
 
   it("renders the not-found prompt as neutral copy without the error banner", () => {

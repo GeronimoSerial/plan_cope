@@ -16,11 +16,22 @@ describe("StudentApi exam resume contract", () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ attempt: {}, blocks: [], resumeCredential: "opaque", credentialExpiresAt: "later" }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await new StudentApi("http://local.test").startAttempt("ABC-123", "resolution", "opaque");
+    await new StudentApi("http://local.test").startAttempt("ABC-123", "resolution", "opaque", undefined, "tab-proof");
 
     expect(fetchMock).toHaveBeenCalledWith("http://local.test/api/sessions/ABC-123/attempts", expect.objectContaining({
       method: "POST",
-      body: JSON.stringify({ resolutionToken: "resolution", resumeCredential: "opaque" })
+      body: JSON.stringify({ resolutionToken: "resolution", resumeCredential: "opaque", resumeProof: "tab-proof" })
+    }));
+  });
+
+  it("sends the expected attempt id only alongside reidentified recovery credentials", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ attempt: {}, blocks: [], resumeCredential: "fresh", credentialExpiresAt: "later" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await new StudentApi("http://local.test").startAttempt("ABC-123", "resolution", "fresh", "attempt-1");
+
+    expect(fetchMock).toHaveBeenCalledWith("http://local.test/api/sessions/ABC-123/attempts", expect.objectContaining({
+      body: JSON.stringify({ resolutionToken: "resolution", resumeCredential: "fresh", recoverAttemptId: "attempt-1" })
     }));
   });
 
@@ -61,6 +72,18 @@ describe("StudentApi exam resume contract", () => {
     expect(fetchMock).toHaveBeenCalledWith("http://local.test/api/attempts/attempt-1/submit", expect.objectContaining({
       method: "POST",
       headers: { Authorization: "Bearer opaque-credential" }
+    }));
+  });
+
+  it("uses the opaque tab proof only to revoke future recovery", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await new StudentApi("http://local.test").revokeAttemptRecovery("attempt-1", "tab-proof");
+
+    expect(fetchMock).toHaveBeenCalledWith("http://local.test/api/attempts/attempt-1/recovery/revoke", expect.objectContaining({
+      method: "POST",
+      headers: { Authorization: "Bearer tab-proof" }
     }));
   });
 });

@@ -12,6 +12,7 @@ type StoredExam = {
   deliverySessionId: string;
   sessionCode: string;
   credential: string;
+  resumeProof?: string;
   expiresAt: string;
   nextRevision: number;
   pending: PendingAnswer[];
@@ -22,7 +23,7 @@ function readStoredExam(): StoredExam | null {
     const raw = window.sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const value = JSON.parse(raw) as StoredExam;
-    if (!value.sessionCode || !value.credential || !Array.isArray(value.pending)) return null;
+    if (!value.sessionCode || !Array.isArray(value.pending)) return null;
     return value;
   } catch {
     return null;
@@ -36,6 +37,11 @@ function writeStoredExam(value: StoredExam | null): void {
   } catch {
     // The visible status remains pending; the next edit/save will retry the small session buffer.
   }
+}
+
+function createResumeCredential(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 export function useStudentExam() {
@@ -61,10 +67,30 @@ export function useStudentExam() {
   const [sessionStatus, setSessionStatus] = useState("active");
   const [isRestoring, setIsRestoring] = useState(Boolean(initialStored));
   const [restoreRetry, setRestoreRetry] = useState(0);
+  const [recoveryRequired, setRecoveryRequired] = useState(Boolean(initialStored?.attemptId && !initialStored.credential));
+
+  const requireIdentityForRecovery = useCallback((stored: StoredExam) => {
+    stored.credential = "";
+    writeStoredExam(stored);
+    setRecoveryRequired(true);
+    setAttemptId(null);
+    setAttempt(null);
+    setBlocks([]);
+    setAnswers({});
+    setResolution(null);
+    setStatus("Tus respuestas pendientes siguen guardadas en esta pestaña. Volvé a ingresar tu DNI para recuperar el mismo intento.");
+    setError("");
+  }, []);
 
   useEffect(() => {
     const stored = storedRef.current;
     if (!stored) return;
+    if (!stored.credential) {
+      setRecoveryRequired(true);
+      setStatus("Tus respuestas pendientes siguen guardadas en esta pestaña. Volvé a identificarte para recuperar el intento.");
+      setIsRestoring(false);
+      return;
+    }
     let cancelled = false;
     let retrying = false;
     void (async () => {
@@ -94,16 +120,21 @@ export function useStudentExam() {
         setStatus(stored.pending.length ? "Pendiente por conexión." : "");
       } catch (exception) {
         if (!cancelled) {
-          if (exception instanceof ResumeCredentialError && (exception.status === 401 || exception.status === 410)) {
+          if (exception instanceof ResumeCredentialError && exception.status === 401) {
+            requireIdentityForRecovery(stored);
+            return;
+          }
+          if (exception instanceof ResumeCredentialError && exception.status === 410) {
             writeStoredExam(null);
             storedRef.current = null;
+            setRecoveryRequired(false);
             setAttemptId(null);
             setAttempt(null);
             setBlocks([]);
             setAnswers({});
             setResolution(null);
             setStatus("");
-            setError("La sesión de examen venció. Volvé a ingresar tu DNI para continuar.");
+            setError("La sesión de examen ya no está disponible.");
             return;
           }
           retrying = true;
@@ -116,7 +147,7 @@ export function useStudentExam() {
       }
     })();
     return () => { cancelled = true; };
-  }, [api, restoreRetry]);
+  }, [api, requireIdentityForRecovery, restoreRetry]);
 
   useEffect(() => {
     if (!attemptId || confirmationCode || isRestoring || !sessionCode.trim()) return;
@@ -129,6 +160,7 @@ export function useStudentExam() {
         if (session.status === "closed") {
           writeStoredExam(null);
           storedRef.current = null;
+          setRecoveryRequired(false);
           return;
         }
       } catch { /* Retry while the student is taking the exam. */ }
@@ -179,11 +211,15 @@ export function useStudentExam() {
       await serial;
       setStatus("Respuestas guardadas.");
       return true;
-    } catch {
+    } catch (exception) {
+      if (exception instanceof ResumeCredentialError && exception.status === 401) {
+        requireIdentityForRecovery(stored);
+        return false;
+      }
       setStatus("Pendiente por conexión.");
       return false;
     }
-  }, [api]);
+  }, [api, requireIdentityForRecovery]);
   flushRef.current = flushPending;
 
   useEffect(() => {
@@ -212,37 +248,68 @@ export function useStudentExam() {
   const beginAttempt = useCallback(async (code: string, resolutionToken?: string) => {
     let stored = storedRef.current;
     let credential: string;
-    if (!stored || stored.sessionCode !== code || stored.attemptId) {
-      const bytes = crypto.getRandomValues(new Uint8Array(32));
-      credential = btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const recovering = Boolean(stored?.attemptId && !stored.credential);
+    if (recovering && stored!.sessionCode !== code) {
+      throw new Error("Usá el mismo código de sesión para recuperar las respuestas pendientes.");
+    }
+    if (recovering) {
+      credential = createResumeCredential();
+    } else if (!stored || stored.sessionCode !== code || (stored.attemptId && !recovering)) {
+      credential = createResumeCredential();
       stored = {
         attemptId: "",
         deliverySessionId: "",
         sessionCode: code,
         credential,
+        resumeProof: createResumeCredential(),
         expiresAt: "",
         nextRevision: 0,
         pending: []
       };
     } else {
       credential = stored.credential;
+      stored.resumeProof ??= createResumeCredential();
     }
+    if (!stored) throw new Error("No se pudo preparar la sesión de examen.");
+    stored.resumeProof ??= createResumeCredential();
     storedRef.current = stored;
-    writeStoredExam(stored);
-    const response = await api.startAttempt(code, resolutionToken, credential);
+    if (!recovering) writeStoredExam(stored);
+    const response = await api.startAttempt(code, resolutionToken, credential, recovering ? stored!.attemptId : undefined, stored.resumeProof);
+    if (recovering && response.attempt.id !== stored!.attemptId) {
+      throw new Error("La identidad confirmada no corresponde al intento con respuestas pendientes.");
+    }
     stored.attemptId = response.attempt.id;
     stored.deliverySessionId = response.attempt.deliverySessionId;
+    stored.credential = credential;
+    stored.resumeProof = response.resumeProof;
     stored.expiresAt = response.credentialExpiresAt;
     writeStoredExam(stored);
+    let recovered = null;
+    if (recovering) {
+      try {
+        recovered = await api.restoreAttempt(response.attempt.id, code, credential);
+      } catch (exception) {
+        setRestoreRetry(value => value + 1);
+        throw exception;
+      }
+    }
+    setRecoveryRequired(false);
     setAttemptId(response.attempt.id);
     setAttempt(response.attempt);
-    setBlocks(response.blocks);
-    setAnswers({});
+    setBlocks(recovered?.blocks ?? response.blocks);
+    if (recovered) {
+      const restoredAnswers: AnswerMap = {};
+      for (const item of recovered.answers) restoredAnswers[item.blockId] = typeof item.answer === "string" ? item.answer : JSON.stringify(item.answer);
+      for (const pending of stored.pending) restoredAnswers[pending.blockId] = pending.answer ?? "";
+      setAnswers(restoredAnswers);
+    } else {
+      setAnswers({});
+    }
     setMissingRequired(new Set());
     setConfirmationCode(null);
     setSubmittedAt(null);
-    setStatus("");
-    setSessionStatus("active");
+    setStatus(recovered && stored.pending.length ? "Pendiente por conexión." : "");
+    setSessionStatus(recovered?.sessionStatus ?? "active");
   }, [api]);
 
   const resolveStudent = useCallback(async () => {
@@ -269,12 +336,14 @@ export function useStudentExam() {
   }, [api, beginAttempt, document, runBusy, sessionCode]);
 
   const correctIdentity = useCallback(() => {
+    const stored = storedRef.current;
+    if (stored?.attemptId && stored.resumeProof) void api.revokeAttemptRecovery(stored.attemptId, stored.resumeProof).catch(() => undefined);
     writeStoredExam(null);
     storedRef.current = null;
     setResolution(null);
     setError("");
     setNotFoundPrompt(null);
-  }, []);
+  }, [api]);
 
   const startAttempt = useCallback(async () => {
     if (!sessionCode.trim() || !resolution) return;
@@ -284,7 +353,8 @@ export function useStudentExam() {
   const saveAnswers = useCallback(async () => {
     if (!attemptId || !validateRequired()) return false;
     return runBusy(async () => {
-      if (!await flushPending()) throw new Error("No se pudo confirmar el guardado. Las respuestas siguen pendientes por conexión.");
+      if (!await flushPending() && storedRef.current?.credential)
+        throw new Error("No se pudo confirmar el guardado. Las respuestas siguen pendientes por conexión.");
     });
   }, [attemptId, flushPending, runBusy, validateRequired]);
 
@@ -293,16 +363,26 @@ export function useStudentExam() {
     await runBusy(async () => {
       const stored = storedRef.current;
       if (!stored) throw new Error("La sesión de examen no está disponible.");
-      if (!await flushPending()) throw new Error("Conectate para guardar las respuestas pendientes antes de entregar.");
+      if (!await flushPending()) {
+        if (stored.credential) throw new Error("Conectate para guardar las respuestas pendientes antes de entregar.");
+        return;
+      }
       await serialRef.current;
-      const response = await api.submitAttempt(attemptId, stored.credential);
+      let response;
+      try {
+        response = await api.submitAttempt(attemptId, stored.credential);
+      } catch (exception) {
+        if (exception instanceof ResumeCredentialError && exception.status === 401)
+          requireIdentityForRecovery(stored);
+        throw exception;
+      }
       setConfirmationCode(response.confirmationCode);
       setSubmittedAt(response.submittedAt);
       setStatus("");
       writeStoredExam(null);
       storedRef.current = null;
     });
-  }, [api, attemptId, flushPending, runBusy, validateRequired]);
+  }, [api, attemptId, flushPending, requireIdentityForRecovery, runBusy, validateRequired]);
 
   return {
     attemptId,
@@ -316,6 +396,7 @@ export function useStudentExam() {
     missingRequired,
     notFoundPrompt,
     resolution,
+    recoveryRequired,
     sessionCode,
     status: isRestoring ? "Recuperando tu examen…" : status,
     sessionStatus,

@@ -5,6 +5,7 @@ type SessionEntryPanelProps = {
   document: string;
   isBusy: boolean;
   error: string;
+  recoveryRequired: boolean;
   notFoundPrompt: { message: string; hint: string } | null;
   onSessionCodeChange: (value: string) => void;
   onDocumentChange: (value: string) => void;
@@ -16,6 +17,7 @@ export function SessionEntryPanel({
   document,
   isBusy,
   error,
+  recoveryRequired,
   notFoundPrompt,
   onSessionCodeChange,
   onDocumentChange,
@@ -26,7 +28,9 @@ export function SessionEntryPanel({
       <div className="student-card">
         <p className="eyebrow">Acceso del estudiante</p>
         <h2>Ingresá al examen</h2>
-        <p className="student-card-copy">Ingresá el código que te indicó el docente. La sesión puede pedirte el DNI.</p>
+        <p className="student-card-copy">{recoveryRequired
+          ? "Tus respuestas pendientes siguen guardadas en esta pestaña. Ingresá el mismo código para retomar el mismo intento. Si la sesión pide identidad, volvé a confirmar tus datos."
+          : "Ingresá el código que te indicó el docente. La sesión puede pedirte el DNI."}</p>
         <Field label="Código de sesión">
           <TextInput
             value={sessionCode}

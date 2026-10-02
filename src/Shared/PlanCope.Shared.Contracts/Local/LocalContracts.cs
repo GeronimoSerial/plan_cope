@@ -31,7 +31,7 @@ public sealed record ResolveStudentResponse(
     ResolvedStudentDto Student,
     string ExpiresAt);
 
-public sealed record StartAttemptRequest(string? StudentCode = null, string? ResolutionToken = null, string? ResumeCredential = null);
+public sealed record StartAttemptRequest(string? StudentCode = null, string? ResolutionToken = null, string? ResumeCredential = null, string? RecoverAttemptId = null, string? ResumeProof = null);
 
 public sealed record SaveAnswersRequest(IReadOnlyList<SubmissionAnswerDto> Answers, long Revision = 0);
 

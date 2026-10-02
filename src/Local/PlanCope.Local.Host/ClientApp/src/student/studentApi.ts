@@ -34,18 +34,12 @@ export class StudentApi {
     return this.request<{ status: string; rosterSnapshotId?: string | null; rosterSectionId?: string | null }>(`/api/sessions/${encodeURIComponent(sessionIdOrAccessCode)}`, { method: "GET" });
   }
 
-  startAttempt(sessionIdOrAccessCode: string, resolutionToken?: string, resumeCredential?: string): Promise<StartAttemptResponse> {
+  startAttempt(sessionIdOrAccessCode: string, resolutionToken?: string, resumeCredential?: string, recoverAttemptId?: string, resumeProof?: string): Promise<StartAttemptResponse> {
+    const body = JSON.stringify({ resolutionToken, resumeCredential, recoverAttemptId, resumeProof });
     return this.request<StartAttemptResponse>(`/api/sessions/${encodeURIComponent(sessionIdOrAccessCode)}/attempts`, {
       method: "POST",
-      ...(resolutionToken
-        ? {
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ resolutionToken, resumeCredential })
-          }
-        : {
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ resumeCredential })
-          })
+      headers: { "Content-Type": "application/json" },
+      body
     });
   }
 
@@ -75,6 +69,13 @@ export class StudentApi {
     return this.request<SubmitAttemptResponse>(`/api/attempts/${encodeURIComponent(attemptId)}/submit`, {
       method: "POST",
       headers: { Authorization: `Bearer ${credential}` }
+    });
+  }
+
+  async revokeAttemptRecovery(attemptId: string, proof: string): Promise<void> {
+    await this.request<void>(`/api/attempts/${encodeURIComponent(attemptId)}/recovery/revoke`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${proof}` }
     });
   }
 

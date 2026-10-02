@@ -250,7 +250,7 @@ public sealed class AttemptGradingTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
-    private sealed record StartAttemptResponse(StudentAttempt Attempt, IReadOnlyList<LocalExamBlock> Blocks, string ResumeCredential, string CredentialExpiresAt);
+    private sealed record StartAttemptResponse(StudentAttempt Attempt, IReadOnlyList<LocalExamBlock> Blocks, string ResumeCredential, string CredentialExpiresAt, string ResumeProof);
 
     private sealed class LocalApiFactory : WebApplicationFactory<Program>
     {

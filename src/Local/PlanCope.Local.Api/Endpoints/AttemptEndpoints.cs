@@ -148,11 +148,39 @@ public static class AttemptEndpoints
                 : request.ResumeCredential;
             if (resumeCredential.Length < 32)
                 return Results.BadRequest(new { error = "La credencial de reanudación no es válida." });
+            var resumeProof = string.IsNullOrWhiteSpace(request?.ResumeProof)
+                ? tokenService.CreateToken()
+                : request.ResumeProof;
+            if (resumeProof.Length < 32)
+                return Results.BadRequest(new { error = "La prueba de recuperación no es válida." });
+
+            if (!string.IsNullOrWhiteSpace(request?.RecoverAttemptId))
+            {
+                var recoverAttemptId = request.RecoverAttemptId!;
+                var now = DateTimeOffset.UtcNow;
+                var expiresAt = now.AddHours(4).ToString("O");
+                var recovered = IsNominal(session)
+                    ? !string.IsNullOrWhiteSpace(request?.ResolutionToken) && await attemptRepository.RecoverNominalAttemptAsync(
+                        session.Id, recoverAttemptId, tokenService.HashToken(request.ResolutionToken),
+                        tokenService.HashToken(resumeCredential), tokenService.HashToken(resumeProof), now.ToString("O"), expiresAt, cancellationToken)
+                    : !string.IsNullOrWhiteSpace(request?.ResumeProof) && await attemptRepository.RecoverAnonymousAttemptAsync(
+                        session.Id, recoverAttemptId, tokenService.HashToken(resumeProof),
+                        tokenService.HashToken(resumeCredential), now.ToString("O"), expiresAt, cancellationToken);
+                if (!recovered)
+                    return Results.Conflict(new { error = IsNominal(session)
+                        ? "No pudimos vincular la identidad con el intento pendiente. Revisá el DNI y el código de sesión."
+                        : "No pudimos recuperar el intento pendiente. La sesión puede haber vencido, cerrado o revocado el acceso." });
+
+                var recoveredAttempt = await attemptRepository.GetByIdAsync(recoverAttemptId, cancellationToken);
+                if (recoveredAttempt is null)
+                    return Results.Conflict(new { error = "El intento pendiente ya no está disponible." });
+                return await CreatedAttemptAsync(recoveredAttempt, session.ExamVersionId, examRepository, attemptRepository, tokenService, resumeCredential, resumeProof, cancellationToken);
+            }
 
             var existingForCredential = await attemptRepository.GetAttemptByResumeCredentialAsync(
                 session.Id, tokenService.HashToken(resumeCredential), DateTimeOffset.UtcNow.ToString("O"), cancellationToken);
             if (existingForCredential is not null)
-                return await CreatedAttemptAsync(existingForCredential, session.ExamVersionId, examRepository, attemptRepository, tokenService, resumeCredential, cancellationToken);
+                return await CreatedAttemptAsync(existingForCredential, session.ExamVersionId, examRepository, attemptRepository, tokenService, resumeCredential, resumeProof, cancellationToken);
 
             if (IsNominal(session))
             {
@@ -169,12 +197,13 @@ public static class AttemptEndpoints
 
                 return nominalResult.Status switch
                 {
-                    NominalAttemptStartStatus.Started => await CreatedAttemptAsync(nominalResult.Attempt!, session.ExamVersionId, examRepository, attemptRepository, tokenService, resumeCredential, cancellationToken),
+                    NominalAttemptStartStatus.Started => await CreatedAttemptAsync(nominalResult.Attempt!, session.ExamVersionId, examRepository, attemptRepository, tokenService, resumeCredential, resumeProof, cancellationToken),
                     NominalAttemptStartStatus.SessionNotActive => Results.BadRequest(new { error = "Esta sesión no está activa. Consultá con tu docente para poder ingresar." }),
-                    NominalAttemptStartStatus.AttemptExists when nominalResult.Attempt?.Status is "in_progress" => await CreatedAttemptAsync(nominalResult.Attempt!, session.ExamVersionId, examRepository, attemptRepository, tokenService, resumeCredential, cancellationToken),
+                    NominalAttemptStartStatus.AttemptExists when nominalResult.Attempt?.Status is "in_progress" => await CreatedAttemptAsync(nominalResult.Attempt!, session.ExamVersionId, examRepository, attemptRepository, tokenService, resumeCredential, resumeProof, cancellationToken),
                     NominalAttemptStartStatus.AttemptExists => Results.Conflict(new { error = "Este intento ya fue entregado." }),
                     NominalAttemptStartStatus.ResolutionExpired => Results.Conflict(new { error = "La confirmación expiró. Volvé a ingresar tu DNI." }),
                     NominalAttemptStartStatus.ResolutionUsed => Results.Conflict(new { error = "La confirmación ya fue utilizada." }),
+                    NominalAttemptStartStatus.ResumeCredentialRevoked => Results.Conflict(new { error = "El acceso a este intento fue revocado y no se puede recuperar." }),
                     _ => Results.Conflict(new { error = "La confirmación no es válida. Volvé a ingresar tu DNI." })
                 };
             }
@@ -196,7 +225,7 @@ public static class AttemptEndpoints
             {
                 return Results.BadRequest(new { error = "Esta sesión no está activa. Consultá con tu docente para poder ingresar." });
             }
-            return await CreatedAttemptAsync(attempt, session.ExamVersionId, examRepository, attemptRepository, tokenService, resumeCredential, cancellationToken);
+            return await CreatedAttemptAsync(attempt, session.ExamVersionId, examRepository, attemptRepository, tokenService, resumeCredential, resumeProof, cancellationToken);
             }
             finally
             {
@@ -234,7 +263,12 @@ public static class AttemptEndpoints
             if (!TryReadCredential(httpRequest, out var credential)) return Unauthorized();
             var now = DateTimeOffset.UtcNow;
             var attempt = await repository.GetAuthorizedAttemptAsync(attemptId, tokenService.HashToken(credential), now.ToString("O"), cancellationToken);
-            if (attempt is null) return Unauthorized();
+            if (attempt is null)
+            {
+                var currentAttempt = await repository.GetByIdAsync(attemptId, cancellationToken);
+                if (currentAttempt?.SubmittedAt is not null) return Results.StatusCode(StatusCodes.Status410Gone);
+                return Unauthorized();
+            }
             var session = await sessionRepository.GetByIdOrAccessCodeAsync(attempt.DeliverySessionId, cancellationToken);
             if (session is null || session.Status is "closed")
             {
@@ -257,6 +291,26 @@ public static class AttemptEndpoints
             });
         });
 
+        endpoints.MapPost("/api/attempts/{attemptId}/recovery/revoke", async Task<IResult> (
+            string attemptId,
+            HttpRequest httpRequest,
+            IAttemptRepository repository,
+            IStudentResolutionTokenService tokenService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryReadCredential(httpRequest, out var proof)) return Unauthorized();
+            await AttemptMutationGate.WaitAsync(cancellationToken);
+            try
+            {
+                await repository.RevokeResumeProofAsync(attemptId, tokenService.HashToken(proof), DateTimeOffset.UtcNow.ToString("O"), cancellationToken);
+                return Results.NoContent();
+            }
+            finally
+            {
+                AttemptMutationGate.Release();
+            }
+        });
+
         endpoints.MapPut("/api/attempts/{attemptId}/answers", async (
             string attemptId,
             SaveAnswersRequest request,
@@ -275,7 +329,10 @@ public static class AttemptEndpoints
 
             if (attempt is null)
             {
-                return Results.NotFound(new { error = "No encontramos ese intento. Volvé a ingresar con tu código de sesión." });
+                var currentAttempt = await repository.GetByIdAsync(attemptId, cancellationToken);
+                if (currentAttempt?.SubmittedAt is not null)
+                    return Results.NotFound(new { error = "No encontramos ese intento. Volvé a ingresar con tu código de sesión." });
+                return Unauthorized();
             }
 
             if (attempt.Status is not "in_progress")
@@ -328,7 +385,10 @@ public static class AttemptEndpoints
 
             if (attempt is null)
             {
-                return Results.NotFound(new { error = "No encontramos ese intento. Volvé a ingresar con tu código de sesión." });
+                var currentAttempt = await attemptRepository.GetByIdAsync(attemptId, cancellationToken);
+                if (currentAttempt?.SubmittedAt is not null)
+                    return Results.NotFound(new { error = "No encontramos ese intento. Volvé a ingresar con tu código de sesión." });
+                return Unauthorized();
             }
 
             if (attempt.Status is not "in_progress")
@@ -385,12 +445,27 @@ public static class AttemptEndpoints
         IAttemptRepository attemptRepository,
         IStudentResolutionTokenService tokenService,
         string credential,
+        string resumeProof,
         CancellationToken cancellationToken)
     {
-        var now = DateTimeOffset.UtcNow;
-        var expiresAt = now.AddHours(4).ToString("O");
-        await attemptRepository.CreateResumeCredentialAsync(attempt.Id, attempt.DeliverySessionId, tokenService.HashToken(credential), expiresAt, now.ToString("O"), cancellationToken);
-        var blocks = await examRepository.GetBlocksAsync(examVersionId, cancellationToken);
-        return Results.Created($"/api/attempts/{attempt.Id}", new { attempt, blocks, resumeCredential = credential, credentialExpiresAt = expiresAt });
+        await AttemptMutationGate.WaitAsync(cancellationToken);
+        try
+        {
+            var currentAttempt = await attemptRepository.GetByIdAsync(attempt.Id, cancellationToken);
+            if (currentAttempt is null || currentAttempt.Status is not "in_progress")
+                return Results.Conflict(new { error = "El intento ya no está disponible para comenzar o recuperar." });
+
+            var now = DateTimeOffset.UtcNow;
+            var expiresAt = now.AddHours(4).ToString("O");
+            if (!await attemptRepository.CreateResumeCredentialAsync(currentAttempt.Id, currentAttempt.DeliverySessionId,
+                    tokenService.HashToken(credential), tokenService.HashToken(resumeProof), expiresAt, now.ToString("O"), cancellationToken))
+                return Results.BadRequest(new { error = "El intento o la sesión ya no están disponibles para recuperar acceso." });
+            var blocks = await examRepository.GetBlocksAsync(examVersionId, cancellationToken);
+            return Results.Created($"/api/attempts/{currentAttempt.Id}", new { attempt = currentAttempt, blocks, resumeCredential = credential, resumeProof, credentialExpiresAt = expiresAt });
+        }
+        finally
+        {
+            AttemptMutationGate.Release();
+        }
     }
 }
