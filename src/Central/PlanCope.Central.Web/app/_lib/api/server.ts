@@ -230,6 +230,102 @@ export function listSchoolStats(schoolYear?: string, course?: string): Promise<S
   return serverGet<SchoolStatsRow[]>(`/api/stats/schools${query ? `?${query}` : ""}`);
 }
 
+export type StatsMetric<T> = { value: T | null; status: "available" | "suppressed" | "unavailable" };
+export interface StatsOption { value: string; label: string }
+export interface StatsPage<T> { page: number; pageSize: number; totalCount: number; items: T[] }
+export interface StatsSummary {
+  publishedExams: StatsMetric<number>;
+  schoolsWithResults: StatsMetric<number>;
+  gradedAttempts: StatsMetric<number>;
+  freshSessions: StatsMetric<number>;
+  pendingAttribution: StatsMetric<number> | null;
+  generatedAt: string;
+  latestRollupUpdatedAt: string | null;
+}
+export interface StatsAggregateRow {
+  key: string;
+  label: string;
+  attemptCount: StatsMetric<number>;
+  weightedScorePercent: StatsMetric<number>;
+}
+export interface StatsAggregate {
+  dataState: "available" | "no_results";
+  generatedAt: string;
+  latestRollupUpdatedAt: string | null;
+  dimension: string;
+  filters: Record<string, string | null>;
+  rows: StatsAggregateRow[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+}
+export interface SchoolStatsListRow {
+  cue: string;
+  schoolName: string;
+  annex: number | null;
+  localityId: string | null;
+  locality: string | null;
+  departmentId: string | null;
+  department: string | null;
+  attemptCount: StatsMetric<number>;
+  averageScorePercent: StatsMetric<number>;
+  freshSession: boolean;
+  latestRollupUpdatedAt: string | null;
+}
+
+export function getStatsSummary(): Promise<StatsSummary> {
+  return serverGet<StatsSummary>("/api/stats/summary");
+}
+
+export function listStatsCatalog(dimension: string, query?: string, page = 1, pageSize = 50): Promise<StatsPage<StatsOption>> {
+  const params = new URLSearchParams({ dimension, page: String(page), pageSize: String(pageSize) });
+  if (query) params.set("query", query);
+  return serverGet<StatsPage<StatsOption>>(`/api/stats/catalogs?${params.toString()}`);
+}
+
+export function getStatsAggregate(input: {
+  groupBy: string;
+  localityId?: string;
+  departmentId?: string;
+  course?: string;
+  subject?: string;
+  schoolYear?: string;
+  school?: string;
+  version?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<StatsAggregate> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(input)) if (value !== undefined) params.set(key, String(value));
+  return serverGet<StatsAggregate>(`/api/stats/aggregate?${params.toString()}`);
+}
+
+export function listPagedSchoolStats(page = 1, pageSize = 50, schoolYear?: string, course?: string): Promise<StatsPage<SchoolStatsListRow>> {
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  if (schoolYear) params.set("schoolYear", schoolYear);
+  if (course) params.set("course", course);
+  return serverGet<StatsPage<SchoolStatsListRow>>(`/api/stats/school-list?${params.toString()}`);
+}
+
+export function getSchoolStatsDetail(cue: string, schoolYear?: string, course?: string): Promise<SchoolStatsDetail> {
+  const params = new URLSearchParams({ cue });
+  if (schoolYear) params.set("schoolYear", schoolYear);
+  if (course) params.set("course", course);
+  return serverGet<SchoolStatsDetail>(`/api/stats/school?${params.toString()}`);
+}
+
+export interface SchoolStatsDetail {
+  cue: string;
+  schoolName: string | null;
+  localityId: string | null;
+  locality: string | null;
+  departmentId: string | null;
+  department: string | null;
+  attemptCount: number | string | StatsMetric<number>;
+  averageScorePercent: number | string | StatsMetric<number>;
+  latestRollupUpdatedAt: string | null;
+}
+
 export interface UserSummary {
   id: string;
   email: string;
