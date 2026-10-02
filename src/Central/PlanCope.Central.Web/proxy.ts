@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { buildForwardedCookieHeader, decideProxyAuth, decideRefreshOutcome } from "./app/_lib/server/auth-decision";
+import { buildForwardedCookieHeader, decideProxyAuth, decideRefreshOutcome, isPublicSharedStatsPath } from "./app/_lib/server/auth-decision";
 import { clearSessionCookies, clearSessionAttemptCookie, setSessionCookies } from "./app/_lib/server/session-cookies";
 
 function redirectToLogin(request: NextRequest) {
@@ -12,6 +12,13 @@ function redirectToLogin(request: NextRequest) {
 
 export async function proxy(request: NextRequest) {
   const isLogin = request.nextUrl.pathname === "/login";
+  if (isPublicSharedStatsPath(request.nextUrl.pathname)) {
+    const response = NextResponse.next();
+    response.headers.set("Cache-Control", "private, no-store, max-age=0");
+    response.headers.set("Referrer-Policy", "no-referrer");
+    response.headers.set("X-Robots-Tag", "noindex, nofollow");
+    return response;
+  }
   if (isLogin) {
     if (request.nextUrl.searchParams.get("expired") === "1") {
       const response = NextResponse.next();

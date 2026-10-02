@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { decideProxyAuth, decideLoginAuth, decideExpiredPage, decideRefreshOutcome, buildForwardedCookieHeader } from "./auth-decision";
+import { decideProxyAuth, decideLoginAuth, decideExpiredPage, decideRefreshOutcome, buildForwardedCookieHeader, isPublicSharedStatsPath } from "./auth-decision";
 
 describe("proxy auth decision", () => {
+  it("keeps only a single public statistics token segment outside app auth", () => {
+    expect(isPublicSharedStatsPath("/estadisticas/compartidas/token-123")).toBe(true);
+    expect(isPublicSharedStatsPath("/estadisticas/compartir")).toBe(false);
+    expect(isPublicSharedStatsPath("/estadisticas/compartidas/token/extra")).toBe(false);
+  });
+
   it("redirects and clears when no cookies exist", () => {
     expect(decideProxyAuth([])).toEqual({ kind: "redirect-clear" });
   });

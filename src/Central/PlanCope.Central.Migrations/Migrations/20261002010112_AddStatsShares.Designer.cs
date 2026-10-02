@@ -3,6 +3,7 @@ using System;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using PlanCope.Central.Api.Data;
@@ -12,9 +13,11 @@ using PlanCope.Central.Api.Data;
 namespace PlanCope.Central.Migrations.Migrations
 {
     [DbContext(typeof(PlanCopeDbContext))]
-    partial class PlanCopeDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261002010112_AddStatsShares")]
+    partial class AddStatsShares
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1476,8 +1479,12 @@ namespace PlanCope.Central.Migrations.Migrations
                         .HasColumnType("character varying(64)");
 
                     b.HasKey("Id");
-                    b.HasIndex("TokenHash").IsUnique();
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
                     b.HasIndex("ExpiresAt", "RevokedAt");
+
                     b.ToTable("stats_shares", "stats");
                 });
 

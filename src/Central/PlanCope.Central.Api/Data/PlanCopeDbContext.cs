@@ -41,6 +41,7 @@ public sealed class PlanCopeDbContext(DbContextOptions<PlanCopeDbContext> option
     public DbSet<GeRosterSection> GeRosterSections => Set<GeRosterSection>();
     public DbSet<GeRosterStudent> GeRosterStudents => Set<GeRosterStudent>();
     public DbSet<ReleaseRing> ReleaseRings => Set<ReleaseRing>();
+    public DbSet<StatsShare> StatsShares => Set<StatsShare>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
