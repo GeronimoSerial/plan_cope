@@ -76,6 +76,7 @@ export function useStudentExam() {
         writeStoredExam(stored);
         const restoredAnswers: AnswerMap = {};
         for (const item of restored.answers) restoredAnswers[item.blockId] = typeof item.answer === "string" ? item.answer : JSON.stringify(item.answer);
+        for (const pending of stored.pending) restoredAnswers[pending.blockId] = pending.answer ?? "";
         setAttemptId(restored.attempt.id);
         setAttempt(restored.attempt);
         setBlocks(restored.blocks);
@@ -89,12 +90,6 @@ export function useStudentExam() {
             maskedDocument: restored.attempt.documentLast4 ? `**.***.${restored.attempt.documentLast4}` : ""
           }
         } : null);
-        for (const pending of [...stored.pending].sort((a, b) => a.revision - b.revision)) {
-          await api.saveAnswers(stored.attemptId, stored.credential, pending.revision, [{ blockId: pending.blockId, answer: pending.answer }]);
-          restoredAnswers[pending.blockId] = pending.answer ?? "";
-          stored.pending = stored.pending.filter(entry => entry.revision !== pending.revision);
-          writeStoredExam(stored);
-        }
         setAnswers(restoredAnswers);
         setStatus(stored.pending.length ? "Pendiente por conexión." : "");
       } catch (exception) {

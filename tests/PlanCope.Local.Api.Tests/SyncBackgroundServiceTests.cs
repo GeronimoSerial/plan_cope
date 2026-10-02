@@ -321,7 +321,7 @@ public sealed class SyncBackgroundServiceTests : IDisposable
         var handler = new ActiveSessionRetryHandler();
         var service = BuildService(new StubHttpClientFactory(handler));
         await service.StartAsync(CancellationToken.None);
-        await Task.Delay(TimeSpan.FromSeconds(17));
+        await WaitForOutboxSentAsync("outbox-active-retry", string.Empty, string.Empty);
         await service.StopAsync(CancellationToken.None);
 
         Assert.Equal(2, handler.PushCalls);
@@ -356,7 +356,7 @@ public sealed class SyncBackgroundServiceTests : IDisposable
         var handler = new ActiveSessionRetryHandler();
         var service = BuildService(new StubHttpClientFactory(handler));
         await service.StartAsync(CancellationToken.None);
-        await Task.Delay(TimeSpan.FromSeconds(17));
+        await WaitForOutboxSentAsync("outbox-active-pull-error", "exam pull failed before session became active", "pull");
         await service.StopAsync(CancellationToken.None);
 
         Assert.Equal(2, handler.PushCalls);
@@ -440,6 +440,30 @@ public sealed class SyncBackgroundServiceTests : IDisposable
             SchoolYear: "2026",
             RosterSnapshotId: null,
             RosterSectionId: null));
+    }
+
+    private async Task WaitForOutboxSentAsync(string outboxId, string expectedError, string expectedErrorSource)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddMinutes(1);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            using var connection = connectionFactory.CreateOpenConnection();
+            var status = await connection.ExecuteScalarAsync<string>(
+                "SELECT status FROM sync_outbox WHERE id = @OutboxId;", new { OutboxId = outboxId });
+            var syncState = new SyncStateRepository(connectionFactory);
+            var lastError = await syncState.GetAsync("sync_last_error");
+            var errorSource = await syncState.GetAsync("sync_last_error_source");
+            if (status == "sent" &&
+                JsonSerializer.Deserialize<string>(lastError!.ValueJson) == expectedError &&
+                JsonSerializer.Deserialize<string>(errorSource!.ValueJson) == expectedErrorSource)
+            {
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(100));
+        }
+
+        throw new TimeoutException($"Outbox row '{outboxId}' did not reach the expected delivery and sync-error state within one minute.");
     }
 
     private Task SeedSyncStateAsync(string key, string value)

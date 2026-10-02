@@ -51,4 +51,16 @@ describe("StudentApi exam resume contract", () => {
       body: JSON.stringify({ revision: 7, answers: [{ blockId: "block-1", answer: "answer" }] })
     }));
   });
+
+  it("requires the resume credential when submitting an attempt", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ attemptId: "attempt-1", confirmationCode: "ABCD1234", submittedAt: "now" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await new StudentApi("http://local.test").submitAttempt("attempt-1", "opaque-credential");
+
+    expect(fetchMock).toHaveBeenCalledWith("http://local.test/api/attempts/attempt-1/submit", expect.objectContaining({
+      method: "POST",
+      headers: { Authorization: "Bearer opaque-credential" }
+    }));
+  });
 });
