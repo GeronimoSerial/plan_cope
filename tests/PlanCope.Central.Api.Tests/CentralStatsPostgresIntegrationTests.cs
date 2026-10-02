@@ -192,8 +192,9 @@ public sealed class CentralStatsPostgresIntegrationTests
             InterceptionResult<int> result,
             CancellationToken cancellationToken = default)
         {
-            if (Interlocked.Exchange(ref armed, 0) == 1 && eventData.Context?.ChangeTracker
-                    .Entries<ExamRollup>().Any(entry => entry.State == EntityState.Added) == true)
+            if (eventData.Context?.ChangeTracker
+                    .Entries<ExamRollup>().Any(entry => entry.State == EntityState.Added) == true &&
+                Interlocked.Exchange(ref armed, 0) == 1)
                 throw new InvalidOperationException("Synthetic rollup write fault after inbox/attempt staging.");
 
             return ValueTask.FromResult(result);
@@ -327,8 +328,9 @@ public sealed class CentralStatsPostgresIntegrationTests
             InterceptionResult<int> result,
             CancellationToken cancellationToken = default)
         {
-            if (Interlocked.Exchange(ref armed, 0) == 1 && eventData.Context?.ChangeTracker
-                    .Entries<CentralDeliverySession>().Any(entry => entry.State == EntityState.Added) == true)
+            if (eventData.Context?.ChangeTracker
+                    .Entries<CentralDeliverySession>().Any(entry => entry.State == EntityState.Added) == true &&
+                Interlocked.Exchange(ref armed, 0) == 1)
             {
                 Paused.TrySetResult(true);
                 await Release.Task.WaitAsync(cancellationToken);
