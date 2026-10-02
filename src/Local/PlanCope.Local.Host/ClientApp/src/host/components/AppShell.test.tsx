@@ -18,7 +18,7 @@ vi.mock("../hooks/useSyncStatus", () => ({ useSyncStatus: () => null }));
 describe("AppShell", () => {
   it("renders the institutional logo and active section navigation", () => {
     const html = renderToStaticMarkup(
-      <AppShell status="Listo" activeTab="history" onTabChange={() => undefined}>
+      <AppShell status="Listo" syncStatus={null} activeTab="history" onTabChange={() => undefined}>
         <p>Contenido</p>
       </AppShell>
     );
@@ -31,7 +31,7 @@ describe("AppShell", () => {
   });
 
   it("shows the school context while a session is open", () => {
-    const html = renderToStaticMarkup(<AppShell status="Listo" activeTab="home" onTabChange={() => undefined}
+    const html = renderToStaticMarkup(<AppShell status="Listo" syncStatus={null} activeTab="home" onTabChange={() => undefined}
       sessionContext={{ schoolName: "Escuela Norte", schoolCode: "180055400" }}><p>Sesión</p></AppShell>);
     expect(html).toContain("Escuela Norte");
     expect(html).toContain("CUE 180055400");

@@ -6,10 +6,12 @@ import { useDeliverySession } from "./hooks/useDeliverySession";
 import { useHostContext } from "./hooks/useHostContext";
 import { ActivationScreen, shouldShowActivation } from "./activation/ActivationScreen";
 import { isValidCue } from "./domain/cue";
+import { useSyncStatus } from "./hooks/useSyncStatus";
 
 export function HostApp() {
   const hostContext = useHostContext();
   const delivery = useDeliverySession(hostContext);
+  const syncStatus = useSyncStatus(hostContext.apiBaseUrl);
   const [isLocked, setIsLocked] = useState(false);
   const [isRevoked, setIsRevoked] = useState(false);
   const [showRevokedActivation, setShowRevokedActivation] = useState(false);
@@ -22,6 +24,12 @@ export function HostApp() {
   const [activeTab, setActiveTab] = useState<"home" | "history" | "stats">("home");
   const statusRequestSequence = useRef(0);
   const clearManualCue = () => delivery.sessionForm.updateForm("cue", "");
+  const returnToHome = () => {
+    setActiveTab("home");
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>("#sesiones h2")?.focus();
+    }));
+  };
   const changeTab = (tab: "home" | "history" | "stats") => {
     clearManualCue();
     delivery.activeSession.returnToSessions();
@@ -83,7 +91,7 @@ export function HostApp() {
   }
 
   return (
-    <AppShell status={delivery.status} apiBaseUrl={hostContext.apiBaseUrl} appVersion={hostContext.appVersion}
+    <AppShell status={delivery.status} syncStatus={syncStatus} appVersion={hostContext.appVersion}
       sessionContext={delivery.activeSession.session ? { schoolName: delivery.activeSession.session.schoolName || `CUE ${delivery.activeSession.session.schoolCode}`, schoolCode: delivery.activeSession.session.schoolCode } : null}
       activeTab={activeTab} onTabChange={changeTab}>
       {isRevoked && <p className="sync-warning" role="alert">Este PC fue dado de baja. No se pueden crear sesiones nuevas. <button type="button" onClick={() => setShowRevokedActivation(true)}>Cargar nueva clave</button></p>}
@@ -95,12 +103,13 @@ export function HostApp() {
         </p>
       )}
       {activeTab !== "stats" ? (
-        <SessionsWorkspace delivery={delivery} apiBaseUrl={hostContext.apiBaseUrl} tab={activeTab} expiryPending={expiryPending} onStats={() => { delivery.activeSession.returnToSessions(); setActiveTab("stats"); }} onReturnHome={() => setActiveTab("home")} />
-      ) : delivery.activeSession.session ? <SessionsWorkspace delivery={delivery} apiBaseUrl={hostContext.apiBaseUrl} tab="home" expiryPending={expiryPending} onStats={() => { delivery.activeSession.returnToSessions(); setActiveTab("stats"); }} onReturnHome={() => setActiveTab("home")} /> : (
+        <SessionsWorkspace delivery={delivery} apiBaseUrl={hostContext.apiBaseUrl} syncStatus={syncStatus} tab={activeTab} expiryPending={expiryPending} onStats={() => { delivery.activeSession.returnToSessions(); setActiveTab("stats"); }} onReturnHome={returnToHome} />
+      ) : delivery.activeSession.session ? <SessionsWorkspace delivery={delivery} apiBaseUrl={hostContext.apiBaseUrl} syncStatus={syncStatus} tab="home" expiryPending={expiryPending} onStats={() => { delivery.activeSession.returnToSessions(); setActiveTab("stats"); }} onReturnHome={returnToHome} /> : (
         <StatsWorkspace
           apiBaseUrl={hostContext.apiBaseUrl}
           cue={resolveStatsCue(delivery.sessionForm.form.cue, delivery.activeSession.schools.map(school => school.code))}
           schoolYear={delivery.roster.snapshot?.schoolYear}
+          onBack={returnToHome}
         />
       )}
     </AppShell>

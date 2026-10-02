@@ -36,5 +36,8 @@ export function SyncStatusIndicator({ status }: SyncStatusIndicatorProps) {
     );
   }
 
-  return <p role="status">Sincronizado.</p>;
+  const latestObservedAt = formatTime(status.lastPushAt) ?? formatTime(status.lastPullAt);
+  return latestObservedAt
+    ? <p role="status">Conexión observada · {latestObservedAt}.</p>
+    : <p role="status">Sin dato de conexión con Central.</p>;
 }

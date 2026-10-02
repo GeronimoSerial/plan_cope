@@ -54,8 +54,14 @@ describe("SyncStatusIndicator", () => {
     expect(html).toContain("Se reintentará automáticamente.");
   });
 
-  it("renders the healthy confirmation", () => {
-    expect(render(healthyStatus)).toContain("Sincronizado.");
+  it("shows the last observed Central activity instead of claiming continuous connection", () => {
+    expect(render(healthyStatus)).toContain("Conexión observada");
+    expect(render(healthyStatus)).not.toContain("Sincronizado.");
+  });
+
+  it("keeps the connection unknown when no communication timestamp is available", () => {
+    const noSignal = { ...healthyStatus, lastPullAt: null, lastPushAt: null };
+    expect(render(noSignal)).toContain("Sin dato de conexión con Central.");
   });
 
   it("keeps the offline and error states textually distinct", () => {

@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiClient, type CourseStatDto, type ExamStatDto, type StatsFilterOptionsDto } from "../api/apiClient";
-import { downloadBlob, openStatsReport } from "../hostBridge";
-import { SearchableCombobox, normalizeSearch, tokenizeSearch } from "../../shared/ui";
+import { openStatsReport } from "../hostBridge";
+import { SearchableCombobox } from "../../shared/ui";
 import { GradeSectionPicker, sectionOptionValue } from "../../shared/GradeSectionPicker";
 
 type StatsWorkspaceProps = {
   apiBaseUrl: string;
   cue: string;
   schoolYear?: string | null;
+  onBack: () => void;
 };
 
 const refreshIntervalMs = 15000;
@@ -34,42 +35,7 @@ function formatSubmissionDate(value: string): string {
   return `${getPart("day")}/${getPart("month")}/${getPart("year")}`;
 }
 
-const gradeAliases: Record<string, string[]> = {
-  "1": ["primero", "1ro", "1er"],
-  "2": ["segundo", "2do"],
-  "3": ["tercero", "3ro", "3er"],
-  "4": ["cuarto", "4to"],
-  "5": ["quinto", "5to"],
-  "6": ["sexto", "6to"],
-  "7": ["septimo", "7mo"],
-  "8": ["octavo", "8vo"],
-  "9": ["noveno", "9no"],
-  "10": ["decimo", "10mo"],
-  "11": ["undecimo", "11mo"],
-  "12": ["duodecimo", "12mo"]
-};
-
-function searchableCourse(value: string, sections: string[] = []): string[] {
-  const label = displayCourse(value);
-  const grade = normalizeSearch(value);
-  const aliases = gradeAliases[grade] ?? [];
-  const divisionLabels = sections.flatMap(section => {
-    const division = normalizeSearch(section).replace(/\s+/g, "");
-    return division ? [`${grade}${division}`, `${grade} ${division}`, ...aliases.map(alias => `${alias} ${division}`)] : [];
-  });
-  return [value, label, ...aliases, ...divisionLabels];
-}
-
-function matchesSearch(fields: string[], tokens: string[], allowGradeOnlyDivision = false): boolean {
-  const normalized = normalizeSearch(fields.join(" "));
-  return tokens.every(token => {
-    if (normalized.includes(token)) return true;
-    const gradeAndDivision = allowGradeOnlyDivision ? token.match(/^(\d{1,2})[a-z]$/) : null;
-    return gradeAndDivision ? normalized.split(" ").includes(gradeAndDivision[1]) : false;
-  });
-}
-
-export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspaceProps) {
+export function StatsWorkspace({ apiBaseUrl, cue, schoolYear, onBack }: StatsWorkspaceProps) {
   const api = useMemo(() => new ApiClient(apiBaseUrl), [apiBaseUrl]);
   const [activeCue, setActiveCue] = useState("");
   const [schools, setSchools] = useState<{ code: string; name: string; submittedAttemptCount: number; lastSubmittedAt: string }[]>([]);
@@ -78,7 +44,6 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
   const [courseFilter, setCourseFilter] = useState("");
   const [sectionFilter, setSectionFilter] = useState("");
   const [examFilter, setExamFilter] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
   const [filterOptions, setFilterOptions] = useState<StatsFilterOptionsDto>({ schoolYears: [], courses: [], exams: [] });
   const [courseStats, setCourseStats] = useState<CourseStatDto[]>([]);
   const [examStats, setExamStats] = useState<ExamStatDto[]>([]);
@@ -196,15 +161,12 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
 
   const hasAttempts = examStats.some(exam => typeof exam.attemptCount === "number" ? exam.attemptCount > 0 : Number(exam.attemptCount) > 0);
   const selectedStatsSection = filterOptions.sections?.find(section => sectionOptionValue(section) === sectionFilter);
-  const searchTokens = tokenizeSearch(searchQuery.slice(0, 100));
-  const visibleCourses = courseStats.filter(stat => matchesSearch(searchableCourse(stat.course, stat.sections), searchTokens, !stat.sections?.length));
+  const visibleCourses = courseStats.filter(stat => !courseFilter || stat.course === courseFilter);
   const visibleExams = examStats.filter(exam => {
+    if (examFilter && exam.examVersionId !== examFilter) return false;
     if (selectedStatsSection && !exam.sections?.some(section => section.course === courseFilter
       && section.division === selectedStatsSection.division && (section.shift ?? "") === (selectedStatsSection.shift ?? ""))) return false;
-    const courseFields = exam.sections?.length
-      ? exam.sections.flatMap(section => searchableCourse(section.course, [section.division]))
-      : (exam.courses ?? []).flatMap(course => searchableCourse(course));
-    return matchesSearch([exam.title ?? "", exam.examCode, `${exam.examCode} v${exam.versionNumber}`, ...courseFields], searchTokens, !exam.sections?.length);
+    return true;
   });
 
   const handleRefresh = () => {
@@ -226,24 +188,12 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
     }
   };
 
-  const handleCsvExport = async () => {
-    setReportStatus(null);
-    setReportError(null);
-    try {
-      const blob = await api.getStatsExportCsv(activeCue, schoolYearFilter || undefined);
-      downloadBlob(blob, `estadisticas-${activeCue.replace(/[^a-zA-Z0-9_-]/g, "_")}.csv`);
-      setReportStatus("Archivo CSV descargado.");
-    } catch (exception) {
-      setReportError(exception instanceof Error ? exception.message : "No se pudo descargar el archivo CSV.");
-    }
-  };
-
   return (
     <section className="panel node-workspace-panel stats-workspace-panel">
-      <h2>Estadísticas</h2>
-      <p className="stats-live-copy">Pantalla en vivo. El informe HTML es una captura e indica cuándo se generó.</p>
+      <div className="workspace-heading"><div><p className="workspace-location">Inicio / Estadísticas</p><h2 tabIndex={-1}>Estadísticas</h2></div><button className="button button-secondary" type="button" onClick={onBack}>Volver a sesiones</button></div>
+      <p className="stats-live-copy">Los datos se actualizan cada 15 segundos. El informe HTML indica su fecha de generación.</p>
 
-      <div className="stats-filters">
+      <div className="stats-filters" aria-label="Filtros de estadísticas">
         <SearchableCombobox id="stats-school-filter" label="Escuela" value={activeCue} placeholder="Buscá por nombre o CUE"
           options={schools.map(school => ({ value: school.code, label: school.name, description: `${school.submittedAttemptCount} entregas · última ${formatSubmissionDate(school.lastSubmittedAt)} · CUE ${school.code}` }))} onChange={value => {
             hasLoadedStats.current = false;
@@ -269,20 +219,17 @@ export function StatsWorkspace({ apiBaseUrl, cue, schoolYear }: StatsWorkspacePr
 
         <label htmlFor="stats-exam-filter">Examen
           <select id="stats-exam-filter" value={examFilter} disabled={!activeCue} onChange={event => setExamFilter(event.target.value)}>
-            <option value="">Todos los exámenes</option>
+            <option value="">Todos</option>
             {filterOptions.exams.map(exam => <option key={exam.examVersionId} value={exam.examVersionId}>{exam.examCode} v{exam.versionNumber}</option>)}
           </select>
         </label>
       </div>
-      {sectionFilter && <p className="stats-search-help" role="status">Se muestran exámenes vinculados con esa sección. Los totales y los informes siguen agrupados por grado.</p>}
+      {sectionFilter && <p className="stats-filter-help" role="status">Se muestran exámenes vinculados con esa sección. Los totales y los informes siguen agrupados por grado.</p>}
 
       <div className="stats-actions">
         <button className="button button-primary" type="button" onClick={handleReport} disabled={!activeCue}>Generar informe HTML</button>
-        <button className="button button-secondary" type="button" onClick={() => void handleCsvExport()} disabled={!activeCue}>Descargar CSV</button>
         <button id="stats-refresh-button" className="button button-secondary" type="button" onClick={handleRefresh} disabled={isRefreshing}>Actualizar ahora</button>
       </div>
-      <p className="stats-search-field"><label htmlFor="stats-search">Buscar examen o curso</label><input id="stats-search" type="search" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder="Buscar examen o curso" /></p>
-      <p className="stats-search-help">La búsqueda solo filtra esta pantalla; los archivos exportados siguen los filtros seleccionados.</p>
       {updatedAt !== null && <p className="stats-updated" role="status" aria-live="polite">Actualizado hace {formatElapsedSeconds(updatedAt, now)}s</p>}
       {reportStatus && <p className="stats-report-status" role="status" aria-live="polite">{reportStatus}</p>}
       {reportError && <p className="workspace-error" role="alert">{reportError}</p>}

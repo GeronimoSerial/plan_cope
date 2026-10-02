@@ -66,4 +66,9 @@ describe("activation", () => {
     expect(activationProgressMessage({ phase: "rosters", completed: 127, total: 2042, skipped: 3 }))
       .toBe("Descargando listas: 127 de 2042 · 3 omitidas.");
   });
+
+  it("shows the pending results stage without a percentage", () => {
+    expect(activationProgressMessage({ phase: "pending-results", completed: 0, total: 0, skipped: 0 }))
+      .toBe("Enviando intentos pendientes…");
+  });
 });

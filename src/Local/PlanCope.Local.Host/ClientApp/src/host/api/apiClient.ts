@@ -16,6 +16,7 @@ export type SyncStatusDto = {
   lastPullAt: string | null;
   lastPushAt: string | null;
   nextAttempt: string | null;
+  pendingItems?: number;
 };
 
 export type PullExamsStatus = "updated" | "up_to_date" | "error";
@@ -128,18 +129,6 @@ export class ApiClient {
     if (schoolYear) query.set("schoolYear", schoolYear);
     if (course) query.set("course", course);
     return this.get<ExamStatDto[]>(`/api/stats/exam?${query.toString()}`, signal);
-  }
-
-  getStatsExportCsvUrl(cue: string, schoolYear: string | undefined): string {
-    const query = new URLSearchParams({ cue });
-    if (schoolYear) query.set("schoolYear", schoolYear);
-    return `${this.baseUrl}/api/stats/export.csv?${query.toString()}`;
-  }
-
-  async getStatsExportCsv(cue: string, schoolYear?: string): Promise<Blob> {
-    const response = await fetch(this.getStatsExportCsvUrl(cue, schoolYear));
-    if (!response.ok) throw new Error(await readApiError(response));
-    return response.blob();
   }
 
   getStatsFilterOptions(cue: string, signal?: AbortSignal): Promise<StatsFilterOptionsDto> {

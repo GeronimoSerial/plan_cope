@@ -1,4 +1,6 @@
 using PlanCope.Local.Api.Data.Repositories;
+using PlanCope.Shared.Domain.Local;
+using System.Text.Json;
 
 namespace PlanCope.Local.Api.Services;
 
@@ -9,6 +11,7 @@ public interface IInitialActivationDownloadService
 
 public sealed class InitialActivationDownloadService(
     IOutboxRepository outboxRepository,
+    ISyncStateRepository syncStateRepository,
     ILocalOutboxPushService outboxPushService,
     ILocalExamPullService examPullService,
     ILocalRosterPullService rosterPullService,
@@ -44,6 +47,7 @@ public sealed class InitialActivationDownloadService(
         // row or a row in backoff must never block reactivation; the normal sync loop retries it.
         if (await outboxRepository.CountPendingAsync(cancellationToken) > 0)
         {
+            await WriteProgressAsync("pending-results", cancellationToken);
             var pushed = await outboxPushService.PushAsync(200, cancellationToken);
             if (pushed.TransportOrAuthFailure)
             {
@@ -52,6 +56,7 @@ public sealed class InitialActivationDownloadService(
             }
         }
 
+        await WriteProgressAsync("exams", cancellationToken);
         var exams = await examPullService.PullAsync(cancellationToken);
         if (!exams.Success)
         {
@@ -75,6 +80,11 @@ public sealed class InitialActivationDownloadService(
         await revalidationService.SetActivationInProgressAsync(false, cancellationToken);
         return new(true, null);
     }
+
+    private Task WriteProgressAsync(string phase, CancellationToken cancellationToken) =>
+        syncStateRepository.UpsertAsync(new SyncState(Guid.NewGuid().ToString("N"), "activation_download_progress",
+            JsonSerializer.Serialize(new ActivationDownloadProgress(phase, 0, 0, 0), new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+            DateTimeOffset.UtcNow.ToString("O")), cancellationToken);
 }
 
 public sealed record InitialActivationDownloadResult(bool Success, string? Error);
