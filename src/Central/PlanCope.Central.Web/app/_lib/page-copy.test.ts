@@ -12,7 +12,7 @@ describe("copy de páginas", () => {
       'description="Después de instalar, activá cada equipo con una clave de activación."'
     );
     expect(source("(app)/estadisticas/page.tsx")).toContain(
-      'description="Los datos llegan al sincronizar los equipos."'
+      'description="Explorá resultados agregados por territorio, curso, materia, año y establecimiento."'
     );
     expect(source("_components/keys/activation-keys-panel.tsx")).toContain(
       'description="Emití una clave a nombre de una persona y administrá desde acá sus equipos activados."'
