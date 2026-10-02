@@ -8,8 +8,8 @@ using PlanCope.Shared.Domain.Local;
 namespace PlanCope.Local.Api.Services;
 
 /// <summary>
-/// Sends the local outbox only when explicitly invoked by an operator or release.
-/// There is intentionally no hosted service, timer, polling loop, or startup push.
+/// Pushes due local outbox rows for both the operator endpoint and the sync worker.
+/// The persisted outbox and per-row retry time own retry pacing across restarts.
 /// </summary>
 public interface ILocalOutboxPushService
 {
@@ -110,6 +110,7 @@ public sealed class LocalOutboxPushService(
 
             var accepted = 0;
             var failed = pending.Count - validatedPending.Count;
+            DateTimeOffset? centralReceivedAt = null;
             foreach (var item in validatedPending)
             {
                 var itemResult = result.Results.FirstOrDefault(candidate => candidate.IdempotencyKey == item.IdempotencyKey);
@@ -117,6 +118,8 @@ public sealed class LocalOutboxPushService(
                 {
                     await outboxRepository.MarkSentAsync(item.Id, DateTimeOffset.UtcNow.ToString("O"), cancellationToken);
                     accepted++;
+                    if (itemResult.ReceivedAt is { } receivedAt && (centralReceivedAt is null || receivedAt > centralReceivedAt.Value))
+                        centralReceivedAt = receivedAt;
                 }
                 else
                 {
@@ -127,11 +130,25 @@ public sealed class LocalOutboxPushService(
 
             if (accepted > 0)
             {
+                var ackAt = DateTimeOffset.UtcNow;
                 await syncStateRepository.UpsertAsync(new SyncState(
                     Guid.NewGuid().ToString("N"),
                     "last_push_at",
-                    JsonSerializer.Serialize(DateTimeOffset.UtcNow, JsonOptions),
-                    DateTimeOffset.UtcNow.ToString("O")), cancellationToken);
+                    JsonSerializer.Serialize(ackAt, JsonOptions),
+                    ackAt.ToString("O")), cancellationToken);
+                await syncStateRepository.UpsertAsync(new SyncState(
+                    Guid.NewGuid().ToString("N"),
+                    "last_push_ack_at",
+                    JsonSerializer.Serialize(ackAt, JsonOptions),
+                    ackAt.ToString("O")), cancellationToken);
+                if (centralReceivedAt is not null)
+                {
+                    await syncStateRepository.UpsertAsync(new SyncState(
+                        Guid.NewGuid().ToString("N"),
+                        "last_push_received_at",
+                        JsonSerializer.Serialize(centralReceivedAt, JsonOptions),
+                        ackAt.ToString("O")), cancellationToken);
+                }
             }
 
             return new(failed == 0, pending.Count, accepted, failed, failed == 0 ? null : "Some items remain pending for a later manual retry.");
@@ -140,7 +157,7 @@ public sealed class LocalOutboxPushService(
         {
             throw;
         }
-        catch (Exception exception) when (exception is HttpRequestException or JsonException or InvalidOperationException)
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or InvalidOperationException or TaskCanceledException)
         {
             foreach (var item in validatedPending)
             {

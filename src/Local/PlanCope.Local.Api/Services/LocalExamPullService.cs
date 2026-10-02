@@ -23,7 +23,8 @@ public sealed class LocalExamPullService(
     ISyncStateRepository syncStateRepository,
     ILocalExamRepository examRepository,
     LocalAssetFileService assetFileService,
-    ExamPullGate? pullGate = null) : ILocalExamPullService
+    ExamPullGate? pullGate = null,
+    IOutboxRepository? outboxRepository = null) : ILocalExamPullService
 {
     // 50 matches the Central default; the hard page cap keeps a pathological Central from
     // spinning the endpoint forever (50 pages * 50 = 2500 packages per invocation).
@@ -179,9 +180,9 @@ public sealed class LocalExamPullService(
         var now = DateTimeOffset.UtcNow;
         await UpsertStateStringAsync(CursorKey, cursor, cancellationToken);
         await UpsertStateStringAsync(LastPullAtKey, now.ToString("O"), cancellationToken);
-        // Mirror the background service: a successful pull clears the operator-visible error and
-        // proves Central is reachable again.
-        await UpsertStateStringAsync(LastErrorKey, string.Empty, cancellationToken);
+        // A successful pull cannot clear a push error while durable results still await ACK.
+        if (outboxRepository is null || await outboxRepository.CountPendingAsync(cancellationToken) == 0)
+            await UpsertStateStringAsync(LastErrorKey, string.Empty, cancellationToken);
         await UpsertStateValueAsync(OfflineKey, JsonSerializer.Serialize(false, JsonOptions), cancellationToken);
 
         return new LocalExamPullResult(
