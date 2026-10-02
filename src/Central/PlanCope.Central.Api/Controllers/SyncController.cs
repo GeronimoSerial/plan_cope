@@ -316,7 +316,7 @@ public sealed class SyncController(
                             .ExecuteUpdateAsync(update => update
                                 .SetProperty(row => row.Status, "processing_failed")
                                 .SetProperty(row => row.ProcessedAt, (DateTimeOffset?)null)
-                                .SetProperty(row => row.ProcessingAttemptCount, attemptCount)
+                                .SetProperty(row => row.ProcessingAttemptCount, row => row.ProcessingAttemptCount + 1)
                                 .SetProperty(row => row.NextProcessingAt, DateTimeOffset.UtcNow.AddSeconds(delaySeconds)),
                                 cancellationToken);
                     }
