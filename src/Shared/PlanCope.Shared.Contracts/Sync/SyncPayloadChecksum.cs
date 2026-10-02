@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -18,8 +20,8 @@ public static class SyncPayloadChecksum
     }
 
     /// <summary>
-    /// Checksums emitted by Local versions before object properties were sorted. Central accepts
-    /// these while old SQLite outbox rows drain after an upgrade.
+    /// Checksums emitted by older Local binaries before object properties were sorted. Central
+    /// accepts them while older binaries may still be delivering pending outbox rows.
     /// </summary>
     public static string CalculateLegacy(JsonElement payload) =>
         Hash(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload)));
@@ -49,7 +51,7 @@ public static class SyncPayloadChecksum
                 writer.WriteStringValue(element.GetString());
                 break;
             case JsonValueKind.Number:
-                writer.WriteRawValue(element.GetRawText(), skipInputValidation: false);
+                writer.WriteRawValue(CanonicalizeNumber(element.GetRawText()), skipInputValidation: false);
                 break;
             case JsonValueKind.True:
                 writer.WriteBooleanValue(true);
@@ -64,5 +66,35 @@ public static class SyncPayloadChecksum
             default:
                 throw new JsonException($"Unsupported JSON value kind {element.ValueKind}.");
         }
+    }
+
+    private static string CanonicalizeNumber(string raw)
+    {
+        var exponentMarker = raw.IndexOfAny(['e', 'E']);
+        var mantissa = exponentMarker < 0 ? raw : raw[..exponentMarker];
+        var exponent = exponentMarker < 0
+            ? BigInteger.Zero
+            : BigInteger.Parse(raw[(exponentMarker + 1)..], NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture);
+        var negative = mantissa[0] == '-';
+        if (negative) mantissa = mantissa[1..];
+
+        var decimalPoint = mantissa.IndexOf('.');
+        var fractionalDigits = decimalPoint < 0 ? 0 : mantissa.Length - decimalPoint - 1;
+        var digits = decimalPoint < 0 ? mantissa : string.Concat(mantissa.AsSpan(0, decimalPoint), mantissa.AsSpan(decimalPoint + 1));
+        digits = digits.TrimStart('0');
+        if (digits.Length == 0) return "0";
+        exponent -= fractionalDigits;
+
+        var trailingZeroCount = 0;
+        for (var index = digits.Length - 1; index >= 0 && digits[index] == '0'; index--) trailingZeroCount++;
+        if (trailingZeroCount > 0)
+        {
+            digits = digits[..^trailingZeroCount];
+            exponent += trailingZeroCount;
+        }
+
+        var sign = negative ? "-" : string.Empty;
+        var exponentSuffix = exponent.IsZero ? string.Empty : $"e{exponent.ToString(CultureInfo.InvariantCulture)}";
+        return $"{sign}{digits}{exponentSuffix}";
     }
 }

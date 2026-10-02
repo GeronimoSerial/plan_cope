@@ -196,7 +196,7 @@ public sealed class SyncController(
             }
 
             await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
-            var receivedAt = DateTimeOffset.UtcNow;
+            var receivedAt = TruncateToPostgresPrecision(DateTimeOffset.UtcNow);
             var inbox = new SyncInbox(
                 Guid.NewGuid().ToString("N"),
                 nodeId,
@@ -306,14 +306,31 @@ public sealed class SyncController(
                     if (inbox.Status == "processed") return "processed";
                     var attemptCount = inbox.ProcessingAttemptCount + 1;
                     var delaySeconds = Math.Min(3600, 30 * Math.Pow(2, Math.Min(attemptCount - 1, 7)));
-                    dbContext.Entry(inbox).CurrentValues.SetValues(inbox with
+                    if (dbContext.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
                     {
-                        Status = "processing_failed",
-                        ProcessedAt = null,
-                        ProcessingAttemptCount = attemptCount,
-                        NextProcessingAt = DateTimeOffset.UtcNow.AddSeconds(delaySeconds)
-                    });
-                    await dbContext.SaveChangesAsync(cancellationToken);
+                        // Another same-key retry can acquire the advisory lock and finish after
+                        // this failed transaction releases it but before this catch runs. Make
+                        // the failure mark conditional so it cannot overwrite that processed row.
+                        await dbContext.SyncInbox
+                            .Where(row => row.Id == inboxId && row.Status != "processed")
+                            .ExecuteUpdateAsync(update => update
+                                .SetProperty(row => row.Status, "processing_failed")
+                                .SetProperty(row => row.ProcessedAt, (DateTimeOffset?)null)
+                                .SetProperty(row => row.ProcessingAttemptCount, attemptCount)
+                                .SetProperty(row => row.NextProcessingAt, DateTimeOffset.UtcNow.AddSeconds(delaySeconds)),
+                                cancellationToken);
+                    }
+                    else
+                    {
+                        dbContext.Entry(inbox).CurrentValues.SetValues(inbox with
+                        {
+                            Status = "processing_failed",
+                            ProcessedAt = null,
+                            ProcessingAttemptCount = attemptCount,
+                            NextProcessingAt = DateTimeOffset.UtcNow.AddSeconds(delaySeconds)
+                        });
+                        await dbContext.SaveChangesAsync(cancellationToken);
+                    }
                 }
             }
             catch (Exception statusException) when (statusException is not OperationCanceledException)
@@ -500,6 +517,9 @@ public sealed class SyncController(
 
         return false;
     }
+
+    private static DateTimeOffset TruncateToPostgresPrecision(DateTimeOffset value) =>
+        new(value.UtcTicks - value.UtcTicks % 10, TimeSpan.Zero);
 
     private static DateTimeOffset? ParseOptionalDate(string? value) =>
         DateTimeOffset.TryParse(value, out var parsed) ? parsed : null;

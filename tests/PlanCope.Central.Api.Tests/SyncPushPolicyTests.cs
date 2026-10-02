@@ -52,6 +52,21 @@ public sealed class SyncPushPolicyTests
     }
 
     [Fact]
+    public void Checksum_normalizes_json_numbers_without_rounding_distinct_values_together()
+    {
+        using var exponentForm = JsonDocument.Parse("""{"value":1E+20}""");
+        using var expandedForm = JsonDocument.Parse("""{"value":100000000000000000000}""");
+        using var differentValue = JsonDocument.Parse("""{"value":100000000000000000001}""");
+
+        Assert.Equal(
+            SyncPayloadChecksum.Calculate(exponentForm.RootElement),
+            SyncPayloadChecksum.Calculate(expandedForm.RootElement));
+        Assert.NotEqual(
+            SyncPayloadChecksum.Calculate(exponentForm.RootElement),
+            SyncPayloadChecksum.Calculate(differentValue.RootElement));
+    }
+
+    [Fact]
     public void Reusing_idempotency_key_with_a_different_payload_is_rejected()
     {
         var item = CreateItem("key-1", "attempt-1", "GE:42");
