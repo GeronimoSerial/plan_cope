@@ -29,9 +29,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               <main id="contenido" className="central-main">
                 {children}
               </main>
-              <footer className="central-footer"><div className="central-footer__inner">Ministerio de Educación · Gobierno de Corrientes</div></footer>
             </div>
           </div>
+          <footer className="central-footer"><div className="central-footer__inner">Ministerio de Educación · Gobierno de Corrientes</div></footer>
         </SidebarProvider>
       </TooltipProvider>
     </NavigationGuardProvider>
