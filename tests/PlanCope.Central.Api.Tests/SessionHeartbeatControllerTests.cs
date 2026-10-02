@@ -1,5 +1,7 @@
 using System.Security.Claims;
+using System.Reflection;
 using System.Text.Json;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -20,6 +22,13 @@ public sealed class SessionHeartbeatControllerTests
         .AddEntityFrameworkInMemoryDatabase()
         .AddSingleton<IModelCustomizer, JsonDocumentFriendlyModelCustomizer>()
         .BuildServiceProvider();
+
+    [Fact]
+    public void Live_sessions_admin_list_requires_admin_role()
+    {
+        var authorize = typeof(LiveSessionsAdminController).GetCustomAttribute<AuthorizeAttribute>();
+        Assert.Equal("Admin", authorize?.Roles);
+    }
 
     [Fact]
     public async Task Heartbeat_requires_node_token_and_rejects_foreign_cue()
@@ -130,13 +139,15 @@ public sealed class SessionHeartbeatControllerTests
     }
 
     [Fact]
-    public async Task Admin_list_marks_old_nonclosed_heartbeats_as_sin_senal()
+    public async Task Admin_list_distinguishes_fresh_stale_missing_and_closed_sessions()
     {
         using var db = CreateDbContext();
         var now = DateTimeOffset.UtcNow;
         db.DeliverySessions.AddRange(
             Session("fresh", "node-A", now.AddMinutes(-2)),
-            Session("stale", "node-A", now.AddMinutes(-12)));
+            Session("stale", "node-A", now.AddMinutes(-12)),
+            Session("missing", "node-A", null),
+            Session("closed", "node-A", now.AddMinutes(-20)) with { Status = "closed", EndedAt = now.AddMinutes(-15) });
         await db.SaveChangesAsync();
         var controller = new LiveSessionsAdminController(db);
         controller.ControllerContext.HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext
@@ -147,8 +158,11 @@ public sealed class SessionHeartbeatControllerTests
         var result = await controller.List(CancellationToken.None);
         var rows = Assert.IsType<OkObjectResult>(result.Result).Value as IReadOnlyList<LiveSessionSummary>;
         Assert.NotNull(rows);
-        Assert.Equal("En curso", rows.Single(row => row.SessionId == "fresh").SignalStatus);
-        Assert.Equal("Sin señal", rows.Single(row => row.SessionId == "stale").SignalStatus);
+        Assert.Equal("fresh", rows.Single(row => row.SessionId == "fresh").SignalStatus);
+        Assert.Equal("stale", rows.Single(row => row.SessionId == "stale").SignalStatus);
+        Assert.Equal("missing", rows.Single(row => row.SessionId == "missing").SignalStatus);
+        Assert.Equal("closed", rows.Single(row => row.SessionId == "closed").Status);
+        Assert.Equal(600, rows.Single(row => row.SessionId == "fresh").HeartbeatStaleAfterSeconds);
     }
 
     private static SessionHeartbeatRequest Request(string sessionId, string cue) => new(

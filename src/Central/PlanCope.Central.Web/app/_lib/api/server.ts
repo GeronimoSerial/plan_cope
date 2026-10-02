@@ -180,8 +180,10 @@ export interface LiveSessionSummary {
   startedAt: string;
   lastActivityAt: string | null;
   lastHeartbeatAt: string | null;
-  signalStatus: string;
+  /** Older Central versions may omit these additive live-signal fields. */
+  signalStatus?: string | null;
   appVersion: string | null;
+  heartbeatStaleAfterSeconds?: number | null;
 }
 
 export function listLiveSessions(): Promise<LiveSessionSummary[]> {
@@ -200,6 +202,11 @@ export function listSchoolYears(): Promise<SchoolYearOption[]> {
 export interface ReceivedSyncAttempt {
   attemptId: string;
   receivedAt: string;
+  receiptStatus: string;
+  durableReceivedAt: string | null;
+  processingStatus: string;
+  processingUpdatedAt: string | null;
+  rollupStatus: string;
   nodeId: string | null;
   cue: string | null;
   schoolYear: string | null;
@@ -215,6 +222,12 @@ export interface ReceivedSyncPage {
   page: number;
   pageSize: number;
   totalCount: number;
+  inboxProcessing: {
+    pending: number;
+    failed: number;
+    latestDurableReceivedAt: string | null;
+    nextRetryAt: string | null;
+  };
   items: ReceivedSyncAttempt[];
 }
 

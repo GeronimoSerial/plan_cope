@@ -84,18 +84,25 @@ public sealed class LiveSessionsAdminController(PlanCopeDbContext dbContext) : C
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<LiveSessionSummary>>> List(CancellationToken cancellationToken)
     {
-        var sessions = await dbContext.DeliverySessions.AsNoTracking()
+        var openSessions = await dbContext.DeliverySessions.AsNoTracking()
             .Where(session => session.Status == "active" || session.Status == "paused")
-            .OrderByDescending(session => session.LastHeartbeatAt)
-            .ThenByDescending(session => session.StartedAt)
+            .OrderByDescending(session => session.StartedAt ?? session.CreatedAt)
             .ToListAsync(cancellationToken);
+        var recentClosedSessions = await dbContext.DeliverySessions.AsNoTracking()
+            .Where(session => session.Status == "closed")
+            .OrderByDescending(session => session.EndedAt ?? session.StartedAt ?? session.CreatedAt)
+            .Take(25)
+            .ToListAsync(cancellationToken);
+        var sessions = openSessions.Concat(recentClosedSessions)
+            .OrderByDescending(session => session.StartedAt ?? session.CreatedAt)
+            .ToList();
         var staleCutoff = DateTimeOffset.UtcNow - SessionHeartbeatPolicy.StaleAfter;
         return Ok(sessions.Select(session => new LiveSessionSummary(
             session.RemoteLocalId, session.SchoolId ?? "", session.SchoolYear, session.RosterSectionId,
             session.ExamVersionId, session.Status, session.JoinedCount, session.InProgressCount,
             session.SubmittedCount, session.ClosedOrForcedCount, session.StartedAt ?? session.CreatedAt,
             session.LastActivityAt, session.LastHeartbeatAt,
-            session.LastHeartbeatAt is null || session.LastHeartbeatAt < staleCutoff ? "Sin señal" : "En curso",
-            session.LocalAppVersion)).ToList());
+            session.LastHeartbeatAt is null ? "missing" : session.LastHeartbeatAt < staleCutoff ? "stale" : "fresh",
+            session.LocalAppVersion, (int)SessionHeartbeatPolicy.StaleAfter.TotalSeconds)).ToList());
     }
 }
