@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Globalization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -8,6 +9,7 @@ using PlanCope.Central.Api.Services;
 using PlanCope.Shared.Domain;
 using PlanCope.Shared.Domain.Central;
 using PlanCope.Shared.Domain.ValueObjects;
+using PlanCope.Shared.Contracts.Stats;
 
 namespace PlanCope.Central.Api.Controllers;
 
@@ -23,7 +25,9 @@ public sealed class StatsController(PlanCopeDbContext dbContext, IAuthorizationS
         IReadOnlyCollection<string> cues;
         if (rosterScope == "province")
         {
-            cues = await dbContext.ExamRollups.AsNoTracking().Select(r => r.Cue).Distinct().ToListAsync(cancellationToken);
+            var rollupCues = await dbContext.ExamRollups.AsNoTracking().Select(r => r.Cue).Distinct().ToListAsync(cancellationToken);
+            var schools = await dbContext.Schools.AsNoTracking().Where(s => s.DeletedAt == null && s.Status == "Active").ToListAsync(cancellationToken);
+            cues = rollupCues.Concat(schools.Select(s => CueCode.TryFromSchool(s.Cue, s.Annex, out var value) ? value : null).OfType<string>()).Distinct(StringComparer.Ordinal).ToList();
         }
         else if (rosterScope == "school")
         {
@@ -33,11 +37,13 @@ public sealed class StatsController(PlanCopeDbContext dbContext, IAuthorizationS
             {
                 if ((await authorizationService.AuthorizeAsync(User, cue, new RosterScopeRequirement())).Succeeded)
                 {
-                    authorized.Add(cue);
+                    if (CueCode.TryNormalize(cue, out var normalized)) authorized.Add(normalized);
                 }
             }
 
-            cues = authorized;
+            var assigned = authorized.ToHashSet(StringComparer.Ordinal);
+            var allSchools = await dbContext.Schools.AsNoTracking().Where(s => s.DeletedAt == null && s.Status == "Active").ToListAsync(cancellationToken);
+            cues = authorized.Concat(allSchools.Select(s => CueCode.TryFromSchool(s.Cue, s.Annex, out var value) ? value : null).OfType<string>().Where(assigned.Contains)).Distinct(StringComparer.Ordinal).ToList();
         }
         else
         {
@@ -71,10 +77,23 @@ public sealed class StatsController(PlanCopeDbContext dbContext, IAuthorizationS
         {
             if (CueCode.TryFromSchool(school.Cue, school.Annex, out var schoolCue)) schoolNames[schoolCue] = school.Name;
         }
+        var rollupQuery = dbContext.ExamRollups.AsNoTracking().Where(r => cues.Contains(r.Cue));
+        if (schoolYear is not null) rollupQuery = rollupQuery.Where(r => r.SchoolYear == schoolYear);
+        if (course is not null) rollupQuery = rollupQuery.Where(r => r.Course == course);
+        var totalsByCue = await rollupQuery.GroupBy(r => r.Cue).Select(g => new
+        {
+            Cue = g.Key,
+            Attempts = g.Sum(r => r.AttemptCount),
+            Score = g.Sum(r => r.ScoreSum),
+            Max = g.Sum(r => r.ScoreMaxSum),
+            Latest = g.Max(r => (DateTimeOffset?)r.UpdatedAt)
+        }).ToDictionaryAsync(r => r.Cue, cancellationToken);
         var rows = new List<object>();
         foreach (var cue in cues)
         {
-            var totals = await QueryTotalsAsync(cue, schoolYear, course, cancellationToken);
+            totalsByCue.TryGetValue(cue, out var totals);
+            var attempts = totals?.Attempts ?? 0;
+            var percent = totals is { Max: > 0 } ? totals.Score / totals.Max * 100 : 0;
             rows.Add(new
             {
                 cue,
@@ -83,8 +102,9 @@ public sealed class StatsController(PlanCopeDbContext dbContext, IAuthorizationS
                 liveInProgressCount = liveByCue.TryGetValue(cue, out live) ? live.InProgress : 0,
                 liveSubmittedCount = liveByCue.TryGetValue(cue, out live) ? live.Submitted : 0,
                 schoolName = schoolNames.GetValueOrDefault(cue),
-                attemptCount = Render(SuppressibleValue<int>.For(rosterScope!, totals.AttemptCount, totals.AttemptCount)),
-                averageScorePercent = Render(SuppressibleValue<double>.For(rosterScope!, totals.AttemptCount, totals.Percent))
+                attemptCount = Render(SuppressibleValue<int>.For(rosterScope!, attempts, attempts)),
+                averageScorePercent = Render(SuppressibleValue<double>.For(rosterScope!, attempts, percent)),
+                latestRollupUpdatedAt = totals?.Latest?.ToString("O")
             });
         }
 
@@ -104,7 +124,7 @@ public sealed class StatsController(PlanCopeDbContext dbContext, IAuthorizationS
             {
                 if ((await authorizationService.AuthorizeAsync(User, cue, new RosterScopeRequirement())).Succeeded)
                 {
-                    authorized.Add(cue);
+                    if (CueCode.TryNormalize(cue, out var normalized)) authorized.Add(normalized);
                 }
             }
             query = query.Where(row => authorized.Contains(row.Cue));
@@ -131,7 +151,7 @@ public sealed class StatsController(PlanCopeDbContext dbContext, IAuthorizationS
             {
                 if ((await authorizationService.AuthorizeAsync(User, cue, new RosterScopeRequirement())).Succeeded)
                 {
-                    authorized.Add(cue);
+                    if (CueCode.TryNormalize(cue, out var normalized)) authorized.Add(normalized);
                 }
             }
 
@@ -159,12 +179,29 @@ public sealed class StatsController(PlanCopeDbContext dbContext, IAuthorizationS
             return Forbid();
         }
 
+        var normalizedCue = CueCode.Normalize(cue);
         var rosterScope = User.FindFirstValue("roster_scope")!;
-        var totals = await QueryTotalsAsync(cue, schoolYear, course, cancellationToken);
+        var totals = await QueryTotalsAsync(normalizedCue, schoolYear, course, cancellationToken);
+        var cueNumber = long.Parse(normalizedCue, CultureInfo.InvariantCulture);
+        var matched = await (from school in dbContext.Schools.AsNoTracking()
+                             join locality in dbContext.Localities.AsNoTracking() on school.LocalityId equals locality.Id
+                             join department in dbContext.Departments.AsNoTracking() on locality.DepartmentId equals department.Id
+                             where school.DeletedAt == null && school.Status == "Active" &&
+                                 ((school.Cue > 9_999_999 && school.Cue == cueNumber) ||
+                                  (school.Cue <= 9_999_999 && school.Cue * 100 + (school.Annex ?? 0) == cueNumber))
+                             select new { school.Name, school.LocalityId, Locality = locality.Name, DepartmentId = department.Id, Department = department.Name })
+            .FirstOrDefaultAsync(cancellationToken);
         return Ok(new
         {
+            cue = normalizedCue,
+            schoolName = matched?.Name,
+            localityId = matched?.LocalityId,
+            locality = matched?.Locality,
+            departmentId = matched?.DepartmentId,
+            department = matched?.Department,
             attemptCount = Render(SuppressibleValue<int>.For(rosterScope, totals.AttemptCount, totals.AttemptCount)),
-            averageScorePercent = Render(SuppressibleValue<double>.For(rosterScope, totals.AttemptCount, totals.Percent))
+            averageScorePercent = Render(SuppressibleValue<double>.For(rosterScope, totals.AttemptCount, totals.Percent)),
+            latestRollupUpdatedAt = await dbContext.ExamRollups.AsNoTracking().Where(r => r.Cue == normalizedCue && (schoolYear == null || r.SchoolYear == schoolYear) && (course == null || r.Course == course)).MaxAsync(r => (DateTimeOffset?)r.UpdatedAt, cancellationToken)
         });
     }
 
