@@ -25,9 +25,19 @@ function formatHeartbeatAge(value: string | null, now: number | null): string {
 
 function heartbeatLabel(session: LiveSessionSummary, now: number | null): string {
   if (!session.lastHeartbeatAt || session.signalStatus === "missing") return "Sin señal";
-  if (now === null) return session.signalStatus === "stale" ? "Desactualizada" : "Fresca";
-  const ageSeconds = (now - new Date(session.lastHeartbeatAt).getTime()) / 1000;
-  if (ageSeconds > session.heartbeatStaleAfterSeconds || session.signalStatus === "stale") return "Desactualizada";
+  if (session.signalStatus === "stale") return "Desactualizada";
+  if (session.signalStatus !== "fresh") return "Sin señal";
+
+  const staleAfterSeconds = session.heartbeatStaleAfterSeconds;
+  if (typeof staleAfterSeconds !== "number" || !Number.isFinite(staleAfterSeconds) || staleAfterSeconds < 0) {
+    return "Desactualizada";
+  }
+  const heartbeatAt = new Date(session.lastHeartbeatAt).getTime();
+  if (!Number.isFinite(heartbeatAt)) return "Sin señal";
+  if (now === null) return "Fresca";
+
+  const ageSeconds = (now - heartbeatAt) / 1000;
+  if (ageSeconds > staleAfterSeconds) return "Desactualizada";
   return "Fresca";
 }
 

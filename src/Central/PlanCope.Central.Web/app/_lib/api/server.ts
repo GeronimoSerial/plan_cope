@@ -180,9 +180,10 @@ export interface LiveSessionSummary {
   startedAt: string;
   lastActivityAt: string | null;
   lastHeartbeatAt: string | null;
-  signalStatus: string;
+  /** Older Central versions may omit these additive live-signal fields. */
+  signalStatus?: string | null;
   appVersion: string | null;
-  heartbeatStaleAfterSeconds: number;
+  heartbeatStaleAfterSeconds?: number | null;
 }
 
 export function listLiveSessions(): Promise<LiveSessionSummary[]> {

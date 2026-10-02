@@ -44,6 +44,36 @@ describe("LiveSessionsPanel", () => {
     expect(html).toContain("Sin señal");
   });
 
+  it("fails closed when signal status is absent or unknown", () => {
+    const withoutStatus = { ...baseSession } as Partial<LiveSessionSummary> & Pick<LiveSessionSummary, "sessionId">;
+    delete withoutStatus.signalStatus;
+    const html = renderToStaticMarkup(createElement(LiveSessionsPanel, {
+      initialReadStatus: null,
+      initialSessions: [
+        withoutStatus as LiveSessionSummary,
+        { ...baseSession, sessionId: "unknown-status", signalStatus: "warming-up" }
+      ]
+    }));
+
+    expect(html.match(/Sin señal/g)).toHaveLength(2);
+    expect(html).not.toContain("Fresca");
+  });
+
+  it("requires a stale threshold before showing a fresh signal", () => {
+    const withoutThreshold = { ...baseSession } as Partial<LiveSessionSummary> & Pick<LiveSessionSummary, "sessionId">;
+    delete withoutThreshold.heartbeatStaleAfterSeconds;
+    const html = renderToStaticMarkup(createElement(LiveSessionsPanel, {
+      initialReadStatus: null,
+      initialSessions: [
+        withoutThreshold as LiveSessionSummary,
+        { ...baseSession, sessionId: "valid-fresh" }
+      ]
+    }));
+
+    expect(html.match(/Desactualizada/g)).toHaveLength(1);
+    expect(html.match(/Fresca/g)).toHaveLength(1);
+  });
+
   it("distinguishes an empty response from a failed read", () => {
     const empty = renderToStaticMarkup(createElement(LiveSessionsPanel, { initialSessions: [], initialReadStatus: null }));
     const failed = renderToStaticMarkup(createElement(LiveSessionsPanel, { initialSessions: [], initialReadStatus: "error" }));
