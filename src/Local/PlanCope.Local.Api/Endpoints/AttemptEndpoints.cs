@@ -459,7 +459,7 @@ public static class AttemptEndpoints
             var expiresAt = now.AddHours(4).ToString("O");
             if (!await attemptRepository.CreateResumeCredentialAsync(currentAttempt.Id, currentAttempt.DeliverySessionId,
                     tokenService.HashToken(credential), tokenService.HashToken(resumeProof), expiresAt, now.ToString("O"), cancellationToken))
-                return Results.Conflict(new { error = "El intento o la sesión ya no están disponibles para recuperar acceso." });
+                return Results.BadRequest(new { error = "El intento o la sesión ya no están disponibles para recuperar acceso." });
             var blocks = await examRepository.GetBlocksAsync(examVersionId, cancellationToken);
             return Results.Created($"/api/attempts/{currentAttempt.Id}", new { attempt = currentAttempt, blocks, resumeCredential = credential, resumeProof, credentialExpiresAt = expiresAt });
         }
