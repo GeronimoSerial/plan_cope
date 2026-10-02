@@ -113,6 +113,105 @@ public sealed class LocalOutboxPushTests
     }
 
     [Fact]
+    public async Task Request_timeout_is_recorded_as_transient_and_keeps_item_pending()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"plancope-outbox-timeout-{Guid.NewGuid():N}.db");
+        try
+        {
+            var connectionString = $"Data Source={databasePath};Pooling=False";
+            new LocalDatabaseInitializer(new LocalDatabaseOptions(connectionString)).Initialize();
+            var factory = new LocalSqliteConnectionFactory(new LocalDatabaseOptions(connectionString));
+            var state = new SyncStateRepository(factory);
+            var outbox = new OutboxRepository(factory);
+            await state.UpsertAsync(new SyncState("node", "central_url", JsonSerializer.Serialize("https://central.test"), DateTimeOffset.UtcNow.ToString("O")));
+            await state.UpsertAsync(new SyncState("node-id", "node_id", JsonSerializer.Serialize("node-1"), DateTimeOffset.UtcNow.ToString("O")));
+            await outbox.InsertAsync(new SyncOutbox("outbox-timeout", SyncEventTypes.AttemptSubmitted, "student_attempt", "attempt-timeout", "key-timeout", "{\"attempt\":{}}", "pending", 0, null, null, DateTimeOffset.UtcNow.ToString("O"), null));
+            var handler = new DelegateHandler((_, _) => throw new TaskCanceledException("HTTP request timeout"));
+
+            var result = await new LocalOutboxPushService(new TestHttpClientFactory(handler), state, outbox).PushAsync(20);
+
+            Assert.False(result.Success);
+            Assert.True(result.TransportOrAuthFailure);
+            using var connection = new SqliteConnection(connectionString);
+            connection.Open();
+            Assert.Equal("pending", connection.ExecuteScalar<string>("SELECT status FROM sync_outbox WHERE id = 'outbox-timeout';"));
+            Assert.Equal(1L, connection.ExecuteScalar<long>("SELECT retry_count FROM sync_outbox WHERE id = 'outbox-timeout';"));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (File.Exists(databasePath)) File.Delete(databasePath);
+        }
+    }
+
+    [Fact]
+    public async Task Commit_before_lost_ack_retries_as_duplicate_and_clears_sqlite_outbox_once()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"plancope-outbox-ack-{Guid.NewGuid():N}.db");
+        try
+        {
+            var connectionString = $"Data Source={databasePath};Pooling=False";
+            new LocalDatabaseInitializer(new LocalDatabaseOptions(connectionString)).Initialize();
+            var factory = new LocalSqliteConnectionFactory(new LocalDatabaseOptions(connectionString));
+            var state = new SyncStateRepository(factory);
+            var outbox = new OutboxRepository(factory);
+            await state.UpsertAsync(new SyncState("node", "central_url", JsonSerializer.Serialize("https://central.test"), DateTimeOffset.UtcNow.ToString("O")));
+            await state.UpsertAsync(new SyncState("node-id", "node_id", JsonSerializer.Serialize("node-1"), DateTimeOffset.UtcNow.ToString("O")));
+            const string payload = "{\"attempt\":{\"id\":\"fixture-attempt\",\"studentCode\":\"TEST-1\"}}";
+            await outbox.InsertAsync(new SyncOutbox("outbox-1", SyncEventTypes.AttemptSubmitted, "student_attempt", "fixture-attempt", "durable-key", payload, "pending", 0, null, null, DateTimeOffset.UtcNow.ToString("O"), null));
+
+            var centralInbox = new Dictionary<string, (string Checksum, DateTimeOffset ReceivedAt)>(StringComparer.Ordinal);
+            var loseFirstAck = true;
+            var handler = new DelegateHandler((request, cancellationToken) =>
+            {
+                var requestJson = request.Content!.ReadFromJsonAsync<PushRequest>(cancellationToken: cancellationToken).GetAwaiter().GetResult()!;
+                var item = Assert.Single(requestJson.Items);
+                var checksum = SyncPayloadChecksum.Calculate(item.Payload);
+                var duplicate = centralInbox.TryGetValue(item.IdempotencyKey, out var existingReceipt);
+                if (duplicate && existingReceipt.Checksum != checksum)
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Conflict));
+                var receivedAt = duplicate ? existingReceipt.ReceivedAt : DateTimeOffset.UtcNow;
+                centralInbox.TryAdd(item.IdempotencyKey, (checksum, receivedAt)); // Simulates the durable Central commit.
+                if (loseFirstAck)
+                {
+                    loseFirstAck = false;
+                    throw new HttpRequestException("ACK lost after durable commit");
+                }
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new PushResponse(1, 0, [new PushItemResult(item.IdempotencyKey, duplicate ? "duplicate" : "accepted", null, receivedAt)]))
+                });
+            });
+            var service = new LocalOutboxPushService(new TestHttpClientFactory(handler), state, outbox);
+
+            var first = await service.PushAsync(20);
+            Assert.False(first.Success);
+            using (var connection = new SqliteConnection(connectionString))
+            {
+                connection.Open();
+                Assert.Equal("pending", connection.ExecuteScalar<string>("SELECT status FROM sync_outbox WHERE id = 'outbox-1';"));
+                await connection.ExecuteAsync("UPDATE sync_outbox SET next_retry_at = NULL WHERE id = 'outbox-1';"); // Restarted worker sees the durable row again.
+            }
+
+            var retry = await service.PushAsync(20);
+
+            Assert.True(retry.Success);
+            Assert.Equal(1, retry.Accepted);
+            Assert.Single(centralInbox);
+            using var finalConnection = new SqliteConnection(connectionString);
+            finalConnection.Open();
+            Assert.Equal("sent", finalConnection.ExecuteScalar<string>("SELECT status FROM sync_outbox WHERE id = 'outbox-1';"));
+            Assert.NotNull(await state.GetAsync("last_push_ack_at"));
+            Assert.NotNull(await state.GetAsync("last_push_received_at"));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (File.Exists(databasePath)) File.Delete(databasePath);
+        }
+    }
+
+    [Fact]
     public async Task Rejected_result_is_pending_but_does_not_report_transport_or_auth_failure()
     {
         var databasePath = Path.Combine(Path.GetTempPath(), $"plancope-outbox-{Guid.NewGuid():N}.db");

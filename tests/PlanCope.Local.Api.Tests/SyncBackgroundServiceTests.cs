@@ -31,24 +31,40 @@ public sealed class SyncBackgroundServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Never_calls_central_while_a_session_is_active()
+    public async Task Active_session_does_not_block_heartbeat_or_outbox_delivery()
     {
         await SeedActiveSessionAsync();
         await SeedSyncStateAsync("central_url", CentralUrl);
+        await SeedSyncStateAsync("node_id", "node-1");
+        await new NodeIdentityRepository(connectionFactory).UpsertAsync(new NodeIdentity(
+            "identity-1", "node-1", "180055400", "fingerprint", "{}", "2026-09-15T00:00:00Z", null,
+            "active", null, null));
+        using (var connection = connectionFactory.CreateOpenConnection())
+        {
+            await connection.ExecuteAsync("""
+                INSERT INTO sync_outbox (id, event_type, aggregate_type, aggregate_id, idempotency_key, payload_json, status, retry_count, created_at)
+                VALUES ('outbox-active', 'attempt_submitted', 'student_attempt', 'attempt-active', 'key-active', '{"attempt":{"id":"attempt-active"}}', 'pending', 0, @CreatedAt);
+                """, new { CreatedAt = DateTimeOffset.UtcNow.ToString("O") });
+        }
 
-        var handler = new ThrowingHandler();
+        var handler = new ActiveSessionSyncHandler();
         var service = BuildService(new StubHttpClientFactory(handler));
 
         await service.StartAsync(CancellationToken.None);
         await Task.Delay(300);
         await service.StopAsync(CancellationToken.None);
 
-        Assert.Null(handler.CapturedException);
-        Assert.Equal(0, handler.CallCount);
+        Assert.Contains(handler.Paths, path => path == "/api/sync/session-heartbeat");
+        Assert.Contains(handler.Paths, path => path == "/api/sync/push");
+        Assert.DoesNotContain(handler.Paths, path => path.StartsWith("/api/sync/pull", StringComparison.Ordinal));
+        using var verificationConnection = connectionFactory.CreateOpenConnection();
+        Assert.Equal("sent", verificationConnection.ExecuteScalar<string>("SELECT status FROM sync_outbox WHERE id = 'outbox-active';"));
+        Assert.NotNull(await new SyncStateRepository(connectionFactory).GetAsync("last_heartbeat_received_at"));
+        Assert.NotNull(await new SyncStateRepository(connectionFactory).GetAsync("last_push_ack_at"));
     }
 
     [Fact]
-    public async Task Active_session_sends_small_heartbeat_without_adding_outbox_items()
+    public async Task Active_session_heartbeat_stays_small_and_does_not_enter_outbox()
     {
         await SeedActiveSessionAsync();
         using (var insertConnection = connectionFactory.CreateOpenConnection())
@@ -242,6 +258,116 @@ public sealed class SyncBackgroundServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Successful_exam_pull_does_not_clear_outbox_push_error()
+    {
+        await SeedActiveSessionAsync();
+        using (var connection = connectionFactory.CreateOpenConnection())
+        {
+            await connection.ExecuteAsync("UPDATE delivery_sessions SET start_at = @StartedAt WHERE id = 'session-active';",
+                new { StartedAt = DateTimeOffset.UtcNow.AddHours(-3).ToString("O") });
+            await connection.ExecuteAsync("""
+                INSERT INTO sync_outbox (id, event_type, aggregate_type, aggregate_id, idempotency_key, payload_json, status, retry_count, created_at)
+                VALUES ('outbox-error', 'attempt_submitted', 'student_attempt', 'attempt-error', 'key-error', '{"attempt":{"id":"attempt-error"}}', 'pending', 0, @CreatedAt);
+                """, new { CreatedAt = DateTimeOffset.UtcNow.ToString("O") });
+        }
+        await SeedSyncStateAsync("central_url", CentralUrl);
+        await SeedSyncStateAsync("node_id", "node-1");
+        var handler = new PushFailsPullSucceedsHandler();
+        var service = BuildService(new StubHttpClientFactory(handler));
+
+        await service.StartAsync(CancellationToken.None);
+        await Task.Delay(300);
+        await service.StopAsync(CancellationToken.None);
+
+        Assert.Contains(handler.Paths, path => path == "/api/sync/push");
+        Assert.Contains(handler.Paths, path => path.StartsWith("/api/sync/pull", StringComparison.Ordinal));
+        var lastError = await new SyncStateRepository(connectionFactory).GetAsync("sync_last_error");
+        Assert.Contains("Central push failed", JsonSerializer.Deserialize<string>(lastError!.ValueJson));
+        using (var connection = connectionFactory.CreateOpenConnection())
+        {
+            await connection.ExecuteAsync("UPDATE sync_outbox SET next_retry_at = @RetryAt WHERE id = 'outbox-error';",
+                new { RetryAt = DateTimeOffset.UtcNow.AddMinutes(5).ToString("O") });
+        }
+        var noDueHandler = new PushFailsPullSucceedsHandler();
+        var nextTickService = BuildService(new StubHttpClientFactory(noDueHandler));
+        await nextTickService.StartAsync(CancellationToken.None);
+        await Task.Delay(300);
+        await nextTickService.StopAsync(CancellationToken.None);
+
+        Assert.DoesNotContain(noDueHandler.Paths, path => path == "/api/sync/push");
+        Assert.Contains(noDueHandler.Paths, path => path.StartsWith("/api/sync/pull", StringComparison.Ordinal));
+        Assert.Equal(lastError.ValueJson, (await new SyncStateRepository(connectionFactory).GetAsync("sync_last_error"))?.ValueJson);
+        using var checkConnection = connectionFactory.CreateOpenConnection();
+        Assert.Equal("pending", await checkConnection.ExecuteScalarAsync<string>("SELECT status FROM sync_outbox WHERE id = 'outbox-error';"));
+    }
+
+    [Fact]
+    public async Task Successful_outbox_retry_clears_push_error_while_exam_pull_is_gated()
+    {
+        await SeedActiveSessionAsync();
+        await SeedSyncStateAsync("central_url", CentralUrl);
+        await SeedSyncStateAsync("node_id", "node-1");
+        await new NodeIdentityRepository(connectionFactory).UpsertAsync(new NodeIdentity(
+            "identity-1", "node-1", "180055400", "fingerprint", "{}", "2026-09-15T00:00:00Z", null,
+            "active", null, null));
+        using (var connection = connectionFactory.CreateOpenConnection())
+        {
+            await connection.ExecuteAsync("""
+                INSERT INTO sync_outbox (id, event_type, aggregate_type, aggregate_id, idempotency_key, payload_json, status, retry_count, created_at)
+                VALUES ('outbox-active-retry', 'attempt_submitted', 'student_attempt', 'attempt-active-retry', 'key-active-retry', '{"attempt":{"id":"attempt-active-retry"}}', 'pending', 0, @CreatedAt);
+                """, new { CreatedAt = DateTimeOffset.UtcNow.ToString("O") });
+        }
+
+        var handler = new ActiveSessionRetryHandler();
+        var service = BuildService(new StubHttpClientFactory(handler));
+        await service.StartAsync(CancellationToken.None);
+        await Task.Delay(TimeSpan.FromSeconds(17));
+        await service.StopAsync(CancellationToken.None);
+
+        Assert.Equal(2, handler.PushCalls);
+        Assert.DoesNotContain(handler.Paths, path => path.StartsWith("/api/sync/pull", StringComparison.Ordinal));
+        Assert.Equal(string.Empty, JsonSerializer.Deserialize<string>(
+            (await new SyncStateRepository(connectionFactory).GetAsync("sync_last_error"))!.ValueJson));
+        Assert.Equal(string.Empty, JsonSerializer.Deserialize<string>(
+            (await new SyncStateRepository(connectionFactory).GetAsync("sync_last_error_source"))!.ValueJson));
+        using var checkConnection = connectionFactory.CreateOpenConnection();
+        Assert.Equal("sent", await checkConnection.ExecuteScalarAsync<string>("SELECT status FROM sync_outbox WHERE id = 'outbox-active-retry';"));
+    }
+
+    [Fact]
+    public async Task Outbox_retry_does_not_clear_an_earlier_pull_error_while_session_is_active()
+    {
+        await SeedActiveSessionAsync();
+        await SeedSyncStateAsync("central_url", CentralUrl);
+        await SeedSyncStateAsync("node_id", "node-1");
+        await SeedSyncStateAsync("sync_last_error", "exam pull failed before session became active");
+        await SeedSyncStateAsync("sync_last_error_source", "pull");
+        await new NodeIdentityRepository(connectionFactory).UpsertAsync(new NodeIdentity(
+            "identity-1", "node-1", "180055400", "fingerprint", "{}", "2026-09-15T00:00:00Z", null,
+            "active", null, null));
+        using (var connection = connectionFactory.CreateOpenConnection())
+        {
+            await connection.ExecuteAsync("""
+                INSERT INTO sync_outbox (id, event_type, aggregate_type, aggregate_id, idempotency_key, payload_json, status, retry_count, created_at)
+                VALUES ('outbox-active-pull-error', 'attempt_submitted', 'student_attempt', 'attempt-active-pull-error', 'key-active-retry', '{"attempt":{"id":"attempt-active-pull-error"}}', 'pending', 0, @CreatedAt);
+                """, new { CreatedAt = DateTimeOffset.UtcNow.ToString("O") });
+        }
+
+        var handler = new ActiveSessionRetryHandler();
+        var service = BuildService(new StubHttpClientFactory(handler));
+        await service.StartAsync(CancellationToken.None);
+        await Task.Delay(TimeSpan.FromSeconds(17));
+        await service.StopAsync(CancellationToken.None);
+
+        Assert.Equal(2, handler.PushCalls);
+        Assert.DoesNotContain(handler.Paths, path => path.StartsWith("/api/sync/pull", StringComparison.Ordinal));
+        Assert.Equal("exam pull failed before session became active", JsonSerializer.Deserialize<string>(
+            (await new SyncStateRepository(connectionFactory).GetAsync("sync_last_error"))!.ValueJson));
+        Assert.Equal("pull", JsonSerializer.Deserialize<string>(
+            (await new SyncStateRepository(connectionFactory).GetAsync("sync_last_error_source"))!.ValueJson));
+    }
+
+    [Fact]
     public async Task Revoked_node_does_not_probe_sync_or_send_active_session_heartbeats()
     {
         await SeedActiveSessionAsync();
@@ -388,6 +514,85 @@ public sealed class SyncBackgroundServiceTests : IDisposable
             if (path == "/api/sync/session-heartbeat")
                 HeartbeatBodies.Add(await request.Content!.ReadAsStringAsync(cancellationToken));
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}") };
+        }
+    }
+
+    private sealed class ActiveSessionSyncHandler : HttpMessageHandler
+    {
+        public List<string> Paths { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var path = request.RequestUri?.AbsolutePath ?? "";
+            Paths.Add(path);
+            if (path == "/api/sync/session-heartbeat")
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent($"{{\"receivedAt\":\"{DateTimeOffset.UtcNow:O}\"}}", Encoding.UTF8, "application/json")
+                };
+            }
+            if (path == "/api/sync/push")
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"received\":1,\"failed\":0,\"results\":[{\"idempotencyKey\":\"key-active\",\"status\":\"accepted\",\"reason\":null}]}", Encoding.UTF8, "application/json")
+                };
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }
+    }
+
+    private sealed class PushFailsPullSucceedsHandler : HttpMessageHandler
+    {
+        public List<string> Paths { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var path = request.RequestUri?.PathAndQuery ?? "";
+            Paths.Add(path);
+            if (path == "/api/sync/push")
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError));
+            if (path.StartsWith("/api/sync/pull", StringComparison.Ordinal))
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"items\":[],\"nextCursor\":\"0\",\"hasMore\":false,\"checksums\":{}}", Encoding.UTF8, "application/json")
+                });
+            if (path == "/api/sync/session-heartbeat")
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent($"{{\"receivedAt\":\"{DateTimeOffset.UtcNow:O}\"}}", Encoding.UTF8, "application/json")
+                });
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+        }
+    }
+
+    private sealed class ActiveSessionRetryHandler : HttpMessageHandler
+    {
+        public List<string> Paths { get; } = [];
+        public int PushCalls { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var path = request.RequestUri?.PathAndQuery ?? "";
+            Paths.Add(path);
+            if (path == "/api/sync/session-heartbeat")
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent($"{{\"receivedAt\":\"{DateTimeOffset.UtcNow:O}\"}}", Encoding.UTF8, "application/json")
+                });
+            }
+            if (path == "/api/sync/push")
+            {
+                PushCalls++;
+                if (PushCalls == 1) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized));
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"received\":1,\"failed\":0,\"results\":[{\"idempotencyKey\":\"key-active-retry\",\"status\":\"accepted\",\"reason\":null}]}", Encoding.UTF8, "application/json")
+                });
+            }
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
         }
     }
 

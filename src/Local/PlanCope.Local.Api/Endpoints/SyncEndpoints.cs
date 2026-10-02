@@ -23,8 +23,16 @@ public static class SyncEndpoints
             var lastPush = await syncStateRepository.GetAsync("last_push_at", cancellationToken);
             var centralUrl = await syncStateRepository.GetAsync("central_url", cancellationToken);
             var syncLastError = await syncStateRepository.GetAsync("sync_last_error", cancellationToken);
+            var syncLastErrorSource = await syncStateRepository.GetAsync("sync_last_error_source", cancellationToken);
             var syncNextAttemptAt = await syncStateRepository.GetAsync("sync_next_attempt_at", cancellationToken);
             var syncOffline = await syncStateRepository.GetAsync("sync_offline", cancellationToken);
+            var heartbeatAttemptAt = await syncStateRepository.GetAsync("last_heartbeat_attempt_at", cancellationToken);
+            var heartbeatSentAt = await syncStateRepository.GetAsync("last_heartbeat_sent_at", cancellationToken);
+            var heartbeatReceivedAt = await syncStateRepository.GetAsync("last_heartbeat_received_at", cancellationToken);
+            var heartbeatHttpStatus = await syncStateRepository.GetAsync("last_heartbeat_http_status", cancellationToken);
+            var heartbeatErrorCode = await syncStateRepository.GetAsync("last_heartbeat_error_code", cancellationToken);
+            var lastPushAckAt = await syncStateRepository.GetAsync("last_push_ack_at", cancellationToken);
+            var lastPushReceivedAt = await syncStateRepository.GetAsync("last_push_received_at", cancellationToken);
             var pendingItems = await outboxRepository.CountPendingAsync(cancellationToken);
 
             var lastError = ReadJsonString(syncLastError?.ValueJson);
@@ -36,9 +44,17 @@ public static class SyncEndpoints
                 healthy = string.IsNullOrEmpty(lastError),
                 lastPullAt = ReadJsonString(lastPull?.ValueJson),
                 lastPushAt = ReadJsonString(lastPush?.ValueJson),
+                lastPushAckAt = ReadJsonString(lastPushAckAt?.ValueJson),
+                lastPushReceivedAt = ReadJsonString(lastPushReceivedAt?.ValueJson),
+                lastHeartbeatAttemptAt = ReadJsonString(heartbeatAttemptAt?.ValueJson),
+                lastHeartbeatSentAt = ReadJsonString(heartbeatSentAt?.ValueJson),
+                lastHeartbeatReceivedAt = ReadJsonString(heartbeatReceivedAt?.ValueJson),
+                heartbeatLastHttpStatus = ReadJsonInteger(heartbeatHttpStatus?.ValueJson),
+                heartbeatLastErrorCode = ReadJsonString(heartbeatErrorCode?.ValueJson),
                 pendingItems,
                 centralUrl = ReadJsonString(centralUrl?.ValueJson),
                 lastError,
+                lastErrorSource = ReadJsonString(syncLastErrorSource?.ValueJson),
                 nextAttempt = ReadJsonString(syncNextAttemptAt?.ValueJson),
                 offline,
                 database = databaseOptions.ConnectionString
@@ -71,8 +87,8 @@ public static class SyncEndpoints
                 : Results.BadRequest(result);
         });
 
-        // Outbox transport is deliberately manual as well. A release/operator
-        // invokes this endpoint; no background retry loop is registered.
+        // Operator-triggered outbox push. The sync worker uses the same service
+        // for due rows, including while a student session is active.
         group.MapPost("/push-outbox", async (
             LocalOutboxPushRequest? request,
             LocalOutboxPushService pushService,
@@ -118,6 +134,10 @@ public static class SyncEndpoints
         }
 
         using var document = JsonDocument.Parse(valueJson);
+        if (document.RootElement.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return null;
+        }
         return document.RootElement.ValueKind is JsonValueKind.String
             ? document.RootElement.GetString()
             : document.RootElement.GetRawText();
@@ -132,6 +152,15 @@ public static class SyncEndpoints
 
         using var document = JsonDocument.Parse(valueJson);
         return document.RootElement.GetBoolean();
+    }
+
+    private static int? ReadJsonInteger(string? valueJson)
+    {
+        if (string.IsNullOrWhiteSpace(valueJson)) return null;
+        using var document = JsonDocument.Parse(valueJson);
+        return document.RootElement.ValueKind is JsonValueKind.Number && document.RootElement.TryGetInt32(out var value)
+            ? value
+            : null;
     }
 }
 

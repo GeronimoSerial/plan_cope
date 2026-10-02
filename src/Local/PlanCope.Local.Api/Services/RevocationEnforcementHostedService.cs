@@ -3,9 +3,8 @@ namespace PlanCope.Local.Api.Services;
 /// <summary>
 /// Autonomously advances revocation enforcement so a revoked node eventually drains its
 /// outbox, wipes its roster cache and credential, and locks itself without operator action.
-/// This is deliberately separate from <see cref="LocalOutboxPushService"/>, whose
-/// operator/release-only push exists to control routine sync bandwidth and cost; security
-/// enforcement must not depend on an operator or a release being present.
+/// This remains separate from routine outbox delivery so security enforcement has its own
+/// lifecycle and never depends on a sync tick or operator action.
 /// </summary>
 public sealed class RevocationEnforcementHostedService(
     IServiceScopeFactory scopeFactory,

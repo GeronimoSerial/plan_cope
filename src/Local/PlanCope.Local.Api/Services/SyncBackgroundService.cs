@@ -7,9 +7,9 @@ namespace PlanCope.Local.Api.Services;
 
 /// <summary>
 /// Autonomously syncs exams and the outbox so the node stays current without an operator
-/// pressing anything. Full sync waits for an active session unless its last student activity
-/// exceeds the configured stale-session window. Live heartbeats use a separate low-priority,
-/// latest-wins path and never enter the outbox.
+/// pressing anything. Exam pulls wait for recent student activity to become stale; due outbox
+/// rows and live heartbeats continue independently during an active session. Heartbeats use a
+/// separate low-priority, latest-wins path and never enter the outbox.
 /// Roster pulls stay manual-only by design: they need a CUE and school year this service has
 /// no reliable source for.
 /// </summary>
@@ -52,6 +52,7 @@ public sealed class SyncBackgroundService(
                 var sessionRepository = scope.ServiceProvider.GetRequiredService<ISessionRepository>();
                 var syncStateRepository = scope.ServiceProvider.GetRequiredService<ISyncStateRepository>();
                 var nodeIdentityRepository = scope.ServiceProvider.GetRequiredService<INodeIdentityRepository>();
+                var outboxRepository = scope.ServiceProvider.GetRequiredService<IOutboxRepository>();
                 var examPullService = scope.ServiceProvider.GetRequiredService<LocalExamPullService>();
                 var outboxPushService = scope.ServiceProvider.GetRequiredService<LocalOutboxPushService>();
 
@@ -90,6 +91,8 @@ public sealed class SyncBackgroundService(
                             var probe = await ProbeCentralAsync(centralUrl, probeTimeout.Token);
                             if (probe.Success)
                             {
+                                await UpsertStateAsync(syncStateRepository, "last_heartbeat_probe_at",
+                                    JsonSerializer.Serialize(now, JsonOptions), stoppingToken);
                                 if (string.Equals(syncOffline, "true", StringComparison.OrdinalIgnoreCase))
                                 {
                                     await UpsertStateAsync(syncStateRepository, "sync_offline",
@@ -100,18 +103,43 @@ public sealed class SyncBackgroundService(
                                     var snapshot = await sessionRepository.GetHeartbeatSnapshotAsync(activeSession.Id, stoppingToken);
                                     if (snapshot is not null)
                                     {
-                                        await SendHeartbeatAsync(centralUrl, currentIdentity?.NodeId, snapshot, httpClientFactory,
+                                        var sentAt = DateTimeOffset.UtcNow;
+                                        await UpsertStateAsync(syncStateRepository, "last_heartbeat_attempt_at",
+                                            JsonSerializer.Serialize(sentAt, JsonOptions), stoppingToken);
+                                        var result = await SendHeartbeatAsync(centralUrl, currentIdentity?.NodeId, snapshot, httpClientFactory,
                                             Math.Clamp(configuration.GetValue("SessionHeartbeat:RequestTimeoutSeconds", 5), 1, 5), stoppingToken);
+                                        await UpsertStateAsync(syncStateRepository, "last_heartbeat_http_status",
+                                            JsonSerializer.Serialize(result.HttpStatusCode, JsonOptions), stoppingToken);
+                                        await UpsertStateAsync(syncStateRepository, "last_heartbeat_error_code",
+                                            JsonSerializer.Serialize(result.ErrorCode, JsonOptions), stoppingToken);
+                                        if (result.SentAt is not null)
+                                        {
+                                            await UpsertStateAsync(syncStateRepository, "last_heartbeat_sent_at",
+                                                JsonSerializer.Serialize(result.SentAt, JsonOptions), stoppingToken);
+                                        }
+                                        if (result.ReceivedAt is not null)
+                                        {
+                                            await UpsertStateAsync(syncStateRepository, "last_heartbeat_received_at",
+                                                JsonSerializer.Serialize(result.ReceivedAt, JsonOptions), stoppingToken);
+                                        }
                                     }
                                 }
                             }
                         }
                         catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
                         {
+                            await UpsertStateAsync(syncStateRepository, "last_heartbeat_error_code",
+                                JsonSerializer.Serialize("request_timeout", JsonOptions), stoppingToken);
+                            await UpsertStateAsync(syncStateRepository, "last_heartbeat_http_status",
+                                JsonSerializer.Serialize((int?)null, JsonOptions), stoppingToken);
                             logger.LogDebug("Session heartbeat was skipped after its bounded health probe timed out.");
                         }
                         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
                         {
+                            await UpsertStateAsync(syncStateRepository, "last_heartbeat_error_code",
+                                JsonSerializer.Serialize("transport_error", JsonOptions), stoppingToken);
+                            await UpsertStateAsync(syncStateRepository, "last_heartbeat_http_status",
+                                JsonSerializer.Serialize((int?)null, JsonOptions), stoppingToken);
                             logger.LogDebug(exception, "Session heartbeat failed; it will be attempted at the next interval.");
                         }
                     }
@@ -130,6 +158,33 @@ public sealed class SyncBackgroundService(
                 var blocksSync = activeSessions.Any(session =>
                     !lastActivityBySession.TryGetValue(session.Id, out var lastActivity) ||
                     lastActivity is null || now - lastActivity.Value <= staleAfter);
+                // PushAsync returns without network I/O when there are no due outbox rows. When
+                // rows are due it owns the HTTP retry/backoff, independent of the exam pull gate.
+                var push = await outboxPushService.PushAsync(200, stoppingToken);
+                var pendingOutboxCount = await outboxRepository.CountPendingAsync(stoppingToken);
+                if (!push.Success)
+                {
+                    var lastErrorSource = await ReadStateStringAsync(syncStateRepository, "sync_last_error_source", stoppingToken);
+                    if (lastErrorSource is not ("pull" or "sync"))
+                    {
+                        await UpsertStateAsync(syncStateRepository, "sync_last_error",
+                            JsonSerializer.Serialize(push.Error ?? "outbox push failed.", JsonOptions), stoppingToken);
+                        await UpsertStateAsync(syncStateRepository, "sync_last_error_source",
+                            JsonSerializer.Serialize("outbox", JsonOptions), stoppingToken);
+                    }
+                }
+                else if (pendingOutboxCount == 0 && string.Equals(
+                             await ReadStateStringAsync(syncStateRepository, "sync_last_error_source", stoppingToken),
+                             "outbox", StringComparison.OrdinalIgnoreCase))
+                {
+                    // A push can recover while exam pulls remain gated by an active session.
+                    // Clear only the error sourced by the now-empty outbox; preserve pull errors.
+                    await UpsertStateAsync(syncStateRepository, "sync_last_error",
+                        JsonSerializer.Serialize(string.Empty, JsonOptions), stoppingToken);
+                    await UpsertStateAsync(syncStateRepository, "sync_last_error_source",
+                        JsonSerializer.Serialize(string.Empty, JsonOptions), stoppingToken);
+                }
+
                 if (blocksSync)
                 {
                     nextDelay = ExamSessionRecheckInterval;
@@ -165,24 +220,23 @@ public sealed class SyncBackgroundService(
                         if (!pull.Success)
                         {
                             await UpsertStateAsync(syncStateRepository, "sync_last_error",
-                                JsonSerializer.Serialize(pull.Error ?? "exam pull failed.", JsonOptions),
+                                JsonSerializer.Serialize(push.Success
+                                    ? pull.Error ?? "exam pull failed."
+                                    : "Exam pull and outbox push failed.", JsonOptions),
                                 stoppingToken);
+                            await UpsertStateAsync(syncStateRepository, "sync_last_error_source",
+                                JsonSerializer.Serialize(push.Success ? "pull" : "sync", JsonOptions), stoppingToken);
                         }
 
-                        var push = await outboxPushService.PushAsync(200, stoppingToken);
-                        if (!push.Success)
-                        {
-                            await UpsertStateAsync(syncStateRepository, "sync_last_error",
-                                JsonSerializer.Serialize(push.Error ?? "outbox push failed.", JsonOptions),
-                                stoppingToken);
-                        }
-
-                        // Only clears the operator-visible error when both pull and push succeeded.
-                        if (pull.Success && push.Success)
+                        // A no-op push can mean rows remain delayed by backoff, so clear only
+                        // after both operations succeed and the durable outbox is empty.
+                        if (pull.Success && push.Success && pendingOutboxCount == 0)
                         {
                             await UpsertStateAsync(syncStateRepository, "sync_last_error",
                                 JsonSerializer.Serialize("", JsonOptions),
                                 stoppingToken);
+                            await UpsertStateAsync(syncStateRepository, "sync_last_error_source",
+                                JsonSerializer.Serialize("", JsonOptions), stoppingToken);
                         }
 
                         await UpsertStateAsync(syncStateRepository, "sync_next_attempt_at",
@@ -215,15 +269,17 @@ public sealed class SyncBackgroundService(
         }
     }
 
-    private static async Task SendHeartbeatAsync(string? centralUrl, string? nodeId, SessionHeartbeatSnapshot snapshot,
+    private static async Task<HeartbeatSendResult> SendHeartbeatAsync(string? centralUrl, string? nodeId, SessionHeartbeatSnapshot snapshot,
         IHttpClientFactory httpClientFactory, int timeoutSeconds, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(centralUrl) || string.IsNullOrWhiteSpace(nodeId) ||
-            !Uri.TryCreate(centralUrl.Trim().TrimEnd('/') + "/", UriKind.Absolute, out var baseAddress)) return;
+            !Uri.TryCreate(centralUrl.Trim().TrimEnd('/') + "/", UriKind.Absolute, out var baseAddress))
+            return new(null, null, "configuration_missing");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
         var client = httpClientFactory.CreateClient(nameof(SessionHeartbeatSender));
         client.BaseAddress = baseAddress;
+        var sentAt = DateTimeOffset.UtcNow;
         using var request = new HttpRequestMessage(HttpMethod.Post, "api/sync/session-heartbeat")
         {
             Content = JsonContent.Create(new PlanCope.Shared.Contracts.Sync.SessionHeartbeatRequest(
@@ -234,12 +290,29 @@ public sealed class SyncBackgroundService(
                 DateTimeOffset.TryParse(snapshot.LastActivityAt, out var lastActivityAt) ? lastActivityAt : null,
                 System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ??
                 typeof(SyncBackgroundService).Assembly.GetName().Version?.ToString(),
-                DateTimeOffset.UtcNow))
+                sentAt))
         };
         request.Headers.TryAddWithoutValidation("Priority", "u=7");
         request.Headers.Add("X-Node-Id", nodeId);
         using var response = await client.SendAsync(request, timeout.Token);
+        if (!response.IsSuccessStatusCode)
+            return new(sentAt, null, $"http_{(int)response.StatusCode}", (int)response.StatusCode);
+
+        try
+        {
+            using var body = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(timeout.Token), cancellationToken: timeout.Token);
+            if (body.RootElement.TryGetProperty("receivedAt", out var receivedAtElement) &&
+                receivedAtElement.TryGetDateTimeOffset(out var receivedAt))
+                return new(sentAt, receivedAt, null, (int)response.StatusCode);
+            return new(sentAt, null, "ack_missing_received_at", (int)response.StatusCode);
+        }
+        catch (JsonException)
+        {
+            return new(sentAt, null, "ack_invalid_json", (int)response.StatusCode);
+        }
     }
+
+    private sealed record HeartbeatSendResult(DateTimeOffset? SentAt, DateTimeOffset? ReceivedAt, string? ErrorCode, int? HttpStatusCode = null);
 
     private sealed class SessionHeartbeatSender { }
 
