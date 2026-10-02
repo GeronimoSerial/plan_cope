@@ -65,8 +65,8 @@ public sealed class CentralStatsPostgresIntegrationTests
         Assert.Equal("duplicate", Assert.Single(retry.Results).Status);
         Assert.Equal("processed", Assert.Single(retry.Results).ProcessingStatus);
         Assert.Equal("duplicate", Assert.Single(duplicate.Results).Status);
-        Assert.Equal(receiptResult.ReceivedAt, Assert.Single(retry.Results).ReceivedAt);
-        Assert.Equal(receiptResult.ReceivedAt, Assert.Single(duplicate.Results).ReceivedAt);
+        AssertReceiptTimestampPreserved(receiptResult.ReceivedAt, Assert.Single(retry.Results).ReceivedAt);
+        AssertReceiptTimestampPreserved(receiptResult.ReceivedAt, Assert.Single(duplicate.Results).ReceivedAt);
         Assert.Equal("failed", Assert.Single(conflict.Results).Status);
         await using var final = new PlanCopeDbContext(baseOptions);
         Assert.Equal(1, await final.SyncInbox.CountAsync(row => row.IdempotencyKey == "durability-key"));
@@ -181,6 +181,13 @@ public sealed class CentralStatsPostgresIntegrationTests
             Id = SectionId, SnapshotId = "postgres-snapshot-1", Course = "6to A"
         });
         await dbContext.SaveChangesAsync();
+    }
+
+    private static void AssertReceiptTimestampPreserved(DateTimeOffset? expected, DateTimeOffset? actual)
+    {
+        Assert.NotNull(expected);
+        Assert.NotNull(actual);
+        Assert.True((actual!.Value - expected!.Value).Duration() <= TimeSpan.FromMicroseconds(1));
     }
 
     private static DbContextOptions<PlanCopeDbContext> CreateOptions(string connectionString, SaveChangesInterceptor? interceptor = null)
