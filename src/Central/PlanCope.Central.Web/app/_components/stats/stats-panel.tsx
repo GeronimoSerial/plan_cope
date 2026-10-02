@@ -1,470 +1,250 @@
 "use client";
 
-import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
-import Link from "next/link";
-import { callCentral } from "../../_lib/api/client";
-import { getErrorMessage } from "../../_lib/json";
+import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { TermLabel } from "../help/term-hint";
-import type { SchoolStatsRow, SchoolYearOption } from "../../_lib/api/server";
-import { GradeSectionPicker } from "../shared/grade-section-picker";
+import { callCentral } from "../../_lib/api/client";
+import { getErrorMessage } from "../../_lib/json";
+import type { StatsAggregate, StatsAggregateRow, StatsMetric, StatsOption, StatsPage } from "../../_lib/api/server";
+import styles from "./stats-panel.module.css";
 
-interface CourseStatsRow {
-  course: string;
-  attemptCount: number | string;
-  averageScorePercent: number | string;
+const StatsBarChart = lazy(() => import("./stats-bar-chart"));
+const PAGE_SIZE = 50;
+
+const filters = [
+  { key: "departmentId", label: "Departamento", dimension: "department" },
+  { key: "localityId", label: "Localidad", dimension: "locality" },
+  { key: "course", label: "Grado / curso", dimension: "course" },
+  { key: "subject", label: "Materia", dimension: "subject" },
+  { key: "schoolYear", label: "Año lectivo", dimension: "year" },
+  { key: "school", label: "Establecimiento", dimension: "school" },
+  { key: "version", label: "Examen / versión", dimension: "version" },
+] as const;
+
+type FilterKey = (typeof filters)[number]["key"];
+type FilterValues = Record<FilterKey, string>;
+type GroupDimension = "locality" | "department" | "course" | "subject" | "year" | "school" | "version";
+
+const emptyFilters: FilterValues = {
+  departmentId: "", localityId: "", course: "", subject: "", schoolYear: "", school: "", version: "",
+};
+
+const groupOptions: { value: GroupDimension; label: string }[] = [
+  { value: "locality", label: "Localidad" },
+  { value: "department", label: "Departamento" },
+  { value: "course", label: "Grado / curso" },
+  { value: "subject", label: "Materia" },
+  { value: "year", label: "Año lectivo" },
+  { value: "school", label: "Establecimiento" },
+  { value: "version", label: "Examen / versión" },
+];
+
+function metricText(metric: StatsMetric<number>, kind: "count" | "percent"): string {
+  if (metric.status === "suppressed") return "Cohorte insuficiente";
+  if (metric.status === "unavailable" || metric.value === null) return "No disponible";
+  return kind === "percent" ? `${metric.value.toFixed(1)}%` : metric.value.toLocaleString("es-AR");
 }
 
-interface GradeFilterOption {
+function dateText(value: string | null): string {
+  if (!value) return "No disponible para esta consulta";
+  const date = new Date(value);
+  return Number.isNaN(date.valueOf()) ? "Fecha no disponible" : new Intl.DateTimeFormat("es-AR", { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
+function versionCatalogLabel(value: string, label: string, index: number, page: number): string {
+  const opaque = label === value || /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(label);
+  return opaque ? `Versión ${((page - 1) * PAGE_SIZE) + index + 1} · título no disponible` : label;
+}
+
+function aggregateLabel(aggregate: StatsAggregate, index: number): string {
+  if (aggregate.dimension !== "version") return aggregate.rows[index].label;
+  const row = aggregate.rows[index];
+  const labelIsOpaqueId = row.label === row.key || /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(row.label);
+  if (!labelIsOpaqueId) return row.label;
+  const position = (aggregate.page - 1) * aggregate.pageSize + index + 1;
+  return `Versión agrupada ${position} · título no disponible`;
+}
+
+function CatalogFilter({ filter, value, onChange }: {
+  filter: (typeof filters)[number];
   value: string;
-  label: string;
-}
-
-interface BlockStatsRow {
-  blockId: string;
-  correctCount: number;
-  partialCount: number;
-  incorrectCount: number;
-  blankCount: number;
-  ungradableCount: number;
-}
-
-interface ExamStatsRow {
-  examVersionId: string;
-  examCode: string;
-  versionNumber: number | string;
-  attemptCount: number | string;
-  averageScorePercent: number | string;
-  blocks: BlockStatsRow[];
-}
-
-interface StatsPanelProps {
-  initialSchools: SchoolStatsRow[];
-  schoolYears: SchoolYearOption[];
-  scopeDenied: boolean;
-}
-
-// El backend puede responder el string "cohorte insuficiente" en lugar de un número cuando
-// la cohorte está suprimida (menos de 5 intentos, vista provincial). Se renderiza tal cual.
-function formatPercent(value: number | string): string {
-  return typeof value === "number" ? `${value.toFixed(1)}%` : value;
-}
-
-function formatCount(value: number | string): string {
-  return typeof value === "number" ? String(value) : value;
-}
-
-// Muestra un número con su formato o, si el backend suprimió el dato, el texto con su explicación.
-function StatValue({ value, format }: { value: number | string; format: (value: number | string) => string }) {
-  if (typeof value === "string") {
-    return <TermLabel term="stats-cohorte-insuficiente">{value}</TermLabel>;
-  }
-  return <>{format(value)}</>;
-}
-
-function csvEscape(value: number | string): string {
-  const text = typeof value === "number" ? String(value) : value;
-  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
-
-function buildSchoolsCsv(rows: SchoolStatsRow[]): string {
-  const lines = ["cue,schoolName,attemptCount,averageScorePercent"];
-  for (const row of rows) {
-    lines.push([csvEscape(row.cue), csvEscape(row.schoolName ?? ""), csvEscape(row.attemptCount), csvEscape(row.averageScorePercent)].join(","));
-  }
-  return lines.join("\r\n");
-}
-
-function activateOnKey(handler: () => void) {
-  return (event: KeyboardEvent<HTMLTableRowElement>) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      handler();
-    }
-  };
-}
-
-function TableShell({ children }: { children: ReactNode }) {
-  return <div className="overflow-x-auto rounded-lg ring-1 ring-foreground/10">{children}</div>;
-}
-
-export function StatsPanel({ initialSchools, schoolYears, scopeDenied }: StatsPanelProps) {
-  const [schools, setSchools] = useState<SchoolStatsRow[]>(initialSchools);
-  const [schoolYearInput, setSchoolYearInput] = useState("");
-  const [courseInput, setCourseInput] = useState("");
-  const [gradeOptions, setGradeOptions] = useState<GradeFilterOption[]>([]);
-  const [appliedSchoolYear, setAppliedSchoolYear] = useState("");
-  const [applying, setApplying] = useState(false);
-  const [schoolsError, setSchoolsError] = useState<string | null>(null);
-
-  const [selectedCue, setSelectedCue] = useState<string | null>(null);
-  const [courses, setCourses] = useState<CourseStatsRow[]>([]);
-  const [coursesLoading, setCoursesLoading] = useState(false);
-  const [coursesError, setCoursesError] = useState<string | null>(null);
-
-  const [selectedCourse, setSelectedCourse] = useState<string | null>(null);
-  const [exams, setExams] = useState<ExamStatsRow[]>([]);
-  const [examsLoading, setExamsLoading] = useState(false);
-  const [examsError, setExamsError] = useState<string | null>(null);
+  onChange: (value: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [catalog, setCatalog] = useState<StatsPage<StatsOption> | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     let active = true;
-    void callCentral<GradeFilterOption[]>("stats/courses")
-      .then(options => { if (active) setGradeOptions(options); })
-      .catch(() => { if (active) setGradeOptions([]); });
+    const timeout = window.setTimeout(() => {
+      setLoading(true);
+      setError(false);
+      const params = new URLSearchParams({ dimension: filter.dimension, page: String(page), pageSize: String(PAGE_SIZE) });
+      if (query.trim()) params.set("query", query.trim());
+      void callCentral<StatsPage<StatsOption>>(`stats/catalogs?${params.toString()}`)
+        .then(result => { if (active) setCatalog(result); })
+        .catch(() => { if (active) setError(true); })
+        .finally(() => { if (active) setLoading(false); });
+    }, 160);
+    return () => { active = false; window.clearTimeout(timeout); };
+  }, [filter.dimension, page, query]);
+
+  function updateQuery(next: string) {
+    setQuery(next);
+    setPage(1);
+  }
+
+  const selectedIsVisible = value && catalog?.items.some(item => item.value === value);
+  return (
+    <div className={styles.filter}>
+      <Label htmlFor={`stats-search-${filter.key}`}>{filter.label}</Label>
+      <input id={`stats-search-${filter.key}`} type="search" value={query}
+        onChange={event => updateQuery(event.target.value)}
+        placeholder={`Buscar ${filter.label.toLocaleLowerCase("es-AR")}`}
+        aria-label={`Buscar ${filter.label.toLocaleLowerCase("es-AR")}`} className={styles.search} />
+      <select value={value} onChange={event => onChange(event.target.value)}
+        aria-label={`Seleccionar ${filter.label.toLocaleLowerCase("es-AR")}`} className={styles.select}>
+        <option value="">Todos</option>
+        {value && !selectedIsVisible ? <option value={value}>{filter.dimension === "version" ? "Versión seleccionada · título no disponible" : value}</option> : null}
+        {(catalog?.items ?? []).map((item, index) => <option key={item.value} value={item.value}>
+          {filter.dimension === "version" ? versionCatalogLabel(item.value, item.label, index, page) : item.label}
+        </option>)}
+      </select>
+      <div className={styles.catalogFooter}>
+        <span aria-live="polite">{loading ? "Buscando…" : error ? "Catálogo no disponible" : `${catalog?.totalCount ?? 0} opciones`}</span>
+        <span className={styles.catalogPaging}>
+          <button type="button" onClick={() => setPage(current => Math.max(1, current - 1))} disabled={page <= 1 || loading} aria-label={`Página anterior de ${filter.label}`}>‹</button>
+          <span>{page}</span>
+          <button type="button" onClick={() => setPage(current => current + 1)} disabled={loading || !catalog || page * catalog.pageSize >= catalog.totalCount} aria-label={`Página siguiente de ${filter.label}`}>›</button>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function MetricCell({ metric, kind }: { metric: StatsMetric<number>; kind: "count" | "percent" }) {
+  const statusLabel = metric.status === "available" ? undefined : metric.status === "suppressed" ? "Valor suprimido por tamaño de cohorte" : "Valor no disponible";
+  return <TableCell aria-label={statusLabel}>{metricText(metric, kind)}</TableCell>;
+}
+
+function TableShell({ children }: { children: ReactNode }) {
+  return <div className={styles.tableShell}>{children}</div>;
+}
+
+export function StatsPanel() {
+  const [draftFilters, setDraftFilters] = useState<FilterValues>(emptyFilters);
+  const [appliedFilters, setAppliedFilters] = useState<FilterValues>(emptyFilters);
+  const [groupBy, setGroupBy] = useState<GroupDimension>("course");
+  const [page, setPage] = useState(1);
+  const [response, setResponse] = useState<{ query: string; aggregate?: StatsAggregate; error?: string } | null>(null);
+  const [chartOpen, setChartOpen] = useState(false);
+
+  const query = useMemo(() => {
+    const params = new URLSearchParams({ groupBy, page: String(page), pageSize: String(PAGE_SIZE) });
+    for (const [key, value] of Object.entries(appliedFilters)) if (value) params.set(key, value);
+    return params.toString();
+  }, [appliedFilters, groupBy, page]);
+
+  useEffect(() => {
+    let active = true;
+    void callCentral<StatsAggregate>(`stats/aggregate?${query}`)
+      .then(aggregate => { if (active) setResponse({ query, aggregate }); })
+      .catch(problem => { if (active) setResponse({ query, error: getErrorMessage(problem, "No se pudieron cargar las estadísticas.") }); });
     return () => { active = false; };
-  }, []);
+  }, [query]);
 
-  function resetSelection() {
-    setSelectedCue(null);
-    setCourses([]);
-    setCoursesError(null);
-    setSelectedCourse(null);
-    setExams([]);
-    setExamsError(null);
+  const loading = response?.query !== query;
+  const aggregate = loading ? null : response?.aggregate ?? null;
+  const error = loading ? null : response?.error ?? null;
+
+  function updateFilter(key: FilterKey, value: string) {
+    setDraftFilters(previous => ({ ...previous, [key]: value }));
   }
 
-  async function applyFilters() {
-    setApplying(true);
-    setSchoolsError(null);
-    try {
-      const params = new URLSearchParams();
-      if (schoolYearInput.trim()) params.set("schoolYear", schoolYearInput.trim());
-      if (courseInput.trim()) params.set("course", courseInput.trim());
-      const query = params.toString();
-      const updated = await callCentral<SchoolStatsRow[]>(`stats/schools${query ? `?${query}` : ""}`);
-      setSchools(updated);
-      setAppliedSchoolYear(schoolYearInput.trim());
-      resetSelection();
-    } catch (error) {
-      setSchoolsError(getErrorMessage(error, "No se pudieron cargar las estadísticas."));
-    } finally {
-      setApplying(false);
-    }
+  function applyFilters() {
+    setPage(1);
+    setAppliedFilters({ ...draftFilters });
   }
 
-  async function selectCue(cue: string) {
-    if (selectedCue === cue) {
-      resetSelection();
-      return;
-    }
-    setSelectedCue(cue);
-    setCourses([]);
-    setCoursesError(null);
-    setSelectedCourse(null);
-    setExams([]);
-    setExamsError(null);
-    setCoursesLoading(true);
-    try {
-      const params = new URLSearchParams({ cue });
-      if (appliedSchoolYear) params.set("schoolYear", appliedSchoolYear);
-      const updated = await callCentral<CourseStatsRow[]>(`stats/course?${params.toString()}`);
-      setCourses(updated);
-    } catch (error) {
-      setCoursesError(getErrorMessage(error, "No se pudo cargar el detalle por curso."));
-    } finally {
-      setCoursesLoading(false);
-    }
-  }
-
-  async function selectCourse(course: string) {
-    if (!selectedCue) {
-      return;
-    }
-    if (selectedCourse === course) {
-      setSelectedCourse(null);
-      setExams([]);
-      setExamsError(null);
-      return;
-    }
-    setSelectedCourse(course);
-    setExams([]);
-    setExamsError(null);
-    setExamsLoading(true);
-    try {
-      const params = new URLSearchParams({ cue: selectedCue, course });
-      if (appliedSchoolYear) params.set("schoolYear", appliedSchoolYear);
-      const updated = await callCentral<ExamStatsRow[]>(`stats/exam?${params.toString()}`);
-      setExams(updated);
-    } catch (error) {
-      setExamsError(getErrorMessage(error, "No se pudo cargar el detalle por examen."));
-    } finally {
-      setExamsLoading(false);
-    }
-  }
-
-  function exportCsv() {
-    const blob = new Blob([buildSchoolsCsv(schools)], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = window.document.createElement("a");
-    anchor.href = url;
-    anchor.download = "estadisticas-establecimientos.csv";
-    window.document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
-  }
+  const chartRows = useMemo(() => (aggregate?.rows ?? []).flatMap((row, index) => {
+    if (row.weightedScorePercent.status !== "available" || row.weightedScorePercent.value === null) return [];
+    return [{ label: aggregate ? aggregateLabel(aggregate, index) : row.label, score: row.weightedScorePercent.value }];
+  }), [aggregate]);
 
   return (
-    <div className="grid gap-6">
+    <div className={styles.panel}>
       <Card>
-        <CardHeader>
-          <CardTitle>Establecimientos</CardTitle>
-          {schools.length > 0 && (
-            <CardAction>
-              <Button variant="outline" onClick={exportCsv}>
-                Exportar CSV
-              </Button>
-            </CardAction>
-          )}
-        </CardHeader>
-        <CardContent className="grid gap-4">
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="grid gap-1.5">
-              <Label htmlFor="stats-school-year">Año lectivo</Label>
-              <select
-                id="stats-school-year"
-                value={schoolYearInput}
-                onChange={event => setSchoolYearInput(event.target.value)}
-                className="h-9 w-40 rounded-md border border-input bg-background px-3 text-sm"
-              >
-                <option value="">Todos los años</option>
-                {schoolYears.map(year => <option key={year.value} value={year.value}>{year.label}</option>)}
+        <CardHeader><CardTitle>Filtros de consulta</CardTitle></CardHeader>
+        <CardContent className={styles.filtersContent}>
+          <div className={styles.filters}>
+            {filters.map(filter => <CatalogFilter key={filter.key} filter={filter} value={draftFilters[filter.key]} onChange={value => updateFilter(filter.key, value)} />)}
+            <div className={styles.filter}>
+              <Label htmlFor="stats-group-by">Agrupar resultados por</Label>
+              <select id="stats-group-by" value={groupBy} onChange={event => { setGroupBy(event.target.value as GroupDimension); setPage(1); }} className={styles.select}>
+                {groupOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
+              <span className={styles.hint}>Una dimensión por consulta</span>
             </div>
-            <div className="grid gap-1.5">
-              <GradeSectionPicker
-                grades={gradeOptions}
-                mode="single"
-                value={courseInput || "all"}
-                onValueChange={next => setCourseInput(typeof next === "string" && next !== "all" ? next : "")}
-                includeAll
-                showSection={false}
-                className="w-full min-w-56"
-              />
-            </div>
-            <Button onClick={() => void applyFilters()} disabled={applying}>
-              {applying ? "Aplicando…" : "Aplicar filtros"}
-            </Button>
           </div>
-
-          {schoolsError && (
-            <Alert variant="destructive">
-              <AlertDescription>{schoolsError}</AlertDescription>
-            </Alert>
-          )}
-
-          {scopeDenied && (
-            <Alert variant="destructive">
-              <AlertDescription>
-                Tu usuario no tiene alcance para consultar estadísticas. Contactá a administración para revisar tu acceso.
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {schools.length === 0 && !scopeDenied ? (
-            <p className="text-sm text-muted-foreground">
-              No hay establecimientos con intentos atribuidos para estos filtros. Puede que los equipos todavía no hayan sincronizado o que haya intentos pendientes de atribución. Revisá <Link className="underline underline-offset-4" href="/sincronizacion-recibida">Sincronización recibida</Link>.
-            </p>
-          ) : schools.length > 0 ? (
-            <TableShell>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>
-                      <TermLabel term="cue">CUE</TermLabel>
-                    </TableHead>
-                    <TableHead>Establecimiento</TableHead>
-                    <TableHead>
-                      <TermLabel term="stats-intentos">Intentos</TermLabel>
-                    </TableHead>
-                    <TableHead>
-                      <TermLabel term="stats-promedio">Promedio de puntaje (%)</TermLabel>
-                    </TableHead>
-                    <TableHead>Sesiones en curso</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {schools.map(row => (
-                    <TableRow
-                      key={row.cue}
-                      role="button"
-                      tabIndex={0}
-                      aria-expanded={selectedCue === row.cue}
-                      className="cursor-pointer"
-                      onClick={() => void selectCue(row.cue)}
-                      onKeyDown={activateOnKey(() => void selectCue(row.cue))}
-                    >
-                      <TableCell className="font-mono font-medium">{row.cue}</TableCell>
-                      <TableCell>
-                        <Link
-                          className="underline underline-offset-4"
-                          href={`/escuelas?q=${encodeURIComponent(row.cue)}`}
-                          onClick={event => event.stopPropagation()}
-                        >
-                          {row.schoolName ?? "Ver escuela"}
-                        </Link>
-                      </TableCell>
-                      <TableCell>
-                        <StatValue value={row.attemptCount} format={formatCount} />
-                      </TableCell>
-                      <TableCell>
-                        <StatValue value={row.averageScorePercent} format={formatPercent} />
-                      </TableCell>
-                      <TableCell>
-                        {(row.liveSessionCount ?? 0) > 0 ? (
-                          <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100">
-                            En curso · {row.liveJoinedCount ?? 0} alumnos · {row.liveInProgressCount ?? 0} en evaluación · {row.liveSubmittedCount ?? 0} entregados
-                          </span>
-                        ) : <span className="text-muted-foreground">—</span>}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableShell>
-          ) : null}
+          <div className={styles.filterActions}>
+            <Button onClick={applyFilters}>Aplicar filtros</Button>
+            <Button variant="outline" onClick={() => { setDraftFilters(emptyFilters); setAppliedFilters(emptyFilters); setPage(1); }}>Limpiar</Button>
+          </div>
         </CardContent>
       </Card>
 
-      {selectedCue && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Detalle del CUE {selectedCue}</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-4">
-            {coursesLoading && <p className="text-sm text-muted-foreground">Cargando cursos…</p>}
-            {coursesError && (
-              <Alert variant="destructive">
-                <AlertDescription>{coursesError}</AlertDescription>
-              </Alert>
-            )}
-            {!coursesLoading && !coursesError && courses.length === 0 && (
-              <p className="text-sm text-muted-foreground">Sin datos por curso para este establecimiento.</p>
-            )}
+      <Card>
+        <CardHeader className={styles.resultsHeader}>
+          <div><CardTitle>Resultados agrupados</CardTitle><p className={styles.unit}>Intentos calificados y atribuidos; no representa personas únicas.</p></div>
+          <Button type="button" variant="outline" onClick={() => setChartOpen(open => !open)} aria-expanded={chartOpen} aria-controls="stats-chart-region">
+            {chartOpen ? "Ocultar gráfico" : "Ver gráfico de barras"}
+          </Button>
+        </CardHeader>
+        <CardContent className={styles.resultsContent}>
+          <p className={styles.formula}>Porcentaje ponderado de puntaje = 100 × ΣScore / ΣScoreMax.</p>
+          {aggregate && <div className={styles.freshness} aria-label="Frescura de estadísticas">
+            <span>Consulta generada: {dateText(aggregate.generatedAt)}</span>
+            <span>Último resultado recibido: {dateText(aggregate.latestRollupUpdatedAt)}</span>
+          </div>}
+          {loading && <p className={styles.state} role="status">Cargando agregados…</p>}
+          {!loading && error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+          {!loading && !error && aggregate?.dataState === "no_results" && <p className={styles.state} role="status">No hay resultados para los filtros aplicados.</p>}
+          {!loading && !error && aggregate?.dataState === "available" && aggregate.rows.length === 0 && <p className={styles.state} role="status">No hay filas en esta página. Probá con otra página.</p>}
 
-            {courses.length > 0 && (
-              <TableShell>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Curso</TableHead>
-                      <TableHead>
-                        <TermLabel term="stats-intentos">Intentos</TermLabel>
-                      </TableHead>
-                      <TableHead>
-                        <TermLabel term="stats-promedio">Promedio de puntaje (%)</TermLabel>
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {courses.map(course => (
-                      <TableRow
-                        key={course.course}
-                        role="button"
-                        tabIndex={0}
-                        aria-expanded={selectedCourse === course.course}
-                        className="cursor-pointer"
-                        onClick={() => void selectCourse(course.course)}
-                        onKeyDown={activateOnKey(() => void selectCourse(course.course))}
-                      >
-                        <TableCell className="font-medium">{course.course}</TableCell>
-                        <TableCell>
-                          <StatValue value={course.attemptCount} format={formatCount} />
-                        </TableCell>
-                        <TableCell>
-                          <StatValue value={course.averageScorePercent} format={formatPercent} />
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableShell>
-            )}
-
-            {selectedCourse && (
-              <div className="grid gap-4">
-                {examsLoading && <p className="text-sm text-muted-foreground">Cargando exámenes…</p>}
-                {examsError && (
-                  <Alert variant="destructive">
-                    <AlertDescription>{examsError}</AlertDescription>
-                  </Alert>
-                )}
-                {!examsLoading && !examsError && exams.length === 0 && (
-                  <p className="text-sm text-muted-foreground">Sin exámenes rendidos para este curso.</p>
-                )}
-
-                {exams.map(exam => (
-                  <div key={exam.examVersionId} className="grid gap-2">
-                    <h3 className="text-sm font-medium">
-                      {exam.examCode} · versión {exam.versionNumber}
-                    </h3>
-                    <p className="text-sm text-muted-foreground">
-                      <TermLabel term="stats-intentos">
-                        <span>Intentos: {formatCount(exam.attemptCount)}</span>
-                      </TermLabel>{" "}
-                      ·{" "}
-                      <TermLabel term="stats-promedio">
-                        <span>Promedio de puntaje: {formatPercent(exam.averageScorePercent)}</span>
-                      </TermLabel>
-                    </p>
-                    {exam.blocks.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">Sin datos por bloque.</p>
-                    ) : (
-                      <TableShell>
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>
-                                <TermLabel term="bloque">Bloque</TermLabel>
-                              </TableHead>
-                              <TableHead>
-                                <TermLabel term="stats-correctas">Correctas</TermLabel>
-                              </TableHead>
-                              <TableHead>
-                                <TermLabel term="stats-parciales">Parciales</TermLabel>
-                              </TableHead>
-                              <TableHead>
-                                <TermLabel term="stats-incorrectas">Incorrectas</TermLabel>
-                              </TableHead>
-                              <TableHead>
-                                <TermLabel term="stats-en-blanco">En blanco</TermLabel>
-                              </TableHead>
-                              <TableHead>
-                                <TermLabel term="stats-no-calificables">No calificables</TermLabel>
-                              </TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {exam.blocks.map(block => (
-                              <TableRow key={block.blockId}>
-                                <TableCell className="font-mono">
-                                  <span className="block max-w-[14rem] truncate" title={block.blockId}>
-                                    {block.blockId}
-                                  </span>
-                                </TableCell>
-                                <TableCell>{block.correctCount}</TableCell>
-                                <TableCell>{block.partialCount}</TableCell>
-                                <TableCell>{block.incorrectCount}</TableCell>
-                                <TableCell>{block.blankCount}</TableCell>
-                                <TableCell>{block.ungradableCount}</TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </TableShell>
-                    )}
-                  </div>
-                ))}
+          <div id="stats-chart-region" className={styles.chartRegion} hidden={!chartOpen || loading || Boolean(error) || aggregate?.dataState !== "available"}>
+            {chartOpen && !loading && !error && aggregate?.dataState === "available" && <Suspense fallback={<p className={styles.state} role="status">Cargando gráfico…</p>}><StatsBarChart data={chartRows} /></Suspense>}
+          </div>
+          {!loading && !error && aggregate?.dataState === "available" && aggregate.rows.length > 0 && <>
+            <TableShell>
+              <Table>
+                <caption className={styles.caption}>Resultados por {groupOptions.find(option => option.value === aggregate.dimension)?.label.toLocaleLowerCase("es-AR") ?? aggregate.dimension}. La tabla contiene los mismos valores disponibles que el gráfico.</caption>
+                <TableHeader><TableRow>
+                  <TableHead>{groupOptions.find(option => option.value === aggregate.dimension)?.label ?? "Grupo"}</TableHead>
+                  <TableHead>Intentos calificados</TableHead>
+                  <TableHead>Porcentaje ponderado de puntaje</TableHead>
+                </TableRow></TableHeader>
+                <TableBody>{aggregate.rows.map((row: StatsAggregateRow, index: number) => <TableRow key={row.key}>
+                  <TableCell className={styles.rowLabel}>{aggregateLabel(aggregate, index)}</TableCell>
+                  <MetricCell metric={row.attemptCount} kind="count" />
+                  <MetricCell metric={row.weightedScorePercent} kind="percent" />
+                </TableRow>)}</TableBody>
+              </Table>
+            </TableShell>
+            <nav className={styles.pagination} aria-label="Paginación de resultados">
+              <span>{aggregate.totalCount.toLocaleString("es-AR")} grupos · página {aggregate.page}</span>
+              <div>
+                <Button variant="outline" onClick={() => setPage(current => Math.max(1, current - 1))} disabled={page <= 1 || loading}>Anterior</Button>
+                <Button variant="outline" onClick={() => setPage(current => current + 1)} disabled={loading || page * aggregate.pageSize >= aggregate.totalCount}>Siguiente</Button>
               </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+            </nav>
+          </>}
+        </CardContent>
+      </Card>
     </div>
   );
 }
