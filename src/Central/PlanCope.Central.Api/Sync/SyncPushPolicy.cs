@@ -10,9 +10,16 @@ namespace PlanCope.Central.Api.Sync;
 /// </summary>
 public static class SyncPushPolicy
 {
-    public static PushItemResult Evaluate(PushItem item, JsonElement? existingPayload)
+    public static PushItemResult Evaluate(
+        PushItem item,
+        JsonElement? existingPayload,
+        DateTimeOffset? existingReceivedAt = null,
+        string? processingStatus = null)
     {
-        if (!string.Equals(item.Checksum, SyncPayloadChecksum.Calculate(item.Payload), StringComparison.OrdinalIgnoreCase))
+        var canonicalChecksum = SyncPayloadChecksum.Calculate(item.Payload);
+        var legacyChecksum = SyncPayloadChecksum.CalculateLegacy(item.Payload);
+        if (!string.Equals(item.Checksum, canonicalChecksum, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(item.Checksum, legacyChecksum, StringComparison.OrdinalIgnoreCase))
         {
             return new PushItemResult(item.IdempotencyKey, "failed", "Payload checksum does not match.");
         }
@@ -21,9 +28,9 @@ public static class SyncPushPolicy
         {
             return string.Equals(
                 SyncPayloadChecksum.Calculate(existingPayload.Value),
-                item.Checksum,
+                canonicalChecksum,
                 StringComparison.OrdinalIgnoreCase)
-                ? new PushItemResult(item.IdempotencyKey, "duplicate", null)
+                ? new PushItemResult(item.IdempotencyKey, "duplicate", null, existingReceivedAt, processingStatus)
                 : new PushItemResult(item.IdempotencyKey, "failed", "The idempotency key was already used for a different payload.");
         }
 

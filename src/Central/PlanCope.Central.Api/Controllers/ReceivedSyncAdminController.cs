@@ -53,6 +53,12 @@ public sealed class ReceivedSyncAdminController(
             {
                 attemptId = attempt.Id,
                 receivedAt = attempt.ReceivedAt,
+                receiptStatus = inboxItem is null ? "missing" : "durable",
+                durableReceivedAt = inboxItem?.CreatedAt,
+                processingStatus = ProcessingStatus(inboxItem?.Status, grade?.Status, attempt.AttributionStatus),
+                processingUpdatedAt = grade?.GradedAt,
+                processingAttemptCount = inboxItem?.ProcessingAttemptCount ?? 0,
+                nextProcessingAt = inboxItem?.NextProcessingAt,
                 nodeId = session?.SourceNodeId ?? inboxItem?.SourceNodeId,
                 cue = session?.SchoolId,
                 schoolYear = session?.SchoolYear,
@@ -61,11 +67,20 @@ public sealed class ReceivedSyncAdminController(
                 gradingStatus = grade?.Status ?? "pending",
                 gradingReason = grade?.Reason,
                 attributionStatus = attempt.AttributionStatus,
-                attributionReason = attempt.AttributionReason
+                attributionReason = attempt.AttributionReason,
+                rollupStatus = RollupStatus(inboxItem?.Status, grade?.Status, attempt.AttributionStatus)
             };
         }).ToList();
 
-        return Ok(new { page, pageSize, totalCount, items });
+        var inboxProcessing = new
+        {
+            pending = await dbContext.SyncInbox.CountAsync(item => item.Status == "received", cancellationToken),
+            failed = await dbContext.SyncInbox.CountAsync(item => item.Status == "processing_failed", cancellationToken),
+            nextRetryAt = await dbContext.SyncInbox.AsNoTracking()
+                .Where(item => item.Status == "processing_failed")
+                .MinAsync(item => (DateTimeOffset?)item.NextProcessingAt, cancellationToken)
+        };
+        return Ok(new { page, pageSize, totalCount, inboxProcessing, items });
     }
 
     [HttpPost("reprocess")]
@@ -137,4 +152,15 @@ public sealed class ReceivedSyncAdminController(
 
     private static string? ReadOptionalString(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+    private static string ProcessingStatus(string? inboxStatus, string? gradingStatus, string attributionStatus) =>
+        inboxStatus == "received" ? "pending" :
+        inboxStatus == "processing_failed" ? "retrying" :
+        gradingStatus == "graded" && attributionStatus == "attributed" ? "complete" :
+        gradingStatus is null or "pending" || attributionStatus == "pending" ? "pending" : "needs_attention";
+
+    private static string RollupStatus(string? inboxStatus, string? gradingStatus, string attributionStatus) =>
+        inboxStatus is "received" or "processing_failed" ? "pending" :
+        gradingStatus == "graded" && attributionStatus == "attributed" ? "updated" :
+        gradingStatus is null or "pending" || attributionStatus == "pending" ? "pending" : "not_updated";
 }

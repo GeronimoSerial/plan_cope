@@ -72,6 +72,7 @@ builder.Services.AddScoped<ActivationKeyService>();
 builder.Services.AddScoped<CentralStatsRollupService>();
 builder.Services.AddScoped<StatsShareService>();
 builder.Services.AddScoped<CentralAttemptGradingService>();
+builder.Services.AddHostedService<SyncInboxProcessingBackgroundService>();
 builder.Services.AddScoped<NodeCredentialService>();
 builder.Services.AddScoped<IReleaseGateService, ReleaseGateService>();
 builder.Services.AddMemoryCache();

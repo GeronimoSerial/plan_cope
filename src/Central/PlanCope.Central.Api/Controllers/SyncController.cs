@@ -172,9 +172,14 @@ public sealed class SyncController(
         var existing = await dbContext.SyncInbox
             .AsNoTracking()
             .SingleOrDefaultAsync(x => x.IdempotencyKey == item.IdempotencyKey, cancellationToken);
-        var policyResult = SyncPushPolicy.Evaluate(item, existing?.Payload.RootElement);
+        var policyResult = SyncPushPolicy.Evaluate(item, existing?.Payload.RootElement, existing?.CreatedAt, existing?.Status);
         if (existing is not null || policyResult.Status is not "accepted")
         {
+            if (existing is not null && policyResult.Status == "duplicate" && existing.Status != "processed")
+            {
+                var processingStatus = await ProcessInboxByIdAsync(existing.Id, cancellationToken);
+                return policyResult with { ProcessingStatus = processingStatus };
+            }
             return policyResult;
         }
 
@@ -185,16 +190,14 @@ public sealed class SyncController(
             {
                 return new PushItemResult(item.IdempotencyKey, "failed", "The payload contains a prohibited document or token field.");
             }
+            if (item.EventType is SyncEventTypes.AttemptSubmitted && !IsValidAttemptPayload(item, payload.RootElement))
+            {
+                return new PushItemResult(item.IdempotencyKey, "failed", "The attempt payload is invalid.");
+            }
 
             await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
-            if (dbContext.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL" &&
-                item.EventType is SyncEventTypes.AttemptSubmitted)
-            {
-                await dbContext.Database.ExecuteSqlRawAsync(
-                    $"SELECT pg_advisory_xact_lock({CentralStatsRollupService.AdvisoryLockNamespace}, {CentralStatsRollupService.AdvisoryLockKey});",
-                    cancellationToken);
-            }
-            dbContext.SyncInbox.Add(new SyncInbox(
+            var receivedAt = TruncateToPostgresPrecision(DateTimeOffset.UtcNow);
+            var inbox = new SyncInbox(
                 Guid.NewGuid().ToString("N"),
                 nodeId,
                 item.EventType,
@@ -202,19 +205,17 @@ public sealed class SyncController(
                 item.AggregateId,
                 item.IdempotencyKey,
                 JsonDocument.Parse(item.Payload.GetRawText()),
-                "processed",
-                DateTimeOffset.UtcNow,
-                DateTimeOffset.UtcNow));
-
-            if (item.EventType is SyncEventTypes.AttemptSubmitted)
-            {
-                await AddAttemptAsync(nodeId, item, payload.RootElement, cancellationToken);
-            }
+                "received",
+                receivedAt,
+                null);
+            dbContext.SyncInbox.Add(inbox);
 
             await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             dbContext.ChangeTracker.Clear();
-            return new PushItemResult(item.IdempotencyKey, "accepted", null);
+
+            var processingStatus = await ProcessInboxByIdAsync(inbox.Id, cancellationToken);
+            return new PushItemResult(item.IdempotencyKey, "accepted", null, receivedAt, processingStatus);
         }
         catch (DbUpdateException exception)
         {
@@ -232,7 +233,7 @@ public sealed class SyncController(
                 return new PushItemResult(item.IdempotencyKey, "failed", "The item could not be persisted.");
             }
 
-            return SyncPushPolicy.Evaluate(item, nowExisting.Payload.RootElement);
+            return SyncPushPolicy.Evaluate(item, nowExisting.Payload.RootElement, nowExisting.CreatedAt, nowExisting.Status);
         }
         catch (JsonException exception)
         {
@@ -244,6 +245,108 @@ public sealed class SyncController(
             logger?.LogError(exception, "Central failed to accept sync item {IdempotencyKey} from node {NodeId}.", item.IdempotencyKey, nodeId);
             dbContext.ChangeTracker.Clear();
             return new PushItemResult(item.IdempotencyKey, "failed", exception.Message);
+        }
+    }
+
+    /// <summary>
+    /// Processes an inbox row after its durable receipt has committed. Failures leave the row in
+    /// the existing inbox with a retryable status; this avoids a second delivery queue.
+    /// </summary>
+    public async Task<string> ProcessInboxByIdAsync(string inboxId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+            if (dbContext.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+            {
+                await dbContext.Database.ExecuteSqlRawAsync(
+                    $"SELECT pg_advisory_xact_lock({CentralStatsRollupService.AdvisoryLockNamespace}, {CentralStatsRollupService.AdvisoryLockKey});",
+                    cancellationToken);
+            }
+
+            var inbox = await dbContext.SyncInbox.SingleOrDefaultAsync(item => item.Id == inboxId, cancellationToken);
+            if (inbox is null) return "missing";
+            if (inbox.Status == "processed") return inbox.Status;
+
+            if (inbox.EventType is SyncEventTypes.AttemptSubmitted)
+            {
+                var payload = inbox.Payload.RootElement.Clone();
+                var item = new PushItem(
+                    inbox.IdempotencyKey,
+                    inbox.EventType,
+                    inbox.AggregateType,
+                    inbox.AggregateId,
+                    payload,
+                    SyncPayloadChecksum.Calculate(payload),
+                    inbox.CreatedAt.ToString("O"));
+                await AddAttemptAsync(inbox.SourceNodeId ?? string.Empty, item, payload, cancellationToken);
+            }
+
+            dbContext.Entry(inbox).CurrentValues.SetValues(inbox with
+            {
+                Status = "processed",
+                ProcessedAt = DateTimeOffset.UtcNow,
+                NextProcessingAt = null
+            });
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            dbContext.ChangeTracker.Clear();
+            return "processed";
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            dbContext.ChangeTracker.Clear();
+            try
+            {
+                var inbox = await dbContext.SyncInbox.SingleOrDefaultAsync(item => item.Id == inboxId, cancellationToken);
+                if (inbox is not null)
+                {
+                    // Commit can succeed at PostgreSQL while its confirmation is lost. Never turn
+                    // an already processed row back into retryable work or the rollup would count twice.
+                    if (inbox.Status == "processed") return "processed";
+                    var attemptCount = inbox.ProcessingAttemptCount + 1;
+                    var delaySeconds = Math.Min(3600, 30 * Math.Pow(2, Math.Min(attemptCount - 1, 7)));
+                    if (dbContext.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+                    {
+                        // Another same-key retry can acquire the advisory lock and finish after
+                        // this failed transaction releases it but before this catch runs. Make
+                        // the failure mark conditional so it cannot overwrite that processed row.
+                        await dbContext.SyncInbox
+                            .Where(row => row.Id == inboxId && row.Status != "processed")
+                            .ExecuteUpdateAsync(update => update
+                                .SetProperty(row => row.Status, "processing_failed")
+                                .SetProperty(row => row.ProcessedAt, (DateTimeOffset?)null)
+                                .SetProperty(row => row.ProcessingAttemptCount, row => row.ProcessingAttemptCount + 1)
+                                .SetProperty(row => row.NextProcessingAt, DateTimeOffset.UtcNow.AddSeconds(delaySeconds)),
+                                cancellationToken);
+                    }
+                    else
+                    {
+                        dbContext.Entry(inbox).CurrentValues.SetValues(inbox with
+                        {
+                            Status = "processing_failed",
+                            ProcessedAt = null,
+                            ProcessingAttemptCount = attemptCount,
+                            NextProcessingAt = DateTimeOffset.UtcNow.AddSeconds(delaySeconds)
+                        });
+                        await dbContext.SaveChangesAsync(cancellationToken);
+                    }
+                }
+            }
+            catch (Exception statusException) when (statusException is not OperationCanceledException)
+            {
+                logger?.LogWarning("Could not store sync processing status for inbox row {InboxId}; failure type {ErrorType}.",
+                    inboxId, statusException.GetType().Name);
+            }
+
+            logger?.LogWarning("Sync inbox row {InboxId} is durable but processing failed with {ErrorType}; it remains retryable.",
+                inboxId, exception.GetType().Name);
+            dbContext.ChangeTracker.Clear();
+            var currentStatus = await dbContext.SyncInbox.AsNoTracking()
+                .Where(item => item.Id == inboxId)
+                .Select(item => item.Status)
+                .SingleOrDefaultAsync(cancellationToken);
+            return currentStatus ?? "processing_failed";
         }
     }
 
@@ -319,6 +422,32 @@ public sealed class SyncController(
         await grader.RecomputeAsync(receivedAttemptId, examVersionRemoteId, receivedAnswers, cancellationToken);
     }
 
+    private static bool IsValidAttemptPayload(PushItem item, JsonElement payload)
+    {
+        if (!payload.TryGetProperty("attempt", out var attemptElement) || attemptElement.ValueKind is not JsonValueKind.Object)
+            return false;
+        var attempt = attemptElement.Deserialize<StudentAttempt>(SyncJsonOptions);
+        if (attempt is null || !string.Equals(attempt.Id, item.AggregateId, StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(attempt.StudentCode))
+            return false;
+        if (!payload.TryGetProperty("answers", out var answersElement) || answersElement.ValueKind is not JsonValueKind.Array)
+            return false;
+        foreach (var answerElement in answersElement.EnumerateArray())
+        {
+            var answer = answerElement.Deserialize<SubmissionAnswer>(SyncJsonOptions);
+            if (answer is null || string.IsNullOrWhiteSpace(answer.BlockId)) return false;
+            try
+            {
+                using var answerJson = JsonDocument.Parse(answer.AnswerJson);
+            }
+            catch (JsonException)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private string? UpsertDeliverySession(string nodeId, JsonElement payload, DateTimeOffset receivedAt)
     {
         if (!payload.TryGetProperty("deliverySession", out var sessionElement) ||
@@ -388,6 +517,9 @@ public sealed class SyncController(
 
         return false;
     }
+
+    private static DateTimeOffset TruncateToPostgresPrecision(DateTimeOffset value) =>
+        new(value.UtcTicks - value.UtcTicks % 10, TimeSpan.Zero);
 
     private static DateTimeOffset? ParseOptionalDate(string? value) =>
         DateTimeOffset.TryParse(value, out var parsed) ? parsed : null;

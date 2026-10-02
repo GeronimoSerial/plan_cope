@@ -25,7 +25,16 @@ public sealed record PushItem(string IdempotencyKey, string EventType, string Ag
 
 public sealed record PushRequest(string NodeId, IReadOnlyList<PushItem> Items);
 
-public sealed record PushItemResult(string IdempotencyKey, string Status, string? Reason);
+/// <summary>
+/// <c>accepted</c> and <c>duplicate</c> acknowledge a durable Central inbox row. ReceivedAt is
+/// the Central commit timestamp, including for retries that resolve to the original receipt.
+/// </summary>
+public sealed record PushItemResult(
+    string IdempotencyKey,
+    string Status,
+    string? Reason,
+    DateTimeOffset? ReceivedAt = null,
+    string? ProcessingStatus = null);
 
 public sealed record PushResponse(int Received, int Failed, IReadOnlyList<PushItemResult> Results);
 

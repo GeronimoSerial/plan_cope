@@ -135,7 +135,9 @@ public sealed class SyncInboxConfiguration : IEntityTypeConfiguration<SyncInbox>
         builder.Property(static x => x.IdempotencyKey).HasMaxLength(128).IsRequired();
         builder.Property(static x => x.Payload).HasColumnType("jsonb").IsRequired();
         builder.Property(static x => x.Status).HasMaxLength(32).IsRequired();
+        builder.Property(static x => x.ProcessingAttemptCount).HasDefaultValue(0).IsRequired();
         builder.HasIndex(static x => x.IdempotencyKey).IsUnique();
+        builder.HasIndex(static x => new { x.Status, x.NextProcessingAt, x.CreatedAt });
     }
 }
 
