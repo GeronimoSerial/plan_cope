@@ -30,6 +30,7 @@ La corrección está en el commit `39de29a` (`test(local-api): drop stale CSV re
 ## Verificación y límites
 
 - En el run `36965824826`, `security` y `changes` aprobaron. `local-app` falló solo por la expectativa CSV indicada; los jobs Central y containers se omitieron por alcance. El check agregado `ci` falló como resultado de `local-app`.
+- Tras integrar la corrección, el run `36970072049` sobre la cabeza `7112009893be2ddc88b208484dc6f44211e20886` terminó con `local-app`, `security`, `changes`, el agregador `ci` y GitGuardian aprobados. Central y containers se omitieron por alcance. `mergeStateStatus` quedó `CLEAN`; `reviewDecision` aún no registra una revisión formal de GitHub.
 - No pude ejecutar localmente `dotnet test` porque este entorno no tiene `dotnet` instalado. La corrección depende de la CI nueva para demostrar el resultado.
 - `M-REPORT.md` afirma una vista Chromium a 1440×900 y 390×844, pero el PR no contiene capturas M ni otros artefactos visuales revisables. No hay evidencia en el árbol que permita reproducir esas vistas; las capturas de H no prueban M y no se usaron como sustituto.
 
