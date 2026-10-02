@@ -48,7 +48,7 @@ export function ExamsTable({ exams, canEditExams }: ExamsTableProps) {
           className="pl-8"
           value={query}
           onChange={event => setQuery(event.target.value)}
-          placeholder="Buscar por título o código"
+          placeholder="Buscar por título"
           aria-label="Buscar exámenes"
         />
       </div>
@@ -63,7 +63,6 @@ export function ExamsTable({ exams, canEditExams }: ExamsTableProps) {
             <TableHeader className="bg-muted/40">
               <TableRow>
                 <TableHead>Título</TableHead>
-                <TableHead className="hidden md:table-cell">Código</TableHead>
                 <TableHead>
                   <TermLabel term="estado">Estado</TermLabel>
                 </TableHead>
@@ -82,16 +81,12 @@ export function ExamsTable({ exams, canEditExams }: ExamsTableProps) {
                         <Link className="hover:underline" href={`/exams/${exam.id}`}>
                           {exam.title}
                         </Link>
-                        <span className="font-mono text-xs text-muted-foreground md:hidden">{exam.code}</span>
                         {published && (
                           <span className="text-xs text-muted-foreground md:hidden">
                             Publicado el {formatPublishedAt(exam.publishedAt)}
                           </span>
                         )}
                       </div>
-                    </TableCell>
-                    <TableCell className="hidden font-mono text-muted-foreground md:table-cell">
-                      {exam.code}
                     </TableCell>
                     <TableCell>
                       <TermLabel term={publicationStateTerm(exam.publicationState)}>

@@ -117,7 +117,7 @@ export type ExamDocument = z.input<typeof examDocumentSchema>;
 
 // ---- Create exam (initial metadata) ----
 export const createExamSchema = z.object({
-  code: z.string().trim().min(1, "El código es requerido.").max(64),
+  code: z.string().trim().min(1, "El código es requerido.").max(64).nullable().optional(),
   title: z.string().trim().min(1, "El título es requerido.").max(256),
   subject: z.string().trim().optional(),
   courses: z.array(z.enum(courseKeys)).min(1, "Seleccioná al menos un curso."),

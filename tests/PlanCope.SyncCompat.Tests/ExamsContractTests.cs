@@ -384,6 +384,18 @@ public sealed class ExamsContractTests
     }
 
     [Fact]
+    public void CreateExamRequest_deserializes_without_code_for_new_clients()
+    {
+        var sample = JsonSerializer.Deserialize(
+            "{\"title\":\"Título\",\"courses\":[\"primaria-1\"]}",
+            PlanCopeJsonSerializerContext.Default.CreateExamRequest);
+
+        Assert.NotNull(sample);
+        Assert.Null(sample.Code);
+        Assert.Equal("Título", sample.Title);
+    }
+
+    [Fact]
     public void CreateExamVersionRequest_round_trips_through_source_generated_context()
     {
         var sample = new CreateExamVersionRequest(

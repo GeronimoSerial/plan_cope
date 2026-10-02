@@ -87,9 +87,7 @@ export function filterExams(exams: ExamSummary[], query: string): ExamSummary[] 
   if (!term) {
     return exams;
   }
-  return exams.filter(
-    exam => normalizeForSearch(exam.title).includes(term) || normalizeForSearch(exam.code).includes(term)
-  );
+  return exams.filter(exam => normalizeForSearch(exam.title).includes(term));
 }
 
 export function publishBlockedMessage(reason: PublishBlockedReason | string | null | undefined): string {
@@ -104,36 +102,16 @@ export function publishBlockedMessage(reason: PublishBlockedReason | string | nu
 }
 
 export interface CreateExamInput {
-  code: string;
   title: string;
 }
 
 export interface CreateExamErrors {
-  code?: string;
   title?: string;
-}
-
-const examCodePattern = /^[\p{L}\p{N}_-]+$/u;
-
-// Espeja ExamCode.IsValid en el backend: no vacío, hasta 64 caracteres,
-// solo letras/dígitos (Unicode), guiones y guiones bajos.
-export function isValidExamCode(code: string): boolean {
-  const trimmed = code.trim();
-  return trimmed.length > 0 && trimmed.length <= 64 && examCodePattern.test(trimmed);
 }
 
 export function validateCreateExam(input: CreateExamInput): CreateExamErrors {
   const errors: CreateExamErrors = {};
-  const code = input.code.trim();
   const title = input.title.trim();
-
-  if (!code) {
-    errors.code = "El código es requerido.";
-  } else if (code.length > 64) {
-    errors.code = "El código no puede superar los 64 caracteres.";
-  } else if (!isValidExamCode(code)) {
-    errors.code = "El código solo admite letras, números, guiones y guiones bajos.";
-  }
 
   if (!title) {
     errors.title = "El título es requerido.";

@@ -96,7 +96,7 @@ public sealed record PublishedAssetDto(string Id, string VersionId, string FileN
 
 public sealed record PublicationTargetDto(string TargetType, string? TargetId);
 
-public sealed record CreateExamRequest(string Code, string Title, string? Description, IReadOnlyList<string>? Courses, string? Area, string? Subject);
+public sealed record CreateExamRequest(string? Code, string Title, string? Description, IReadOnlyList<string>? Courses, string? Area, string? Subject);
 
 // Body is fully optional. Without sourceVersionId the new version is a deep copy of the exam's
 // highest-numbered published version, falling back to the highest-numbered version overall when the

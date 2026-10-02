@@ -41,6 +41,7 @@ public sealed class ExamAuthoringPublicationTests
 
         var created = Assert.IsType<CreatedAtActionResult>(result.Result);
         var summary = Assert.IsType<ExamSummaryDto>(created.Value);
+        Assert.Equal("EXA-2026-01", summary.Code);
         Assert.False(string.IsNullOrWhiteSpace(summary.InitialVersionId));
         Assert.Equal(1, summary.VersionCount);
         Assert.Equal(ExamPublicationStates.Draft, summary.PublicationState);
@@ -49,6 +50,24 @@ public sealed class ExamAuthoringPublicationTests
         Assert.Equal(summary.InitialVersionId, version.Id);
         Assert.Equal(1, version.VersionNumber);
         Assert.Equal("Draft", version.Status);
+    }
+
+    [Fact]
+    public async Task Create_exam_without_code_generates_a_stable_technical_code()
+    {
+        var options = CreateOptions();
+        using var dbContext = new PlanCopeDbContext(options);
+        var controller = CreateController(dbContext);
+
+        var result = await controller.Create(
+            new CreateExamRequest(null, "Título editable", null, ["secundaria-1"], null, null),
+            CancellationToken.None);
+
+        var created = Assert.IsType<CreatedAtActionResult>(result.Result);
+        var summary = Assert.IsType<ExamSummaryDto>(created.Value);
+        Assert.StartsWith("exam-", summary.Code);
+        Assert.NotEqual("Título editable", summary.Code);
+        Assert.Equal(summary.Code, (await dbContext.Exams.SingleAsync()).Code);
     }
 
     [Fact]

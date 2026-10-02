@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
 import { callCentral } from "../../_lib/api/client";
-import { getErrorMessage } from "../../_lib/json";
 import { validateCreateExam, type CreateExamErrors } from "../../_lib/exams/exam-state";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,18 +21,13 @@ import type { ExamSummary } from "../../_lib/contracts";
 import { areaOptions, courseOptions } from "../../_lib/exams/catalog";
 import { GradeSectionPicker } from "../shared/grade-section-picker";
 
-function mapCreateExamError(error: unknown): string {
-  const message = getErrorMessage(error, "");
-  if (message.toLowerCase().includes("already exists")) {
-    return "Ya existe un examen con ese código.";
-  }
+function mapCreateExamError(): string {
   return "No se pudo crear el examen. Revisá los datos e intentá de nuevo.";
 }
 
 export function CreateExamButton({ canEditExams }: { canEditExams: boolean }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [code, setCode] = useState("");
   const [title, setTitle] = useState("");
   const [courses, setCourses] = useState<string[]>([]);
   const [areaChoice, setAreaChoice] = useState("");
@@ -45,7 +39,6 @@ export function CreateExamButton({ canEditExams }: { canEditExams: boolean }) {
   if (!canEditExams) return null;
 
   function resetForm() {
-    setCode("");
     setTitle("");
     setCourses([]);
     setAreaChoice("");
@@ -62,7 +55,6 @@ export function CreateExamButton({ canEditExams }: { canEditExams: boolean }) {
       const created = await callCentral<ExamSummary>("exams", {
         method: "POST",
         body: JSON.stringify({
-          code: code.trim(),
           title: title.trim(),
           description: null,
           courses,
@@ -77,17 +69,17 @@ export function CreateExamButton({ canEditExams }: { canEditExams: boolean }) {
         ? `/exams/${created.id}/versions/${created.initialVersionId}/builder`
         : `/exams/${created.id}`;
       router.push(target);
-    } catch (error) {
-      setFormError(mapCreateExamError(error));
+    } catch {
+      setFormError(mapCreateExamError());
       setPending(false);
     }
   }
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const nextErrors = validateCreateExam({ code, title });
+    const nextErrors = validateCreateExam({ title });
     setErrors(nextErrors);
-    if (nextErrors.code || nextErrors.title || courses.length === 0 || (areaChoice === "Otro" && !customArea.trim())) {
+    if (nextErrors.title || courses.length === 0 || (areaChoice === "Otro" && !customArea.trim())) {
       return;
     }
     void createExam();
@@ -112,29 +104,11 @@ export function CreateExamButton({ canEditExams }: { canEditExams: boolean }) {
           <form onSubmit={onSubmit} noValidate className="grid min-h-0 max-h-full grid-rows-[auto_minmax(0,1fr)_auto] gap-4">
             <DialogHeader>
               <DialogTitle>Nuevo examen</DialogTitle>
-              <DialogDescription>Código, título y curso. Después agregás las preguntas en el builder.</DialogDescription>
+              <DialogDescription>Título y curso. Después agregás las preguntas en el builder.</DialogDescription>
             </DialogHeader>
 
             <div className="min-h-0 overflow-y-auto overscroll-contain">
               <FieldGroup className="gap-4">
-              <Field data-invalid={errors.code ? true : undefined}>
-                <FieldLabel htmlFor="new-exam-code">Código</FieldLabel>
-                <Input
-                  id="new-exam-code"
-                  placeholder="Ej. MAT-2026-01"
-                  autoComplete="off"
-                  aria-invalid={errors.code ? true : undefined}
-                  value={code}
-                  onChange={event => {
-                    setCode(event.target.value);
-                    if (errors.code) {
-                      setErrors(previous => ({ ...previous, code: undefined }));
-                    }
-                  }}
-                />
-                {errors.code && <FieldError>{errors.code}</FieldError>}
-              </Field>
-
               <Field data-invalid={errors.title ? true : undefined}>
                 <FieldLabel htmlFor="new-exam-title">Título</FieldLabel>
                 <Input

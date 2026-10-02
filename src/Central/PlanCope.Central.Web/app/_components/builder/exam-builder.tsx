@@ -50,7 +50,6 @@ import type { ExamVersion, PublishBlockedReason } from "../../_lib/contracts";
 
 interface ExamBuilderProps {
   examId: string;
-  examCode: string;
   examTitle: string;
   versionId: string;
   versionNumber: number;
@@ -76,7 +75,6 @@ function blockedReasonMessage(reason: DocumentReadiness["blockedReason"]): strin
 
 export function ExamBuilder({
   examId,
-  examCode,
   examTitle,
   versionId,
   versionNumber,
@@ -272,7 +270,7 @@ export function ExamBuilder({
                 render={<button type="button" />}
                 onClick={() => requestNavigation(`/exams/${examId}`)}
               >
-                {examCode}
+                {document.title || examTitle}
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
@@ -350,10 +348,6 @@ export function ExamBuilder({
             </CardHeader>
             <CardContent className="grid gap-4">
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field>
-                  <FieldLabel htmlFor="meta-code">Código</FieldLabel>
-                  <Input id="meta-code" value={document.code} readOnly disabled />
-                </Field>
                 <Field data-invalid={errors.title ? true : undefined}>
                   <FieldLabel htmlFor="meta-title">Título</FieldLabel>
                   <Input

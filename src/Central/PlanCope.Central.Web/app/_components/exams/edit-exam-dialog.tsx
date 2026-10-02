@@ -27,23 +27,18 @@ interface EditExamButtonProps {
 
 interface EditExamErrors {
   title?: string;
-  code?: string;
   form?: string;
 }
 
 function mapUpdateExamError(error: unknown): EditExamErrors {
   const message = getErrorMessage(error, "").toLowerCase();
-  if (message.includes("code") || message.includes("código")) {
-    return { code: "El código no se puede modificar." };
-  }
   if (message.includes("title") || message.includes("título")) {
     return { title: "Revisá el título del examen." };
   }
   return { form: "No se pudieron guardar los datos. Revisá los campos e intentá de nuevo." };
 }
 
-// "Editar datos" del examen: titulo, cursos, area y materia. El codigo es inmutable y se muestra
-// solo de lectura; el API devuelve 400 bajo la clave "code" si llegara a cambiar.
+// "Editar datos" del examen: título, cursos, área y materia.
 export function EditExamButton({ exam, canEditExams }: EditExamButtonProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -123,16 +118,11 @@ export function EditExamButton({ exam, canEditExams }: EditExamButtonProps) {
           <form onSubmit={onSubmit} noValidate className="grid min-h-0 max-h-full grid-rows-[auto_minmax(0,1fr)_auto] gap-4">
             <DialogHeader>
               <DialogTitle>Editar datos</DialogTitle>
-              <DialogDescription>Datos generales del examen. El código no se puede cambiar.</DialogDescription>
+              <DialogDescription>Datos generales del examen.</DialogDescription>
             </DialogHeader>
 
             <div className="min-h-0 overflow-y-auto overscroll-contain">
               <FieldGroup className="gap-4">
-              <Field>
-                <FieldLabel htmlFor="edit-exam-code">Código</FieldLabel>
-                <Input id="edit-exam-code" value={exam.code} readOnly disabled />
-              </Field>
-
               <Field data-invalid={errors.title ? true : undefined}>
                 <FieldLabel htmlFor="edit-exam-title">Título</FieldLabel>
                 <Input
@@ -181,9 +171,9 @@ export function EditExamButton({ exam, canEditExams }: EditExamButtonProps) {
               </div>
               </FieldGroup>
 
-              {(errors.code || errors.form) && (
+              {errors.form && (
                 <p role="alert" className="mt-4 text-sm text-destructive">
-                  {errors.code ?? errors.form}
+                  {errors.form}
                 </p>
               )}
             </div>

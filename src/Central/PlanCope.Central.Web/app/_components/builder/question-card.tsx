@@ -1,9 +1,9 @@
 "use client";
 
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo, useRef, useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ArrowDownIcon, ArrowUpIcon, CopyIcon, GripVerticalIcon, Trash2Icon } from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, CopyIcon, EyeIcon, GripVerticalIcon, Trash2Icon } from "lucide-react";
 import { questionTypes, type Question, type QuestionType } from "../../_lib/schema/exam";
 import { blankQuestion } from "../../_lib/schema/mappers";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,14 @@ import {
   AlertDialogTitle
 } from "@/components/ui/alert-dialog";
 import { QuestionEditor } from "./question-editor";
+import { QuestionPreview } from "./question-preview";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle
+} from "@/components/ui/dialog";
 
 const compactQuestionTypeLabels: Record<QuestionType, string> = {
   single_choice: "Única",
@@ -87,6 +95,8 @@ export const QuestionCard = memo(function QuestionCard({
     disabled
   });
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const previewTriggerRef = useRef<HTMLButtonElement>(null);
   const ownErrors = useMemo(() => sliceErrors(errors, index), [errors, index]);
 
   const style = {
@@ -156,6 +166,9 @@ export const QuestionCard = memo(function QuestionCard({
             </div>
           </div>
           <div className="ml-auto flex items-center gap-0.5">
+            <Button ref={previewTriggerRef} type="button" variant="ghost" size="icon-sm" aria-label={`Vista previa de la pregunta ${index + 1}`} onClick={() => setPreviewOpen(true)}>
+              <EyeIcon />
+            </Button>
             <Button type="button" variant="ghost" size="icon-sm" title="Mover pregunta hacia arriba" aria-label={`Mover pregunta ${index + 1} hacia arriba`} disabled={disabled || index === 0} onClick={() => onMove(question.id, -1)}><ArrowUpIcon /></Button>
             <Button type="button" variant="ghost" size="icon-sm" title="Mover pregunta hacia abajo" aria-label={`Mover pregunta ${index + 1} hacia abajo`} disabled={disabled || index === questionCount - 1} onClick={() => onMove(question.id, 1)}><ArrowDownIcon /></Button>
             {!disabled && <Button type="button" variant="ghost" size="icon-sm" title="Duplicar pregunta" aria-label={`Duplicar pregunta ${index + 1}`} onClick={() => onDuplicate(question.id)}><CopyIcon /></Button>}
@@ -172,6 +185,24 @@ export const QuestionCard = memo(function QuestionCard({
           />
         </CardContent>
       </Card>
+
+      <Dialog
+        open={previewOpen}
+        onOpenChange={open => {
+          setPreviewOpen(open);
+          if (!open) {
+            window.requestAnimationFrame(() => previewTriggerRef.current?.focus());
+          }
+        }}
+      >
+        <DialogContent className="gap-5 sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Vista previa · Pregunta {index + 1}</DialogTitle>
+            <DialogDescription>Así se presentará al estudiante. Las respuestas están desactivadas.</DialogDescription>
+          </DialogHeader>
+          <QuestionPreview question={question} versionId={versionId} number={index + 1} />
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>

@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   filterExams,
   formatPublishedAt,
-  isValidExamCode,
   publicationStateBadgeVariant,
   publicationStateLabel,
   publishBlockedMessage,
@@ -83,8 +82,8 @@ describe("filterExams", () => {
     expect(filterExams(exams, "PRACTICAS").map(item => item.id)).toEqual(["2"]);
   });
 
-  it("filtra por código", () => {
-    expect(filterExams(exams, "fis-2026").map(item => item.id)).toEqual(["3"]);
+  it("no encuentra por código técnico", () => {
+    expect(filterExams(exams, "fis-2026")).toEqual([]);
   });
 
   it("devuelve vacío sin coincidencias", () => {
@@ -107,29 +106,12 @@ describe("publishBlockedMessage", () => {
 
 
 describe("validateCreateExam", () => {
-  it("acepta código y título válidos", () => {
-    expect(validateCreateExam({ code: "MAT-2026_01", title: "Examen" })).toEqual({});
+  it("acepta título sin código", () => {
+    expect(validateCreateExam({ title: "Examen" })).toEqual({});
   });
 
-  it("exige código y título", () => {
-    const errors = validateCreateExam({ code: "  ", title: "" });
-    expect(errors.code).toBe("El código es requerido.");
+  it("exige título", () => {
+    const errors = validateCreateExam({ title: "" });
     expect(errors.title).toBe("El título es requerido.");
-  });
-
-  it("rechaza un código con caracteres inválidos", () => {
-    const errors = validateCreateExam({ code: "MAT 2026/01", title: "Examen" });
-    expect(errors.code).toBe("El código solo admite letras, números, guiones y guiones bajos.");
-  });
-
-  it("rechaza un código mayor a 64 caracteres", () => {
-    const errors = validateCreateExam({ code: "A".repeat(65), title: "Examen" });
-    expect(errors.code).toBe("El código no puede superar los 64 caracteres.");
-  });
-
-  it("isValidExamCode espeja la regla del backend", () => {
-    expect(isValidExamCode("MAT-2026_01")).toBe(true);
-    expect(isValidExamCode("  ")).toBe(false);
-    expect(isValidExamCode("con espacios")).toBe(false);
   });
 });

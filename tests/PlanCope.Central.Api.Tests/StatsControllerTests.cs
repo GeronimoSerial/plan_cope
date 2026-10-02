@@ -177,6 +177,31 @@ public sealed class StatsControllerTests
     }
 
     [Fact]
+    public async Task GetSchool_ReturnsOnlyMatchingSchoolGeography()
+    {
+        var options = CreateOptions();
+        using var dbContext = new PlanCopeDbContext(options);
+        dbContext.Departments.Add(new Department("department-1", "D1", "Departamento", "province-1", Now));
+        dbContext.Localities.Add(new Locality("locality-1", "department-1", "L1", null, "Localidad", Now));
+        dbContext.Schools.AddRange(
+            new School("school-1", "180000100", 180000100, null, "Escuela autorizada", "locality-1", "Active", null, Now, Now),
+            new School("school-2", "180000200", 180000200, null, "Otra escuela", "locality-1", "Active", null, Now, Now));
+        await dbContext.SaveChangesAsync();
+
+        using var scope = CreateAuthScope();
+        var controller = CreateController(
+            dbContext,
+            scope.ServiceProvider.GetRequiredService<IAuthorizationService>(),
+            Principal(new Claim("roster_scope", "province")));
+
+        var result = Assert.IsType<OkObjectResult>(await controller.GetSchool("180000100", null, null, CancellationToken.None));
+        using var json = ToJson(result.Value);
+        Assert.Equal("Escuela autorizada", json.RootElement.GetProperty("schoolName").GetString());
+        Assert.Equal("Localidad", json.RootElement.GetProperty("locality").GetString());
+        Assert.Equal("Departamento", json.RootElement.GetProperty("department").GetString());
+    }
+
+    [Fact]
     public async Task SmallCohort_IsSuppressedForProvinceButRenderedForOwningSchool()
     {
         var options = CreateOptions();

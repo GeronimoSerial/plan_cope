@@ -1,4 +1,4 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { isNotFound, isSessionExpired, listExams, listVersions } from "../../../_lib/api/server";
 import { PageHeader } from "../../../_components/layout/page-header";
@@ -48,7 +48,6 @@ export default async function ExamDetailPage({ params }: { params: Promise<{ exa
     <>
       <PageHeader
         title={exam.title}
-        description={exam.code}
         actions={<ExamHeaderActions exam={exam} versions={versions} canEditExams={canEditExams((await getSessionUser())?.role)} />}
       />
 

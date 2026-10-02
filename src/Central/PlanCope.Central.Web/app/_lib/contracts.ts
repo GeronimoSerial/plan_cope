@@ -46,7 +46,7 @@ export interface ExamSummary {
 }
 
 export interface CreateExamRequest {
-  code: string;
+  code?: string | null;
   title: string;
   description?: string | null;
   courses: string[];
