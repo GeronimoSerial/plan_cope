@@ -63,4 +63,28 @@ describe("StudentApi exam resume contract", () => {
       headers: { Authorization: "Bearer opaque-credential" }
     }));
   });
+
+  it("revokes only the resume credential named by its bearer token", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await new StudentApi("http://local.test").revokeResumeCredential("attempt-1", "old-credential");
+
+    expect(fetchMock).toHaveBeenCalledWith("http://local.test/api/attempts/attempt-1/resume-credential/revoke", expect.objectContaining({
+      method: "POST",
+      headers: { Authorization: "Bearer old-credential" }
+    }));
+  });
+
+  it("revokes by session when the attempt start response was lost", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await new StudentApi("http://local.test").revokeResumeCredential("ABC-123", "credential-from-lost-start", false);
+
+    expect(fetchMock).toHaveBeenCalledWith("http://local.test/api/sessions/ABC-123/attempts/resume-credential/revoke", expect.objectContaining({
+      method: "POST",
+      headers: { Authorization: "Bearer credential-from-lost-start" }
+    }));
+  });
 });

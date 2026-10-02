@@ -78,6 +78,16 @@ export class StudentApi {
     });
   }
 
+  revokeResumeCredential(attemptIdOrSession: string, credential: string, hasAttemptId = true): Promise<void> {
+    const path = hasAttemptId
+      ? `/api/attempts/${encodeURIComponent(attemptIdOrSession)}/resume-credential/revoke`
+      : `/api/sessions/${encodeURIComponent(attemptIdOrSession)}/attempts/resume-credential/revoke`;
+    return this.request<void>(path, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${credential}` }
+    });
+  }
+
   private async request<T>(path: string, init: RequestInit, options?: { studentNotFound?: boolean }): Promise<T> {
     const response = await fetch(`${this.baseUrl}${path}`, init);
 

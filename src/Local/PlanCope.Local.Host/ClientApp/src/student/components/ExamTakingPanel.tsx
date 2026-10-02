@@ -20,6 +20,7 @@ type ExamTakingPanelProps = {
   onAnswerChange: (blockId: string, value: string) => void;
   onSave: () => void;
   onSubmit: () => void;
+  onReset: () => void;
 };
 
 export function ExamTakingPanel({
@@ -33,7 +34,8 @@ export function ExamTakingPanel({
   studentName,
   onAnswerChange,
   onSave,
-  onSubmit
+  onSubmit,
+  onReset
 }: ExamTakingPanelProps) {
   const [isSubmitOpen, setIsSubmitOpen] = useState(false);
 
@@ -60,6 +62,10 @@ export function ExamTakingPanel({
   const handleConfirmSubmit = () => {
     setIsSubmitOpen(false);
     onSubmit();
+  };
+
+  const handleReset = () => {
+    if (window.confirm("¿Querés reiniciar el examen? Se borrarán las respuestas de esta pestaña y no se podrán recuperar.")) onReset();
   };
 
   return (
@@ -131,6 +137,9 @@ export function ExamTakingPanel({
           </ActionButton>
           <ActionButton disabled={isBusy || paused || closed} onClick={() => setIsSubmitOpen(true)}>
             Enviar examen
+          </ActionButton>
+          <ActionButton variant="secondary" disabled={isBusy || closed} onClick={handleReset}>
+            Reiniciar examen
           </ActionButton>
         </div>
       </div>
