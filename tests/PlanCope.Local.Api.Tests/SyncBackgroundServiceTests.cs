@@ -294,6 +294,7 @@ public sealed class SyncBackgroundServiceTests : IDisposable
         await nextTickService.StopAsync(CancellationToken.None);
 
         Assert.DoesNotContain(noDueHandler.Paths, path => path == "/api/sync/push");
+        Assert.Contains(noDueHandler.Paths, path => path.StartsWith("/api/sync/pull", StringComparison.Ordinal));
         Assert.Equal(lastError.ValueJson, (await new SyncStateRepository(connectionFactory).GetAsync("sync_last_error"))?.ValueJson);
         using var checkConnection = connectionFactory.CreateOpenConnection();
         Assert.Equal("pending", await checkConnection.ExecuteScalarAsync<string>("SELECT status FROM sync_outbox WHERE id = 'outbox-error';"));
