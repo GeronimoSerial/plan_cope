@@ -43,7 +43,7 @@ public sealed class ExamsController(
         var now = DateTimeOffset.UtcNow;
         var exam = new Exam(
             NewId(),
-            request.Code.Trim(),
+            request.Code is null ? NewExamCode() : request.Code.Trim(),
             request.Title.Trim(),
             request.Description,
             request.Courses?.Distinct(StringComparer.Ordinal).ToArray() ?? [],
@@ -1232,6 +1232,12 @@ public sealed class ExamsController(
     private static string NewId()
     {
         return Guid.NewGuid().ToString("N");
+    }
+
+    private static string NewExamCode()
+    {
+        // This is a technical identifier for legacy package compatibility, not user-facing identity.
+        return $"exam-{NewId()}";
     }
 
     private static string HexSha256(byte[] bytes)

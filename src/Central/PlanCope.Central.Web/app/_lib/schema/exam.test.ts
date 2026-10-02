@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   examDocumentSchema,
+  createExamSchema,
   scoringPolicies,
   scoringPolicyExplanations,
   scoringPolicyWarnings,
@@ -111,6 +112,20 @@ describe("examDocumentSchema", () => {
 
   it.each(["free_text", "text_block", "image_block"])("rechaza el tipo eliminado %s", type => {
     expect(examDocumentSchema.safeParse(baseDoc([{ id: "q", type, prompt: "Pregunta" }])).success).toBe(false);
+  });
+});
+
+describe("createExamSchema", () => {
+  it("acepta altas sin código y sigue aceptando códigos legacy", () => {
+    const base = { title: "Examen", courses: ["primaria-1"] };
+    expect(createExamSchema.safeParse(base).success).toBe(true);
+    expect(createExamSchema.safeParse({ ...base, code: null }).success).toBe(true);
+    expect(createExamSchema.safeParse({ ...base, code: "LEGACY-01" }).success).toBe(true);
+  });
+
+  it("valida longitud y formato de un código legacy proporcionado", () => {
+    expect(createExamSchema.safeParse({ title: "Examen", courses: ["primaria-1"], code: "" }).success).toBe(false);
+    expect(createExamSchema.safeParse({ title: "Examen", courses: ["primaria-1"], code: "A".repeat(65) }).success).toBe(false);
   });
 });
 

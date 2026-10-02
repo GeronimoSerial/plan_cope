@@ -1,4 +1,4 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { listExams, listVersions, getVersion, isNotFound, isSessionExpired } from "../../../../../../_lib/api/server";
 import { versionToDocument } from "../../../../../../_lib/schema/mappers";
@@ -52,7 +52,6 @@ export default async function BuilderPage({
   return (
     <ExamBuilder
       examId={examId}
-      examCode={exam.code}
       examTitle={exam.title}
       versionId={version.id}
       versionNumber={version.versionNumber}
