@@ -353,6 +353,45 @@ public sealed class SyncAttemptGradingTests
     }
 
     [Fact]
+    public async Task Durable_receipt_survives_processing_fault_and_same_key_retries_processing()
+    {
+        var fault = new FailFirstRollupSaveInterceptor();
+        using var dbContext = CreateDbContext(fault);
+        var exam = MakeExam("durable-receipt-exam");
+        var version = MakeVersion("durable-receipt-version", exam.Id);
+        var block = MakeBlock("durable-receipt-block", version.Id);
+        SeedExam(dbContext, exam, version, block, MakeAnswerKey("durable-receipt-key", block.Id, "[\"B\"]", 1m));
+        dbContext.Schools.Add(new School("durable-receipt-school", "CUE-180000100", 180000100, null, "Escuela", "locality-1", "Active", null, Now, Now));
+        await dbContext.SaveChangesAsync();
+
+        fault.Armed = true;
+        var item = CreateAttemptItem("durable-receipt-idem", "durable-receipt-attempt", version.Id,
+            new[] { MakeAnswerPayload("durable-receipt-attempt", block.Id, "[\"B\"]") },
+            new { id = "durable-receipt-session", schoolCue = "180000100", schoolYear = "2026", course = "6to A", examVersionId = version.Id, status = "closed" });
+        var first = await PushAsync(dbContext, item);
+
+        Assert.Equal("accepted", first.Results.Single().Status);
+        Assert.Equal("processing_failed", first.Results.Single().ProcessingStatus);
+        Assert.NotNull(first.Results.Single().ReceivedAt);
+        Assert.Equal("processing_failed", (await dbContext.SyncInbox.SingleAsync()).Status);
+        Assert.Equal(1, (await dbContext.SyncInbox.SingleAsync()).ProcessingAttemptCount);
+        var failedInbox = await dbContext.SyncInbox.SingleAsync();
+        Assert.True(failedInbox.NextProcessingAt.HasValue && failedInbox.NextProcessingAt.Value > DateTimeOffset.UtcNow);
+        Assert.Empty(await dbContext.ReceivedStudentAttempts.ToListAsync());
+
+        var retry = await PushAsync(dbContext, item);
+
+        Assert.Equal("duplicate", retry.Results.Single().Status);
+        Assert.Equal("processed", retry.Results.Single().ProcessingStatus);
+        Assert.Equal(first.Results.Single().ReceivedAt, retry.Results.Single().ReceivedAt);
+        Assert.Equal(1, await dbContext.SyncInbox.CountAsync());
+        Assert.Null((await dbContext.SyncInbox.SingleAsync()).NextProcessingAt);
+        Assert.Equal(1, await dbContext.ReceivedStudentAttempts.CountAsync());
+        Assert.Equal(1, await dbContext.CentralAttemptResults.CountAsync());
+        Assert.Equal(1, (await dbContext.ExamRollups.SingleAsync()).AttemptCount);
+    }
+
+    [Fact]
     public async Task Push_batch_isolates_a_bad_attempt_and_accepts_the_following_item()
     {
         using var dbContext = CreateDbContext();
@@ -731,5 +770,22 @@ public sealed class SyncAttemptGradingTests
         public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
             DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default) =>
             Armed ? throw new DbUpdateException("Simulated storage failure.") : base.SavingChangesAsync(eventData, result, cancellationToken);
+    }
+
+    private sealed class FailFirstRollupSaveInterceptor : SaveChangesInterceptor
+    {
+        public bool Armed { get; set; }
+
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            if (Armed && eventData.Context?.ChangeTracker.Entries<ExamRollup>()
+                    .Any(entry => entry.State == EntityState.Added) == true)
+            {
+                Armed = false;
+                throw new DbUpdateException("Synthetic rollup persistence failure.");
+            }
+            return base.SavingChangesAsync(eventData, result, cancellationToken);
+        }
     }
 }

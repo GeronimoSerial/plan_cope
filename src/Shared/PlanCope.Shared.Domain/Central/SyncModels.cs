@@ -62,7 +62,19 @@ public sealed record CentralAttemptResult(
     DateTimeOffset GradedAt,
     string? Reason = null);
 
-public sealed record SyncInbox(string Id, string? SourceNodeId, string EventType, string AggregateType, string AggregateId, string IdempotencyKey, JsonDocument Payload, string Status, DateTimeOffset CreatedAt, DateTimeOffset? ProcessedAt);
+public sealed record SyncInbox(
+    string Id,
+    string? SourceNodeId,
+    string EventType,
+    string AggregateType,
+    string AggregateId,
+    string IdempotencyKey,
+    JsonDocument Payload,
+    string Status,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? ProcessedAt,
+    int ProcessingAttemptCount = 0,
+    DateTimeOffset? NextProcessingAt = null);
 
 public sealed record SyncCursor(string Id, string NodeId, string CursorKey, string CursorValue, DateTimeOffset UpdatedAt);
 

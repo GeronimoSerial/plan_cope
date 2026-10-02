@@ -29,6 +29,53 @@ public sealed class CentralStatsPostgresIntegrationTests
     private const string SectionId = "postgres-section-1";
 
     [DockerFact]
+    public async Task Failed_rollup_commit_leaves_no_partial_receipt_and_same_key_retry_converges_once()
+    {
+        await using var postgres = new PostgreSqlBuilder().WithImage("postgres:17-alpine").Build();
+        await postgres.StartAsync();
+        var connectionString = postgres.GetConnectionString();
+        var baseOptions = CreateOptions(connectionString);
+        await using (var migrationContext = new PlanCopeDbContext(baseOptions))
+        {
+            await migrationContext.Database.MigrateAsync();
+            await SeedAsync(migrationContext);
+        }
+
+        var item = CreateItem("durability-key", "durability-attempt", "durability-session");
+        var faultedOptions = CreateOptions(connectionString, new FailFirstRollupSaveInterceptor());
+        var receipt = await PushAsync(faultedOptions, item);
+        var receiptResult = Assert.Single(receipt.Results);
+        Assert.Equal("accepted", receiptResult.Status);
+        Assert.Equal("processing_failed", receiptResult.ProcessingStatus);
+        Assert.NotNull(receiptResult.ReceivedAt);
+
+        await using (var afterFault = new PlanCopeDbContext(baseOptions))
+        {
+            Assert.Equal("processing_failed", (await afterFault.SyncInbox.SingleAsync()).Status);
+            Assert.Empty(await afterFault.ReceivedStudentAttempts.ToListAsync());
+            Assert.Empty(await afterFault.CentralAttemptResults.ToListAsync());
+            Assert.Empty(await afterFault.ExamRollups.ToListAsync());
+        }
+
+        var retry = await PushAsync(baseOptions, item);
+        var duplicate = await PushAsync(baseOptions, item);
+        var conflictPayload = JsonSerializer.SerializeToElement(new { attempt = new { id = "different-content", studentCode = "STUDENT-1" } });
+        var conflict = await PushAsync(baseOptions, item with { Payload = conflictPayload, Checksum = SyncPayloadChecksum.Calculate(conflictPayload) });
+
+        Assert.Equal("duplicate", Assert.Single(retry.Results).Status);
+        Assert.Equal("processed", Assert.Single(retry.Results).ProcessingStatus);
+        Assert.Equal("duplicate", Assert.Single(duplicate.Results).Status);
+        Assert.Equal(receiptResult.ReceivedAt, Assert.Single(retry.Results).ReceivedAt);
+        Assert.Equal(receiptResult.ReceivedAt, Assert.Single(duplicate.Results).ReceivedAt);
+        Assert.Equal("failed", Assert.Single(conflict.Results).Status);
+        await using var final = new PlanCopeDbContext(baseOptions);
+        Assert.Equal(1, await final.SyncInbox.CountAsync(row => row.IdempotencyKey == "durability-key"));
+        Assert.Equal(1, await final.ReceivedStudentAttempts.CountAsync(row => row.RemoteLocalId == "durability-attempt"));
+        Assert.Equal(1, await final.CentralAttemptResults.CountAsync());
+        Assert.Equal(1, (await final.ExamRollups.SingleAsync()).AttemptCount);
+    }
+
+    [DockerFact]
     public async Task Postgres_rollups_serialize_rebuilds_and_concurrent_session_pushes()
     {
         await using var postgres = new PostgreSqlBuilder().WithImage("postgres:17-alpine").Build();
@@ -134,6 +181,23 @@ public sealed class CentralStatsPostgresIntegrationTests
             .UseNpgsql(connectionString, postgres => postgres.MigrationsAssembly(typeof(PlanCope.Central.Migrations.Migrations.AddDeliverySessionNodeOwnership).Assembly.GetName().Name));
         if (interceptor is not null) builder.AddInterceptors(interceptor);
         return builder.Options;
+    }
+
+    private sealed class FailFirstRollupSaveInterceptor : SaveChangesInterceptor
+    {
+        private int armed = 1;
+
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (Interlocked.Exchange(ref armed, 0) == 1 && eventData.Context?.ChangeTracker
+                    .Entries<ExamRollup>().Any(entry => entry.State == EntityState.Added) == true)
+                throw new InvalidOperationException("Synthetic rollup write fault after inbox/attempt staging.");
+
+            return ValueTask.FromResult(result);
+        }
     }
 
     private static async Task<PushResponse> PushAsync(DbContextOptions<PlanCopeDbContext> options, PushItem item)
