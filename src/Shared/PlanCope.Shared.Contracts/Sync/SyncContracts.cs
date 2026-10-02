@@ -69,7 +69,8 @@ public sealed record LiveSessionSummary(
     DateTimeOffset? LastActivityAt,
     DateTimeOffset? LastHeartbeatAt,
     string SignalStatus,
-    string? AppVersion);
+    string? AppVersion,
+    int HeartbeatStaleAfterSeconds = 600);
 
 public static class SyncEventTypes
 {

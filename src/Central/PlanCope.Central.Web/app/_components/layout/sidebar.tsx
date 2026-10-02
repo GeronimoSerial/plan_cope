@@ -10,12 +10,12 @@ import {
   FileText,
   Home,
   KeyRound,
-  RefreshCw,
   School,
   Users,
   type LucideIcon
 } from "lucide-react";
 import type { UserProfile } from "../../_lib/contracts";
+import { ReceivedSyncStatus } from "../sync-admin/received-sync-status";
 import {
   Sidebar,
   SidebarContent,
@@ -42,7 +42,6 @@ const links: NavItem[] = [
   { href: "/usuarios", label: "Usuarios", icon: Users },
   { href: "/claves", label: "Claves de activación", icon: KeyRound },
   { href: "/estadisticas", label: "Estadísticas", icon: BarChart3 },
-  { href: "/sincronizacion-recibida", label: "Sincronización recibida", icon: RefreshCw },
   { href: "/descargas", label: "Descargas", icon: Download }
 ];
 
@@ -82,8 +81,8 @@ export function AppSidebar({ user }: { user: UserProfile }) {
           <SidebarGroupLabel>Navegación</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {[...links.filter(link => link.href !== "/sincronizacion-recibida" || user.role === "Admin"),
-                ...(user.role === "Admin" ? [{ href: "/sesiones-en-curso", label: "Sesiones en curso", icon: Activity }] : [])].map(link => {
+              {[...links,
+                ...(user.role === "Admin" ? [{ href: "/sesiones-en-curso", label: "Sesiones y señales", icon: Activity }] : [])].map(link => {
                 const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
                 const Icon = link.icon;
                 return (
@@ -104,6 +103,7 @@ export function AppSidebar({ user }: { user: UserProfile }) {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      {user.role === "Admin" && <ReceivedSyncStatus />}
       <SidebarRail />
     </Sidebar>
   );

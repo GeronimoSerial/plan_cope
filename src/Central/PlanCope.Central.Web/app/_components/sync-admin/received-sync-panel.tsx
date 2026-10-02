@@ -20,6 +20,19 @@ function statusLabel(value: string): string {
   return "Pendiente";
 }
 
+function processingLabel(value: string): string {
+  if (value === "complete") return "Completado";
+  if (value === "retrying") return "Reintento pendiente";
+  if (value === "needs_attention") return "Revisar";
+  return "Pendiente";
+}
+
+function rollupLabel(value: string): string {
+  if (value === "updated") return "Actualizado";
+  if (value === "not_updated") return "Sin actualizar";
+  return "Pendiente";
+}
+
 const receivedAtFormatter = new Intl.DateTimeFormat("es-AR", {
   dateStyle: "short",
   timeStyle: "short",
@@ -78,7 +91,8 @@ export function ReceivedSyncPanel({ initialPage }: ReceivedSyncPanelProps) {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Recibido</TableHead>
+                <TableHead>Recepción durable</TableHead>
+                <TableHead>Procesamiento posterior</TableHead>
                 <TableHead>Nodo</TableHead>
                 <TableHead>CUE</TableHead>
                 <TableHead>Año lectivo</TableHead>
@@ -86,12 +100,20 @@ export function ReceivedSyncPanel({ initialPage }: ReceivedSyncPanelProps) {
                 <TableHead>Versión</TableHead>
                 <TableHead>Calificación</TableHead>
                 <TableHead>Atribución</TableHead>
+                <TableHead>Rollup</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {data.items.map(item => (
                 <TableRow key={item.attemptId}>
-                  <TableCell className="whitespace-nowrap">{receivedAtFormatter.format(new Date(item.receivedAt))}</TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    {item.receiptStatus === "durable" && item.durableReceivedAt
+                      ? receivedAtFormatter.format(new Date(item.durableReceivedAt))
+                      : "Sin confirmación durable"}
+                  </TableCell>
+                  <TableCell title={item.processingUpdatedAt ? `Actualizado: ${receivedAtFormatter.format(new Date(item.processingUpdatedAt))}` : undefined}>
+                    {processingLabel(item.processingStatus)}
+                  </TableCell>
                   <TableCell className="font-mono">{item.nodeId ?? "—"}</TableCell>
                   <TableCell className="font-mono">{item.cue ?? "—"}</TableCell>
                   <TableCell>{item.schoolYear ?? "—"}</TableCell>
@@ -99,6 +121,7 @@ export function ReceivedSyncPanel({ initialPage }: ReceivedSyncPanelProps) {
                   <TableCell className="font-mono">{item.examVersionId ?? "—"}</TableCell>
                   <TableCell title={item.gradingReason ?? undefined}>{statusLabel(item.gradingStatus)}</TableCell>
                   <TableCell title={item.attributionReason ?? undefined}>{statusLabel(item.attributionStatus)}</TableCell>
+                  <TableCell>{rollupLabel(item.rollupStatus)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

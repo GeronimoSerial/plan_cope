@@ -76,6 +76,8 @@ public sealed class ReceivedSyncAdminController(
         {
             pending = await dbContext.SyncInbox.CountAsync(item => item.Status == "received", cancellationToken),
             failed = await dbContext.SyncInbox.CountAsync(item => item.Status == "processing_failed", cancellationToken),
+            latestDurableReceivedAt = await dbContext.SyncInbox.AsNoTracking()
+                .MaxAsync(item => (DateTimeOffset?)item.CreatedAt, cancellationToken),
             nextRetryAt = await dbContext.SyncInbox.AsNoTracking()
                 .Where(item => item.Status == "processing_failed")
                 .MinAsync(item => (DateTimeOffset?)item.NextProcessingAt, cancellationToken)
