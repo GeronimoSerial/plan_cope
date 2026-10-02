@@ -141,9 +141,11 @@ public sealed class CentralStatsPostgresIntegrationTests
         var interceptor = new PauseOnSessionInsertInterceptor();
         var racingOptions = CreateOptions(connectionString, interceptor);
         var options = CreateOptions(connectionString);
-        var first = PushAsync(racingOptions, CreateItem("racing-key-1", "racing-attempt-1", "racing-session"));
+        var firstItem = CreateItem("racing-key-1", "racing-attempt-1", "racing-session");
+        var secondItem = CreateItem("racing-key-2", "racing-attempt-2", "racing-session");
+        var first = PushAsync(racingOptions, firstItem);
         await interceptor.Paused.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        var second = PushAsync(options, CreateItem("racing-key-2", "racing-attempt-2", "racing-session"));
+        var second = PushAsync(options, secondItem);
         await Task.Delay(100);
 
         await InsertCompetingSessionAsync(connectionString, "racing-session");
@@ -151,6 +153,12 @@ public sealed class CentralStatsPostgresIntegrationTests
 
         var results = await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(20));
         Assert.All(results, response => Assert.Equal("accepted", response.Results.Single().Status));
+
+        // A conflicting session insert can leave one durable inbox row retryable. A same-key
+        // duplicate must process that row once its peer's session insert has committed.
+        var retries = await Task.WhenAll(PushAsync(options, firstItem), PushAsync(options, secondItem));
+        Assert.All(retries, response => Assert.Equal("duplicate", response.Results.Single().Status));
+        Assert.All(retries, response => Assert.Equal("processed", response.Results.Single().ProcessingStatus));
     }
 
     private static async Task SeedAsync(PlanCopeDbContext dbContext)

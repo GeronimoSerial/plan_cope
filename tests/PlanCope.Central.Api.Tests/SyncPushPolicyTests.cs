@@ -30,6 +30,28 @@ public sealed class SyncPushPolicyTests
     }
 
     [Fact]
+    public void Same_payload_with_reordered_object_properties_is_duplicate()
+    {
+        var item = CreateItem("key-1", "attempt-1", "GE:42");
+        using var existing = JsonDocument.Parse("""{"answers":[],"attempt":{"confirmationCode":"ABC123","localSequence":1,"submittedAt":"2026-08-20T12:05:00+00:00","startedAt":"2026-08-20T12:00:00+00:00","status":"submitted","studentCode":"GE:42","deliverySessionId":"session-1","id":"attempt-1"}}""");
+
+        var result = SyncPushPolicy.Evaluate(item, existing.RootElement);
+
+        Assert.Equal("duplicate", result.Status);
+    }
+
+    [Fact]
+    public void Previous_checksum_format_is_accepted_for_queued_outbox_rows()
+    {
+        var item = CreateItem("key-1", "attempt-1", "GE:42");
+        var legacyItem = item with { Checksum = SyncPayloadChecksum.CalculateLegacy(item.Payload) };
+
+        var result = SyncPushPolicy.Evaluate(legacyItem, null);
+
+        Assert.Equal("accepted", result.Status);
+    }
+
+    [Fact]
     public void Reusing_idempotency_key_with_a_different_payload_is_rejected()
     {
         var item = CreateItem("key-1", "attempt-1", "GE:42");
