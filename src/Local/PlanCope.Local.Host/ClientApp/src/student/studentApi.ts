@@ -34,18 +34,12 @@ export class StudentApi {
     return this.request<{ status: string; rosterSnapshotId?: string | null; rosterSectionId?: string | null }>(`/api/sessions/${encodeURIComponent(sessionIdOrAccessCode)}`, { method: "GET" });
   }
 
-  startAttempt(sessionIdOrAccessCode: string, resolutionToken?: string, resumeCredential?: string): Promise<StartAttemptResponse> {
+  startAttempt(sessionIdOrAccessCode: string, resolutionToken?: string, resumeCredential?: string, recoverAttemptId?: string): Promise<StartAttemptResponse> {
+    const body = JSON.stringify({ resolutionToken, resumeCredential, recoverAttemptId });
     return this.request<StartAttemptResponse>(`/api/sessions/${encodeURIComponent(sessionIdOrAccessCode)}/attempts`, {
       method: "POST",
-      ...(resolutionToken
-        ? {
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ resolutionToken, resumeCredential })
-          }
-        : {
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ resumeCredential })
-          })
+      headers: { "Content-Type": "application/json" },
+      body
     });
   }
 

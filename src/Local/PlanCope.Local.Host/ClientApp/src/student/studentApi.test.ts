@@ -24,6 +24,17 @@ describe("StudentApi exam resume contract", () => {
     }));
   });
 
+  it("sends the expected attempt id only alongside reidentified recovery credentials", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ attempt: {}, blocks: [], resumeCredential: "fresh", credentialExpiresAt: "later" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await new StudentApi("http://local.test").startAttempt("ABC-123", "resolution", "fresh", "attempt-1");
+
+    expect(fetchMock).toHaveBeenCalledWith("http://local.test/api/sessions/ABC-123/attempts", expect.objectContaining({
+      body: JSON.stringify({ resolutionToken: "resolution", resumeCredential: "fresh", recoverAttemptId: "attempt-1" })
+    }));
+  });
+
   it("discovers an attempt whose start response was lost, then restores it with the same credential", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ attemptId: "attempt-1" }))

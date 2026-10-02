@@ -122,6 +122,19 @@ public sealed class AttemptSubmissionService(
 
     private async Task<bool> PreserveRawAttemptAsync(string attemptId, CancellationToken cancellationToken)
     {
+        await AttemptMutationGate.WaitAsync(cancellationToken);
+        try
+        {
+            return await PreserveRawAttemptLockedAsync(attemptId, cancellationToken);
+        }
+        finally
+        {
+            AttemptMutationGate.Release();
+        }
+    }
+
+    private async Task<bool> PreserveRawAttemptLockedAsync(string attemptId, CancellationToken cancellationToken)
+    {
         var attempt = await attemptRepository.GetByIdAsync(attemptId, cancellationToken);
         if (attempt is null || attempt.SubmittedAt is not null) return false;
         var session = await sessionRepository.GetByIdAsync(attempt.DeliverySessionId, cancellationToken);

@@ -51,6 +51,8 @@ public interface IAttemptRepository
         string tokenHash,
         string startedAt,
         CancellationToken cancellationToken = default);
+    Task<bool> RecoverNominalAttemptAsync(string deliverySessionId, string attemptId, string resolutionTokenHash,
+        string resumeCredentialHash, string now, string expiresAt, CancellationToken cancellationToken = default);
 
     Task CreateAsync(StudentAttempt attempt, CancellationToken cancellationToken = default);
 

@@ -3,13 +3,14 @@
 ## Implementación
 
 - Al iniciar un intento nominal o anónimo, el navegador genera una credencial aleatoria de 256 bits y la conserva en `sessionStorage` antes de llamar a la API. El servidor persiste únicamente su SHA-256, ligado al intento y la sesión, con vencimiento de cuatro horas.
-- El mismo secreto permite recuperar intento, bloques y respuestas; también es obligatorio en las rutas existentes de respuestas y entrega. La ruta de reanudación por sesión permite recuperar un inicio cuya respuesta HTTP se perdió, usando la credencial temporal ya guardada. Un reintento del mismo inicio no crea un segundo intento. Si una credencial vence, el flujo nominal permite verificar de nuevo el DNI y recuperar el intento abierto con una credencial nueva.
+- El mismo secreto permite recuperar intento, bloques y respuestas; también es obligatorio en las rutas existentes de respuestas y entrega. La ruta de reanudación por sesión permite recuperar un inicio cuya respuesta HTTP se perdió, usando la credencial temporal ya guardada. Un reintento del mismo inicio no crea un segundo intento. Si una credencial vence, el flujo nominal verifica de nuevo el DNI y usa una operación de recuperación que solo rota credenciales cuando coincide estudiante, sesión e intento abierto.
 - SQLite agrega la tabla `attempt_resume_credentials` y la revisión por respuesta mediante la migración aditiva `020_AttemptResumeAndAnswerRevisions.sql`. Las respuestas con revisiones repetidas o atrasadas se reconcilian idempotentemente; la transacción rechaza escrituras cuando la entrega ya cerró el intento.
-- El gate compartido serializa el guardado autenticado con la lectura de respuestas, generación del payload y transacción de entrega/outbox. La entrega desde cierre docente y la finalización en segundo plano pasan por el mismo servicio; los eventos siguen siendo idempotentes porque el cambio de estado y la inserción del outbox se confirman en una única transacción.
+- El gate compartido serializa el guardado autenticado con la lectura de respuestas, generación del payload y transacción de entrega/outbox. El alta y la renovación de credenciales también revalidan el intento bajo el gate para que una carrera de entrega no reactive una credencial revocada. La entrega desde cierre docente y la finalización en segundo plano pasan por el mismo servicio; los eventos siguen siendo idempotentes porque el cambio de estado y la inserción del outbox se confirman en una única transacción.
+- El fallback raw de finalización también toma el gate antes de leer respuestas y lo conserva hasta confirmar intento y outbox en una transacción. El servicio normal libera el gate antes de llamar al fallback; este adquiere una sola vez y libera en `finally`, sin reentrada ni deadlock.
 - La compilación también corrige el nombre local duplicado `usedAt` y conserva HTTP 425 (`Too Early`) para la respuesta `resume_pending`.
 - El hook guarda cambios mínimos por bloque en `sessionStorage` antes del debounce, confirma cada revisión en orden y sólo entonces la quita del buffer. Reintenta al volver la conexión; la entrega vacía la cola primero y bloquea edición durante el envío. El estado distingue guardando, guardada y pendiente.
 - Al restaurar, el hook combina las respuestas del servidor con las revisiones pendientes de `sessionStorage` y las muestra antes de reintentar el guardado. Así el examen vuelve a estar disponible aunque falle la conexión; el debounce y el evento `online` confirman después las revisiones pendientes.
-- El flujo permite iniciar sesiones anónimas sin DNI; las sesiones nominales mantienen resolución y confirmación de identidad. Entrega, cierre observado y credencial vencida/inválida limpian la credencial y el buffer.
+- El flujo permite iniciar sesiones anónimas sin DNI; las sesiones nominales mantienen resolución y confirmación de identidad. Ante 401 por credencial vencida o inválida, el navegador quita la credencial pero conserva el buffer y solicita reidentificación; una identidad distinta no puede vincularlo. Entrega, cierre observado (410) y la acción explícita de corregir/reiniciar identidad siguen limpiando el buffer.
 
 ## Pruebas añadidas o ajustadas
 
@@ -17,6 +18,8 @@
 - `AttemptGradingTests` y flujos existentes: envían credencial/revisión y esperan rechazo autenticado tras revocación por entrega o cierre.
 - `studentApi.test.ts`: credencial en inicio, descubrimiento tras respuesta perdida, restore autenticado y payload versionado de autosave.
 - `useStudentExam.resume.test.tsx`: muestra la respuesta pendiente del buffer tras restaurar sin conexión, conserva el intento y la revisión, y la confirma al recuperar la conexión. `studentApi.test.ts` también comprueba el bearer obligatorio en la entrega.
+- `useStudentExam.resume.test.tsx`: cubre 401 al restaurar y durante un autosave activo; en ambos casos conserva el buffer sin credencial. Tras reidentificación descarga otra vez bloques/respuestas, combina respuestas del servidor con cambios pendientes y luego reintenta el buffer.
+- `LocalSessionFlowTests`: verifica recuperación tras expiración con el mismo DNI, rechazo de `attemptId` solo y de otro estudiante, y renovación válida de credencial. Ocho carreras entre autosave y fallback raw confirman que cada respuesta HTTP 204 aparece en el outbox y que solo existe un evento durable.
 - `ExamTakingPanel.virtualize.test.tsx`: comprueba que el editor se bloquea durante el envío y que el estado pendiente se presenta como advertencia.
 - `SyncBackgroundServiceTests`: reemplaza esperas fijas de 17 segundos por espera acotada del estado durable esperado (fila enviada y error/origen correctos), evitando detener el servicio antes de terminar el segundo ciclo de reintento.
 
@@ -30,10 +33,13 @@
 ## Verificación y límites
 
 - `/home/gero/.dotnet/dotnet build tests/PlanCope.Local.Api.Tests/PlanCope.Local.Api.Tests.csproj --no-restore --configuration Release -warnaserror` — 0 warnings, 0 errores.
-- `/home/gero/.dotnet/dotnet test tests/PlanCope.Local.Api.Tests/PlanCope.Local.Api.Tests.csproj --no-build --no-restore --configuration Release` — suite completa: 185 aprobadas, 0 fallidas.
+- `/home/gero/.dotnet/dotnet test tests/PlanCope.Local.Api.Tests/PlanCope.Local.Api.Tests.csproj --configuration Release` — suite completa: 186 aprobadas, 0 fallidas (verificación postmerge).
 - `/home/gero/.dotnet/dotnet build src/Local/PlanCope.Local.Host/PlanCope.Local.Host.csproj --no-restore --configuration Release -warnaserror -p:EnableWindowsTargeting=true` — build Windows Host y bundle completados, 0 warnings, 0 errores.
+- Harness manual para esta corrección: N/A; la expiración, reidentificación, aislamiento y carreras se ejercitan con integración API SQLite y pruebas UI jsdom. No se accedió a producción ni a una sesión real.
 - `dotnet test tests/PlanCope.Local.Host.Tests/PlanCope.Local.Host.Tests.csproj --configuration Release` — 57 aprobadas; `dotnet test tests/PlanCope.E2E.Tests/PlanCope.E2E.Tests.csproj --configuration Release` — 7 aprobadas.
-- `npm run test --workspace plancope-local-host-ui` — 25 archivos, 140 pruebas aprobadas. `npm run build --workspace plancope-local-host-ui` pasó; `npm run check:bundle --workspace plancope-local-host-ui` midió 322.6 KiB frente al límite de 341.8 KiB.
+- `npm run test --workspace plancope-local-host-ui` — 25 archivos, 144 pruebas aprobadas (verificación postmerge). `npm run build --workspace plancope-local-host-ui` pasó; `npm run check:bundle --workspace plancope-local-host-ui` midió 324.0 KiB frente al límite de 341.8 KiB.
+- `dotnet test tests/PlanCope.SyncCompat.Tests/PlanCope.SyncCompat.Tests.csproj --configuration Release` — 49 aprobadas, 0 fallidas.
+- La revisión de diff encontró y cerró una carrera adicional entre la renovación de credencial y la entrega: la respuesta de inicio/reanudación revalida el estado bajo `AttemptMutationGate` antes de persistir credencial y devolver intento/bloques.
 - La regresión `Concurrent_answer_save_and_teacher_close_preserve_every_confirmed_answer_in_durable_outbox` pasó en ejecución focalizada y dentro de la suite completa; ejercita ocho intentos concurrentes y confirma que cada respuesta con HTTP 204 figura en el payload durable y que hay exactamente un evento outbox por intento.
 - `git diff --check` pasó.
 - No se probó contra producción. No apareció un archivo `I-PLAN.md` separado en este checkout; se usaron el alcance de PR #112 y este reporte.

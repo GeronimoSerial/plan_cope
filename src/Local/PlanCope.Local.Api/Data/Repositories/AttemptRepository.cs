@@ -198,6 +198,59 @@ public sealed class AttemptRepository(ILocalSqliteConnectionFactory connectionFa
         return NominalAttemptStartResult.Started(attempt);
     }
 
+    public async Task<bool> RecoverNominalAttemptAsync(string deliverySessionId, string attemptId,
+        string resolutionTokenHash, string resumeCredentialHash, string now, string expiresAt,
+        CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateOpenConnection();
+        using var transaction = connection.BeginTransaction();
+
+        // Take SQLite's write lock and require the session and attempt to still be active.
+        var activeSession = await connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE delivery_sessions SET status = status WHERE id = @DeliverySessionId AND status = 'active';",
+            new { DeliverySessionId = deliverySessionId }, transaction, cancellationToken: cancellationToken));
+        if (activeSession != 1)
+        {
+            transaction.Rollback();
+            return false;
+        }
+
+        var identityMatches = await connection.ExecuteScalarAsync<long>(new CommandDefinition("""
+            SELECT COUNT(*)
+            FROM student_attempts a
+            JOIN student_resolutions r ON r.delivery_session_id = a.delivery_session_id
+            WHERE a.id = @AttemptId AND a.delivery_session_id = @DeliverySessionId
+              AND a.status = 'in_progress' AND a.submitted_at IS NULL
+              AND r.token_hash = @ResolutionTokenHash AND r.used_at IS NULL AND r.expires_at > @Now
+              AND ((r.ge_person_id IS NOT NULL AND r.ge_person_id = a.ge_person_id)
+                OR (r.extra_student_id IS NOT NULL AND r.extra_student_id = a.extra_student_id));
+            """, new { AttemptId = attemptId, DeliverySessionId = deliverySessionId, ResolutionTokenHash = resolutionTokenHash, Now = now }, transaction, cancellationToken: cancellationToken));
+        if (identityMatches != 1)
+        {
+            transaction.Rollback();
+            return false;
+        }
+
+        var consumed = await connection.ExecuteAsync(new CommandDefinition("""
+            UPDATE student_resolutions SET used_at = @Now
+            WHERE token_hash = @ResolutionTokenHash AND delivery_session_id = @DeliverySessionId
+              AND used_at IS NULL AND expires_at > @Now;
+            """, new { ResolutionTokenHash = resolutionTokenHash, DeliverySessionId = deliverySessionId, Now = now }, transaction, cancellationToken: cancellationToken));
+        if (consumed != 1)
+        {
+            transaction.Rollback();
+            return false;
+        }
+
+        await connection.ExecuteAsync(new CommandDefinition("""
+            INSERT INTO attempt_resume_credentials (attempt_id, delivery_session_id, token_hash, expires_at, created_at)
+            VALUES (@AttemptId, @DeliverySessionId, @ResumeCredentialHash, @ExpiresAt, @Now)
+            ON CONFLICT (attempt_id) DO UPDATE SET token_hash=excluded.token_hash, expires_at=excluded.expires_at, created_at=excluded.created_at;
+            """, new { AttemptId = attemptId, DeliverySessionId = deliverySessionId, ResumeCredentialHash = resumeCredentialHash, ExpiresAt = expiresAt, Now = now }, transaction, cancellationToken: cancellationToken));
+        transaction.Commit();
+        return true;
+    }
+
     public async Task CreateAsync(StudentAttempt attempt, CancellationToken cancellationToken = default)
     {
         const string sql = """

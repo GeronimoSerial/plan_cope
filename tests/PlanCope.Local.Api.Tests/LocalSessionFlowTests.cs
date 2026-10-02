@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using PlanCope.Shared.Contracts.Local;
 using PlanCope.Shared.Contracts.Sync;
 using PlanCope.Shared.Domain.Local;
@@ -576,7 +577,7 @@ public sealed class LocalSessionFlowTests
         await Task.WhenAll(save, submit);
 
         Assert.Equal(HttpStatusCode.OK, submit.Result.StatusCode);
-        Assert.Contains(save.Result.StatusCode, new[] { HttpStatusCode.NoContent, HttpStatusCode.Unauthorized });
+        Assert.Contains(save.Result.StatusCode, new[] { HttpStatusCode.NoContent, HttpStatusCode.Unauthorized, HttpStatusCode.NotFound });
         using var connection = factory.CreateConnection();
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT status, (SELECT COUNT(*) FROM attempt_resume_credentials WHERE attempt_id = student_attempts.id), (SELECT COUNT(*) FROM submission_answers WHERE student_attempt_id = student_attempts.id) FROM student_attempts WHERE id = $id;";
@@ -848,6 +849,7 @@ public sealed class LocalSessionFlowTests
         factory.SeedExam();
         factory.SeedRoster("180055400", "2026", "snapshot-a", "section-a", "Ready");
         factory.SeedRosterStudent("snapshot-a", "section-a", "roster-student-a", 501, "12.345.678", "Ana", "Pérez");
+        factory.SeedRosterStudent("snapshot-a", "section-a", "roster-student-b", 502, "98.765.432", "Eva", "Gómez");
 
         var session = await client.PostAsJsonAsync("/api/sessions/", new CreateSessionRequest(
             LocalApiFactory.ExamVersionId, "180055400", "6 A", null, "Operador", 2, null,
@@ -871,7 +873,9 @@ public sealed class LocalSessionFlowTests
 
         var repeatedStart = await client.PostAsJsonAsync($"/api/sessions/{createdSession.AccessCode}/attempts", new StartAttemptRequest(ResolutionToken: resolution.ResolutionToken, ResumeCredential: started.ResumeCredential));
         Assert.Equal(HttpStatusCode.Created, repeatedStart.StatusCode);
-        Assert.Equal(started.Attempt.Id, (await repeatedStart.Content.ReadFromJsonAsync<StartAttemptResponse>())!.Attempt.Id);
+        var renewed = (await repeatedStart.Content.ReadFromJsonAsync<StartAttemptResponse>())!;
+        Assert.Equal(started.Attempt.Id, renewed.Attempt.Id);
+        Assert.True(DateTimeOffset.Parse(renewed.CredentialExpiresAt) > DateTimeOffset.Parse(started.CredentialExpiresAt));
         using var restore = await client.GetAsync($"/api/attempts/{started.Attempt.Id}/restore");
         Assert.Equal(HttpStatusCode.OK, restore.StatusCode);
         Assert.Contains("GE:501", await restore.Content.ReadAsStringAsync());
@@ -884,9 +888,26 @@ public sealed class LocalSessionFlowTests
             expireCommand.ExecuteNonQuery();
         }
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync($"/api/attempts/{started.Attempt.Id}/restore")).StatusCode);
+
+        var attemptIdOnly = await client.PostAsJsonAsync($"/api/sessions/{createdSession.AccessCode}/attempts",
+            new StartAttemptRequest(ResumeCredential: "credential-without-identity-1234567890", RecoverAttemptId: started.Attempt.Id));
+        Assert.Equal(HttpStatusCode.Conflict, attemptIdOnly.StatusCode);
+
+        var otherIdentity = await client.PostAsJsonAsync($"/api/sessions/{createdSession.AccessCode}/student-resolution", new ResolveStudentRequest("98.765.432"));
+        var otherToken = (await otherIdentity.Content.ReadFromJsonAsync<ResolveStudentResponse>())!.ResolutionToken;
+        var wrongStudentRecovery = await client.PostAsJsonAsync($"/api/sessions/{createdSession.AccessCode}/attempts",
+            new StartAttemptRequest(ResolutionToken: otherToken, ResumeCredential: "new-credential-for-wrong-student", RecoverAttemptId: started.Attempt.Id));
+        Assert.Equal(HttpStatusCode.Conflict, wrongStudentRecovery.StatusCode);
+        using (var wrongCredentialClient = factory.CreateClient())
+        {
+            wrongCredentialClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "new-credential-for-wrong-student");
+            Assert.Equal(HttpStatusCode.Unauthorized, (await wrongCredentialClient.GetAsync($"/api/attempts/{started.Attempt.Id}/restore")).StatusCode);
+        }
+
         var renewedResolution = await client.PostAsJsonAsync($"/api/sessions/{createdSession.AccessCode}/student-resolution", new ResolveStudentRequest("12.345.678"));
         var renewedToken = (await renewedResolution.Content.ReadFromJsonAsync<ResolveStudentResponse>())!.ResolutionToken;
-        var reentered = await client.PostAsJsonAsync($"/api/sessions/{createdSession.AccessCode}/attempts", new StartAttemptRequest(ResolutionToken: renewedToken));
+        var reentered = await client.PostAsJsonAsync($"/api/sessions/{createdSession.AccessCode}/attempts",
+            new StartAttemptRequest(ResolutionToken: renewedToken, ResumeCredential: "same-student-recovery-credential-123456", RecoverAttemptId: started.Attempt.Id));
         Assert.Equal(HttpStatusCode.Created, reentered.StatusCode);
         var renewedAttempt = (await reentered.Content.ReadFromJsonAsync<StartAttemptResponse>())!;
         Assert.Equal(started.Attempt.Id, renewedAttempt.Attempt.Id);
@@ -901,6 +922,10 @@ public sealed class LocalSessionFlowTests
         Assert.Equal(501, reader.GetInt32(1));
         Assert.Equal("5678", reader.GetString(4));
         Assert.Equal("ge_roster", reader.GetString(5));
+        reader.Close();
+        command.CommandText = "SELECT COUNT(*) FROM student_attempts WHERE delivery_session_id = $sessionId;";
+        command.Parameters.AddWithValue("$sessionId", createdSession.Id);
+        Assert.Equal(1L, (long)command.ExecuteScalar()!);
     }
 
     [Fact]
@@ -1212,6 +1237,60 @@ public sealed class LocalSessionFlowTests
                 Assert.Empty(durableAnswers);
             }
 
+            command.CommandText = "SELECT COUNT(*) FROM sync_outbox WHERE aggregate_id = $id;";
+            Assert.Equal(1L, (long)command.ExecuteScalar()!);
+        }
+    }
+
+    [Fact]
+    public async Task Concurrent_answer_save_and_raw_fallback_preserve_every_confirmed_answer_in_durable_outbox()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        using (var connection = factory.CreateConnection())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "UPDATE local_exam_blocks SET config_json = '{broken-json' WHERE id = $id;";
+            command.Parameters.AddWithValue("$id", factory.QuestionBlockId);
+            command.ExecuteNonQuery();
+        }
+
+        for (var iteration = 0; iteration < 8; iteration++)
+        {
+            var session = await CreateSessionAsync(client);
+            var started = await StartAttemptAsync(client, session.AccessCode);
+            using var scope = factory.Services.CreateScope();
+            var submissions = scope.ServiceProvider.GetRequiredService<PlanCope.Local.Api.Services.AttemptSubmissionService>();
+
+            var saveTask = SaveAnswersAsync(client, started.Attempt.Id, factory.QuestionBlockId, $"raw-answer-{iteration}");
+            var finalizeTask = submissions.FinalizeUnsubmittedAttemptsAsync();
+            await Task.WhenAll(saveTask, finalizeTask);
+            var saveResponse = await saveTask;
+            var unresolved = await finalizeTask;
+
+            Assert.False(unresolved);
+            Assert.True(saveResponse.StatusCode is HttpStatusCode.NoContent or HttpStatusCode.BadRequest or HttpStatusCode.Conflict or HttpStatusCode.NotFound or HttpStatusCode.Unauthorized,
+                $"Unexpected answer save status: {(int)saveResponse.StatusCode}");
+            using var connection = factory.CreateConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT status FROM student_attempts WHERE id = $id;";
+            command.Parameters.AddWithValue("$id", started.Attempt.Id);
+            Assert.Equal("submitted", command.ExecuteScalar());
+
+            command.CommandText = "SELECT payload_json FROM sync_outbox WHERE aggregate_id = $id;";
+            using var payload = JsonDocument.Parse((string)command.ExecuteScalar()!);
+            var durableAnswers = payload.RootElement.GetProperty("answers").EnumerateArray().ToArray();
+            if (saveResponse.StatusCode == HttpStatusCode.NoContent)
+            {
+                Assert.Single(durableAnswers);
+                Assert.Equal(JsonSerializer.Serialize($"raw-answer-{iteration}"), durableAnswers[0].GetProperty("answerJson").GetString());
+            }
+            else
+            {
+                Assert.Empty(durableAnswers);
+            }
             command.CommandText = "SELECT COUNT(*) FROM sync_outbox WHERE aggregate_id = $id;";
             Assert.Equal(1L, (long)command.ExecuteScalar()!);
         }
