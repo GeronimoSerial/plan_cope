@@ -93,7 +93,7 @@ public sealed record SessionExtraStudent(
     string LastName,
     string CreatedAt);
 
-public sealed record SubmissionAnswer(string Id, string StudentAttemptId, string BlockId, string AnswerJson, string CreatedAt);
+public sealed record SubmissionAnswer(string Id, string StudentAttemptId, string BlockId, string AnswerJson, string CreatedAt, long Revision = 0);
 
 public sealed record SyncOutbox(string Id, string EventType, string AggregateType, string AggregateId, string IdempotencyKey, string PayloadJson, string Status, int RetryCount, string? NextRetryAt, string? LastError, string CreatedAt, string? ProcessedAt);
 

@@ -120,8 +120,10 @@ public sealed class PublishPullRunPushTests
         Assert.Equal(HttpStatusCode.Created, startResponse.StatusCode);
         var started = await startResponse.Content.ReadFromJsonAsync<StartAttemptResponse>();
         var attemptId = started!.Attempt.Id;
+        SetResumeCredential(localClient, started!);
         var saved = await localClient.PutAsJsonAsync($"/api/attempts/{attemptId}/answers", new
         {
+            revision = 1,
             answers = new[] { new { blockId = block.Id, answer = "42" } }
         });
         Assert.Equal(HttpStatusCode.NoContent, saved.StatusCode);
@@ -291,9 +293,11 @@ public sealed class PublishPullRunPushTests
         var started = await startResponse.Content.ReadFromJsonAsync<StartAttemptResponse>();
         Assert.NotNull(started);
         Assert.NotEmpty(started!.Blocks);
+        SetResumeCredential(localClient, started);
 
         var answerResponse = await localClient.PutAsJsonAsync($"/api/attempts/{started.Attempt.Id}/answers", new
         {
+            revision = 1,
             answers = new[] { new { blockId = block.Id, answer = "42" } }
         });
         Assert.Equal(HttpStatusCode.NoContent, answerResponse.StatusCode);
@@ -596,9 +600,11 @@ public sealed class PublishPullRunPushTests
         Assert.NotNull(started);
         Assert.NotNull(started!.Attempt);
         Assert.NotEmpty(started.Blocks);
+        SetResumeCredential(client, started);
 
         var answerResponse = await client.PutAsJsonAsync($"/api/attempts/{started.Attempt.Id}/answers", new
         {
+            revision = 1,
             answers = new[]
             {
                 new { blockId, answer = "42" }
@@ -621,7 +627,12 @@ public sealed class PublishPullRunPushTests
 
     private sealed record BlockCreated(string Id);
 
-    private sealed record StartAttemptResponse(StudentAttempt Attempt, IReadOnlyList<LocalExamBlock> Blocks);
+    private static void SetResumeCredential(HttpClient client, StartAttemptResponse attempt)
+    {
+        client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", $"Bearer {attempt.ResumeCredential}");
+    }
+
+    private sealed record StartAttemptResponse(StudentAttempt Attempt, IReadOnlyList<LocalExamBlock> Blocks, string ResumeCredential, string CredentialExpiresAt);
 
     private sealed class CentralApiFactory : WebApplicationFactory<PlanCopeDbContext>
     {

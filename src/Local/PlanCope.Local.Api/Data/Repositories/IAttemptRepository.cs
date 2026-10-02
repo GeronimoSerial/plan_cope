@@ -58,11 +58,21 @@ public interface IAttemptRepository
 
     Task<StudentAttempt?> GetByIdAsync(string id, CancellationToken cancellationToken = default);
 
+    Task<StudentAttempt?> GetAuthorizedAttemptAsync(string id, string credentialHash, string now, CancellationToken cancellationToken = default);
+
+    Task<StudentAttempt?> GetAttemptByResumeCredentialAsync(string deliverySessionId, string credentialHash, string now, CancellationToken cancellationToken = default);
+
+    Task CreateResumeCredentialAsync(string attemptId, string deliverySessionId, string credentialHash, string expiresAt, string createdAt, CancellationToken cancellationToken = default);
+
+    Task RevokeResumeCredentialAsync(string attemptId, CancellationToken cancellationToken = default);
+
     Task<bool> ExistsForStudentAsync(string deliverySessionId, string studentCode, CancellationToken cancellationToken = default);
 
     Task<int> GetNextLocalSequenceAsync(string deliverySessionId, CancellationToken cancellationToken = default);
 
     Task UpsertAnswersAsync(string attemptId, IReadOnlyList<SubmissionAnswer> answers, CancellationToken cancellationToken = default);
+
+    Task<bool> ReconcileAnswersAsync(string attemptId, IReadOnlyList<SubmissionAnswer> answers, long revision, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<SubmissionAnswer>> GetAnswersAsync(string attemptId, CancellationToken cancellationToken = default);
 

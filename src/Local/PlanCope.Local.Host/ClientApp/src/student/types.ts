@@ -30,6 +30,15 @@ export type ResolveStudentResponse = {
 export type StartAttemptResponse = {
   attempt: StudentAttempt;
   blocks: LocalExamBlock[];
+  resumeCredential: string;
+  credentialExpiresAt: string;
+};
+
+export type RestoredAttemptResponse = {
+  attempt: StudentAttempt;
+  blocks: LocalExamBlock[];
+  answers: Array<{ blockId: string; answer: unknown; revision: number }>;
+  sessionStatus: string;
 };
 
 export type SubmitAttemptResponse = {

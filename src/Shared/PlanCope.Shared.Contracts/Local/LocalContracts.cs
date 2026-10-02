@@ -31,10 +31,12 @@ public sealed record ResolveStudentResponse(
     ResolvedStudentDto Student,
     string ExpiresAt);
 
-public sealed record StartAttemptRequest(string? StudentCode = null, string? ResolutionToken = null);
+public sealed record StartAttemptRequest(string? StudentCode = null, string? ResolutionToken = null, string? ResumeCredential = null);
 
-public sealed record SaveAnswersRequest(IReadOnlyList<SubmissionAnswerDto> Answers);
+public sealed record SaveAnswersRequest(IReadOnlyList<SubmissionAnswerDto> Answers, long Revision = 0);
 
 public sealed record SubmissionAnswerDto(string BlockId, JsonElement Answer);
 
 public sealed record SubmitAttemptResponse(string AttemptId, string ConfirmationCode, string SubmittedAt);
+
+public sealed record AttemptAnswerDto(string BlockId, JsonElement Answer, long Revision);

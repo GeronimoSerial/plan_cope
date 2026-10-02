@@ -21,6 +21,19 @@ public sealed class AttemptSubmissionService(
 
     public async Task<AttemptSubmitResult> SubmitAsync(string attemptId, bool allowInactiveSession = false, CancellationToken cancellationToken = default, string? submissionReason = null)
     {
+        await AttemptMutationGate.WaitAsync(cancellationToken);
+        try
+        {
+            return await SubmitLockedAsync(attemptId, allowInactiveSession, cancellationToken, submissionReason);
+        }
+        finally
+        {
+            AttemptMutationGate.Release();
+        }
+    }
+
+    private async Task<AttemptSubmitResult> SubmitLockedAsync(string attemptId, bool allowInactiveSession, CancellationToken cancellationToken, string? submissionReason)
+    {
         var attempt = await attemptRepository.GetByIdAsync(attemptId, cancellationToken);
         if (attempt is null) return new(false, null, "Attempt not found.");
         if (attempt.Status != "in_progress") return new(false, null, "Attempt is already submitted.");
