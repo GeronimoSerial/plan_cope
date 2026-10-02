@@ -28,9 +28,10 @@ describe("copy de páginas", () => {
     }
   });
 
-  it("muestra solo el código bajo el título del examen", () => {
+  it("muestra el título del examen sin exponer el código técnico", () => {
     const detail = source("(app)/exams/[examId]/page.tsx");
-    expect(detail).toContain("description={exam.code}");
+    expect(detail).toContain("title={exam.title}");
+    expect(detail).not.toContain("exam.code");
     expect(detail).not.toContain("Versiones del examen, del borrador");
     expect(detail).not.toContain("<BreadcrumbPage>{exam.title}</BreadcrumbPage>");
   });
