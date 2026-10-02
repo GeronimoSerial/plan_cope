@@ -12,6 +12,16 @@ const baseProps = {
 };
 
 describe("SessionEntryPanel", () => {
+  it("keeps the access card inside the full-width centered gate", () => {
+    const html = renderToStaticMarkup(
+      <SessionEntryPanel {...baseProps} error="" notFoundPrompt={null} />
+    );
+
+    expect(html).toMatch(/<section class="student-gate"><div class="student-card">/);
+    expect(html).toContain("Código de sesión");
+    expect(html).toContain("DNI");
+  });
+
   it("renders the not-found prompt as neutral copy without the error banner", () => {
     const html = renderToStaticMarkup(
       <SessionEntryPanel
