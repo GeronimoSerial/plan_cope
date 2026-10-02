@@ -21,11 +21,13 @@ La API de escritura exige Admin y aplica `roster_scope`/`roster_cue`; falta de s
 - Pruebas API focalizadas: 24 pasan; la prueba PostgreSQL de upgrade está presente pero omitida por falta del daemon Docker.
 - `dotnet ef migrations has-pending-model-changes`: “No changes have been made to the model since the last migration.”
 - `dotnet ef migrations script 20261002000600_AddLiveSessionHeartbeats 20261002010112_AddStatsShares`: generado en `/tmp/central-stats-share.sql`; crea `stats.stats_shares` y los índices esperados.
-- Se intentó el fixture PostgreSQL aislado con Docker/Testcontainers. No pudo ejecutarse: `docker info` falló porque no existe `/var/run/docker.sock`; tampoco hay servidor PostgreSQL local. No se aplicó la migración a una base viva.
+- El fixture PostgreSQL local con Docker/Testcontainers quedó omitido: `docker info` falló porque no existe `/var/run/docker.sock` y no hay servidor PostgreSQL local. GitHub Actions lo cubrió en una base PostgreSQL efímera: `central-api / central-migrations` aplicó todas las migraciones y revirtió la más reciente; el smoke test de contenedores también migró el esquema y comprobó salud de API. No se tocó una base externa o de producción.
+- PR #106 pasó todos los checks CI, incluida la suite API, migraciones, web, contenedores, seguridad y la suite Local; `ci` requerido por `main` quedó en verde.
 - Revisión headless con Chrome a 1440×1000: la URL pública cargó sin redirección al login y emitió `Cache-Control: private, no-store`, `Referrer-Policy: no-referrer` y `X-Robots-Tag: noindex, nofollow`. El backend no estaba disponible durante esa captura, así que se verificó el estado de error anónimo, no una muestra con datos.
 
 ## Refs
 
-- PR: [#106](https://github.com/GeronimoSerial/plan_cope/pull/106), commit `09ca0d7`.
-- Merge: en espera de checks CI y protección de `main`; no se usó bypass.
+- PR: [#106](https://github.com/GeronimoSerial/plan_cope/pull/106), commit `c28de36`.
+- Merge de la implementación en `main`: `e8f42702d465a17ddc8ace274f2ffd574898aff9` (2026-10-02 03:02:47 UTC), después de checks y protección; no se usó bypass.
+- Este cierre del reporte se actualiza en PR #107.
 - No se desplegó ni publicó una release.
