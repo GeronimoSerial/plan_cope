@@ -6,6 +6,10 @@ export function decideProxyAuth(cookies: readonly string[]): ProxyAuthDecision {
   return { kind: "redirect-clear" };
 }
 
+export function isPublicSharedStatsPath(pathname: string): boolean {
+  return /^\/estadisticas\/compartidas\/[^/]+$/.test(pathname);
+}
+
 export function decideLoginAuth(input: { hasAccess: boolean; expired: boolean }): boolean {
   return input.hasAccess && !input.expired;
 }
