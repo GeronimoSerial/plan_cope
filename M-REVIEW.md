@@ -2,7 +2,7 @@
 
 ## Veredicto
 
-No fusionar todavía. La implementación revisada no presenta un bloqueo adicional en los cambios de UI/API examinados, pero la CI requerida debe quedar verde en el nuevo `HEAD` y falta evidencia visual de M que pueda revisarse desde el PR.
+La única falla encontrada era una expectativa obsoleta de la ruta CSV retirada; ya está corregida en PR #108. La revisión visual con fixture confirma que los controles revisados caben sin solaparse en 1440×900 y 390×844. El run `36970901511` sobre `27c1362` sigue ejecutando `local-app`; no fusionar hasta que todos los checks requeridos del último `HEAD` terminen verdes.
 
 ## Alcance revisado
 
@@ -27,13 +27,23 @@ La corrección está en el commit `39de29a` (`test(local-api): drop stale CSV re
 - **Seguridad y rendimiento:** el diff revisado no añade dependencias, consultas de datos sensibles ni trabajo de red de alta frecuencia; la UI consulta el resumen cada 30 segundos.
 - **Contrato K:** los campos de heartbeat/ACK son opcionales en el DTO y los valores ausentes no se convierten en éxito ni en una edad inventada.
 
+## Evidencia visual
+
+Las capturas se generaron con Chromium y el fixture local `m-review-fixture.html`, que simula respuestas de API para hacer visibles los estados de sesiones y estadísticas. Las vistas móviles usaron emulación de dispositivo con viewport CSS de 390×844; `innerWidth`, ancho del documento y ancho del contenido dieron 390 px, sin desbordamiento horizontal.
+
+- Inicio operativo, escritorio: [sessions-1440x900.png](M-REVIEW/captures/sessions-1440x900.png)
+- Inicio operativo, móvil: [sessions-390x844.png](M-REVIEW/captures/sessions-390x844.png)
+- Estadísticas, móvil: [stats-390x844.png](M-REVIEW/captures/stats-390x844.png)
+
+En móvil, las métricas, filtros y acciones se apilan en una columna y permanecen legibles dentro del viewport; la cabecera se reorganiza en dos niveles. Las capturas documentan la presentación con datos simulados, no una prueba de integración contra una API activa.
+
 ## Verificación y límites
 
 - En el run `36965824826`, `security` y `changes` aprobaron. `local-app` falló solo por la expectativa CSV indicada; los jobs Central y containers se omitieron por alcance. El check agregado `ci` falló como resultado de `local-app`.
-- Tras integrar la corrección, el run `36970072049` sobre la cabeza `7112009893be2ddc88b208484dc6f44211e20886` terminó con `local-app`, `security`, `changes`, el agregador `ci` y GitGuardian aprobados. Central y containers se omitieron por alcance. `mergeStateStatus` quedó `CLEAN`; `reviewDecision` aún no registra una revisión formal de GitHub.
+- Tras integrar la corrección, el run `36970072049` sobre la cabeza `7112009893be2ddc88b208484dc6f44211e20886` terminó con `local-app`, `security`, `changes`, el agregador `ci` y GitGuardian aprobados. Después, el informe se actualizó en `27c1362`; en el run `36970901511`, `changes`, `security` y GitGuardian aprobaron y `local-app` aún ejecuta sus pruebas. Central y containers se omitieron por alcance. `mergeStateStatus` permanece `BLOCKED` hasta cerrar el check pendiente; `reviewDecision` aún no registra una revisión formal de GitHub.
 - No pude ejecutar localmente `dotnet test` porque este entorno no tiene `dotnet` instalado. La corrección depende de la CI nueva para demostrar el resultado.
-- `M-REPORT.md` afirma una vista Chromium a 1440×900 y 390×844, pero el PR no contiene capturas M ni otros artefactos visuales revisables. No hay evidencia en el árbol que permita reproducir esas vistas; las capturas de H no prueban M y no se usaron como sustituto.
+- La descarga real y el progreso operativo se verificaron en el diff y en los estados proporcionados por el fixture; no se hizo una descarga contra un servidor remoto durante la revisión.
 
 ## Condición para cerrar
 
-Revisar los checks de la nueva cabeza de PR #108, exigir todos los checks requeridos verdes y completar una revisión satisfactoria antes de fusionar. Adjuntar capturas M de escritorio y móvil si el gate de revisión requiere evidencia visual reproducible.
+Revisar el resultado final de `local-app` para el último `HEAD`. Si los checks requeridos quedan verdes, la corrección del test y la evidencia visual dejan la revisión satisfactoria para fusionar #108. Si un check falla, corregir y esperar el nuevo run antes de fusionar.
