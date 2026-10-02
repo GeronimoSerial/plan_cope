@@ -12,8 +12,8 @@ public static class AttemptEndpoints
 {
     private const string SessionClosedErrorMessage = "La sesión ya está cerrada y no acepta más respuestas. Consultá con tu docente.";
     private const string SessionPausedErrorMessage = "La sesión está pausada. Esperá a que tu docente la reactive para continuar.";
+    private const int Status425TooEarly = 425;
     private static readonly SemaphoreSlim AttemptStartGate = new(1, 1);
-    private static readonly SemaphoreSlim AttemptMutationGate = new(1, 1);
 
     public static IEndpointRouteBuilder MapAttemptEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -218,7 +218,7 @@ public static class AttemptEndpoints
             if (session.Status is "closed") return Results.StatusCode(StatusCodes.Status410Gone);
             var attempt = await attemptRepository.GetAttemptByResumeCredentialAsync(session.Id, tokenService.HashToken(credential), DateTimeOffset.UtcNow.ToString("O"), cancellationToken);
             return attempt is null
-                ? Results.Json(new { kind = "resume_pending", error = "La creación del intento aún está terminando." }, statusCode: StatusCodes.Status425TooEarly)
+                ? Results.Json(new { kind = "resume_pending", error = "La creación del intento aún está terminando." }, statusCode: Status425TooEarly)
                 : Results.Ok(new { attemptId = attempt.Id });
         });
 
@@ -324,9 +324,6 @@ public static class AttemptEndpoints
             CancellationToken cancellationToken) =>
         {
             if (!TryReadCredential(httpRequest, out var credential)) return Unauthorized();
-            await AttemptMutationGate.WaitAsync(cancellationToken);
-            try
-            {
             var attempt = await attemptRepository.GetAuthorizedAttemptAsync(attemptId, tokenService.HashToken(credential), DateTimeOffset.UtcNow.ToString("O"), cancellationToken);
 
             if (attempt is null)
@@ -358,11 +355,6 @@ public static class AttemptEndpoints
             var submitted = await submissionService.SubmitAsync(attemptId, cancellationToken: cancellationToken);
             if (!submitted.Success) return Results.Conflict(new { error = "El intento ya fue enviado por otra operación." });
             return Results.Ok(submitted.Response);
-            }
-            finally
-            {
-                AttemptMutationGate.Release();
-            }
         });
 
         return endpoints;

@@ -120,10 +120,10 @@ public sealed class AttemptRepository(ILocalSqliteConnectionFactory connectionFa
             cancellationToken: cancellationToken));
         if (existing is not null)
         {
-            var usedAt = DateTimeOffset.UtcNow.ToString("O");
+            var existingResolutionUsedAt = DateTimeOffset.UtcNow.ToString("O");
             var consumedExistingResolution = await connection.ExecuteAsync(new CommandDefinition(
                 "UPDATE student_resolutions SET used_at = @UsedAt WHERE id = @Id AND used_at IS NULL;",
-                new { resolution.Id, UsedAt = usedAt }, transaction, cancellationToken: cancellationToken));
+                new { resolution.Id, UsedAt = existingResolutionUsedAt }, transaction, cancellationToken: cancellationToken));
             if (consumedExistingResolution != 1)
             {
                 transaction.Rollback();

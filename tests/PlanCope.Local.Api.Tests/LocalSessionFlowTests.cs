@@ -632,10 +632,10 @@ public sealed class LocalSessionFlowTests
                 new { blockId = factory.QuestionBlockId, answer = "44" }
             }
         });
-        Assert.Equal(HttpStatusCode.Unauthorized, answerResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, answerResponse.StatusCode);
 
         var duplicateSubmitResponse = await client.PostAsync($"/api/attempts/{started.Attempt.Id}/submit", null);
-        Assert.Equal(HttpStatusCode.Unauthorized, duplicateSubmitResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, duplicateSubmitResponse.StatusCode);
 
         using var connection = factory.CreateConnection();
         using var command = connection.CreateCommand();
@@ -707,10 +707,10 @@ public sealed class LocalSessionFlowTests
         Assert.Equal(0, closeSummary.RootElement.GetProperty("failed").GetInt32());
 
         var answerResponse = await SaveAnswersAsync(client, started.Attempt.Id, factory.QuestionBlockId, "42");
-        Assert.Equal(HttpStatusCode.Unauthorized, answerResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, answerResponse.StatusCode);
 
         var submitResponse = await client.PostAsync($"/api/attempts/{started.Attempt.Id}/submit", null);
-        Assert.Equal(HttpStatusCode.Unauthorized, submitResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, submitResponse.StatusCode);
     }
 
     [Fact]
@@ -1166,6 +1166,55 @@ public sealed class LocalSessionFlowTests
         var progress = await client.GetFromJsonAsync<LocalSessionProgress>($"/api/sessions/{session.AccessCode}/progress");
         Assert.Equal("closed_by_teacher", Assert.Single(progress!.Students).SubmissionReason);
         Assert.Null(progress.AverageScorePercent);
+    }
+
+    [Fact]
+    public async Task Concurrent_answer_save_and_teacher_close_preserve_every_confirmed_answer_in_durable_outbox()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+
+        for (var iteration = 0; iteration < 8; iteration++)
+        {
+            var session = await CreateSessionAsync(client);
+            var started = await StartAttemptAsync(client, session.AccessCode);
+
+            var saveTask = SaveAnswersAsync(client, started.Attempt.Id, factory.QuestionBlockId, $"answer-{iteration}");
+            var closeTask = client.PutAsJsonAsync($"/api/sessions/{session.Id}/status", new UpdateSessionStatusRequest("closed"));
+            await Task.WhenAll(saveTask, closeTask);
+
+            Assert.Equal(HttpStatusCode.OK, closeTask.Result.StatusCode);
+            using var closeSummary = JsonDocument.Parse(await closeTask.Result.Content.ReadAsStringAsync());
+            Assert.Equal(1, closeSummary.RootElement.GetProperty("submitted").GetInt32());
+            Assert.Equal(0, closeSummary.RootElement.GetProperty("failed").GetInt32());
+            Assert.True(
+                saveTask.Result.StatusCode is HttpStatusCode.NoContent or HttpStatusCode.BadRequest or HttpStatusCode.Conflict or HttpStatusCode.NotFound,
+                $"Unexpected answer save status: {(int)saveTask.Result.StatusCode}");
+
+            using var connection = factory.CreateConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT status FROM student_attempts WHERE id = $id;";
+            command.Parameters.AddWithValue("$id", started.Attempt.Id);
+            Assert.Equal("submitted", command.ExecuteScalar());
+
+            command.CommandText = "SELECT payload_json FROM sync_outbox WHERE aggregate_id = $id;";
+            using var payload = JsonDocument.Parse((string)command.ExecuteScalar()!);
+            var durableAnswers = payload.RootElement.GetProperty("answers").EnumerateArray().ToArray();
+            if (saveTask.Result.StatusCode == HttpStatusCode.NoContent)
+            {
+                Assert.Single(durableAnswers);
+                Assert.Equal(JsonSerializer.Serialize($"answer-{iteration}"), durableAnswers[0].GetProperty("answerJson").GetString());
+            }
+            else
+            {
+                Assert.Empty(durableAnswers);
+            }
+
+            command.CommandText = "SELECT COUNT(*) FROM sync_outbox WHERE aggregate_id = $id;";
+            Assert.Equal(1L, (long)command.ExecuteScalar()!);
+        }
     }
 
     [Fact]
