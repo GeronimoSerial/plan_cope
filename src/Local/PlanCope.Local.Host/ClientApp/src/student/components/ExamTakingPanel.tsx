@@ -53,6 +53,9 @@ export function ExamTakingPanel({
   const completion = total === 0 ? 0 : Math.round((answered / total) * 100);
   const paused = sessionStatus === "paused";
   const closed = sessionStatus === "closed";
+  const statusTone: "success" | "warning" | "info" = status === "Respuestas guardadas."
+    ? "success"
+    : status.includes("Pendiente") || status.includes("Sin conexión") ? "warning" : "info";
 
   const handleConfirmSubmit = () => {
     setIsSubmitOpen(false);
@@ -95,7 +98,7 @@ export function ExamTakingPanel({
 
       <div className="student-exam-body">
         <QuestionNav blocks={blocks} answers={answers} />
-        <fieldset className="student-question-lock" disabled={paused || closed}>
+        <fieldset className="student-question-lock" disabled={isBusy || paused || closed}>
         <div className="student-questions">
           {blocks.map((block, index) => {
             return (
@@ -134,7 +137,7 @@ export function ExamTakingPanel({
 
       {(status || error) && (
         <div className="student-exam-status">
-          {status && <MessageBar tone="success">{status}</MessageBar>}
+          {status && <MessageBar tone={statusTone}>{status}</MessageBar>}
           {error && <p className="error-banner">{error}</p>}
         </div>
       )}

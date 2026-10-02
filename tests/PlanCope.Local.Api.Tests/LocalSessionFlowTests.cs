@@ -469,11 +469,13 @@ public sealed class LocalSessionFlowTests
 
         var started = await startResponse.Content.ReadFromJsonAsync<StartAttemptResponse>();
         Assert.NotNull(started);
+        SetResumeCredential(client, started!);
         Assert.NotNull(started.Attempt);
         Assert.NotEmpty(started.Blocks);
 
         var answerResponse = await client.PutAsJsonAsync($"/api/attempts/{started.Attempt.Id}/answers", new
         {
+            revision = 1,
             answers = new[]
             {
                 new { blockId = factory.QuestionBlockId, answer = "42" }
@@ -517,6 +519,76 @@ public sealed class LocalSessionFlowTests
     }
 
     [Fact]
+    public async Task Attempt_restore_requires_credential_and_reconciles_answer_revisions_idempotently()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        var session = await CreateSessionAsync(client);
+        var started = await StartAttemptAsync(client, session.AccessCode);
+        var retriedStart = await client.PostAsJsonAsync($"/api/sessions/{session.AccessCode}/attempts", new StartAttemptRequest(ResumeCredential: started.ResumeCredential));
+        Assert.Equal(HttpStatusCode.Created, retriedStart.StatusCode);
+        Assert.Equal(started.Attempt.Id, (await retriedStart.Content.ReadFromJsonAsync<StartAttemptResponse>())!.Attempt.Id);
+
+        using var unauthenticated = factory.CreateClient();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await unauthenticated.GetAsync($"/api/attempts/{started.Attempt.Id}/restore")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await unauthenticated.PutAsJsonAsync($"/api/attempts/{started.Attempt.Id}/answers", new
+        {
+            revision = 1,
+            answers = new[] { new { blockId = factory.QuestionBlockId, answer = "attempt-id-is-not-auth" } }
+        })).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await unauthenticated.PostAsync($"/api/attempts/{started.Attempt.Id}/submit", null)).StatusCode);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await SaveAnswersAsync(client, started.Attempt.Id, factory.QuestionBlockId, "first", revision: 1)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await SaveAnswersAsync(client, started.Attempt.Id, factory.QuestionBlockId, "newest", revision: 3)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await SaveAnswersAsync(client, started.Attempt.Id, factory.QuestionBlockId, "out-of-order", revision: 2)).StatusCode);
+
+        var restored = await client.GetFromJsonAsync<JsonElement>($"/api/attempts/{started.Attempt.Id}/restore");
+        Assert.Equal(started.Attempt.Id, restored.GetProperty("attempt").GetProperty("id").GetString());
+        var answer = Assert.Single(restored.GetProperty("answers").EnumerateArray());
+        Assert.Equal("newest", answer.GetProperty("answer").GetString());
+        Assert.Equal(3L, answer.GetProperty("revision").GetInt64());
+
+        using var connection = factory.CreateConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM student_attempts WHERE id = $id;";
+        command.Parameters.AddWithValue("$id", started.Attempt.Id);
+        Assert.Equal(1L, (long)command.ExecuteScalar()!);
+
+        command.CommandText = "UPDATE attempt_resume_credentials SET expires_at = '2000-01-01T00:00:00.0000000+00:00' WHERE attempt_id = $id;";
+        command.ExecuteNonQuery();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await unauthenticated.GetAsync($"/api/attempts/{started.Attempt.Id}/restore")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Concurrent_answer_save_and_submit_cannot_write_after_delivery()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+        await EnsureInitializedAsync(client);
+        factory.SeedExam();
+        var session = await CreateSessionAsync(client);
+        var started = await StartAttemptAsync(client, session.AccessCode);
+
+        var save = SaveAnswersAsync(client, started.Attempt.Id, factory.QuestionBlockId, "last edit", revision: 1);
+        var submit = client.PostAsync($"/api/attempts/{started.Attempt.Id}/submit", null);
+        await Task.WhenAll(save, submit);
+
+        Assert.Equal(HttpStatusCode.OK, submit.Result.StatusCode);
+        Assert.Contains(save.Result.StatusCode, new[] { HttpStatusCode.NoContent, HttpStatusCode.Unauthorized });
+        using var connection = factory.CreateConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT status, (SELECT COUNT(*) FROM attempt_resume_credentials WHERE attempt_id = student_attempts.id), (SELECT COUNT(*) FROM submission_answers WHERE student_attempt_id = student_attempts.id) FROM student_attempts WHERE id = $id;";
+        command.Parameters.AddWithValue("$id", started.Attempt.Id);
+        using var reader = command.ExecuteReader();
+        Assert.True(reader.Read());
+        Assert.Equal("submitted", reader.GetString(0));
+        Assert.Equal(0L, reader.GetInt64(1));
+        Assert.Equal(save.Result.StatusCode == HttpStatusCode.NoContent ? 1L : 0L, reader.GetInt64(2));
+    }
+
+    [Fact]
     public async Task Starting_attempt_for_missing_or_paused_session_returns_error()
     {
         using var factory = new LocalApiFactory();
@@ -547,21 +619,23 @@ public sealed class LocalSessionFlowTests
         var started = await (await client.PostAsync($"/api/sessions/{session.AccessCode}/attempts", null))
             .Content.ReadFromJsonAsync<StartAttemptResponse>();
         Assert.NotNull(started);
+        SetResumeCredential(client, started!);
 
         var submitResponse = await client.PostAsync($"/api/attempts/{started.Attempt.Id}/submit", null);
         Assert.Equal(HttpStatusCode.OK, submitResponse.StatusCode);
 
         var answerResponse = await client.PutAsJsonAsync($"/api/attempts/{started.Attempt.Id}/answers", new
         {
+            revision = 1,
             answers = new[]
             {
                 new { blockId = factory.QuestionBlockId, answer = "44" }
             }
         });
-        Assert.Equal(HttpStatusCode.BadRequest, answerResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, answerResponse.StatusCode);
 
         var duplicateSubmitResponse = await client.PostAsync($"/api/attempts/{started.Attempt.Id}/submit", null);
-        Assert.Equal(HttpStatusCode.BadRequest, duplicateSubmitResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, duplicateSubmitResponse.StatusCode);
 
         using var connection = factory.CreateConnection();
         using var command = connection.CreateCommand();
@@ -633,15 +707,10 @@ public sealed class LocalSessionFlowTests
         Assert.Equal(0, closeSummary.RootElement.GetProperty("failed").GetInt32());
 
         var answerResponse = await SaveAnswersAsync(client, started.Attempt.Id, factory.QuestionBlockId, "42");
-        Assert.Equal(HttpStatusCode.BadRequest, answerResponse.StatusCode);
-        var answerBody = await answerResponse.Content.ReadAsStringAsync();
-        Assert.Contains("intento ya no admite cambios", answerBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(HttpStatusCode.Unauthorized, answerResponse.StatusCode);
 
         var submitResponse = await client.PostAsync($"/api/attempts/{started.Attempt.Id}/submit", null);
-        Assert.Equal(HttpStatusCode.BadRequest, submitResponse.StatusCode);
-        var submitBody = await submitResponse.Content.ReadAsStringAsync();
-        Assert.Contains("ya fue enviado", submitBody, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("pausada", submitBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(HttpStatusCode.Unauthorized, submitResponse.StatusCode);
     }
 
     [Fact]
@@ -797,7 +866,31 @@ public sealed class LocalSessionFlowTests
         Assert.Equal(HttpStatusCode.Created, startResponse.StatusCode);
         var started = await startResponse.Content.ReadFromJsonAsync<StartAttemptResponse>();
         Assert.NotNull(started);
+        SetResumeCredential(client, started!);
         Assert.Equal("GE:501", started!.Attempt.StudentCode);
+
+        var repeatedStart = await client.PostAsJsonAsync($"/api/sessions/{createdSession.AccessCode}/attempts", new StartAttemptRequest(ResolutionToken: resolution.ResolutionToken, ResumeCredential: started.ResumeCredential));
+        Assert.Equal(HttpStatusCode.Created, repeatedStart.StatusCode);
+        Assert.Equal(started.Attempt.Id, (await repeatedStart.Content.ReadFromJsonAsync<StartAttemptResponse>())!.Attempt.Id);
+        using var restore = await client.GetAsync($"/api/attempts/{started.Attempt.Id}/restore");
+        Assert.Equal(HttpStatusCode.OK, restore.StatusCode);
+        Assert.Contains("GE:501", await restore.Content.ReadAsStringAsync());
+
+        using (var expireConnection = factory.CreateConnection())
+        using (var expireCommand = expireConnection.CreateCommand())
+        {
+            expireCommand.CommandText = "UPDATE attempt_resume_credentials SET expires_at = '2000-01-01T00:00:00.0000000+00:00' WHERE attempt_id = $id;";
+            expireCommand.Parameters.AddWithValue("$id", started.Attempt.Id);
+            expireCommand.ExecuteNonQuery();
+        }
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync($"/api/attempts/{started.Attempt.Id}/restore")).StatusCode);
+        var renewedResolution = await client.PostAsJsonAsync($"/api/sessions/{createdSession.AccessCode}/student-resolution", new ResolveStudentRequest("12.345.678"));
+        var renewedToken = (await renewedResolution.Content.ReadFromJsonAsync<ResolveStudentResponse>())!.ResolutionToken;
+        var reentered = await client.PostAsJsonAsync($"/api/sessions/{createdSession.AccessCode}/attempts", new StartAttemptRequest(ResolutionToken: renewedToken));
+        Assert.Equal(HttpStatusCode.Created, reentered.StatusCode);
+        var renewedAttempt = (await reentered.Content.ReadFromJsonAsync<StartAttemptResponse>())!;
+        Assert.Equal(started.Attempt.Id, renewedAttempt.Attempt.Id);
+        SetResumeCredential(client, renewedAttempt);
 
         using var connection = factory.CreateConnection();
         using var command = connection.CreateCommand();
@@ -865,13 +958,17 @@ public sealed class LocalSessionFlowTests
         Assert.Equal(HttpStatusCode.Created, start.StatusCode);
         var started = await start.Content.ReadFromJsonAsync<StartAttemptResponse>();
         Assert.NotNull(started);
+        SetResumeCredential(client, started!);
         Assert.True(started!.Attempt.OffRoster);
         Assert.Null(started.Attempt.RosterStudentId);
 
         var secondResolution = await client.PostAsJsonAsync($"/api/sessions/{session.AccessCode}/student-resolution", new ResolveStudentRequest("98765432"));
         var secondToken = (await secondResolution.Content.ReadFromJsonAsync<ResolveStudentResponse>())!.ResolutionToken;
-        var duplicateStart = await client.PostAsJsonAsync($"/api/sessions/{session.AccessCode}/attempts", new StartAttemptRequest(ResolutionToken: secondToken));
-        Assert.Equal(HttpStatusCode.Conflict, duplicateStart.StatusCode);
+        var resumed = await client.PostAsJsonAsync($"/api/sessions/{session.AccessCode}/attempts", new StartAttemptRequest(ResolutionToken: secondToken));
+        Assert.Equal(HttpStatusCode.Created, resumed.StatusCode);
+        var resumedAttempt = (await resumed.Content.ReadFromJsonAsync<StartAttemptResponse>())!;
+        Assert.Equal(started.Attempt.Id, resumedAttempt.Attempt.Id);
+        SetResumeCredential(client, resumedAttempt);
 
         var submit = await client.PostAsync($"/api/attempts/{started.Attempt.Id}/submit", null);
         Assert.Equal(HttpStatusCode.OK, submit.StatusCode);
@@ -1112,6 +1209,7 @@ public sealed class LocalSessionFlowTests
         {
             var started = await start.Content.ReadFromJsonAsync<StartAttemptResponse>();
             Assert.NotNull(started);
+            SetResumeCredential(client, started!);
             using var connection = factory.CreateConnection();
             using var command = connection.CreateCommand();
             command.CommandText = "SELECT status FROM student_attempts WHERE id = $id;";
@@ -1191,12 +1289,14 @@ public sealed class LocalSessionFlowTests
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var started = await response.Content.ReadFromJsonAsync<StartAttemptResponse>();
         Assert.NotNull(started);
+        SetResumeCredential(client, started!);
         return started;
     }
 
-    private static Task<HttpResponseMessage> SaveAnswersAsync(HttpClient client, string attemptId, string blockId, string answer) =>
+    private static Task<HttpResponseMessage> SaveAnswersAsync(HttpClient client, string attemptId, string blockId, string answer, long revision = 1) =>
         client.PutAsJsonAsync($"/api/attempts/{attemptId}/answers", new
         {
+            revision,
             answers = new[]
             {
                 new { blockId, answer }
@@ -1209,7 +1309,13 @@ public sealed class LocalSessionFlowTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
-    private sealed record StartAttemptResponse(StudentAttempt Attempt, IReadOnlyList<LocalExamBlock> Blocks);
+    private static void SetResumeCredential(HttpClient client, StartAttemptResponse attempt)
+    {
+        client.DefaultRequestHeaders.Remove("Authorization");
+        client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", $"Bearer {attempt.ResumeCredential}");
+    }
+
+    private sealed record StartAttemptResponse(StudentAttempt Attempt, IReadOnlyList<LocalExamBlock> Blocks, string ResumeCredential, string CredentialExpiresAt);
 
     private sealed class LocalApiFactory : WebApplicationFactory<Program>
     {

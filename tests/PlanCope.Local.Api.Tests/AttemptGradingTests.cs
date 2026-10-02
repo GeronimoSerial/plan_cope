@@ -27,6 +27,7 @@ public sealed class AttemptGradingTests
 
         var answerResponse = await client.PutAsJsonAsync($"/api/attempts/{started.Attempt.Id}/answers", new
         {
+            revision = 1,
             answers = new[]
             {
                 new { blockId = factory.MultipleChoiceBlockId, answer = (object)new[] { "b" } },
@@ -67,6 +68,7 @@ public sealed class AttemptGradingTests
 
         var answerResponse = await client.PutAsJsonAsync($"/api/attempts/{started.Attempt.Id}/answers", new
         {
+            revision = 1,
             answers = new[]
             {
                 new { blockId = factory.MultipleChoiceBlockId, answer = new[] { "b" } }
@@ -108,6 +110,7 @@ public sealed class AttemptGradingTests
 
         var answerResponse = await client.PutAsJsonAsync($"/api/attempts/{started.Attempt.Id}/answers", new
         {
+            revision = 1,
             answers = new[]
             {
                 new { blockId = factory.MultipleChoiceBlockId, answer = new[] { "b" } }
@@ -147,6 +150,7 @@ public sealed class AttemptGradingTests
 
         var answerResponse = await client.PutAsJsonAsync($"/api/attempts/{started.Attempt.Id}/answers", new
         {
+            revision = 1,
             answers = new[]
             {
                 new { blockId = factory.MultipleChoiceBlockId, answer = new[] { "b" } }
@@ -185,6 +189,7 @@ public sealed class AttemptGradingTests
 
         var answerResponse = await client.PutAsJsonAsync($"/api/attempts/{started.Attempt.Id}/answers", new
         {
+            revision = 1,
             answers = new[]
             {
                 new { blockId = factory.MultipleChoiceBlockId, answer = new[] { "b" } }
@@ -235,6 +240,7 @@ public sealed class AttemptGradingTests
         var started = await response.Content.ReadFromJsonAsync<StartAttemptResponse>();
         Assert.NotNull(started);
         Assert.NotEmpty(started.Blocks);
+        client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", $"Bearer {started.ResumeCredential}");
         return started;
     }
 
@@ -244,7 +250,7 @@ public sealed class AttemptGradingTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
-    private sealed record StartAttemptResponse(StudentAttempt Attempt, IReadOnlyList<LocalExamBlock> Blocks);
+    private sealed record StartAttemptResponse(StudentAttempt Attempt, IReadOnlyList<LocalExamBlock> Blocks, string ResumeCredential, string CredentialExpiresAt);
 
     private sealed class LocalApiFactory : WebApplicationFactory<Program>
     {

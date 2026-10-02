@@ -1,10 +1,17 @@
 import type { ApiErrorPayload } from "../shared/api-types";
-import type { ResolveStudentResponse, StartAttemptResponse, SubmitAttemptResponse } from "./types";
+import type { ResolveStudentResponse, RestoredAttemptResponse, StartAttemptResponse, SubmitAttemptResponse } from "./types";
 
 export class StudentNotFoundError extends Error {
   constructor(message: string, readonly hint: string) {
     super(message);
     this.name = "StudentNotFoundError";
+  }
+}
+
+export class ResumeCredentialError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+    this.name = "ResumeCredentialError";
   }
 }
 
@@ -23,33 +30,51 @@ export class StudentApi {
     );
   }
 
-  getSessionStatus(sessionIdOrAccessCode: string): Promise<{ status: string }> {
-    return this.request<{ status: string }>(`/api/sessions/${encodeURIComponent(sessionIdOrAccessCode)}`, { method: "GET" });
+  getSessionStatus(sessionIdOrAccessCode: string): Promise<{ status: string; rosterSnapshotId?: string | null; rosterSectionId?: string | null }> {
+    return this.request<{ status: string; rosterSnapshotId?: string | null; rosterSectionId?: string | null }>(`/api/sessions/${encodeURIComponent(sessionIdOrAccessCode)}`, { method: "GET" });
   }
 
-  startAttempt(sessionIdOrAccessCode: string, resolutionToken?: string): Promise<StartAttemptResponse> {
+  startAttempt(sessionIdOrAccessCode: string, resolutionToken?: string, resumeCredential?: string): Promise<StartAttemptResponse> {
     return this.request<StartAttemptResponse>(`/api/sessions/${encodeURIComponent(sessionIdOrAccessCode)}/attempts`, {
       method: "POST",
       ...(resolutionToken
         ? {
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ resolutionToken })
+            body: JSON.stringify({ resolutionToken, resumeCredential })
           }
-        : {})
+        : {
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ resumeCredential })
+          })
     });
   }
 
-  async saveAnswers(attemptId: string, answers: Array<{ blockId: string; answer: string | null }>): Promise<void> {
+  async restoreAttempt(attemptId: string, sessionCode: string, credential: string): Promise<RestoredAttemptResponse> {
+    if (!attemptId) {
+      const found = await this.request<{ attemptId: string }>(`/api/sessions/${encodeURIComponent(sessionCode)}/attempts/restore`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${credential}` }
+      });
+      attemptId = found.attemptId;
+    }
+    return this.request<RestoredAttemptResponse>(`/api/attempts/${encodeURIComponent(attemptId)}/restore`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${credential}` }
+    });
+  }
+
+  async saveAnswers(attemptId: string, credential: string, revision: number, answers: Array<{ blockId: string; answer: unknown }>): Promise<void> {
     await this.request<void>(`/api/attempts/${encodeURIComponent(attemptId)}/answers`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ answers })
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${credential}` },
+      body: JSON.stringify({ revision, answers })
     });
   }
 
-  submitAttempt(attemptId: string): Promise<SubmitAttemptResponse> {
+  submitAttempt(attemptId: string, credential: string): Promise<SubmitAttemptResponse> {
     return this.request<SubmitAttemptResponse>(`/api/attempts/${encodeURIComponent(attemptId)}/submit`, {
-      method: "POST"
+      method: "POST",
+      headers: { Authorization: `Bearer ${credential}` }
     });
   }
 
@@ -57,6 +82,9 @@ export class StudentApi {
     const response = await fetch(`${this.baseUrl}${path}`, init);
 
     if (!response.ok) {
+      if (response.status === 401 || response.status === 410) {
+        throw new ResumeCredentialError(response.status, await readApiError(response));
+      }
       if (options?.studentNotFound && response.status === 404) {
         const studentNotFound = await readStudentNotFound(response.clone());
         if (studentNotFound) {

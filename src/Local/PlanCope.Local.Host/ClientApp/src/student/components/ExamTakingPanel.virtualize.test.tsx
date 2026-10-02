@@ -98,6 +98,15 @@ describe("ExamTakingPanel question navigation", () => {
     expect(closed).toMatch(/<button[^>]*disabled=""[^>]*>Enviar examen/);
   });
 
+  it("locks answers during submission and marks pending saves as a warning", () => {
+    const html = renderToStaticMarkup(
+      <ExamTakingPanel {...emptyProps} isBusy={true} status="Pendiente por conexión." />
+    );
+    expect(html).toMatch(/<fieldset class="student-question-lock" disabled=""/);
+    expect(html).toContain("messagebar-warning");
+    expect(html).toContain("Pendiente por conexión.");
+  });
+
   it("keeps far-off question content mounted so navigation never targets a placeholder", () => {
     const blocks = makeBlocks(150);
     const html = renderPanel(blocks);

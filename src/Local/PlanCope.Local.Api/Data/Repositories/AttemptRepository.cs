@@ -120,7 +120,16 @@ public sealed class AttemptRepository(ILocalSqliteConnectionFactory connectionFa
             cancellationToken: cancellationToken));
         if (existing is not null)
         {
-            transaction.Rollback();
+            var usedAt = DateTimeOffset.UtcNow.ToString("O");
+            var consumedExistingResolution = await connection.ExecuteAsync(new CommandDefinition(
+                "UPDATE student_resolutions SET used_at = @UsedAt WHERE id = @Id AND used_at IS NULL;",
+                new { resolution.Id, UsedAt = usedAt }, transaction, cancellationToken: cancellationToken));
+            if (consumedExistingResolution != 1)
+            {
+                transaction.Rollback();
+                return new(NominalAttemptStartStatus.ResolutionUsed, null);
+            }
+            transaction.Commit();
             return new(NominalAttemptStartStatus.AttemptExists, existing.ToDomain());
         }
 
@@ -246,6 +255,57 @@ public sealed class AttemptRepository(ILocalSqliteConnectionFactory connectionFa
         return row?.ToDomain();
     }
 
+    public async Task<StudentAttempt?> GetAuthorizedAttemptAsync(string id, string credentialHash, string now, CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateOpenConnection();
+        await connection.ExecuteAsync(new CommandDefinition("DELETE FROM attempt_resume_credentials WHERE expires_at <= @Now;", new { Now = now }, cancellationToken: cancellationToken));
+        var row = await connection.QuerySingleOrDefaultAsync<StudentAttemptRow>(new CommandDefinition("""
+            SELECT a.id, a.delivery_session_id, a.student_code, a.status, a.started_at, a.submitted_at, a.local_sequence, a.confirmation_code,
+                   a.roster_student_id, a.ge_person_id, a.student_first_name, a.student_last_name, a.document_last4, a.verification_source, a.verified_at,
+                   a.extra_student_id, e.document_hmac AS DocumentHmac, CASE WHEN a.extra_student_id IS NULL THEN 0 ELSE 1 END AS OffRoster
+            FROM student_attempts a
+            JOIN attempt_resume_credentials c ON c.attempt_id = a.id
+            LEFT JOIN session_extra_students e ON e.id = a.extra_student_id
+            WHERE a.id = @Id AND c.token_hash = @CredentialHash AND c.expires_at > @Now AND a.status = 'in_progress'
+            LIMIT 1;
+            """, new { Id = id, CredentialHash = credentialHash, Now = now }, cancellationToken: cancellationToken));
+        return row?.ToDomain();
+    }
+
+    public async Task<StudentAttempt?> GetAttemptByResumeCredentialAsync(string deliverySessionId, string credentialHash, string now, CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateOpenConnection();
+        await connection.ExecuteAsync(new CommandDefinition("DELETE FROM attempt_resume_credentials WHERE expires_at <= @Now;", new { Now = now }, cancellationToken: cancellationToken));
+        var row = await connection.QuerySingleOrDefaultAsync<StudentAttemptRow>(new CommandDefinition("""
+            SELECT a.id, a.delivery_session_id, a.student_code, a.status, a.started_at, a.submitted_at, a.local_sequence, a.confirmation_code,
+                   a.roster_student_id, a.ge_person_id, a.student_first_name, a.student_last_name, a.document_last4, a.verification_source, a.verified_at,
+                   a.extra_student_id, e.document_hmac AS DocumentHmac, CASE WHEN a.extra_student_id IS NULL THEN 0 ELSE 1 END AS OffRoster
+            FROM student_attempts a
+            JOIN attempt_resume_credentials c ON c.attempt_id = a.id
+            LEFT JOIN session_extra_students e ON e.id = a.extra_student_id
+            WHERE c.delivery_session_id = @DeliverySessionId AND c.token_hash = @CredentialHash
+              AND c.expires_at > @Now AND a.status = 'in_progress'
+            LIMIT 1;
+            """, new { DeliverySessionId = deliverySessionId, CredentialHash = credentialHash, Now = now }, cancellationToken: cancellationToken));
+        return row?.ToDomain();
+    }
+
+    public async Task CreateResumeCredentialAsync(string attemptId, string deliverySessionId, string credentialHash, string expiresAt, string createdAt, CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateOpenConnection();
+        await connection.ExecuteAsync(new CommandDefinition("""
+            INSERT INTO attempt_resume_credentials (attempt_id, delivery_session_id, token_hash, expires_at, created_at)
+            VALUES (@AttemptId, @DeliverySessionId, @CredentialHash, @ExpiresAt, @CreatedAt)
+            ON CONFLICT (attempt_id) DO UPDATE SET token_hash=excluded.token_hash, expires_at=excluded.expires_at, created_at=excluded.created_at;
+            """, new { AttemptId = attemptId, DeliverySessionId = deliverySessionId, CredentialHash = credentialHash, ExpiresAt = expiresAt, CreatedAt = createdAt }, cancellationToken: cancellationToken));
+    }
+
+    public async Task RevokeResumeCredentialAsync(string attemptId, CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateOpenConnection();
+        await connection.ExecuteAsync(new CommandDefinition("DELETE FROM attempt_resume_credentials WHERE attempt_id = @AttemptId;", new { AttemptId = attemptId }, cancellationToken: cancellationToken));
+    }
+
     public async Task<bool> ExistsForStudentAsync(string deliverySessionId, string studentCode, CancellationToken cancellationToken = default)
     {
         const string sql = """
@@ -297,10 +357,42 @@ public sealed class AttemptRepository(ILocalSqliteConnectionFactory connectionFa
         transaction.Commit();
     }
 
+    public async Task<bool> ReconcileAnswersAsync(string attemptId, IReadOnlyList<SubmissionAnswer> answers, long revision, CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateOpenConnection();
+        using var transaction = connection.BeginTransaction();
+        var writable = await connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE student_attempts SET status = status WHERE id = @AttemptId AND status = 'in_progress';",
+            new { AttemptId = attemptId }, transaction, cancellationToken: cancellationToken));
+        if (writable != 1)
+        {
+            transaction.Rollback();
+            return false;
+        }
+
+        const string sql = """
+            INSERT INTO submission_answers (id, student_attempt_id, block_id, answer_json, created_at, revision)
+            VALUES (@Id, @StudentAttemptId, @BlockId, @AnswerJson, @CreatedAt, @Revision)
+            ON CONFLICT (student_attempt_id, block_id)
+            DO UPDATE SET answer_json = excluded.answer_json, created_at = excluded.created_at, revision = excluded.revision
+            WHERE excluded.revision > submission_answers.revision;
+            """;
+        foreach (var answer in answers)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await connection.ExecuteAsync(new CommandDefinition(sql, new
+            {
+                answer.Id, StudentAttemptId = attemptId, answer.BlockId, answer.AnswerJson, answer.CreatedAt, Revision = revision
+            }, transaction, cancellationToken: cancellationToken));
+        }
+        transaction.Commit();
+        return true;
+    }
+
     public async Task<IReadOnlyList<SubmissionAnswer>> GetAnswersAsync(string attemptId, CancellationToken cancellationToken = default)
     {
         const string sql = """
-            SELECT id, student_attempt_id, block_id, answer_json, created_at
+            SELECT id, student_attempt_id, block_id, answer_json, created_at, revision
             FROM submission_answers
             WHERE student_attempt_id = @AttemptId
             ORDER BY created_at;
@@ -356,6 +448,8 @@ public sealed class AttemptRepository(ILocalSqliteConnectionFactory connectionFa
             transaction.Rollback();
             return false;
         }
+
+        await connection.ExecuteAsync(new CommandDefinition("DELETE FROM attempt_resume_credentials WHERE attempt_id = @Id;", new { Id = id }, transaction, cancellationToken: cancellationToken));
 
         await connection.ExecuteAsync(new CommandDefinition(
             """
@@ -417,6 +511,7 @@ public sealed class AttemptRepository(ILocalSqliteConnectionFactory connectionFa
             transaction.Rollback();
             return false;
         }
+        await connection.ExecuteAsync(new CommandDefinition("DELETE FROM attempt_resume_credentials WHERE attempt_id = @Id;", new { Id = id }, transaction, cancellationToken: cancellationToken));
         await connection.ExecuteAsync(new CommandDefinition("""
             INSERT INTO sync_outbox
                 (id, event_type, aggregate_type, aggregate_id, idempotency_key, payload_json,
