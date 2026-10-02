@@ -334,6 +334,39 @@ public sealed class SyncBackgroundServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Outbox_retry_does_not_clear_an_earlier_pull_error_while_session_is_active()
+    {
+        await SeedActiveSessionAsync();
+        await SeedSyncStateAsync("central_url", CentralUrl);
+        await SeedSyncStateAsync("node_id", "node-1");
+        await SeedSyncStateAsync("sync_last_error", "exam pull failed before session became active");
+        await SeedSyncStateAsync("sync_last_error_source", "pull");
+        await new NodeIdentityRepository(connectionFactory).UpsertAsync(new NodeIdentity(
+            "identity-1", "node-1", "180055400", "fingerprint", "{}", "2026-09-15T00:00:00Z", null,
+            "active", null, null));
+        using (var connection = connectionFactory.CreateOpenConnection())
+        {
+            await connection.ExecuteAsync("""
+                INSERT INTO sync_outbox (id, event_type, aggregate_type, aggregate_id, idempotency_key, payload_json, status, retry_count, created_at)
+                VALUES ('outbox-active-pull-error', 'attempt_submitted', 'student_attempt', 'attempt-active-pull-error', 'key-active-retry', '{"attempt":{"id":"attempt-active-pull-error"}}', 'pending', 0, @CreatedAt);
+                """, new { CreatedAt = DateTimeOffset.UtcNow.ToString("O") });
+        }
+
+        var handler = new ActiveSessionRetryHandler();
+        var service = BuildService(new StubHttpClientFactory(handler));
+        await service.StartAsync(CancellationToken.None);
+        await Task.Delay(TimeSpan.FromSeconds(17));
+        await service.StopAsync(CancellationToken.None);
+
+        Assert.Equal(2, handler.PushCalls);
+        Assert.DoesNotContain(handler.Paths, path => path.StartsWith("/api/sync/pull", StringComparison.Ordinal));
+        Assert.Equal("exam pull failed before session became active", JsonSerializer.Deserialize<string>(
+            (await new SyncStateRepository(connectionFactory).GetAsync("sync_last_error"))!.ValueJson));
+        Assert.Equal("pull", JsonSerializer.Deserialize<string>(
+            (await new SyncStateRepository(connectionFactory).GetAsync("sync_last_error_source"))!.ValueJson));
+    }
+
+    [Fact]
     public async Task Revoked_node_does_not_probe_sync_or_send_active_session_heartbeats()
     {
         await SeedActiveSessionAsync();

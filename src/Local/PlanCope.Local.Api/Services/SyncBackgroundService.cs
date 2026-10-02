@@ -164,10 +164,14 @@ public sealed class SyncBackgroundService(
                 var pendingOutboxCount = await outboxRepository.CountPendingAsync(stoppingToken);
                 if (!push.Success)
                 {
-                    await UpsertStateAsync(syncStateRepository, "sync_last_error",
-                        JsonSerializer.Serialize(push.Error ?? "outbox push failed.", JsonOptions), stoppingToken);
-                    await UpsertStateAsync(syncStateRepository, "sync_last_error_source",
-                        JsonSerializer.Serialize("outbox", JsonOptions), stoppingToken);
+                    var lastErrorSource = await ReadStateStringAsync(syncStateRepository, "sync_last_error_source", stoppingToken);
+                    if (lastErrorSource is not ("pull" or "sync"))
+                    {
+                        await UpsertStateAsync(syncStateRepository, "sync_last_error",
+                            JsonSerializer.Serialize(push.Error ?? "outbox push failed.", JsonOptions), stoppingToken);
+                        await UpsertStateAsync(syncStateRepository, "sync_last_error_source",
+                            JsonSerializer.Serialize("outbox", JsonOptions), stoppingToken);
+                    }
                 }
                 else if (pendingOutboxCount == 0 && string.Equals(
                              await ReadStateStringAsync(syncStateRepository, "sync_last_error_source", stoppingToken),
