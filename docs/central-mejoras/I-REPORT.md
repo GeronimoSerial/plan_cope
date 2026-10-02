@@ -18,7 +18,7 @@
 - La compilación también corrige el nombre local duplicado `usedAt` y conserva HTTP 425 (`Too Early`) para la respuesta `resume_pending`.
 - El hook guarda cambios mínimos por bloque en `sessionStorage` antes del debounce, confirma cada revisión en orden y sólo entonces la quita del buffer. Reintenta al volver la conexión; la entrega vacía la cola primero y bloquea edición durante el envío. El estado distingue guardando, guardada y pendiente.
 - Al restaurar, el hook combina las respuestas del servidor con las revisiones pendientes de `sessionStorage` y las muestra antes de reintentar el guardado. Así el examen vuelve a estar disponible aunque falle la conexión; el debounce y el evento `online` confirman después las revisiones pendientes.
-- El flujo permite iniciar sesiones anónimas sin DNI; las sesiones nominales mantienen resolución y confirmación de identidad. Ante 401 por credencial vencida o inválida, el navegador quita la credencial pero conserva el buffer y solicita reidentificación; una identidad distinta no puede vincularlo. Entrega, cierre observado (410) y la acción explícita de corregir/reiniciar identidad siguen limpiando el buffer.
+- El flujo permite iniciar sesiones anónimas sin DNI; las sesiones nominales mantienen resolución y confirmación de identidad. Ante 401, el navegador quita la credencial activa y conserva buffer y prueba de pestaña: las sesiones anónimas recuperan con código y prueba, mientras que las nominales vuelven a confirmar identidad. Una identidad distinta no puede vincular el buffer.
 
 ## Seguimiento PR114 — implementación
 
@@ -33,7 +33,7 @@
 - `Anonymous_recovery_proof_is_revoked_by_reset_and_session_close` y `Nominal_resolution_requires_confirmation_and_stores_only_identity_snapshot`: reset/cierre y revocación nominal no reactivan el acceso.
 - UI: recuperación anónima después de refresh con buffer offline, sin llamada a resolución de identidad, autosave recuperado y entrega del mismo intento. API Local: 188 aprobadas, 0 fallidas; UI Local Host: 146 aprobadas, 0 fallidas.
 - `dotnet build tests/PlanCope.Local.Api.Tests/PlanCope.Local.Api.Tests.csproj --no-restore --configuration Release -warnaserror`: 0 warnings, 0 errores. TypeScript `tsc --noEmit` y `vite build` pasaron. `git diff --check` sin errores.
-- CI de PR #114 al SHA base `e2cca0c07af10ac6496df729c1622e2df9f414e4`: run `37028041326`, checks de CI y seguridad exitosos antes de subir este cambio; el run del nuevo SHA queda pendiente.
+- CI de PR #114 para el commit de código `6793a34a903f9cd2d77a7fc62ada90296405f5ed`: run `37040354882`, todos los jobs requeridos exitosos: Local App build/tests, API, migraciones, contenedores, seguridad y verificación final. `central-web` se omitió por no estar afectado. El primer run nuevo `37038704242` encontró que el inicio concurrente con cierre debía conservar HTTP 400; se corrigió esa respuesta y el segundo run pasó completo.
 - Límite: el browser debe conservar `sessionStorage` de la pestaña para tener la prueba y el buffer. Un cliente anterior a esta migración que ya perdió su credencial no tiene prueba anónima recuperable; sigue disponible el reingreso nominal con identidad. Reset offline limpia el secreto local y revoca en el host cuando vuelve la conexión.
 
 ## Pruebas añadidas o ajustadas
