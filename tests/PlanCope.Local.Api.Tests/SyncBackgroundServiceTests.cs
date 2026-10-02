@@ -57,7 +57,8 @@ public sealed class SyncBackgroundServiceTests : IDisposable
         Assert.Contains(handler.Paths, path => path == "/api/sync/session-heartbeat");
         Assert.Contains(handler.Paths, path => path == "/api/sync/push");
         Assert.DoesNotContain(handler.Paths, path => path.StartsWith("/api/sync/pull", StringComparison.Ordinal));
-        Assert.Equal("sent", connectionFactory.CreateOpenConnection().ExecuteScalar<string>("SELECT status FROM sync_outbox WHERE id = 'outbox-active';"));
+        using var verificationConnection = connectionFactory.CreateOpenConnection();
+        Assert.Equal("sent", verificationConnection.ExecuteScalar<string>("SELECT status FROM sync_outbox WHERE id = 'outbox-active';"));
         Assert.NotNull(await new SyncStateRepository(connectionFactory).GetAsync("last_heartbeat_received_at"));
         Assert.NotNull(await new SyncStateRepository(connectionFactory).GetAsync("last_push_ack_at"));
     }
