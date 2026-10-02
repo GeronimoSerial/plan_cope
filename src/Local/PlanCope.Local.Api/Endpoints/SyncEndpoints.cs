@@ -23,6 +23,7 @@ public static class SyncEndpoints
             var lastPush = await syncStateRepository.GetAsync("last_push_at", cancellationToken);
             var centralUrl = await syncStateRepository.GetAsync("central_url", cancellationToken);
             var syncLastError = await syncStateRepository.GetAsync("sync_last_error", cancellationToken);
+            var syncLastErrorSource = await syncStateRepository.GetAsync("sync_last_error_source", cancellationToken);
             var syncNextAttemptAt = await syncStateRepository.GetAsync("sync_next_attempt_at", cancellationToken);
             var syncOffline = await syncStateRepository.GetAsync("sync_offline", cancellationToken);
             var heartbeatAttemptAt = await syncStateRepository.GetAsync("last_heartbeat_attempt_at", cancellationToken);
@@ -53,6 +54,7 @@ public static class SyncEndpoints
                 pendingItems,
                 centralUrl = ReadJsonString(centralUrl?.ValueJson),
                 lastError,
+                lastErrorSource = ReadJsonString(syncLastErrorSource?.ValueJson),
                 nextAttempt = ReadJsonString(syncNextAttemptAt?.ValueJson),
                 offline,
                 database = databaseOptions.ConnectionString

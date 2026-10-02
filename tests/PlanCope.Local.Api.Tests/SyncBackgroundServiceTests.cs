@@ -301,6 +301,39 @@ public sealed class SyncBackgroundServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Successful_outbox_retry_clears_push_error_while_exam_pull_is_gated()
+    {
+        await SeedActiveSessionAsync();
+        await SeedSyncStateAsync("central_url", CentralUrl);
+        await SeedSyncStateAsync("node_id", "node-1");
+        await new NodeIdentityRepository(connectionFactory).UpsertAsync(new NodeIdentity(
+            "identity-1", "node-1", "180055400", "fingerprint", "{}", "2026-09-15T00:00:00Z", null,
+            "active", null, null));
+        using (var connection = connectionFactory.CreateOpenConnection())
+        {
+            await connection.ExecuteAsync("""
+                INSERT INTO sync_outbox (id, event_type, aggregate_type, aggregate_id, idempotency_key, payload_json, status, retry_count, created_at)
+                VALUES ('outbox-active-retry', 'attempt_submitted', 'student_attempt', 'attempt-active-retry', 'key-active-retry', '{"attempt":{"id":"attempt-active-retry"}}', 'pending', 0, @CreatedAt);
+                """, new { CreatedAt = DateTimeOffset.UtcNow.ToString("O") });
+        }
+
+        var handler = new ActiveSessionRetryHandler();
+        var service = BuildService(new StubHttpClientFactory(handler));
+        await service.StartAsync(CancellationToken.None);
+        await Task.Delay(TimeSpan.FromSeconds(17));
+        await service.StopAsync(CancellationToken.None);
+
+        Assert.Equal(2, handler.PushCalls);
+        Assert.DoesNotContain(handler.Paths, path => path.StartsWith("/api/sync/pull", StringComparison.Ordinal));
+        Assert.Equal(string.Empty, JsonSerializer.Deserialize<string>(
+            (await new SyncStateRepository(connectionFactory).GetAsync("sync_last_error"))!.ValueJson));
+        Assert.Equal(string.Empty, JsonSerializer.Deserialize<string>(
+            (await new SyncStateRepository(connectionFactory).GetAsync("sync_last_error_source"))!.ValueJson));
+        using var checkConnection = connectionFactory.CreateOpenConnection();
+        Assert.Equal("sent", await checkConnection.ExecuteScalarAsync<string>("SELECT status FROM sync_outbox WHERE id = 'outbox-active-retry';"));
+    }
+
+    [Fact]
     public async Task Revoked_node_does_not_probe_sync_or_send_active_session_heartbeats()
     {
         await SeedActiveSessionAsync();
@@ -496,6 +529,35 @@ public sealed class SyncBackgroundServiceTests : IDisposable
                 {
                     Content = new StringContent($"{{\"receivedAt\":\"{DateTimeOffset.UtcNow:O}\"}}", Encoding.UTF8, "application/json")
                 });
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+        }
+    }
+
+    private sealed class ActiveSessionRetryHandler : HttpMessageHandler
+    {
+        public List<string> Paths { get; } = [];
+        public int PushCalls { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var path = request.RequestUri?.PathAndQuery ?? "";
+            Paths.Add(path);
+            if (path == "/api/sync/session-heartbeat")
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent($"{{\"receivedAt\":\"{DateTimeOffset.UtcNow:O}\"}}", Encoding.UTF8, "application/json")
+                });
+            }
+            if (path == "/api/sync/push")
+            {
+                PushCalls++;
+                if (PushCalls == 1) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized));
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"received\":1,\"failed\":0,\"results\":[{\"idempotencyKey\":\"key-active-retry\",\"status\":\"accepted\",\"reason\":null}]}", Encoding.UTF8, "application/json")
+                });
+            }
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
         }
     }

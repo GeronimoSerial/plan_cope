@@ -23,6 +23,7 @@ public sealed class SyncStatusEndpointTests
             var state = scope.ServiceProvider.GetRequiredService<ISyncStateRepository>();
             await state.UpsertAsync(new SyncState("heartbeat", "last_heartbeat_http_status", "null", DateTimeOffset.UtcNow.ToString("O")));
             await state.UpsertAsync(new SyncState("heartbeat-error", "last_heartbeat_error_code", "\"request_timeout\"", DateTimeOffset.UtcNow.ToString("O")));
+            await state.UpsertAsync(new SyncState("error-source", "sync_last_error_source", "\"outbox\"", DateTimeOffset.UtcNow.ToString("O")));
         }
 
         using var response = await client.GetAsync("/api/sync/status");
@@ -31,6 +32,7 @@ public sealed class SyncStatusEndpointTests
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         Assert.Equal(JsonValueKind.Null, body.RootElement.GetProperty("heartbeatLastHttpStatus").ValueKind);
         Assert.Equal("request_timeout", body.RootElement.GetProperty("heartbeatLastErrorCode").GetString());
+        Assert.Equal("outbox", body.RootElement.GetProperty("lastErrorSource").GetString());
     }
 
     private sealed class SyncStatusApiFactory : WebApplicationFactory<Program>

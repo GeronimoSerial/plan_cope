@@ -36,6 +36,7 @@ public sealed class LocalExamPullService(
     private const string CursorKey = "last_exam_pull_cursor";
     private const string LastPullAtKey = "last_pull_at";
     private const string LastErrorKey = "sync_last_error";
+    private const string LastErrorSourceKey = "sync_last_error_source";
     private const string OfflineKey = "sync_offline";
 
     // Direct constructions (unit tests) that omit the gate get their own isolated one; the
@@ -182,7 +183,10 @@ public sealed class LocalExamPullService(
         await UpsertStateStringAsync(LastPullAtKey, now.ToString("O"), cancellationToken);
         // A successful pull cannot clear a push error while durable results still await ACK.
         if (outboxRepository is null || await outboxRepository.CountPendingAsync(cancellationToken) == 0)
+        {
             await UpsertStateStringAsync(LastErrorKey, string.Empty, cancellationToken);
+            await UpsertStateStringAsync(LastErrorSourceKey, string.Empty, cancellationToken);
+        }
         await UpsertStateValueAsync(OfflineKey, JsonSerializer.Serialize(false, JsonOptions), cancellationToken);
 
         return new LocalExamPullResult(
@@ -205,6 +209,7 @@ public sealed class LocalExamPullService(
     {
         var message = ExamPullMessages.ForError(errorCode);
         await UpsertStateStringAsync(LastErrorKey, message, cancellationToken);
+        await UpsertStateStringAsync(LastErrorSourceKey, "pull", cancellationToken);
         if (errorCode == ExamPullErrorCodes.CentralUnreachable)
         {
             await UpsertStateValueAsync(OfflineKey, JsonSerializer.Serialize(true, JsonOptions), cancellationToken);

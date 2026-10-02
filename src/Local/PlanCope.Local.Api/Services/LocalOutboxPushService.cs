@@ -151,7 +151,7 @@ public sealed class LocalOutboxPushService(
                 }
             }
 
-            return new(failed == 0, pending.Count, accepted, failed, failed == 0 ? null : "Some items remain pending for a later manual retry.");
+            return new(failed == 0, pending.Count, accepted, failed, failed == 0 ? null : "Some items remain pending for a scheduled retry.");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

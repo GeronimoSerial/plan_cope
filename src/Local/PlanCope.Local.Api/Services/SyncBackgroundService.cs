@@ -166,6 +166,19 @@ public sealed class SyncBackgroundService(
                 {
                     await UpsertStateAsync(syncStateRepository, "sync_last_error",
                         JsonSerializer.Serialize(push.Error ?? "outbox push failed.", JsonOptions), stoppingToken);
+                    await UpsertStateAsync(syncStateRepository, "sync_last_error_source",
+                        JsonSerializer.Serialize("outbox", JsonOptions), stoppingToken);
+                }
+                else if (pendingOutboxCount == 0 && string.Equals(
+                             await ReadStateStringAsync(syncStateRepository, "sync_last_error_source", stoppingToken),
+                             "outbox", StringComparison.OrdinalIgnoreCase))
+                {
+                    // A push can recover while exam pulls remain gated by an active session.
+                    // Clear only the error sourced by the now-empty outbox; preserve pull errors.
+                    await UpsertStateAsync(syncStateRepository, "sync_last_error",
+                        JsonSerializer.Serialize(string.Empty, JsonOptions), stoppingToken);
+                    await UpsertStateAsync(syncStateRepository, "sync_last_error_source",
+                        JsonSerializer.Serialize(string.Empty, JsonOptions), stoppingToken);
                 }
 
                 if (blocksSync)
@@ -207,6 +220,8 @@ public sealed class SyncBackgroundService(
                                     ? pull.Error ?? "exam pull failed."
                                     : "Exam pull and outbox push failed.", JsonOptions),
                                 stoppingToken);
+                            await UpsertStateAsync(syncStateRepository, "sync_last_error_source",
+                                JsonSerializer.Serialize(push.Success ? "pull" : "sync", JsonOptions), stoppingToken);
                         }
 
                         // A no-op push can mean rows remain delayed by backoff, so clear only
@@ -216,6 +231,8 @@ public sealed class SyncBackgroundService(
                             await UpsertStateAsync(syncStateRepository, "sync_last_error",
                                 JsonSerializer.Serialize("", JsonOptions),
                                 stoppingToken);
+                            await UpsertStateAsync(syncStateRepository, "sync_last_error_source",
+                                JsonSerializer.Serialize("", JsonOptions), stoppingToken);
                         }
 
                         await UpsertStateAsync(syncStateRepository, "sync_next_attempt_at",
