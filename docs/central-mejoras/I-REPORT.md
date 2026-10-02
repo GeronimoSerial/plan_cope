@@ -1,5 +1,13 @@
 # Batch I — recuperación de examen Local
 
+## Seguimiento PR114 — plan antes de cambios
+
+- Extender la credencial de reanudación con una prueba opaca independiente, aleatoria por pestaña e intento, persistida sólo como hash y ligada en SQLite a `attemptId` y `deliverySessionId`.
+- Añadir una ruta de recuperación anónima que acepte únicamente esa prueba, el intento y el código/sesión; dentro de una transacción comprobará coincidencia de sesión, intento abierto y credencial anterior vencida, y rotará la credencial sin crear otro intento. La prueba opaca nunca autorizará restaurar, guardar o entregar directamente.
+- Conservar marcas de expiración y revocación en vez de borrar evidencia de credenciales vencidas; revocar la prueba en reset/logout explícito, submit y cierre. La recuperación rechazará prueba inválida, intento/sesión ajenos, estado revocado/cerrado y solicitudes concurrentes después de la primera rotación.
+- Mantener la ruta nominal existente y el gate raw/outbox. Actualizar hook, tipos, API cliente, contratos, migración aditiva, API/UI tests para expiración offline-refresh-recuperación-submit, revocación/cierre, prueba inválida/cruce de intentos y concurrencia.
+- Ejecutar suites API y UI enfocadas, build Local, revisar diff/estado y CI disponible; actualizar este informe con resultados, límites y SHA, y publicar el commit en la rama PR114 sin force-push.
+
 ## Implementación
 
 - Al iniciar un intento nominal o anónimo, el navegador genera una credencial aleatoria de 256 bits y la conserva en `sessionStorage` antes de llamar a la API. El servidor persiste únicamente su SHA-256, ligado al intento y la sesión, con vencimiento de cuatro horas.
@@ -11,6 +19,22 @@
 - El hook guarda cambios mínimos por bloque en `sessionStorage` antes del debounce, confirma cada revisión en orden y sólo entonces la quita del buffer. Reintenta al volver la conexión; la entrega vacía la cola primero y bloquea edición durante el envío. El estado distingue guardando, guardada y pendiente.
 - Al restaurar, el hook combina las respuestas del servidor con las revisiones pendientes de `sessionStorage` y las muestra antes de reintentar el guardado. Así el examen vuelve a estar disponible aunque falle la conexión; el debounce y el evento `online` confirman después las revisiones pendientes.
 - El flujo permite iniciar sesiones anónimas sin DNI; las sesiones nominales mantienen resolución y confirmación de identidad. Ante 401 por credencial vencida o inválida, el navegador quita la credencial pero conserva el buffer y solicita reidentificación; una identidad distinta no puede vincularlo. Entrega, cierre observado (410) y la acción explícita de corregir/reiniciar identidad siguen limpiando el buffer.
+
+## Seguimiento PR114 — implementación
+
+- `021_AnonymousAttemptRecovery.sql` agrega `revoked_at` y la tabla aditiva `attempt_resume_proofs`; se conserva la fila de credencial vencida para distinguir expiración de revocación. Se guarda sólo SHA-256 de una prueba aleatoria de 256 bits que el hook mantiene en `sessionStorage` por pestaña junto al buffer.
+- La recuperación anónima exige código/sesión, `attemptId`, prueba válida ligada a esa sesión e intento anónimo abierto, estado activo de la sesión y credencial existente vencida sin revocación. Renueva esa credencial dentro de una transacción SQLite; una carrera paralela pierde tras la primera rotación. La prueba por sí sola no permite restaurar, guardar ni entregar.
+- Submit, cierre de sesión y reset explícito marcan credencial y prueba revocadas. El camino nominal sigue recuperando con resolución vigente y ahora rechaza renovar credenciales revocadas; el gate de mutación raw/outbox permanece activo.
+- Si el 401 pertenece a una sesión anónima, el hook usa código y prueba de pestaña para recuperar el mismo intento sin pedir DNI; en sesión nominal vuelve a pedir identidad. El buffer offline y sus revisiones sobreviven ambos flujos.
+
+## Seguimiento PR114 — pruebas y verificación
+
+- `Anonymous_expired_credential_recovers_only_with_bound_proof_and_revokes_on_submit`: respuesta preservada, intento/sesión ajenos y prueba inválida rechazados, recuperación paralela de una sola ganadora, mismo intento, entrega y revocación.
+- `Anonymous_recovery_proof_is_revoked_by_reset_and_session_close` y `Nominal_resolution_requires_confirmation_and_stores_only_identity_snapshot`: reset/cierre y revocación nominal no reactivan el acceso.
+- UI: recuperación anónima después de refresh con buffer offline, sin llamada a resolución de identidad, autosave recuperado y entrega del mismo intento. API Local: 188 aprobadas, 0 fallidas; UI Local Host: 146 aprobadas, 0 fallidas.
+- `dotnet build tests/PlanCope.Local.Api.Tests/PlanCope.Local.Api.Tests.csproj --no-restore --configuration Release -warnaserror`: 0 warnings, 0 errores. TypeScript `tsc --noEmit` y `vite build` pasaron. `git diff --check` sin errores.
+- CI de PR #114 al SHA base `e2cca0c07af10ac6496df729c1622e2df9f414e4`: run `37028041326`, checks de CI y seguridad exitosos antes de subir este cambio; el run del nuevo SHA queda pendiente.
+- Límite: el browser debe conservar `sessionStorage` de la pestaña para tener la prueba y el buffer. Un cliente anterior a esta migración que ya perdió su credencial no tiene prueba anónima recuperable; sigue disponible el reingreso nominal con identidad. Reset offline limpia el secreto local y revoca en el host cuando vuelve la conexión.
 
 ## Pruebas añadidas o ajustadas
 

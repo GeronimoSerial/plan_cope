@@ -52,6 +52,8 @@ public interface IAttemptRepository
         string startedAt,
         CancellationToken cancellationToken = default);
     Task<bool> RecoverNominalAttemptAsync(string deliverySessionId, string attemptId, string resolutionTokenHash,
+        string resumeCredentialHash, string resumeProofHash, string now, string expiresAt, CancellationToken cancellationToken = default);
+    Task<bool> RecoverAnonymousAttemptAsync(string deliverySessionId, string attemptId, string resumeProofHash,
         string resumeCredentialHash, string now, string expiresAt, CancellationToken cancellationToken = default);
 
     Task CreateAsync(StudentAttempt attempt, CancellationToken cancellationToken = default);
@@ -64,7 +66,9 @@ public interface IAttemptRepository
 
     Task<StudentAttempt?> GetAttemptByResumeCredentialAsync(string deliverySessionId, string credentialHash, string now, CancellationToken cancellationToken = default);
 
-    Task CreateResumeCredentialAsync(string attemptId, string deliverySessionId, string credentialHash, string expiresAt, string createdAt, CancellationToken cancellationToken = default);
+    Task<bool> CreateResumeCredentialAsync(string attemptId, string deliverySessionId, string credentialHash, string proofHash, string expiresAt, string createdAt, CancellationToken cancellationToken = default);
+
+    Task RevokeResumeProofAsync(string attemptId, string proofHash, string now, CancellationToken cancellationToken = default);
 
     Task RevokeResumeCredentialAsync(string attemptId, CancellationToken cancellationToken = default);
 
@@ -119,7 +123,8 @@ public enum NominalAttemptStartStatus
     ResolutionNotFound,
     ResolutionExpired,
     ResolutionUsed,
-    AttemptExists
+    AttemptExists,
+    ResumeCredentialRevoked
 }
 
 public sealed record NominalAttemptStartResult(NominalAttemptStartStatus Status, StudentAttempt? Attempt)

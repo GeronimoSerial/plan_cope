@@ -31,6 +31,7 @@ export type StartAttemptResponse = {
   attempt: StudentAttempt;
   blocks: LocalExamBlock[];
   resumeCredential: string;
+  resumeProof: string;
   credentialExpiresAt: string;
 };
 

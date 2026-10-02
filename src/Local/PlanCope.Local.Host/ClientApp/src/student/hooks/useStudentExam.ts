@@ -12,6 +12,7 @@ type StoredExam = {
   deliverySessionId: string;
   sessionCode: string;
   credential: string;
+  resumeProof?: string;
   expiresAt: string;
   nextRevision: number;
   pending: PendingAnswer[];
@@ -260,25 +261,38 @@ export function useStudentExam() {
         deliverySessionId: "",
         sessionCode: code,
         credential,
+        resumeProof: createResumeCredential(),
         expiresAt: "",
         nextRevision: 0,
         pending: []
       };
     } else {
       credential = stored.credential;
+      stored.resumeProof ??= createResumeCredential();
     }
     if (!stored) throw new Error("No se pudo preparar la sesión de examen.");
+    stored.resumeProof ??= createResumeCredential();
     storedRef.current = stored;
     if (!recovering) writeStoredExam(stored);
-    const response = await api.startAttempt(code, resolutionToken, credential, recovering ? stored!.attemptId : undefined);
+    const response = await api.startAttempt(code, resolutionToken, credential, recovering ? stored!.attemptId : undefined, stored.resumeProof);
     if (recovering && response.attempt.id !== stored!.attemptId) {
       throw new Error("La identidad confirmada no corresponde al intento con respuestas pendientes.");
     }
-    const recovered = recovering ? await api.restoreAttempt(response.attempt.id, code, credential) : null;
     stored.attemptId = response.attempt.id;
     stored.deliverySessionId = response.attempt.deliverySessionId;
+    stored.credential = credential;
+    stored.resumeProof = response.resumeProof;
     stored.expiresAt = response.credentialExpiresAt;
     writeStoredExam(stored);
+    let recovered = null;
+    if (recovering) {
+      try {
+        recovered = await api.restoreAttempt(response.attempt.id, code, credential);
+      } catch (exception) {
+        setRestoreRetry(value => value + 1);
+        throw exception;
+      }
+    }
     setRecoveryRequired(false);
     setAttemptId(response.attempt.id);
     setAttempt(response.attempt);
@@ -322,12 +336,14 @@ export function useStudentExam() {
   }, [api, beginAttempt, document, runBusy, sessionCode]);
 
   const correctIdentity = useCallback(() => {
+    const stored = storedRef.current;
+    if (stored?.attemptId && stored.resumeProof) void api.revokeAttemptRecovery(stored.attemptId, stored.resumeProof).catch(() => undefined);
     writeStoredExam(null);
     storedRef.current = null;
     setResolution(null);
     setError("");
     setNotFoundPrompt(null);
-  }, []);
+  }, [api]);
 
   const startAttempt = useCallback(async () => {
     if (!sessionCode.trim() || !resolution) return;

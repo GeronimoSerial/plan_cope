@@ -29,7 +29,7 @@ export function SessionEntryPanel({
         <p className="eyebrow">Acceso del estudiante</p>
         <h2>Ingresá al examen</h2>
         <p className="student-card-copy">{recoveryRequired
-          ? "Tus respuestas pendientes siguen guardadas en esta pestaña. Ingresá el mismo código y tu DNI para recuperar el mismo intento."
+          ? "Tus respuestas pendientes siguen guardadas en esta pestaña. Ingresá el mismo código para retomar el mismo intento. Si la sesión pide identidad, volvé a confirmar tus datos."
           : "Ingresá el código que te indicó el docente. La sesión puede pedirte el DNI."}</p>
         <Field label="Código de sesión">
           <TextInput

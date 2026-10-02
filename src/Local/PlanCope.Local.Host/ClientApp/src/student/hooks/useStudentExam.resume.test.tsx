@@ -17,11 +17,13 @@ function ExamProbe() {
       <output data-testid="recovery">{String(exam.recoveryRequired)}</output>
       <output data-testid="error">{exam.error}</output>
       <output data-testid="has-resolution">{String(Boolean(exam.resolution))}</output>
+      <output data-testid="confirmation">{exam.confirmationCode ?? ""}</output>
       <textarea aria-label="Respuesta" value={exam.answers["block-1"] ?? ""} readOnly />
       {exam.attemptId && <button onClick={() => exam.setAnswer("block-1", "respuesta nueva")}>edit</button>}
       <button onClick={() => exam.setDocument("12345678")}>document</button>
       <button onClick={() => void exam.resolveStudent()}>resolve</button>
       <button onClick={() => void exam.startAttempt()}>start</button>
+      <button onClick={() => void exam.submitAttempt()}>submit</button>
     </section>
   );
 }
@@ -182,6 +184,88 @@ describe("useStudentExam pending answer restoration", () => {
     expect(answerCalls).toBe(1);
     expect(JSON.parse(window.sessionStorage.getItem(STORAGE_KEY)!).pending).toEqual([]);
     expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith("/attempts") && JSON.parse(String(fetchMock.mock.calls.find(([candidate]) => String(candidate).endsWith("/attempts"))?.[1]?.body)).recoverAttemptId === "attempt-1")).toBe(true);
+  });
+
+  it("recovers an anonymous expired attempt from its tab proof, preserves offline edits, and submits it", async () => {
+    window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+      attemptId: "attempt-anon",
+      deliverySessionId: "session-anon",
+      sessionCode: "ANON1",
+      credential: "expired-anon-credential",
+      resumeProof: "opaque-tab-proof-anon",
+      expiresAt: "expired",
+      nextRevision: 3,
+      pending: [{ blockId: "block-1", answer: "respuesta guardada offline", revision: 3 }]
+    }));
+
+    let activeCredential = "";
+    let savedAnswer = "";
+    let submitCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const authorization = (init?.headers as Record<string, string> | undefined)?.Authorization;
+      if (url.endsWith("/api/attempts/attempt-anon/restore")) {
+        if (authorization !== `Bearer ${activeCredential}`) return new Response(JSON.stringify({ error: "expired" }), { status: 401 });
+        return new Response(JSON.stringify({
+          attempt: { id: "attempt-anon", deliverySessionId: "session-anon", status: "in_progress" },
+          blocks: [], answers: savedAnswer ? [{ blockId: "block-1", answer: savedAnswer, revision: 3 }] : [], sessionStatus: "active"
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.endsWith("/api/sessions/ANON1"))
+        return new Response(JSON.stringify({ status: "active", rosterSnapshotId: null, rosterSectionId: null }), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url.endsWith("/student-resolution")) throw new Error("Anonymous recovery must not request identity");
+      if (url.endsWith("/api/sessions/ANON1/attempts")) {
+        const body = JSON.parse(String(init?.body));
+        expect(body).toMatchObject({ recoverAttemptId: "attempt-anon", resumeProof: "opaque-tab-proof-anon" });
+        expect(body.resolutionToken).toBeUndefined();
+        activeCredential = body.resumeCredential;
+        return new Response(JSON.stringify({
+          attempt: { id: "attempt-anon", deliverySessionId: "session-anon", status: "in_progress" },
+          blocks: [], resumeCredential: activeCredential, resumeProof: "opaque-tab-proof-anon", credentialExpiresAt: "later"
+        }), { status: 201, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.endsWith("/api/attempts/attempt-anon/answers")) {
+        expect(authorization).toBe(`Bearer ${activeCredential}`);
+        savedAnswer = JSON.parse(String(init?.body)).answers[0].answer;
+        return new Response(null, { status: 204 });
+      }
+      if (url.endsWith("/api/attempts/attempt-anon/submit")) {
+        expect(authorization).toBe(`Bearer ${activeCredential}`);
+        submitCalls++;
+        return new Response(JSON.stringify({ attemptId: "attempt-anon", confirmationCode: "ANON1234", submittedAt: "now" }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      throw new Error(`Unexpected Local API request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => root?.render(<ExamProbe />));
+    await tick();
+    expect(container.querySelector('[data-testid="recovery"]')?.textContent).toBe("true");
+    expect(JSON.parse(window.sessionStorage.getItem(STORAGE_KEY)!).pending).toEqual([
+      { blockId: "block-1", answer: "respuesta guardada offline", revision: 3 }
+    ]);
+
+    await act(async () => {
+      (container?.querySelectorAll("button")[1] as HTMLButtonElement).click();
+      await new Promise(resolve => setTimeout(resolve, 30));
+    });
+    expect(container.querySelector('[data-testid="has-resolution"]')?.textContent).toBe("false");
+    expect(container.querySelector('[data-testid="attempt"]')?.textContent).toBe("attempt-anon");
+    expect(container.querySelector("textarea")?.value).toBe("respuesta guardada offline");
+    await tick(550);
+    expect(savedAnswer).toBe("respuesta guardada offline");
+    expect(JSON.parse(window.sessionStorage.getItem(STORAGE_KEY)!).pending).toEqual([]);
+
+    await act(async () => {
+      (container?.querySelectorAll("button")[4] as HTMLButtonElement).click();
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+    expect(submitCalls).toBe(1);
+    expect(container.querySelector('[data-testid="confirmation"]')?.textContent).toBe("ANON1234");
+    expect(window.sessionStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
   it("keeps edits and requests identity again when an active autosave receives 401", async () => {
