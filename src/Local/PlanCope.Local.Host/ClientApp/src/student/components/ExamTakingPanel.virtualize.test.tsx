@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LocalExamBlock } from "../../shared/api-types";
 import type { AnswerMap } from "../domain/examAnswers";
 import { ExamTakingPanel } from "./ExamTakingPanel";
-import { computeWindowBounds, QuestionNav, scrollBlockIntoView } from "./QuestionNav";
+import { QuestionNav, scrollBlockIntoView } from "./QuestionNav";
 
 function makeMultipleChoiceBlock(index: number): LocalExamBlock {
   return {
@@ -49,15 +49,6 @@ function renderPanel(blocks: LocalExamBlock[], answers: AnswerMap = {}) {
   );
 }
 
-function installFakeWindow(scrollY: number, innerHeight = 800) {
-  (globalThis as Record<string, unknown>).window = {
-    scrollY,
-    innerHeight,
-    addEventListener: () => undefined,
-    removeEventListener: () => undefined
-  };
-}
-
 function restoreGlobals() {
   delete (globalThis as Record<string, unknown>).window;
   delete (globalThis as Record<string, unknown>).document;
@@ -71,14 +62,14 @@ function slotFor(html: string, blockId: string): string {
   return match[0];
 }
 
-describe("ExamTakingPanel virtualization", () => {
+describe("ExamTakingPanel question navigation", () => {
   afterEach(() => {
     restoreGlobals();
     vi.restoreAllMocks();
   });
 
-  it("keeps every block wrapper mounted in DOM order with a reserved height and its id", () => {
-    const blocks = makeBlocks(150);
+  it("renders all demo questions and their answers in DOM order without height placeholders", () => {
+    const blocks = makeBlocks(8);
     const html = renderPanel(blocks);
 
     for (let index = 0; index < blocks.length; index++) {
@@ -88,6 +79,9 @@ describe("ExamTakingPanel virtualization", () => {
     const order = blocks.map(block => html.indexOf(`id="${block.id}"`));
     const sorted = [...order].sort((a, b) => a - b);
     expect(order).toEqual(sorted);
+    expect((html.match(/data-block-id="block-\d+" data-state="rendered"/g) ?? []).length).toBe(8);
+    expect(html).not.toContain("student-question-placeholder");
+    expect(html).not.toContain('data-state="placeholder"');
   });
 
   it("shows blocking paused and closed notices and disables exam actions", () => {
@@ -104,23 +98,18 @@ describe("ExamTakingPanel virtualization", () => {
     expect(closed).toMatch(/<button[^>]*disabled=""[^>]*>Enviar examen/);
   });
 
-  it("renders only near-viewport blocks fully and placeholders for far-off blocks", () => {
+  it("keeps far-off question content mounted so navigation never targets a placeholder", () => {
     const blocks = makeBlocks(150);
     const html = renderPanel(blocks);
 
     expect(slotFor(html, "block-2")).toContain('data-state="rendered"');
     expect(html).toContain("Pregunta 2");
-
-    expect(slotFor(html, "block-140")).toContain('data-state="placeholder"');
-    expect(html).not.toContain("Pregunta 140");
-    expect(html).toContain("student-question-placeholder");
-
-    const renderedCount = (html.match(/<fieldset/g) ?? []).length;
-    expect(renderedCount).toBeGreaterThan(0);
-    expect(renderedCount).toBeLessThan(150);
+    expect(slotFor(html, "block-140")).toContain('data-state="rendered"');
+    expect(html).toContain("Pregunta 140");
+    expect(html).not.toContain("student-question-placeholder");
   });
 
-  it("renders far-off blocks as placeholders even when the exam is short", () => {
+  it("renders every navigation link as an actionable button", () => {
     const blocks = makeBlocks(150);
     const html = renderToStaticMarkup(
       <QuestionNav blocks={blocks} answers={emptyProps.answers} />
@@ -128,13 +117,12 @@ describe("ExamTakingPanel virtualization", () => {
 
     expect(html).toContain('data-nav-block="block-2"');
     expect(html).toMatch(/data-nav-block="block-2"[^>]*data-state="rendered"/);
-
-    expect(html).toMatch(/data-nav-block="block-140"[^>]*data-state="placeholder"/);
-    expect(html).not.toContain("Pregunta 141:");
+    expect(html).toMatch(/data-nav-block="block-140"[^>]*data-state="rendered"/);
+    expect(html).toContain('aria-label="Pregunta 141: Pendiente"');
   });
 
-  it("scrolls an off-screen question into view through its always-mounted wrapper id", () => {
-    const element = { scrollIntoView: vi.fn() };
+  it("scrolls to an off-screen question whose full content is mounted", () => {
+    const element = { scrollIntoView: vi.fn(), querySelector: () => null };
     (globalThis as Record<string, unknown>).document = {
       getElementById: (id: string) => (id === "block-140" ? element : null)
     };
@@ -144,58 +132,12 @@ describe("ExamTakingPanel virtualization", () => {
 
     const html = renderPanel(makeBlocks(150));
     expect(html).toContain('id="block-140"');
-    expect(slotFor(html, "block-140")).toContain('data-state="placeholder"');
-  });
-
-  it("swaps placeholder for real content when the scroll window moves onto the block", () => {
-    installFakeWindow(0, 800);
-    expect(renderPanel(makeBlocks(150))).not.toContain("Pregunta 140");
-
-    installFakeWindow(140 * 172, 800);
-    const html = renderPanel(makeBlocks(150));
-    expect(html).toContain("Pregunta 140");
     expect(slotFor(html, "block-140")).toContain('data-state="rendered"');
   });
 
-  it("preserves answers from the answers map across scroll-away-and-back", () => {
-    const blocks = makeBlocks(150);
-    const answers: AnswerMap = { "block-2": "a" };
-
-    installFakeWindow(0, 800);
-    const atTop = renderPanel(blocks, answers);
-    expect(atTop).toContain("Pregunta 2");
-    expect(atTop).toContain("Pregunta 3: Respondida");
-
-    installFakeWindow(140 * 172, 800);
-    const farAway = renderPanel(blocks, answers);
-    expect(farAway).toContain("Pregunta 140");
-    expect(slotFor(farAway, "block-2")).not.toContain("Pregunta 2");
-    expect(farAway).toContain('aria-label="Pregunta 3: Respondida"');
-    expect(slotFor(farAway, "block-2")).toContain('data-state="placeholder"');
-
-    installFakeWindow(0, 800);
-    const backAtTop = renderPanel(blocks, answers);
-    expect(backAtTop).toContain("Pregunta 2");
-    expect(backAtTop).toContain("Pregunta 3: Respondida");
-  });
-
-  it("computes a window of roughly 2 viewport-heights beyond the visible area", () => {
-    const bounds = computeWindowBounds({
-      scrollTop: 0,
-      viewportHeight: 800,
-      itemCount: 150,
-      itemStep: 172
-    });
-    expect(bounds.start).toBe(0);
-    expect(bounds.end).toBe(14);
-
-    const centered = computeWindowBounds({
-      scrollTop: 50 * 172,
-      viewportHeight: 800,
-      itemCount: 150,
-      itemStep: 172
-    });
-    expect(centered.start).toBe(40);
-    expect(centered.end).toBe(64);
+  it("retains answer values in both the question control and navigation status", () => {
+    const html = renderPanel(makeBlocks(8), { "block-2": "a" });
+    expect(html).toContain('value="a"');
+    expect(html).toContain('aria-label="Pregunta 3: Respondida"');
   });
 });

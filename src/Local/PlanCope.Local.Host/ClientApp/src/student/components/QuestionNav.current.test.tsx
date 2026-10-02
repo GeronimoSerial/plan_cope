@@ -76,4 +76,30 @@ describe("QuestionNav current question", () => {
     expect(container.querySelector('[data-nav-block="question-2"] button')?.getAttribute("aria-current")).toBe("location");
     expect(container.querySelector('[data-nav-block="question-1"] button')?.getAttribute("aria-current")).toBeNull();
   });
+
+  it("scrolls to the selected question and moves keyboard focus into its answer", () => {
+    const question = document.createElement("div");
+    question.id = "question-1";
+    const answer = document.createElement("input");
+    answer.type = "radio";
+    question.append(answer);
+    question.scrollIntoView = vi.fn();
+    document.body.append(question);
+
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => {
+      root?.render(<QuestionNav blocks={[makeBlock("question-1")]} answers={{}} />);
+    });
+
+    act(() => {
+      container.querySelector(".student-question-nav-item")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true })
+      );
+    });
+
+    expect(question.scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+    expect(document.activeElement).toBe(answer);
+  });
 });
