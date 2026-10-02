@@ -11,7 +11,7 @@
 
 ## Verificación
 
-- Pruebas enfocadas de UI: 52 aprobadas en seis archivos.
+- Pruebas enfocadas de UI: 54 aprobadas en seis archivos.
 - Build de ClientApp: `tsc` y Vite aprobados.
 - Pruebas API enfocadas de activación y ruta retirada: 4 aprobadas.
 - Vista previa Chromium con fixture local simulado: inicio a 1440×900 y 390×844; Estadísticas a 390×844. `scrollWidth` coincidió con el ancho de viewport en los tres casos.
@@ -28,5 +28,6 @@ El PR queda abierto a revisión independiente y CI; este lote no se fusiona ni d
 ## Entrega
 
 - Base: `origin/main` (`b34f2d9`).
-- Commit: `ec0a826` (`feat(local): improve M operator operations`).
+- Commits: `ec0a826` (`feat(local): improve M operator operations`), `059f6e8` (`feat(local): consume K heartbeat and ack status`).
 - PR en borrador: [#108](https://github.com/GeronimoSerial/plan_cope/pull/108).
+- CI al cierre: `local-app` y `security` pendientes; `changes` y GitGuardian aprobados. Revisión independiente pendiente.
