@@ -41,7 +41,7 @@ public sealed class SyncPushPolicyTests
     }
 
     [Fact]
-    public void Previous_checksum_format_is_accepted_for_queued_outbox_rows()
+    public void Previous_checksum_format_is_accepted_for_older_local_binaries()
     {
         var item = CreateItem("key-1", "attempt-1", "GE:42");
         var legacyItem = item with { Checksum = SyncPayloadChecksum.CalculateLegacy(item.Payload) };
