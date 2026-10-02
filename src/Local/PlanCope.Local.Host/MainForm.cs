@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Net;
-using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
@@ -60,6 +59,9 @@ public partial class MainForm : Form
     private bool _sessionGateLastCheckFailed;
     private bool _updateCheckInProgress;
     private bool _pendingSessionUpdatePrompt;
+    private bool _networkRefreshInProgress;
+    private bool _closing;
+    private readonly System.Windows.Forms.Timer _networkTimer = new() { Interval = 5000 };
     private readonly System.Windows.Forms.Timer _sessionGateTimer = new() { Interval = 30000, Enabled = false };
     private readonly System.Windows.Forms.Timer _updateCheckTimer = new() { Interval = 4 * 60 * 60 * 1000, Enabled = false };
     private string? _updateFeedUrl;
@@ -69,6 +71,7 @@ public partial class MainForm : Form
         _directories = directories;
         _healthTracker = healthTracker;
         InitializeComponent();
+        _networkTimer.Tick += async (_, _) => await RefreshLanAddressAsync();
         Controls.Add(_loadingLabel);
         _sessionGateTimer.Tick += (_, _) => _ = EvaluateSessionGateAsync();
         _updateCheckTimer.Tick += (_, _) => _ = HandleCheckForUpdatesAsync(manual: false);
@@ -89,6 +92,9 @@ public partial class MainForm : Form
 
     private async void MainForm_FormClosing(object? sender, FormClosingEventArgs e)
     {
+        _closing = true;
+        _networkTimer.Stop();
+        _networkTimer.Dispose();
         if (_api is null)
         {
             return;
@@ -102,7 +108,7 @@ public partial class MainForm : Form
     private async Task StartLocalApiAsync()
     {
         _localPort = FindAvailablePort(PreferredLocalPort);
-        _lanBaseUrl = $"http://{GetLocalIpAddress()}:{_localPort}";
+        _lanBaseUrl = $"http://{LanAddressResolver.GetLocalIpAddress()}:{_localPort}";
         // Build initializes SQLite and seeds local data. Run it outside the
         // WinForms synchronization context to avoid blocking the UI thread
         // while repositories complete asynchronous database operations.
@@ -118,6 +124,7 @@ public partial class MainForm : Form
                 "--Logging:FilePath", Path.Combine(_directories.LogsDirectory, "local-api.log")
             ]));
         await _api.StartAsync();
+        _networkTimer.Start();
         await RefreshPhaseAStatusAsync();
         InitializeUpdateService();
     }
@@ -821,27 +828,35 @@ public partial class MainForm : Form
         _loadingLabel.Text = $"No se pudo iniciar Plan Cope Local.{Environment.NewLine}{message}";
     }
 
-    private static string GetLocalIpAddress()
+    private async Task RefreshLanAddressAsync()
     {
-        var candidates = NetworkInterface.GetAllNetworkInterfaces()
-            .Where(static network => network.OperationalStatus is OperationalStatus.Up)
-            .Where(static network => network.NetworkInterfaceType is not NetworkInterfaceType.Loopback and not NetworkInterfaceType.Tunnel)
-            .Select(static network => new
-            {
-                Network = network,
-                Properties = network.GetIPProperties()
-            })
-            .Where(static item => item.Properties.GatewayAddresses.Any(static gateway => gateway.Address.AddressFamily is System.Net.Sockets.AddressFamily.InterNetwork))
-            .SelectMany(static item => item.Properties.UnicastAddresses
-                .Where(static address => address.Address.AddressFamily is System.Net.Sockets.AddressFamily.InterNetwork)
-                .Where(static address => !IPAddress.IsLoopback(address.Address))
-                .Where(static address => !address.Address.ToString().StartsWith("169.254.", StringComparison.Ordinal))
-                .Select(address => new { item.Network.NetworkInterfaceType, Address = address.Address.ToString() }))
-            .OrderBy(static item => item.NetworkInterfaceType is NetworkInterfaceType.Wireless80211 ? 0 : 1)
-            .ThenBy(static item => item.NetworkInterfaceType is NetworkInterfaceType.Ethernet ? 0 : 1)
-            .ToList();
+        if (_networkRefreshInProgress || _closing)
+        {
+            return;
+        }
 
-        return candidates.FirstOrDefault()?.Address ?? "127.0.0.1";
+        _networkRefreshInProgress = true;
+        try
+        {
+            var address = await Task.Run(LanAddressResolver.GetLocalIpAddress);
+            var nextUrl = $"http://{address}:{_localPort}";
+            if (_closing || nextUrl == _lanBaseUrl)
+            {
+                return;
+            }
+
+            _lanBaseUrl = nextUrl;
+            PostHostContext();
+        }
+        catch (System.Net.NetworkInformation.NetworkInformationException exception)
+        {
+            // Adapter configuration can change while being enumerated; retry on the next tick.
+            Debug.WriteLine($"Could not refresh LAN address: {exception.Message}");
+        }
+        finally
+        {
+            _networkRefreshInProgress = false;
+        }
     }
 
     private static int FindAvailablePort(int preferredPort)
