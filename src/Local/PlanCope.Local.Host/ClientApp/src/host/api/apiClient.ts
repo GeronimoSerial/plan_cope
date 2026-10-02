@@ -17,6 +17,12 @@ export type SyncStatusDto = {
   lastPushAt: string | null;
   nextAttempt: string | null;
   pendingItems?: number;
+  lastHeartbeatAttemptAt?: string | null;
+  lastHeartbeatSentAt?: string | null;
+  lastHeartbeatReceivedAt?: string | null;
+  heartbeatLastHttpStatus?: number | null;
+  heartbeatErrorCode?: string | null;
+  lastPushAckAt?: string | null;
 };
 
 export type PullExamsStatus = "updated" | "up_to_date" | "error";

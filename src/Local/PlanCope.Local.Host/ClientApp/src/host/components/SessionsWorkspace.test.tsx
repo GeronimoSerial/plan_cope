@@ -44,14 +44,19 @@ describe("SessionsWorkspace", () => {
     vi.spyOn(ApiClient.prototype, "getSessionHistoryFilters").mockResolvedValue([]);
     vi.spyOn(ApiClient.prototype, "getSessionHistory").mockResolvedValue({ items: [], page: 1, pageSize: 1, totalCount: 8 });
     const status: SyncStatusDto = { healthy: true, offline: false, lastError: null, lastPullAt: null,
-      lastPushAt: "2026-10-01T14:12:00Z", nextAttempt: null, pendingItems: 3 };
+      lastPushAt: "2026-10-01T14:12:00Z", nextAttempt: null, pendingItems: 3,
+      lastHeartbeatAttemptAt: "2026-10-01T14:12:00Z", lastHeartbeatSentAt: "2026-10-01T14:12:01Z",
+      lastHeartbeatReceivedAt: "2026-10-01T14:12:02Z", heartbeatLastHttpStatus: 200, lastPushAckAt: "2026-10-01T14:12:03Z" };
     const view = render(delivery([session("a", "180055400", "Escuela Norte")]), "home", status);
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
 
     expect(view.textContent).toContain("Conexión observada");
-    expect(view.textContent).toContain("Último envío de resultados");
+    expect(view.textContent).toContain("Último envío local");
     expect(view.textContent).toContain("Última descarga de exámenes");
-    expect(view.textContent).toContain("Heartbeat o sync recibido: Sin dato");
+    expect(view.textContent).toContain("Heartbeat · intento");
+    expect(view.textContent).toContain("Heartbeat · enviado");
+    expect(view.textContent).toContain("Heartbeat · recibido");
+    expect(view.textContent).toContain("ACK durable Central");
     expect(view.textContent).toContain("Sesiones abiertas1");
     expect(view.textContent).toContain("Sesiones finalizadas8");
     expect(view.textContent).toContain("Intentos pendientes de envío3");

@@ -171,10 +171,18 @@ export function SessionsWorkspace({ delivery, apiBaseUrl, syncStatus, tab, expir
 }
 
 function OperationalOverview({ syncStatus, openCount, closedCount }: { syncStatus: SyncStatusDto | null; openCount: number; closedCount: number | null }) {
-  const connection = !syncStatus ? "Sin dato" : syncStatus.offline ? "Sin conexión" : syncStatus.lastError ? "Error de conexión" : syncStatus.lastPullAt || syncStatus.lastPushAt ? "Conexión observada" : "Sin dato";
+  const connection = !syncStatus ? "Sin dato" : syncStatus.offline ? "Sin conexión" : syncStatus.lastError || syncStatus.heartbeatErrorCode ? "Error de conexión" : syncStatus.lastHeartbeatReceivedAt || syncStatus.lastPushAckAt || syncStatus.lastPullAt || syncStatus.lastPushAt ? "Conexión observada" : "Sin dato";
+  const heartbeatDetail = syncStatus?.heartbeatErrorCode
+    ? `Heartbeat: ${syncStatus.heartbeatErrorCode}${syncStatus.heartbeatLastHttpStatus ? ` · HTTP ${syncStatus.heartbeatLastHttpStatus}` : ""}`
+    : syncStatus?.heartbeatLastHttpStatus ? `Heartbeat · HTTP ${syncStatus.heartbeatLastHttpStatus}` : null;
   return <section className="operational-overview" aria-label="Estado de operación local">
-    <div><span>Central</span><strong>{connection}</strong><small>Heartbeat o sync recibido: Sin dato</small></div>
-    <div><span>Último envío de resultados</span><strong>{formatSyncTime(syncStatus?.lastPushAt ?? null)}</strong></div>
+    <div><span>Central</span><strong>{connection}</strong>
+      <small>Heartbeat · intento {formatSyncTime(syncStatus?.lastHeartbeatAttemptAt ?? null)}</small>
+      <small>Heartbeat · enviado {formatSyncTime(syncStatus?.lastHeartbeatSentAt ?? null)}</small>
+      <small>Heartbeat · recibido {formatSyncTime(syncStatus?.lastHeartbeatReceivedAt ?? null)}</small>
+      {heartbeatDetail && <small>{heartbeatDetail}</small>}
+    </div>
+    <div><span>Resultados</span><small>Último envío local · {formatSyncTime(syncStatus?.lastPushAt ?? null)}</small><small>ACK durable Central · {formatSyncTime(syncStatus?.lastPushAckAt ?? null)}</small></div>
     <div><span>Última descarga de exámenes</span><strong>{formatSyncTime(syncStatus?.lastPullAt ?? null)}</strong></div>
     <div><span>Sesiones abiertas</span><strong>{openCount}</strong></div>
     <div><span>Sesiones finalizadas</span><strong>{closedCount ?? "Sin dato"}</strong></div>
