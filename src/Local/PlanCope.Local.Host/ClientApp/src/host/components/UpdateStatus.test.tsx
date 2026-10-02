@@ -75,6 +75,15 @@ describe("UpdateStatus", () => {
     expect(container?.textContent).toContain("Descarga 42%");
   });
 
+  it("shows an indeterminate download state when percentage data is missing", () => {
+    render({ state: "downloading", targetVersion: "2.0.0" });
+    const notice = document.body.querySelector<HTMLElement>(".update-notice");
+    expect(notice?.querySelector("progress")?.hasAttribute("value")).toBe(false);
+    expect(notice?.textContent).toContain("Progreso sin dato");
+    expect(notice?.textContent).not.toContain("0%");
+    expect(container?.textContent).toContain("Descargando actualización");
+  });
+
   it("shows restart status and manual restart action when offered", () => {
     render({ state: "readyToRestart", restartAvailable: true });
     expect(document.body.textContent).toContain("Reiniciando en la nueva versión…");

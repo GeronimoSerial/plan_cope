@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using PlanCope.Local.Api.Data.Repositories;
@@ -137,39 +136,6 @@ public static class StatsEndpoints
             var filenameCue = Regex.Replace(cue, "[^A-Za-z0-9_-]", "_");
             var filename = $"informe-estadistico-{filenameCue}-{generatedAt:yyyyMMdd}.html";
             return Results.File(Encoding.UTF8.GetBytes(html), "text/html; charset=utf-8", filename);
-        });
-
-        endpoints.MapGet("/api/stats/export.csv", async Task<IResult> (
-            string cue,
-            string? schoolYear,
-            IStatsQueryRepository statsQueryRepository,
-            CancellationToken cancellationToken) =>
-        {
-            if (string.IsNullOrWhiteSpace(cue))
-            {
-                return Results.BadRequest(new { error = "cue es obligatorio." });
-            }
-
-            if (!await statsQueryRepository.HasSubmittedAttemptsAsync(cue, cancellationToken))
-            {
-                return Results.BadRequest(new { error = "La escuela todavía no tiene exámenes entregados en este equipo." });
-            }
-
-            var stats = await statsQueryRepository.GetCourseStatsAsync(cue, RosterScope, schoolYear, cancellationToken);
-
-            var csv = new StringBuilder();
-            csv.AppendLine("course,attempt_count,average_score_percent");
-            foreach (var course in stats)
-            {
-                csv.Append(course.Course).Append(',');
-                csv.Append(Render(course.AttemptCount)).Append(',');
-                csv.Append(course.AverageScorePercent.IsSuppressed
-                    ? SuppressedLabel
-                    : course.AverageScorePercent.Value.ToString("F2", CultureInfo.InvariantCulture));
-                csv.AppendLine();
-            }
-
-            return Results.Text(csv.ToString(), "text/csv; charset=utf-8");
         });
 
         endpoints.MapPost("/api/stats/rebuild", async Task<IResult> (

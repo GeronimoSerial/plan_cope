@@ -18,6 +18,7 @@ export function activationErrorMessage(body: ErrorResponse, fallback: string): s
 
 export function activationProgressMessage(progress: DownloadProgress | null): string | null {
   if (!progress) return null;
+  if (progress.phase === "pending-results") return "Enviando intentos pendientes…";
   if (progress.phase === "exams") return "Descargando evaluaciones…";
   if (progress.phase === "schools") return "Guardando escuelas…";
   if (progress.phase === "rosters") {

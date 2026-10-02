@@ -2,15 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 import { ApiClient } from "../api/apiClient";
 import type { DeliverySessionState } from "../hooks/useDeliverySession";
 import type { LocalSession, SessionHistoryPage } from "../types";
+import type { SyncStatusDto } from "../api/apiClient";
 import { ActiveSessionPanel } from "./ActiveSessionPanel";
 import { SessionCreatePanel } from "./SessionCreatePanel";
 import { isValidCue, normalizeCueInput } from "../domain/cue";
 import { ActionButton, Badge, Field, SearchableCombobox, TextInput } from "../../shared/ui";
 import { GradeSectionPicker, sectionOptionValue } from "../../shared/GradeSectionPicker";
 
-type Props = { delivery: DeliverySessionState; apiBaseUrl: string; tab: "home" | "history"; expiryPending: boolean; onStats: () => void; onReturnHome: () => void };
+type Props = { delivery: DeliverySessionState; apiBaseUrl: string; syncStatus: SyncStatusDto | null; tab: "home" | "history"; expiryPending: boolean; onStats: () => void; onReturnHome: () => void };
 
-export function SessionsWorkspace({ delivery, apiBaseUrl, tab, expiryPending, onStats, onReturnHome }: Props) {
+export function SessionsWorkspace({ delivery, apiBaseUrl, syncStatus, tab, expiryPending, onStats, onReturnHome }: Props) {
   const { examCatalog, sessionForm, activeSession } = delivery;
   const api = useMemo(() => new ApiClient(apiBaseUrl), [apiBaseUrl]);
   const [createStep, setCreateStep] = useState<"schools" | "manual" | "form" | null>(null);
@@ -25,6 +26,7 @@ export function SessionsWorkspace({ delivery, apiBaseUrl, tab, expiryPending, on
   const [sectionFilter, setSectionFilter] = useState("");
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [closedSessionCount, setClosedSessionCount] = useState<number | null>(null);
   const [extraStudentError, setExtraStudentError] = useState<string | null>(null);
   const [extraStudentBusy, setExtraStudentBusy] = useState(false);
   const currentSession = activeSession.session;
@@ -76,6 +78,16 @@ export function SessionsWorkspace({ delivery, apiBaseUrl, tab, expiryPending, on
       .finally(() => { if (!controller.signal.aborted) setHistoryLoading(false); });
     return () => controller.abort();
   }, [api, tab, currentSession, schoolFilter, statusFilter, gradeFilter, sectionFilter, selectedHistorySection?.division, selectedHistorySection?.shift, historyQuery, history.page, history.pageSize]);
+
+  useEffect(() => {
+    if (tab !== "home" || currentSession) return;
+    const controller = new AbortController();
+    setClosedSessionCount(null);
+    void api.getSessionHistory({ status: "closed", page: 1, pageSize: 1 }, controller.signal)
+      .then(result => { if (!controller.signal.aborted) setClosedSessionCount(result.totalCount); })
+      .catch(() => { if (!controller.signal.aborted) setClosedSessionCount(null); });
+    return () => controller.abort();
+  }, [api, tab, currentSession]);
 
   useEffect(() => {
     if (tab !== "home" || currentSession || createStep !== "form") return;
@@ -150,11 +162,37 @@ export function SessionsWorkspace({ delivery, apiBaseUrl, tab, expiryPending, on
 
   return <>
     {delivery.error && <p className="error-banner workspace-error" role="alert">{delivery.error}</p>}
-    <section className="panel node-workspace-panel"><div className="stats-actions"><h2 className="page-title">Sesiones abiertas</h2><ActionButton disabled={expiryPending} onClick={() => setCreateStep("schools")}>Nueva sesión</ActionButton></div>
+    <section className="panel node-workspace-panel"><div className="workspace-heading"><div><p className="workspace-location">Inicio / Operación local</p><h2 className="page-title" tabIndex={-1}>Sesiones abiertas</h2></div><ActionButton disabled={expiryPending} onClick={() => setCreateStep("schools")}>Nueva sesión</ActionButton></div>
+      <OperationalOverview syncStatus={syncStatus} openCount={activeSession.activeSessions.length} closedCount={closedSessionCount} />
       {expiryPending && <p className="sync-warning" role="status">La revalidación está vencida. Finalizá y enviá la evaluación en curso; no inicies otra sesión.</p>}
       {activeSession.activeSessions.length ? <div className="session-list node-session-list">{activeSession.activeSessions.map(session => <SessionCard key={session.id} session={session} onOpen={() => activeSession.selectSession(session)} />)}</div> : <p>No hay sesiones abiertas en este equipo.</p>}
     </section>
   </>;
+}
+
+function OperationalOverview({ syncStatus, openCount, closedCount }: { syncStatus: SyncStatusDto | null; openCount: number; closedCount: number | null }) {
+  const connection = !syncStatus ? "Sin dato" : syncStatus.offline ? "Sin conexión" : syncStatus.lastError || syncStatus.heartbeatErrorCode ? "Error de conexión" : syncStatus.lastHeartbeatReceivedAt || syncStatus.lastPushAckAt || syncStatus.lastPullAt || syncStatus.lastPushAt ? "Conexión observada" : "Sin dato";
+  const heartbeatDetail = syncStatus?.heartbeatErrorCode
+    ? `Heartbeat: ${syncStatus.heartbeatErrorCode}${syncStatus.heartbeatLastHttpStatus ? ` · HTTP ${syncStatus.heartbeatLastHttpStatus}` : ""}`
+    : syncStatus?.heartbeatLastHttpStatus ? `Heartbeat · HTTP ${syncStatus.heartbeatLastHttpStatus}` : null;
+  return <section className="operational-overview" aria-label="Estado de operación local">
+    <div><span>Central</span><strong>{connection}</strong>
+      <small>Heartbeat · intento {formatSyncTime(syncStatus?.lastHeartbeatAttemptAt ?? null)}</small>
+      <small>Heartbeat · enviado {formatSyncTime(syncStatus?.lastHeartbeatSentAt ?? null)}</small>
+      <small>Heartbeat · recibido {formatSyncTime(syncStatus?.lastHeartbeatReceivedAt ?? null)}</small>
+      {heartbeatDetail && <small>{heartbeatDetail}</small>}
+    </div>
+    <div><span>Resultados</span><small>Último envío local · {formatSyncTime(syncStatus?.lastPushAt ?? null)}</small><small>ACK durable Central · {formatSyncTime(syncStatus?.lastPushAckAt ?? null)}</small></div>
+    <div><span>Última descarga de exámenes</span><strong>{formatSyncTime(syncStatus?.lastPullAt ?? null)}</strong></div>
+    <div><span>Sesiones abiertas</span><strong>{openCount}</strong></div>
+    <div><span>Sesiones finalizadas</span><strong>{closedCount ?? "Sin dato"}</strong></div>
+    <div><span>Intentos pendientes de envío</span><strong>{syncStatus?.pendingItems ?? "Sin dato"}</strong></div>
+  </section>;
+}
+function formatSyncTime(value: string | null): string {
+  if (!value) return "Sin dato";
+  const time = new Date(value);
+  return Number.isNaN(time.getTime()) ? "Sin dato" : time.toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" });
 }
 
 function SessionCard({ session, onOpen }: { session: LocalSession; onOpen: () => void }) {

@@ -69,8 +69,8 @@ export function UpdateStatus({ appVersion, status, onCheckForUpdates, onDownload
     <section className={`update-notice update-notice-${state}`} role="status" aria-live="polite" aria-label="Estado de actualización">
       {state === "downloading" && <>
         <strong>Descargando actualización{targetVersion ? ` ${targetVersion}` : ""}</strong>
-        <progress max={100} value={progress ?? 0} aria-label="Progreso de descarga" />
-        <span>{progress ?? 0}%</span>
+        <progress max={100} value={progress ?? undefined} aria-label="Progreso de descarga" />
+        <span>{progress == null ? "Progreso sin dato" : `${progress}%`}</span>
       </>}
       {state === "readyToRestart" && <>
         <strong>Reiniciando en la nueva versión…</strong>
@@ -101,7 +101,7 @@ export function UpdateStatus({ appVersion, status, onCheckForUpdates, onDownload
       <span className="update-version">Versión {appVersion ?? "desconocida"}</span>
       {checkForUpdatesButton}
       {state === "updateAvailable" && <span className="update-state-label">Actualización disponible</span>}
-      {state === "downloading" && <span className="update-state-label">Descarga {progress ?? 0}%</span>}
+      {state === "downloading" && <span className="update-state-label">{progress == null ? "Descargando actualización" : `Descarga ${progress}%`}</span>}
     </div>
     {dialog}
     {panel}

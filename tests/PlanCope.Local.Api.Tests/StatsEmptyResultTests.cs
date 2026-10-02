@@ -43,19 +43,16 @@ public sealed class StatsEmptyResultTests
     }
 
     [Fact]
-    public async Task Report_exports_reject_school_without_submitted_attempts()
+    public async Task Html_report_rejects_school_without_submitted_attempts()
     {
         using var factory = new LocalApiFactory();
         using var client = factory.CreateClient();
         await EnsureInitializedAsync(client);
 
         var report = await client.GetAsync("/api/stats/report.html?cue=180055400");
-        var csv = await client.GetAsync("/api/stats/export.csv?cue=180055400");
 
         Assert.Equal(HttpStatusCode.BadRequest, report.StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, csv.StatusCode);
         Assert.Contains("exámenes entregados", await report.Content.ReadAsStringAsync());
-        Assert.Contains("exámenes entregados", await csv.Content.ReadAsStringAsync());
     }
 
     [Fact]

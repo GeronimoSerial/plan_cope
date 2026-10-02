@@ -13,6 +13,17 @@ namespace PlanCope.Local.Api.Tests;
 public sealed class StatsEndpointsAggregationTests
 {
     [Fact]
+    public async Task Csv_export_route_is_not_available_on_local_api()
+    {
+        using var factory = new LocalApiFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/api/stats/export.csv?cue=123456789");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Endpoint_aggregates_match_expected_totals_across_1200_attempts()
     {
         using var factory = new LocalApiFactory();

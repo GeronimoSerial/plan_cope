@@ -54,6 +54,8 @@ public sealed record SessionHeartbeatRequest(
     string? AppVersion,
     DateTimeOffset SentAt);
 
+/// <param name="SignalStatus">Current values are "fresh", "stale", and "missing"; clients should treat unknown values as unavailable.</param>
+/// <param name="HeartbeatStaleAfterSeconds">Additive freshness threshold in seconds; API responses should include it.</param>
 public sealed record LiveSessionSummary(
     string SessionId,
     string Cue,
@@ -69,7 +71,8 @@ public sealed record LiveSessionSummary(
     DateTimeOffset? LastActivityAt,
     DateTimeOffset? LastHeartbeatAt,
     string SignalStatus,
-    string? AppVersion);
+    string? AppVersion,
+    int HeartbeatStaleAfterSeconds = 600);
 
 public static class SyncEventTypes
 {
